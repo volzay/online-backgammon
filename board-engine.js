@@ -1018,8 +1018,8 @@ window.NarduBoardEngine = (function () {
     const targetRect = targetPoint?.getBoundingClientRect();
     if (!targetRect) return null;
 
-    const gap = stackGap(opts.destinationCount + 1, opts.source.width);
-    const inset = stackInset();
+    const gap = stackGap(opts.destinationCount + 1, opts.source.width, targetPoint);
+    const inset = stackInset(targetPoint);
     const isBottomQuad = targetPoint.classList.contains('bottom');
     return {
       x: targetRect.left + targetRect.width / 2 - opts.source.width / 2,
@@ -1029,29 +1029,37 @@ window.NarduBoardEngine = (function () {
     };
   }
 
-  function stackInset() {
-    const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
-    return Math.max(8, Math.min(15, boardHeight * 0.075));
+  function boardCssPx(name, fallback) {
+    const board = document.getElementById('board');
+    if (!board) return fallback;
+    const value = parseFloat(getComputedStyle(board).getPropertyValue(name));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
-  function stackGap(count, checkerSize = currentCheckerSize()) {
-    if (count <= 1) return 0;
-    const preferred = count <= 5 ? 26 : count <= 8 ? 20 : count <= 12 ? 15 : 12;
+  function stackInset() {
+    return boardCssPx('--checker-seat-inset', Math.max(6, currentCheckerSize() * 0.36));
+  }
+
+  function stackAreaHeight(pointEl) {
+    const pointHeight = pointEl?.getBoundingClientRect?.().height;
+    if (Number.isFinite(pointHeight) && pointHeight > 0) return pointHeight;
     const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
-    const available = boardHeight - stackInset() * 2 - checkerSize;
+    return boardHeight / 2;
+  }
+
+  function stackGap(count, checkerSize = currentCheckerSize(), pointEl = null) {
+    if (count <= 1) return 0;
+    const preferred = checkerSize * (count <= 5 ? 0.62 : count <= 8 ? 0.48 : count <= 12 ? 0.36 : 0.29);
+    const available = stackAreaHeight(pointEl) - stackInset() * 2 - checkerSize;
     const fitted = available / Math.max(1, count - 1);
-    return Math.max(6, Math.min(preferred, fitted));
+    return Math.max(0, Math.min(preferred, fitted));
   }
 
   function currentCheckerSize() {
     const checker = document.querySelector('.chk');
     const rect = checker?.getBoundingClientRect();
     if (rect?.height) return rect.height;
-    if (document.body?.classList.contains('board-focus')) return 24;
-    const compactLandscape = window.matchMedia?.('(max-width: 940px) and (max-height: 560px) and (orientation: landscape)')?.matches;
-    if (compactLandscape || window.innerWidth <= 520) return 24;
-    if (window.innerWidth <= 760) return 28;
-    return 42;
+    return boardCssPx('--checker-size', 42);
   }
 
   function diceRollArea(color, diceCount) {

@@ -572,6 +572,13 @@ body::before {
 
 .board {
   --board-bar-width: 30px;
+  --checker-size: 42px;
+  --checker-seat-inset: 15px;
+  --wood-strip-height: 36px;
+  --groove-width: 46px;
+  --groove-height: 23px;
+  --groove-radius: 22px;
+  --groove-offset: 13px;
   position: relative;
   perspective: 820px;
   background:
@@ -667,7 +674,7 @@ body::before {
    per-point .groove only paints the rim/chamfer on top. */
 .wood-strip {
   position: absolute; left: 0; right: 0;
-  height: 36px;
+  height: var(--wood-strip-height);
   pointer-events: none;
   z-index: 3;
   background: linear-gradient(180deg, var(--wood-1), var(--wood-2) 60%, var(--wood-3));
@@ -676,7 +683,7 @@ body::before {
     inset 0 -1px 0 oklch(0 0 0 / 0.5);
 
   /* punch 6 half-circle holes (one per point column) at the inner edge of the strip */
-  --r: 22px;
+  --r: var(--groove-radius);
   -webkit-mask-image:
     radial-gradient(circle var(--r) at calc(100%/12 *  1) 100%, transparent calc(var(--r) - 0.5px), #000 var(--r)),
     radial-gradient(circle var(--r) at calc(100%/12 *  3) 100%, transparent calc(var(--r) - 0.5px), #000 var(--r)),
@@ -703,14 +710,14 @@ body::before {
 .groove {
   position: absolute;
   left: 50%; transform: translateX(-50%);
-  width: 46px;
-  height: 23px;        /* = width / 2 → half-circle */
+  width: var(--groove-width);
+  height: var(--groove-height);
   pointer-events: none;
   z-index: 4;
 }
 /* place the cup at the INNER edge of the wood strip (chord touches the felt) */
-.point:not(.bottom) .groove { top: 13px; }
-.point.bottom .groove      { bottom: 13px; transform: translateX(-50%) scaleY(-1); }
+.point:not(.bottom) .groove { top: var(--groove-offset); }
+.point.bottom .groove      { bottom: var(--groove-offset); transform: translateX(-50%) scaleY(-1); }
 .groove svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
 .quad-tl, .quad-tr, .quad-bl, .quad-br { padding: 0; }
@@ -770,7 +777,7 @@ body::before {
   position: absolute;
   top: 0; bottom: 0; left: 50%;
   transform: translateX(-50%);
-  width: 42px;
+  width: var(--checker-size);
   pointer-events: auto;
   z-index: 5;
 }
@@ -778,7 +785,7 @@ body::before {
 .chk {
   position: absolute;
   left: 0;
-  width: 42px; height: 42px;
+  width: var(--checker-size); height: var(--checker-size);
   display: block;
   filter: drop-shadow(0 0 0 transparent); /* no shadow */
   pointer-events: auto;
@@ -1309,7 +1316,7 @@ body::before {
 }
 
 /* mobile */
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .app { padding: 12px 14px 40px; }
   .topbar { gap: 10px; flex-wrap: wrap; padding-bottom: 14px; }
   .brand-text .sub { display: none; }
@@ -1363,16 +1370,17 @@ body::before {
 
   .board {
     --board-bar-width: 22px;
+    --checker-size: 28px;
+    --checker-seat-inset: 10px;
+    --wood-strip-height: 24px;
+    --groove-width: 32px;
+    --groove-height: 16px;
+    --groove-radius: 14px;
+    --groove-offset: 8px;
     height: clamp(320px, 62svh, 380px);
     grid-template-columns: 1fr 22px 1fr;
   }
   .board-wrap { padding: 14px; }
-  .chk { width: 28px; height: 28px; }
-  .stack { width: 28px; }
-  .wood-strip { height: 24px; --r: 14px; }
-  .groove { width: 32px; height: 16px; }
-  .point:not(.bottom) .groove { top: 8px; }
-  .point.bottom .groove { bottom: 8px; }
 
   .action-tray {
     flex-direction: column; align-items: stretch; gap: 6px;
@@ -1427,11 +1435,17 @@ body::before {
 @media (max-width: 520px) {
   .room-head h1 { font-size: 24px; }
   .game-wait-grid { grid-template-columns: 1fr; }
-  .board { height: min(320px, 64svh); min-height: 300px; }
-  .chk { width: 24px; height: 24px; }
-  .stack { width: 24px; }
-  .wood-strip { height: 21px; --r: 12px; }
-  .groove { width: 28px; height: 14px; }
+  .board {
+    --checker-size: 24px;
+    --checker-seat-inset: 9px;
+    --wood-strip-height: 21px;
+    --groove-width: 28px;
+    --groove-height: 14px;
+    --groove-radius: 12px;
+    --groove-offset: 7px;
+    height: min(320px, 64svh);
+    min-height: 300px;
+  }
   .die { width: 36px; height: 36px; padding: 6px; border-radius: 10px; }
   .pip { width: 5px; height: 5px; }
   .action-tray { padding: 6px 7px; }
@@ -1456,6 +1470,42 @@ body::before {
     margin-left: -6px;
   }
   .topbar .ghostbtn span.lbl { display: none; }
+}
+
+@media (max-width: 380px) {
+  .board {
+    --checker-size: 22px;
+    --checker-seat-inset: 9px;
+    --wood-strip-height: 20px;
+    --groove-width: 26px;
+    --groove-height: 13px;
+    --groove-radius: 11px;
+    --groove-offset: 7px;
+  }
+}
+
+@media (max-width: 340px) {
+  .board {
+    --checker-size: 20px;
+    --checker-seat-inset: 8px;
+    --wood-strip-height: 18px;
+    --groove-width: 24px;
+    --groove-height: 12px;
+    --groove-radius: 10px;
+    --groove-offset: 6px;
+  }
+}
+
+@media (max-width: 300px) {
+  .board {
+    --checker-size: 16px;
+    --checker-seat-inset: 8px;
+    --wood-strip-height: 16px;
+    --groove-width: 20px;
+    --groove-height: 10px;
+    --groove-radius: 8px;
+    --groove-offset: 6px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -1549,27 +1599,17 @@ body::before {
   }
   .board {
     --board-bar-width: 22px;
+    --checker-size: 28px;
+    --checker-seat-inset: 10px;
+    --wood-strip-height: 24px;
+    --groove-width: 32px;
+    --groove-height: 16px;
+    --groove-radius: 14px;
+    --groove-offset: 8px;
     grid-template-columns: 1fr 22px 1fr;
     height: clamp(178px, calc(100svh - 178px), 260px);
     min-height: 178px;
   }
-  .chk,
-  .stack {
-    width: 24px;
-  }
-  .chk {
-    height: 24px;
-  }
-  .wood-strip {
-    height: 20px;
-    --r: 12px;
-  }
-  .groove {
-    width: 28px;
-    height: 14px;
-  }
-  .point:not(.bottom) .groove { top: 6px; }
-  .point.bottom .groove { bottom: 6px; }
   .action-tray {
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -1696,6 +1736,13 @@ body.board-focus .board-wrap {
 }
 body.board-focus .board {
   --board-bar-width: 22px;
+  --checker-size: 24px;
+  --checker-seat-inset: 8px;
+  --wood-strip-height: 20px;
+  --groove-width: 28px;
+  --groove-height: 14px;
+  --groove-radius: 12px;
+  --groove-offset: 6px;
   grid-template-columns: 1fr 22px 1fr;
   width: 100%;
   max-width: calc((100dvh - 72px) * 1.75);
@@ -1703,23 +1750,6 @@ body.board-focus .board {
   max-height: calc(100dvh - 72px);
   min-height: 200px;
 }
-body.board-focus .chk,
-body.board-focus .stack {
-  width: 24px;
-}
-body.board-focus .chk {
-  height: 24px;
-}
-body.board-focus .wood-strip {
-  height: 20px;
-  --r: 12px;
-}
-body.board-focus .groove {
-  width: 28px;
-  height: 14px;
-}
-body.board-focus .point:not(.bottom) .groove { top: 6px; }
-body.board-focus .point.bottom .groove { bottom: 6px; }
 body.board-focus .action-tray {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -1822,6 +1852,13 @@ body.board-focus .bear-pip {
       max(8px, env(safe-area-inset-left));
   }
   body.board-focus .board {
+    --checker-size: 32px;
+    --checker-seat-inset: 11px;
+    --wood-strip-height: 27px;
+    --groove-width: 36px;
+    --groove-height: 18px;
+    --groove-radius: 16px;
+    --groove-offset: 9px;
     max-width: none;
     height: min(calc(100dvh - 66px), calc((100vw - 16px) * 0.56));
     max-height: calc(100dvh - 66px);
@@ -2962,7 +2999,7 @@ body.board-focus .bear-pip {
   50%      { transform: scale(1.15); opacity: 1; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .action-tray .dice-row { min-height: 38px; }
   .action-tray .dice-wait {
     height: 38px;
