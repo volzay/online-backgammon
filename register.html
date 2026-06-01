@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title data-i18n="title_register">Нарды — Регистрация</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+
+<div class="auth-page">
+
+  <header class="auth-topbar">
+    <a class="brand" href="login.html">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </a>
+    <div class="topbar-mini">
+      <div class="theme-switch" role="tablist">
+        <button data-theme-set="day"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><span data-i18n="day">День</span></button>
+        <button data-theme-set="night" class="active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span data-i18n="night">Ночь</span></button>
+      </div>
+      <div class="theme-switch lang-switch">
+        <button data-lang-set="ru" class="active"><span>RU</span></button>
+        <button data-lang-set="en"><span>EN</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-stage">
+    <aside class="auth-aside">
+      <h2 class="auth-eyebrow" data-i18n="auth_register_eyebrow">создайте аккаунт</h2>
+      <h1 class="auth-headline" data-i18n-html="auth_register_headline_html">Личный рейтинг <em>и история партий</em>, сезоны, друзья и приватные комнаты.</h1>
+      <ul class="auth-bullets">
+        <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_name">Никнейм останется с вами навсегда</span></li>
+        <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_free">Бесплатно — и всегда без рекламы</span></li>
+        <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_import">Импорт прогресса с других платформ</span></li>
+      </ul>
+    </aside>
+
+    <section class="auth-card">
+      <div class="auth-tabs">
+        <a href="login.html" class="auth-tab" data-i18n="login">Войти</a>
+        <a href="register.html" class="auth-tab active" data-i18n="register">Регистрация</a>
+      </div>
+
+      <h2 class="auth-title" data-i18n="create_account">Создать аккаунт</h2>
+      <p class="auth-sub" data-i18n="welcome_sub">Войдите, чтобы начать партию</p>
+
+      <form class="auth-form" id="register-form" autocomplete="on">
+        <label class="field">
+          <span class="field-lbl" data-i18n="nickname">Никнейм</span>
+          <input type="text" name="nickname" id="reg-nick" minlength="3" maxlength="20" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span class="field-lbl" data-i18n="email">Email</span>
+          <input type="email" name="email" id="reg-email" autocomplete="email" required />
+        </label>
+        <label class="field">
+          <span class="field-lbl" data-i18n="password">Пароль</span>
+          <div class="password-field">
+            <input type="password" name="password" id="reg-pass" minlength="6" autocomplete="new-password" required />
+            <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+              <span class="password-toggle-eye" aria-hidden="true"></span>
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span class="field-lbl" data-i18n="password_confirm">Подтвердите пароль</span>
+          <div class="password-field">
+            <input type="password" name="password2" id="reg-pass2" minlength="6" autocomplete="new-password" required />
+            <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+              <span class="password-toggle-eye" aria-hidden="true"></span>
+            </button>
+          </div>
+        </label>
+
+        <label class="checkbox" style="margin: 6px 0 2px;">
+          <input type="checkbox" id="reg-tos" required />
+          <span class="cbox"></span>
+          <span class="cbox-lbl" data-i18n-html="tos_html">Согласен с <a href="#" class="auth-link">правилами</a> и <a href="#" class="auth-link">политикой конфиденциальности</a></span>
+        </label>
+
+        <p class="auth-message" id="register-message" role="alert"></p>
+        <button type="submit" class="auth-submit" data-i18n="create_account">Создать аккаунт</button>
+
+        <div class="auth-foot">
+          <span class="muted" data-i18n="have_account">Уже есть аккаунт?</span>
+          <a href="login.html" class="auth-link" data-i18n="login">Войти</a>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="auth-foot-bar">
+    <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
+    <span class="dot"></span>
+    <a href="#" data-i18n="rules">Правила игры</a>
+    <span class="dot"></span>
+    <a href="#" data-i18n="support">Поддержка</a>
+  </footer>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  NarduApp.requireGuest();
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  async function apiJson(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(NarduApp.translateServerMessage(data.error) || NarduApp.t('err_register'));
+    return data;
+  }
+
+  function setRegisterMessage(text, tone = '') {
+    const el = document.getElementById('register-message');
+    el.textContent = text || '';
+    el.dataset.tone = tone;
+  }
+
+  document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nick = document.getElementById('reg-nick').value.trim();
+    const pass = document.getElementById('reg-pass').value;
+    const pass2 = document.getElementById('reg-pass2').value;
+    const email = document.getElementById('reg-email').value.trim();
+    if (pass !== pass2) {
+      setRegisterMessage(NarduApp.t('err_passwords_mismatch'), 'error');
+      return;
+    }
+    setRegisterMessage('');
+    try {
+      const data = await apiJson('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({ nickname: nick, email, password: pass }),
+      });
+      NarduApp.setUser(data.user);
+      setRegisterMessage(NarduApp.t('msg_account_created'), 'success');
+      window.setTimeout(() => { location.href = 'index.html'; }, 450);
+    } catch (error) {
+      setRegisterMessage(error.message, 'error');
+    }
+  });
+</script>
+
+</body>
+</html>

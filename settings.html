@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title data-i18n="title_settings">Нарды — Настройки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <a class="brand" href="index.html">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </a>
+    <nav class="topnav">
+      <a class="navlink" href="index.html" data-i18n="nav_lobby">Лобби</a>
+      <a class="navlink active" href="settings.html" data-i18n="nav_settings">Настройки</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="user-chip" data-go="settings.html">
+      <div class="av" data-user-initial>A</div>
+      <span class="nm" data-user-name>—</span>
+      <span class="tier" data-user-tier>Bronze</span>
+      <span class="rt" data-user-rating>—</span>
+    </button>
+    <div class="theme-switch" role="tablist">
+      <button data-theme-set="day"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><span data-i18n="day">День</span></button>
+      <button data-theme-set="night" class="active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span data-i18n="night">Ночь</span></button>
+    </div>
+    <div class="theme-switch lang-switch">
+      <button data-lang-set="ru" class="active"><span>RU</span></button>
+      <button data-lang-set="en"><span>EN</span></button>
+    </div>
+    <button class="iconbtn" data-sound-toggle aria-label="Звук" data-i18n-aria="sound">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </button>
+  </header>
+
+  <!-- HEAD -->
+  <div class="settings-head">
+    <h1 class="settings-h1" data-i18n="settings_title">Настройки</h1>
+    <p class="settings-sub" data-i18n="settings_sub">Личные предпочтения и параметры партий</p>
+  </div>
+
+  <!-- LAYOUT -->
+  <div class="settings-layout">
+
+    <!-- LEFT NAV -->
+    <aside class="settings-nav">
+      <a href="#appearance" class="settings-nav-link active">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg>
+        <span data-i18n="sec_appearance">Внешний вид</span>
+      </a>
+      <a href="#game" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="9" r="1"/><circle cx="16" cy="15" r="1"/><circle cx="8" cy="15" r="1"/><circle cx="16" cy="9" r="1"/></svg>
+        <span data-i18n="sec_game">Игра</span>
+      </a>
+      <a href="#account" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="sec_account">Аккаунт</span>
+      </a>
+      <a href="#notify" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span data-i18n="sec_notify">Уведомления</span>
+      </a>
+      <a href="#privacy" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span data-i18n="sec_privacy">Приватность</span>
+      </a>
+    </aside>
+
+    <!-- SECTIONS -->
+    <main class="settings-main">
+
+      <section class="panel s-sec" id="appearance">
+        <h3 class="s-title" data-i18n="sec_appearance">Внешний вид</h3>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="theme">Тема</div>
+            <div class="s-hint" data-i18n="theme_hint">Авто — следует системе</div>
+          </div>
+          <div class="seg" data-set="theme">
+            <button data-theme-set="day" data-i18n="day">День</button>
+            <button data-theme-set="night" data-i18n="night">Ночь</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="interface_language">Язык интерфейса</div>
+            <div class="s-hint" data-i18n="interface_language_hint">Перевод применяется сразу</div>
+          </div>
+          <div class="seg">
+            <button data-lang-set="ru" class="active" data-i18n="russian">Русский</button>
+            <button data-lang-set="en" data-i18n="english">English</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="accent_color">Цвет акцента</div>
+            <div class="s-hint" data-i18n="accent_color_hint">Подсветка ваших ходов и кнопок</div>
+          </div>
+          <div class="swatch-row">
+            <button class="swatch-pick active" style="--c: oklch(0.78 0.13 78)" title="Янтарь" data-i18n-title="amber"></button>
+            <button class="swatch-pick" style="--c: oklch(0.74 0.15 155)" title="Зелёный" data-i18n-title="green"></button>
+            <button class="swatch-pick" style="--c: oklch(0.65 0.20 25)" title="Тёрн" data-i18n-title="turn"></button>
+            <button class="swatch-pick" style="--c: oklch(0.65 0.18 260)" title="Лазурь" data-i18n-title="azure"></button>
+            <button class="swatch-pick" style="--c: oklch(0.70 0.16 320)" title="Сирень" data-i18n-title="lilac"></button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="board_style">Стиль доски</div>
+            <div class="s-hint" data-i18n="board_style_hint">Текстура и тон сукна</div>
+          </div>
+          <div class="seg">
+            <button class="active" data-i18n="wood">Дерево</button>
+            <button data-i18n="bone">Кость</button>
+            <button data-i18n="stone">Камень</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="animations">Анимации</div>
+            <div class="s-hint" data-i18n="animations_hint">Плавность ходов и кубиков</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+      </section>
+
+      <section class="panel s-sec" id="game">
+        <h3 class="s-title" data-i18n="sec_game">Игра</h3>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="auto_roll">Авто-бросок кубиков</div>
+            <div class="s-hint" data-i18n="auto_roll_hint">Сразу после хода соперника</div>
+          </div>
+          <label class="switch"><input type="checkbox"><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="move_hints">Подсветка возможных ходов</div>
+            <div class="s-hint" data-i18n="move_hints_hint">Поля, куда можно поставить шашку</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="move_confirm">Подтверждение хода</div>
+            <div class="s-hint" data-i18n="move_confirm_hint">Запрос «применить» перед окончанием</div>
+          </div>
+          <label class="switch"><input type="checkbox"><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="animation_speed">Скорость анимации</div>
+            <div class="s-hint" data-i18n="animation_speed_hint">Чем меньше — тем быстрее</div>
+          </div>
+          <input type="range" min="0" max="100" value="60" class="slider" />
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="sounds">Звуки</div>
+            <div class="s-hint" data-i18n="sounds_hint">Кубики, ходы, уведомления</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="volume">Громкость</div>
+            <div class="s-hint" id="vol-val">70%</div>
+          </div>
+          <input type="range" min="0" max="100" value="70" class="slider" id="vol-slider" />
+        </div>
+      </section>
+
+      <section class="panel s-sec" id="account">
+        <h3 class="s-title" data-i18n="sec_account">Аккаунт</h3>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="nickname">Никнейм</div>
+            <div class="s-hint" data-i18n="nickname_visible_hint">Видно соперникам в партии</div>
+          </div>
+          <div class="s-control">
+            <input type="text" id="acc-nick" class="text-input" />
+            <button class="ghostbtn" id="save-nick" data-i18n="save">Сохранить</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl">Email</div>
+            <div class="s-hint" data-i18n="email_hint">Используется для входа и восстановления</div>
+          </div>
+          <div class="s-control">
+            <input type="email" id="acc-email" class="text-input" placeholder="—" />
+            <button class="ghostbtn" data-i18n="change">Изменить</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="password">Пароль</div>
+            <div class="s-hint" data-i18n="last_password_change">Последняя смена 14 дней назад</div>
+          </div>
+          <button class="ghostbtn" data-i18n="change_password">Сменить пароль</button>
+        </div>
+
+        <div class="s-row danger">
+          <div>
+            <div class="s-lbl" data-i18n="sign_out_account">Выйти из аккаунта</div>
+            <div class="s-hint" data-i18n="sign_out_hint">Можно вернуться в любой момент</div>
+          </div>
+          <button class="dangerbtn" data-logout data-i18n="logout">Выйти</button>
+        </div>
+
+        <div class="s-row danger">
+          <div>
+            <div class="s-lbl" data-i18n="delete_account">Удалить аккаунт</div>
+            <div class="s-hint" data-i18n="delete_account_hint">Полное удаление профиля и истории</div>
+          </div>
+          <button class="dangerbtn outline" data-i18n="delete">Удалить</button>
+        </div>
+      </section>
+
+      <section class="panel s-sec" id="notify">
+        <h3 class="s-title" data-i18n="sec_notify">Уведомления</h3>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="friend_invites">Приглашения от друзей</div>
+            <div class="s-hint" data-i18n="push_email">Push + e-mail</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="tournaments_events">Турниры и события</div>
+            <div class="s-hint" data-i18n="weekly">Раз в неделю</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="match_digest">Дайджест партий</div>
+            <div class="s-hint" data-i18n="weekly_summary">Сводка за неделю</div>
+          </div>
+          <label class="switch"><input type="checkbox"><span class="sw"></span></label>
+        </div>
+      </section>
+
+      <section class="panel s-sec" id="privacy">
+        <h3 class="s-title" data-i18n="sec_privacy">Приватность</h3>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="show_rating">Показывать рейтинг другим</div>
+            <div class="s-hint" data-i18n="show_rating_hint">В лобби и в комнате</div>
+          </div>
+          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="accept_challenges">Принимать вызовы</div>
+            <div class="s-hint" data-i18n="accept_challenges_hint">От кого можно получать игры</div>
+          </div>
+          <div class="seg">
+            <button class="active" data-i18n="everyone">Все</button>
+            <button data-i18n="friends">Друзья</button>
+            <button data-i18n="nobody">Никто</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-lbl" data-i18n="match_history">История партий</div>
+            <div class="s-hint" data-i18n="match_history_hint">Скачать архив ходов и кубиков</div>
+          </div>
+          <button class="ghostbtn" data-i18n="download_json">Скачать .json</button>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  NarduApp.requireAuth();
+
+  /* fill account fields from current user */
+  const u = NarduApp.getUser();
+  if (u) {
+    document.getElementById('acc-nick').value = u.name || '';
+    document.getElementById('acc-email').value = u.email || '';
+  }
+
+  /* save nick */
+  document.getElementById('save-nick').addEventListener('click', () => {
+    const v = document.getElementById('acc-nick').value.trim();
+    if (!v) return;
+    const cu = NarduApp.getUser() || {};
+    cu.name = v;
+    NarduApp.setUser(cu);
+    NarduApp.paintUser();
+    flash('Никнейм сохранён');
+  });
+
+  /* volume label */
+  const vs = document.getElementById('vol-slider');
+  vs.addEventListener('input', () => {
+    document.getElementById('vol-val').textContent = vs.value + '%';
+  });
+
+  /* accent swatches */
+  document.querySelectorAll('.swatch-pick').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.swatch-pick').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      const c = getComputedStyle(b).getPropertyValue('--c').trim();
+      document.documentElement.style.setProperty('--accent', c);
+      flash('Акцент обновлён');
+    });
+  });
+
+  /* segmented controls toggle within their group */
+  document.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    });
+  });
+
+  /* sidebar nav: highlight active */
+  const navLinks = document.querySelectorAll('.settings-nav-link');
+  navLinks.forEach(a => a.addEventListener('click', () => {
+    navLinks.forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+  }));
+
+  /* simple toast */
+  let toastT;
+  function flash(msg) {
+    let el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast'; el.className = 'toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastT);
+    toastT = setTimeout(() => el.classList.remove('show'), 1600);
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title data-i18n="title_login">Нарды — Вход</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+
+<div class="auth-page">
+
+  <header class="auth-topbar">
+    <a class="brand" href="login.html">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </a>
+    <div class="topbar-mini">
+      <div class="theme-switch" role="tablist">
+        <button data-theme-set="day" aria-label="Дневная тема" data-i18n-aria="day">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <span data-i18n="day">День</span>
+        </button>
+        <button data-theme-set="night" class="active">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span data-i18n="night">Ночь</span>
+        </button>
+      </div>
+      <div class="theme-switch lang-switch">
+        <button data-lang-set="ru" class="active"><span>RU</span></button>
+        <button data-lang-set="en"><span>EN</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-stage">
+    <aside class="auth-aside">
+      <h2 class="auth-eyebrow" data-i18n="auth_login_eyebrow">длинные нарды · онлайн</h2>
+      <h1 class="auth-headline" data-i18n-html="auth_login_headline_html">Играй с друзьями <em>или ищи</em> сильного соперника по рейтингу.</h1>
+      <ul class="auth-bullets">
+        <li><span class="b-mark">·</span> <span data-i18n="auth_bullet_fair">Провабли-фейр кубики с публикуемыми хэшами</span></li>
+        <li><span class="b-mark">·</span> <span data-i18n="auth_bullet_chat">Голосовой и текстовый чат за партией</span></li>
+        <li><span class="b-mark">·</span> <span data-i18n="auth_bullet_rating">Рейтинг ELO + сезоны и трофеи</span></li>
+        <li><span class="b-mark">·</span> <span data-i18n="auth_bullet_variants">Поддержка длинных и коротких нард</span></li>
+      </ul>
+    </aside>
+
+    <section class="auth-card">
+      <div class="auth-tabs">
+        <a href="login.html" class="auth-tab active" data-i18n="login">Войти</a>
+        <a href="register.html" class="auth-tab" data-i18n="register">Регистрация</a>
+      </div>
+
+      <h2 class="auth-title" data-i18n="welcome">Добро пожаловать</h2>
+      <p class="auth-sub" data-i18n="welcome_sub">Войдите, чтобы начать партию</p>
+
+      <form class="auth-form" id="login-form" autocomplete="on">
+        <label class="field">
+          <span class="field-lbl" data-i18n="identifier">Никнейм или email</span>
+          <input type="text" name="identifier" id="login-nick" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span class="field-lbl" data-i18n="password">Пароль</span>
+          <div class="password-field">
+            <input type="password" name="password" id="login-pass" autocomplete="current-password" required />
+            <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+              <span class="password-toggle-eye" aria-hidden="true"></span>
+            </button>
+          </div>
+        </label>
+        <div class="form-row">
+          <label class="checkbox">
+            <input type="checkbox" checked />
+            <span class="cbox"></span>
+            <span class="cbox-lbl" data-i18n="remember">Запомнить меня</span>
+          </label>
+          <button type="button" class="auth-link auth-link-btn" id="forgot-toggle" data-i18n="forgot">Забыли пароль?</button>
+        </div>
+        <p class="auth-message" id="login-message" role="alert"></p>
+        <button type="submit" class="auth-submit" data-i18n="login">Войти</button>
+
+        <div class="auth-foot">
+          <button type="button" class="ghostlink" id="guest-btn" data-i18n="continue_guest">Продолжить как гость</button>
+        </div>
+      </form>
+
+      <section class="recovery-panel" id="recovery-panel" hidden>
+        <div class="recovery-head">
+          <h3 data-i18n="recovery_title">Восстановление пароля</h3>
+          <button type="button" class="auth-link auth-link-btn" id="recovery-close" data-i18n="hide">Скрыть</button>
+        </div>
+        <p class="auth-sub" data-i18n="recovery_text">Введите email аккаунта. Мы отправим код восстановления.</p>
+        <form class="auth-form recovery-form" id="recovery-request-form">
+          <label class="field">
+            <span class="field-lbl">Email</span>
+            <input type="email" id="recovery-email" autocomplete="email" required />
+          </label>
+          <button type="submit" class="auth-submit" data-i18n="send_code">Отправить код</button>
+        </form>
+        <form class="auth-form recovery-form" id="recovery-reset-form" hidden>
+          <label class="field">
+            <span class="field-lbl" data-i18n="recovery_code">Код из письма</span>
+            <input type="text" id="recovery-code" inputmode="numeric" autocomplete="one-time-code" required />
+          </label>
+          <label class="field">
+            <span class="field-lbl" data-i18n="new_password">Новый пароль</span>
+            <div class="password-field">
+              <input type="password" id="recovery-pass" minlength="6" autocomplete="new-password" required />
+              <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+                <span class="password-toggle-eye" aria-hidden="true"></span>
+              </button>
+            </div>
+          </label>
+          <button type="submit" class="auth-submit" data-i18n="change_password_submit">Сменить пароль</button>
+        </form>
+        <p class="auth-message" id="recovery-message" role="alert"></p>
+      </section>
+    </section>
+  </main>
+
+  <footer class="auth-foot-bar">
+    <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
+    <span class="dot"></span>
+    <a href="#" data-i18n="rules">Правила игры</a>
+    <span class="dot"></span>
+    <a href="#" data-i18n="support">Поддержка</a>
+  </footer>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  NarduApp.requireGuest();
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  function rndRating() { return 950 + Math.floor(Math.random() * 400); }
+  async function apiJson(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(NarduApp.translateServerMessage(data.error) || NarduApp.t('err_auth'));
+    return data;
+  }
+
+  function setMessage(id, text, tone = '') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.dataset.tone = tone;
+  }
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const identifier = document.getElementById('login-nick').value.trim();
+    const password = document.getElementById('login-pass').value;
+    if (!identifier || !password) return;
+    setMessage('login-message', '');
+    try {
+      const data = await apiJson('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier, password }),
+      });
+      NarduApp.setUser(data.user);
+      location.href = 'index.html';
+    } catch (error) {
+      setMessage('login-message', error.message, 'error');
+    }
+  });
+
+  document.getElementById('guest-btn').addEventListener('click', () => {
+    const n = 'Guest' + (1000 + Math.floor(Math.random() * 9000));
+    NarduApp.setUser({ name: n, rating: null, tier: '', ratingEligible: false, guest: true });
+    location.href = 'index.html';
+  });
+
+  document.getElementById('forgot-toggle').addEventListener('click', () => {
+    document.getElementById('recovery-panel').hidden = false;
+    const value = document.getElementById('login-nick').value.trim();
+    if (value.includes('@')) document.getElementById('recovery-email').value = value;
+  });
+  document.getElementById('recovery-close').addEventListener('click', () => {
+    document.getElementById('recovery-panel').hidden = true;
+  });
+
+  document.getElementById('recovery-request-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('recovery-email').value.trim();
+    setMessage('recovery-message', '');
+    try {
+      const data = await apiJson('/api/password-recovery/request', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      document.getElementById('recovery-reset-form').hidden = false;
+      setMessage('recovery-message', data.message ? NarduApp.translateServerMessage(data.message) : NarduApp.t('msg_recovery_code_sent'), 'success');
+    } catch (error) {
+      setMessage('recovery-message', error.message, 'error');
+    }
+  });
+
+  document.getElementById('recovery-reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('recovery-email').value.trim();
+    const code = document.getElementById('recovery-code').value.trim();
+    const password = document.getElementById('recovery-pass').value;
+    setMessage('recovery-message', '');
+    try {
+      await apiJson('/api/password-recovery/reset', {
+        method: 'POST',
+        body: JSON.stringify({ email, code, password }),
+      });
+      document.getElementById('recovery-panel').hidden = true;
+      setMessage('login-message', NarduApp.t('msg_password_changed'), 'success');
+      document.getElementById('login-nick').value = email;
+      document.getElementById('login-pass').focus();
+    } catch (error) {
+      setMessage('recovery-message', error.message, 'error');
+    }
+  });
+</script>
+
+</body>
+</html>

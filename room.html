@@ -1,0 +1,1628 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title data-i18n="title_room">Нарды — Комната</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<script>
+  /* tiny auth gate — runs before render so unauth'd users bounce to login */
+  (function(){
+    try {
+      if (!localStorage.getItem('narduh-user')) location.replace('login.html');
+    } catch(e) {}
+  })();
+</script>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ─── TOP BAR ─── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="user-chip" title="Профиль" data-i18n-title="profile">
+      <div class="av" data-user-initial>A</div>
+      <span class="nm" data-user-name>abuabu</span>
+      <span class="tier" data-user-tier>Bronze</span>
+      <span class="rt" data-user-rating>1038</span>
+    </div>
+
+    <!-- THEME SWITCH -->
+    <div class="theme-switch" role="tablist" aria-label="Тема" data-i18n-aria="theme">
+      <button data-theme-set="day" aria-label="Дневная тема" data-i18n-aria="day_theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <span data-i18n="day">День</span>
+      </button>
+      <button data-theme-set="night" class="active" aria-label="Ночная тема" data-i18n-aria="night_theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <span data-i18n="night">Ночь</span>
+      </button>
+    </div>
+
+    <!-- LANGUAGE SWITCH -->
+    <div class="theme-switch lang-switch" role="tablist" aria-label="Language">
+      <button data-lang-set="ru" class="active" aria-label="Русский" data-i18n-aria="russian">
+        <span>RU</span>
+      </button>
+      <button data-lang-set="en" aria-label="English">
+        <span>EN</span>
+      </button>
+    </div>
+
+    <button class="iconbtn" data-sound-toggle aria-label="Звук" title="Звук" data-i18n-aria="sound" data-i18n-title="sound">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </button>
+    <button class="iconbtn" aria-label="Настройки" data-i18n-aria="settings_icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <!-- ─── ROOM HEAD ─── -->
+  <div class="room-head">
+    <div>
+      <div class="crumbs">
+        <span data-i18n="crumb_lobby">Лобби</span>
+        <span class="dot"></span>
+        <b data-i18n="crumb_room">Комната</b>
+        <span class="code">5K7M-23M7</span>
+      </div>
+      <h1><span data-you-name>abuabu</span> <em data-i18n="vs">против</em> <span data-opp-name>Бот лёгкий</span></h1>
+    </div>
+
+    <div class="room-toolbar">
+      <div class="match-pill" title="Партия до 5 очков" data-i18n-title="match_to">
+        <span class="target" data-i18n="match_to_5">До 5</span>
+      </div>
+      <button class="ghostbtn mobile-board-toggle" type="button" data-board-focus aria-label="Развернуть поле" title="Развернуть поле">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        <span class="lbl" data-board-focus-label>Развернуть поле</span>
+      </button>
+      <button class="ghostbtn" id="resign-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        <span class="lbl" data-i18n="btn_resign">Сдаться</span>
+      </button>
+      <button class="ghostbtn" type="button" data-room-reload title="Перезагрузить комнату и вернуться к сохранённой позиции" data-i18n-title="reload_room_title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg>
+        <span class="lbl" data-i18n="refresh">Обновить</span>
+      </button>
+      <button class="pillbtn" data-i18n="btn_lobby" data-room-lobby>Лобби</button>
+    </div>
+  </div>
+
+  <section class="game-wait-panel" id="game-wait-panel" hidden>
+    <div class="game-wait-copy">
+      <span class="game-wait-kicker" data-i18n="wait_kicker">Игровая комната</span>
+      <h2 data-i18n="wait_title">Ожидание соперника</h2>
+      <p data-i18n="wait_text">Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.</p>
+    </div>
+    <div class="game-wait-grid">
+      <div class="game-wait-cell">
+        <span data-i18n="room_code">Код</span>
+        <strong class="game-wait-code" data-wait-code>—</strong>
+      </div>
+      <div class="game-wait-cell">
+        <span data-i18n="access">Доступ</span>
+        <strong data-wait-access>—</strong>
+      </div>
+      <div class="game-wait-cell" data-wait-password-row hidden>
+        <span data-i18n="password">Пароль</span>
+        <strong data-wait-password>—</strong>
+      </div>
+      <div class="game-wait-cell">
+        <span data-i18n="status">Статус</span>
+        <strong data-wait-status data-i18n="status_waiting">Ждём подключения</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="network-panel" id="network-panel" hidden>
+    <div class="network-copy">
+      <span class="network-kicker" data-i18n="network">Сеть</span>
+      <h2 data-network-title data-i18n="network_loss_title">Потеря сетевого соединения</h2>
+      <p data-network-text data-i18n="network_loss_text">Ждём восстановления соединения соперника. Позиция партии сохранена.</p>
+    </div>
+    <div class="network-timer">
+      <span data-i18n="remaining">Осталось</span>
+      <strong data-network-countdown>120</strong>
+      <small data-i18n="seconds">секунд</small>
+    </div>
+    <button class="ghostbtn" type="button" data-room-reload data-i18n="reload_room">Перезагрузить комнату</button>
+  </section>
+
+  <!-- ─── 3-COL LAYOUT ─── -->
+  <div class="layout">
+
+    <!-- ─── LEFT: PLAYER CARDS ─── -->
+    <aside class="left-col">
+
+      <div class="player dark">
+        <div class="player-row">
+          <div class="av"><span data-i18n="bot_initial">Б</span><span class="dot"></span></div>
+          <div style="flex:1; min-width:0;">
+            <div class="row" style="justify-content: space-between;">
+              <div class="name" data-opp-name>Бот лёгкий</div>
+            </div>
+            <div class="meta">
+              <span class="tier-pill muted" data-i18n="unrated">Без рейтинга</span>
+              <span data-i18n="side_dark">Тёмные</span>
+            </div>
+          </div>
+        </div>
+        <div class="player-stats" data-card-stats="opponent">
+          <div class="player-stat">
+            <div class="value" data-stat="time">00:00</div>
+            <div class="label" data-i18n="stat_time">Время</div>
+          </div>
+          <div class="player-stat right">
+            <div class="value" data-stat="onboard">15</div>
+            <div class="label" data-i18n="stat_onboard">На доске</div>
+          </div>
+          <div class="player-stat compact">
+            <div class="value" data-stat="match">0/5</div>
+            <div class="label" data-i18n="stat_match">Партии</div>
+          </div>
+          <div class="player-stat compact right">
+            <div class="value" data-stat="towin">360</div>
+            <div class="label" data-i18n="stat_to_win">До победы</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="player white active">
+        <div class="player-row">
+          <div class="av">A<span class="dot"></span></div>
+          <div style="flex:1; min-width:0;">
+            <div class="row" style="justify-content: space-between;">
+              <div class="name" data-you-name>abuabu</div>
+              <div class="turn-banner"><span class="pulse-dot"></span><span data-i18n="your_turn">Ваш ход</span></div>
+            </div>
+            <div class="meta">
+              <span class="tier-pill bronze">Bronze</span>
+              <span><span data-i18n="side_white">Белые</span> · 1038</span>
+            </div>
+          </div>
+        </div>
+        <div class="player-stats" data-card-stats="me">
+          <div class="player-stat">
+            <div class="value" data-stat="time">00:00</div>
+            <div class="label" data-i18n="stat_time">Время</div>
+          </div>
+          <div class="player-stat right">
+            <div class="value" data-stat="onboard">15</div>
+            <div class="label" data-i18n="stat_onboard">На доске</div>
+          </div>
+          <div class="player-stat compact">
+            <div class="value" data-stat="match">0/5</div>
+            <div class="label" data-i18n="stat_match">Партии</div>
+          </div>
+          <div class="player-stat compact right">
+            <div class="value" data-stat="towin">360</div>
+            <div class="label" data-i18n="stat_to_win">До победы</div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ─── CENTER: BOARD + ACTIONS ─── -->
+    <section class="center">
+
+      <div class="board-wrap">
+        <div class="board" id="board">
+          <div class="quad quad-tl" id="q-tl"></div>
+          <div class="bar"></div>
+          <div class="quad quad-tr" id="q-tr"></div>
+
+          <div class="quad quad-bl" id="q-bl"></div>
+          <div class="quad quad-br" id="q-br"></div>
+          <div class="board-dice-layer" id="board-dice-layer" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- DICE + UNDO + BEAR-OFF -->
+      <div class="action-tray">
+        <div class="action-main">
+          <div class="dice-row" id="dice-row"></div>
+          <div class="action-controls">
+            <button class="action-exit-focus" type="button" data-board-focus aria-label="Свернуть поле" title="Свернуть поле">
+              <span class="ico">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+              </span>
+              <span class="lbl" data-board-focus-label>Свернуть поле</span>
+            </button>
+            <button class="action-bear" id="bear-btn" hidden disabled>
+              <span class="ico">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/></svg>
+              </span>
+              <span data-i18n="btn_bear_off">Снять</span>
+            </button>
+            <button class="action-undo" id="undo-btn" disabled>
+              <span class="ico">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg>
+              </span>
+              <span data-i18n="btn_undo_move">Отменить ход</span>
+              <span class="kbd">U</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bear-off">
+          <div class="bear-track white">
+            <span class="bear-label" data-i18n="bear_white">Белые</span>
+            <div class="bear-stack" id="bear-w"></div>
+            <span class="bear-count"><b id="bear-w-n">0</b><span class="bear-total">/15</span></span>
+          </div>
+          <div class="bear-track dark">
+            <span class="bear-count"><b id="bear-d-n">0</b><span class="bear-total">/15</span></span>
+            <div class="bear-stack" id="bear-d"></div>
+            <span class="bear-label" data-i18n="bear_dark">Тёмные</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ─── RIGHT: HISTORY + CHAT ─── -->
+    <aside class="right-col">
+
+      <div class="panel">
+        <div class="between" style="margin-bottom: 12px;">
+          <h3 style="margin:0;" data-i18n="history_title">Ход партии</h3>
+          <span style="font-size: 11px; color: var(--ink-4); white-space: nowrap;" data-i18n="round_1">Раунд 1</span>
+        </div>
+        <div class="history" id="history-list">
+
+          <div class="hist-item">
+            <div class="n">02</div>
+            <div>
+              <div class="lbl">
+                <span class="swatch white"></span>
+                <span style="white-space:nowrap;" data-i18n="side_white">Белые</span>
+                <span class="move-tag">24 → 18</span>
+                <span class="move-tag">24 → 23</span>
+              </div>
+              <div class="sub" data-i18n="opening_dice">Стартовые кубики 6 : 1</div>
+            </div>
+          </div>
+
+          <div class="hist-item">
+            <div class="n">01</div>
+            <div>
+              <div class="lbl">
+                <span class="swatch dark"></span>
+                <span style="white-space:nowrap;" data-i18n="opening_roll">Стартовый бросок</span>
+              </div>
+              <div class="sub" data-i18n="opening_sub">хост 6, гость 1 — первыми ходят Белые</div>
+            </div>
+          </div>
+
+        </div>
+        <details style="margin-top: 12px;">
+          <summary style="cursor:pointer; font-size:11px; color: var(--ink-3); letter-spacing:0.08em; text-transform: uppercase; list-style: none;" data-i18n="verify_title">Проверка честности</summary>
+          <div style="margin-top: 10px; display:flex; flex-direction:column; gap:8px;">
+            <div class="verify">
+              <span data-i18n="verify_start">Старт</span>
+              <span class="hash">0bc1c5099f…c2d3df</span>
+            </div>
+            <div class="verify">
+              <span data-i18n="verify_roll_2">Бросок #2</span>
+              <span class="hash">a1f7…91d2</span>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="panel">
+        <div class="between" style="margin-bottom: 12px;">
+          <h3 style="margin:0;" data-i18n="chat_title">Чат</h3>
+          <span style="font-size:11px;color:var(--ink-4); white-space: nowrap;" data-i18n="chat_with">с соперником</span>
+        </div>
+
+        <div class="chat-pane active">
+          <div class="chat-stream" id="chat-stream">
+            <div class="chat-empty" data-i18n="chat_empty">Сообщений пока нет — отправьте первое.</div>
+          </div>
+
+          <div class="chat-input" id="chat-input-wrap">
+            <button class="mic-toggle" id="mic-btn" aria-label="Записать голосовое сообщение" title="Записать голосовое" data-i18n-aria="record_voice" data-i18n-title="record_voice_short">
+              <svg class="mic-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              <svg class="stop-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <button class="emoji-toggle" id="emoji-btn" aria-label="Эмодзи" title="Эмодзи" data-i18n-aria="emoji" data-i18n-title="emoji">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+            </button>
+            <input id="chat-input" data-i18n-ph="chat_ph" placeholder="Сообщение сопернику…" />
+            <span class="rec-indicator" id="rec-indicator">
+              <span class="rec-dot"></span>
+              <span class="rec-time" id="rec-time">0:00</span>
+            </span>
+            <button id="chat-send" aria-label="Отправить" data-i18n-aria="send">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+            <div class="emoji-popover" id="emoji-popover" hidden>
+              <button type="button" data-emoji="👍">👍</button>
+              <button type="button" data-emoji="👏">👏</button>
+              <button type="button" data-emoji="🤝">🤝</button>
+              <button type="button" data-emoji="🎲">🎲</button>
+              <button type="button" data-emoji="🙂">🙂</button>
+              <button type="button" data-emoji="🔥">🔥</button>
+              <button type="button" data-emoji="😅">😅</button>
+              <button type="button" data-emoji="🏆">🏆</button>
+            </div>
+          </div>
+
+          <div class="quick">
+            <button class="chip" data-msg-key="chip_gl" data-i18n="chip_gl">Удачи!</button>
+            <button class="chip" data-msg-key="chip_nice" data-i18n="chip_nice">Хороший ход</button>
+            <button class="chip" data-msg-key="chip_thanks" data-i18n="chip_thanks">Спасибо за игру</button>
+            <button class="chip" data-msg-key="chip_gg" data-i18n="chip_gg">GG</button>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+</div>
+
+<!-- reusable triangle wedge svg template -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- wedge shape: soft narrowing strip, rounded tip -->
+    <symbol id="wedge" viewBox="0 0 60 220" preserveAspectRatio="none">
+      <path fill="currentColor" d="M 6 0 L 54 0 L 36 200 Q 30 218 24 200 Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- engine + bot + sound + rating + shared app -->
+<script src="game.js"></script>
+<script src="bot.js"></script>
+<script src="sound.js"></script>
+<script src="rating.js"></script>
+<script src="app.js"></script>
+<script src="dice-engine.js"></script>
+<script src="dice-webgl.js"></script>
+<script src="board-engine.js"></script>
+<script src="game-controller.js"></script>
+
+<script>
+/* ───── Long Backgammon initial state (длинные нарды) ─────
+   White starts all 15 on point 24, Dark all 15 on point 12.
+*/
+
+let state = null;   /* will be filled from NarduController.getState() on every render */
+
+const TL = [13, 14, 15, 16, 17, 18];
+const TR = [19, 20, 21, 22, 23, 24];
+const BL = [12, 11, 10,  9,  8,  7];
+const BR = [ 6,  5,  4,  3,  2,  1];
+const TL_DARK_VIEW = [ 1,  2,  3,  4,  5,  6];
+const TR_DARK_VIEW = [ 7,  8,  9, 10, 11, 12];
+const BL_DARK_VIEW = [24, 23, 22, 21, 20, 19];
+const BR_DARK_VIEW = [18, 17, 16, 15, 14, 13];
+
+/* 3D wooden checker SVG — concentric rings + bowl depression */
+function checkerSVG(color) {
+  const isW = color === 'white';
+  return `
+    <svg viewBox="0 0 60 60" class="chk-svg ${color}" xmlns="http://www.w3.org/2000/svg">
+      <!-- outer body (cylinder side hint) -->
+      <circle cx="30" cy="32" r="28" fill="${isW ? 'var(--chk-w-rim)' : 'var(--chk-d-rim)'}"/>
+      <!-- top face -->
+      <circle cx="30" cy="30" r="27" fill="url(#${isW ? 'wFaceGrad' : 'dFaceGrad'})"
+              stroke="${isW ? 'var(--chk-w-rim)' : 'var(--chk-d-rim)'}" stroke-width="0.5"/>
+      <!-- bowl ring (outer groove) -->
+      <circle cx="30" cy="30" r="21.5" fill="none"
+              stroke="${isW ? 'var(--chk-w-rim)' : 'var(--chk-d-rim)'}" stroke-width="1.2" opacity="0.55"/>
+      <!-- bowl base (slight darker depression) -->
+      <circle cx="30" cy="30" r="20.5" fill="url(#${isW ? 'wBowlGrad' : 'dBowlGrad'})"/>
+      <!-- inner ring -->
+      <circle cx="30" cy="30" r="11" fill="none"
+              stroke="${isW ? 'var(--chk-w-rim)' : 'var(--chk-d-rim)'}" stroke-width="0.7" opacity="0.55"/>
+      <!-- center boss -->
+      <circle cx="30" cy="30" r="4.5"
+              fill="${isW ? 'var(--chk-w-center)' : 'var(--chk-d-center)'}" opacity="0.45"/>
+      <!-- subtle top-left highlight -->
+      <ellipse cx="20" cy="18" rx="11" ry="5" fill="#fff" opacity="${isW ? '0.30' : '0.22'}" transform="rotate(-22 20 18)"/>
+    </svg>
+  `;
+}
+
+/* dynamic gap: keep tall starting stacks inside the board on compact screens */
+function checkerSizePx() {
+  const existing = document.querySelector('.chk');
+  if (existing) {
+    const size = existing.getBoundingClientRect().height;
+    if (Number.isFinite(size) && size > 0) return size;
+  }
+  if (document.body.classList.contains('board-focus')) return 24;
+  if (window.matchMedia('(max-width: 520px), (max-width: 940px) and (max-height: 560px) and (orientation: landscape)').matches) return 24;
+  if (window.matchMedia('(max-width: 760px)').matches) return 28;
+  return 42;
+}
+
+function stackInsetPx() {
+  const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
+  return Math.max(8, Math.min(15, boardHeight * 0.075));
+}
+
+function stackGap(count) {
+  if (count <= 1) return 0;
+  const preferred = count <= 5 ? 26 : count <= 8 ? 20 : count <= 12 ? 15 : 12;
+  const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
+  const available = boardHeight - stackInsetPx() * 2 - checkerSizePx();
+  const fitted = available / Math.max(1, count - 1);
+  return Math.max(6, Math.min(preferred, fitted));
+}
+
+function makePoint(num, idx, isBottom) {
+  const colorClass = (idx % 2 === 0) ? 'a' : 'b';
+  const el = document.createElement('div');
+  el.className = `point ${isBottom ? 'bottom' : ''} ${colorClass}`;
+  el.dataset.point = num;
+
+  // very faint orientation wedge (low opacity) — invisible-ish, just a guide
+  const tri = document.createElement('div');
+  tri.className = 'tri';
+  tri.innerHTML = `<svg viewBox="0 0 60 220" preserveAspectRatio="none"><path fill="currentColor" d="M 6 0 L 54 0 L 36 200 Q 30 218 24 200 Z"/></svg>`;
+  el.appendChild(tri);
+
+  // per-point groove (cup) sized to a checker — sits in the wood strip above/below the point
+  const groove = document.createElement('div');
+  groove.className = 'groove';
+  groove.innerHTML = grooveSVG();
+  el.appendChild(groove);
+
+  // checkers
+  const data = state.points[num];
+  if (data) {
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    const gap = stackGap(data.count);
+
+    for (let i = 0; i < data.count; i++) {
+      const c = document.createElement('div');
+      c.className = `chk ${data.color}`;
+      // first checker sits half inside the cup (chord at y=36 → top at y=15 for a 42px checker)
+      const offset = stackInsetPx() + i * gap;
+      if (isBottom) {
+        c.style.bottom = offset + 'px';
+      } else {
+        c.style.top = offset + 'px';
+      }
+      c.style.zIndex = i;
+      c.innerHTML = checkerSVG(data.color);
+      stack.appendChild(c);
+    }
+    el.appendChild(stack);
+  }
+
+  if (state.hints.includes(num)) el.classList.add('hint');
+  if (state.fullHints?.includes(num)) el.classList.add('full-hint');
+  if (state.selected === num) el.classList.add('selected');
+  return el;
+}
+
+function renderQuad(id, points, isBottom) {
+  const q = document.getElementById(id);
+  q.innerHTML = '';
+  // flat wooden strip across the outer edge — grooves live INSIDE each point
+  const strip = makeWoodStrip();
+  q.appendChild(strip);
+  points.forEach((num, idx) => q.appendChild(makePoint(num, idx, isBottom)));
+}
+
+/* per-point rim/chamfer drawn on top of the cut-out half-circle.
+   The actual "hole" is punched in .wood-strip via mask; this just adds 3D edge detail. */
+function grooveSVG() {
+  return `
+    <svg viewBox="0 0 100 50" preserveAspectRatio="none">
+      <!-- crisp dark rim where wood meets the hole -->
+      <path d="M 2 50 A 48 48 0 0 1 98 50" fill="none"
+            stroke="oklch(0 0 0 / 0.7)" stroke-width="1.6"/>
+      <!-- soft chamfer shadow just inside the rim -->
+      <path d="M 5 49.2 A 45 45 0 0 1 95 49.2" fill="none"
+            stroke="oklch(0 0 0 / 0.35)" stroke-width="4" opacity="0.55"/>
+    </svg>
+  `;
+}
+
+/* flat wooden strip across the outer edge of a quadrant (was the scalloped strip) */
+function makeWoodStrip() {
+  const div = document.createElement('div');
+  div.className = 'wood-strip';
+  return div;
+}
+
+/* Attach reusable <defs> for checker gradients ONCE inside the board */
+function injectCheckerDefs() {
+  const board = document.getElementById('board');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '0'); svg.setAttribute('height', '0');
+  svg.setAttribute('style', 'position:absolute');
+  svg.innerHTML = `
+    <defs>
+      <radialGradient id="wFaceGrad" cx="0.35" cy="0.30" r="0.85">
+        <stop offset="0" stop-color="var(--chk-w-face-1)"/>
+        <stop offset="0.55" stop-color="var(--chk-w-face-2)"/>
+        <stop offset="1" stop-color="var(--chk-w-rim)"/>
+      </radialGradient>
+      <radialGradient id="wBowlGrad" cx="0.45" cy="0.40" r="0.7">
+        <stop offset="0" stop-color="var(--chk-w-bowl-1)"/>
+        <stop offset="1" stop-color="var(--chk-w-bowl-2)"/>
+      </radialGradient>
+      <radialGradient id="dFaceGrad" cx="0.35" cy="0.30" r="0.85">
+        <stop offset="0" stop-color="var(--chk-d-face-1)"/>
+        <stop offset="0.55" stop-color="var(--chk-d-face-2)"/>
+        <stop offset="1" stop-color="var(--chk-d-rim)"/>
+      </radialGradient>
+      <radialGradient id="dBowlGrad" cx="0.45" cy="0.40" r="0.7">
+        <stop offset="0" stop-color="var(--chk-d-bowl-1)"/>
+        <stop offset="1" stop-color="var(--chk-d-bowl-2)"/>
+      </radialGradient>
+    </defs>
+  `;
+  board.appendChild(svg);
+}
+
+injectCheckerDefs();
+
+function fullBoardRender() {
+  state = NarduController.getState();
+  if (!state) return;
+  const board = document.getElementById('board');
+  const darkView = state.viewColor === 'dark';
+  if (board) board.dataset.viewColor = darkView ? 'dark' : 'white';
+  renderQuad('q-tl', darkView ? TL_DARK_VIEW : TL, false);
+  renderQuad('q-tr', darkView ? TR_DARK_VIEW : TR, false);
+  renderQuad('q-bl', darkView ? BL_DARK_VIEW : BL, true);
+  renderQuad('q-br', darkView ? BR_DARK_VIEW : BR, true);
+  renderBearOff();
+}
+
+/* update borne-off checker trays */
+function renderBearOff() {
+  const wOff = Math.min(state.off.white, 15);
+  const dOff = Math.min(state.off.dark, 15);
+  const bearOff = document.querySelector('.bear-off');
+  const wTrack = document.querySelector('.bear-track.white');
+  const dTrack = document.querySelector('.bear-track.dark');
+  if (bearOff) bearOff.dataset.viewColor = state.viewColor === 'dark' ? 'dark' : 'white';
+  if (wTrack) wTrack.style.setProperty('--progress', wOff / 15);
+  if (dTrack) dTrack.style.setProperty('--progress', dOff / 15);
+  const wN = document.getElementById('bear-w-n');
+  const dN = document.getElementById('bear-d-n');
+  if (wN) wN.textContent = wOff;
+  if (dN) dN.textContent = dOff;
+  renderBearStack('bear-w', 'white', wOff);
+  renderBearStack('bear-d', 'dark', dOff);
+}
+
+function earlyRoomText(key) {
+  const lang = localStorage.getItem('narduh-lang') === 'en' ? 'en' : 'ru';
+  const copy = {
+    bear_off_count: {
+      ru: 'Снято шашек: {count}',
+      en: 'Checkers borne off: {count}',
+    },
+    guest: {
+      ru: 'Гость',
+      en: 'Guest',
+    },
+  };
+  return copy[key]?.[lang] || key;
+}
+
+function renderBearStack(id, color, count) {
+  const stack = document.getElementById(id);
+  if (!stack) return;
+  stack.setAttribute('aria-label', earlyRoomText('bear_off_count').replace('{count}', count));
+  stack.innerHTML = Array.from({ length: count }, () => `<span class="bear-pip ${color}"></span>`).join('');
+}
+
+/* ─── theme switch ─── */
+const THEME_KEY = 'narduh-theme';
+const savedTheme = localStorage.getItem(THEME_KEY);
+if (savedTheme === 'day') {
+  document.documentElement.setAttribute('data-theme', 'day');
+}
+function applyTheme(name) {
+  document.documentElement.setAttribute('data-theme', name);
+  localStorage.setItem(THEME_KEY, name);
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.classList.toggle('active', b.dataset.themeSet === name));
+}
+applyTheme(savedTheme || 'night');
+
+document.querySelectorAll('[data-theme-set]').forEach(btn => {
+  btn.addEventListener('click', () => applyTheme(btn.dataset.themeSet));
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 't' || e.key === 'T') {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyTheme(cur === 'day' ? 'night' : 'day');
+  }
+});
+
+/* ─── chat ─── */
+const stream = document.getElementById('chat-stream');
+const input = document.getElementById('chat-input');
+const sendBtn = document.getElementById('chat-send');
+const emojiBtn = document.getElementById('emoji-btn');
+const emojiPopover = document.getElementById('emoji-popover');
+const chatUrl = new URL(location.href);
+const chatRoomCode = chatUrl.searchParams.get('room') || '';
+const chatPlayerColor = chatUrl.searchParams.get('color') || (chatUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
+const chatRemote = chatUrl.searchParams.get('mode') === 'remote' && chatRoomCode;
+const CHAT_CLIENT_KEY = 'narduh-chat-client-id';
+let chatClientId = sessionStorage.getItem(CHAT_CLIENT_KEY);
+let chatLastId = 0;
+let chatPollBusy = false;
+let chatPollTimer = null;
+const CHAT_BOTTOM_EPS = 18;
+if (!chatClientId) {
+  chatClientId = `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  sessionStorage.setItem(CHAT_CLIENT_KEY, chatClientId);
+}
+
+function chatUserName() {
+  const user = window.NarduApp?.getUser?.();
+  return user?.name || (chatPlayerColor === 'dark' ? t('side_dark') : t('side_white'));
+}
+
+function chatInitial(name) {
+  const text = String(name || '').trim();
+  return (text[0] || '?').toUpperCase();
+}
+
+function chatTime(at) {
+  const date = at ? new Date(at) : new Date();
+  if (Number.isNaN(date.getTime())) return t('just_now');
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function chatNearBottom() {
+  if (!stream) return true;
+  return stream.scrollHeight - stream.scrollTop - stream.clientHeight <= CHAT_BOTTOM_EPS;
+}
+
+function buildChatMessage(message) {
+  const own = message.senderId === chatClientId;
+  const msg = document.createElement('div');
+  msg.className = `chat-msg ${own ? 'me' : 'them'} ${message.kind === 'emoji' ? 'emoji-msg' : ''} ${message.kind === 'voice' ? 'voice' : ''}`;
+  msg.dataset.chatId = message.id || '';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'av';
+  avatar.textContent = own ? 'A' : chatInitial(message.senderName);
+
+  const content = document.createElement('div');
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = `${message.senderName || (own ? chatUserName() : t('opponent'))} · ${chatTime(message.at)}`;
+  const body = document.createElement('div');
+  body.className = 'body';
+  if (message.kind === 'voice') {
+    body.appendChild(buildVoiceBubble(message));
+  } else {
+    body.textContent = message.text;
+  }
+
+  content.append(who, body);
+  msg.append(avatar, content);
+  return msg;
+}
+
+function voiceBars(seed = 0) {
+  const bars = document.createElement('div');
+  bars.className = 'wave';
+  for (let i = 0; i < 14; i += 1) {
+    const bar = document.createElement('span');
+    const h = 4 + Math.round(Math.abs(Math.sin(i * 1.7 + seed / 300)) * 18);
+    bar.style.height = `${h}px`;
+    bars.appendChild(bar);
+  }
+  return bars;
+}
+
+function buildVoiceBubble(message) {
+  const bubble = document.createElement('div');
+  bubble.className = 'voice-bubble';
+  if (!message.audioData) {
+    bubble.textContent = t('audio_unavailable');
+    return bubble;
+  }
+
+  const play = document.createElement('button');
+  play.className = 'play';
+  play.type = 'button';
+  play.setAttribute('aria-label', t('play_voice'));
+  play.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+
+  const audio = document.createElement('audio');
+  audio.preload = 'metadata';
+  audio.src = message.audioData;
+
+  const dur = document.createElement('div');
+  dur.className = 'dur';
+  dur.textContent = fmtRec(Number(message.duration || 0));
+
+  play.addEventListener('click', async () => {
+    document.querySelectorAll('.chat-msg.voice audio').forEach(item => {
+      if (item !== audio) item.pause();
+    });
+    if (audio.paused) {
+      await audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
+  });
+  audio.addEventListener('play', () => {
+    bubble.classList.add('playing');
+    play.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
+  });
+  audio.addEventListener('pause', () => {
+    bubble.classList.remove('playing');
+    play.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+  });
+  audio.addEventListener('ended', () => {
+    bubble.classList.remove('playing');
+    play.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+  });
+
+  bubble.append(play, voiceBars(Number(message.duration || message.id || 0)), dur, audio);
+  return bubble;
+}
+
+function appendChatMessage(message) {
+  appendChatMessages([message]);
+}
+
+function appendChatMessages(messages) {
+  if (!stream || !Array.isArray(messages) || messages.length === 0) return;
+  const shouldStayAtBottom = chatNearBottom();
+  const previousTop = stream.scrollTop;
+  const fragment = document.createDocumentFragment();
+  let added = 0;
+
+  messages.forEach(message => {
+    if (!message?.text && message?.kind !== 'voice') return;
+    if (message.id && message.id <= chatLastId) return;
+    if (message.id) chatLastId = Math.max(chatLastId, message.id);
+    fragment.appendChild(buildChatMessage(message));
+    added += 1;
+  });
+
+  if (!added) return;
+  const empty = stream.querySelector('.chat-empty');
+  if (empty) empty.remove();
+  stream.appendChild(fragment);
+  stream.scrollTop = shouldStayAtBottom ? stream.scrollHeight : previousTop;
+}
+
+async function pollChat() {
+  if (!chatRemote || chatPollBusy) return;
+  chatPollBusy = true;
+  try {
+    const response = await fetch(`/api/rooms/${encodeURIComponent(chatRoomCode)}/chat?after=${chatLastId}`);
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) appendChatMessages(data.messages || []);
+  } catch {
+    /* next poll retries */
+  } finally {
+    chatPollBusy = false;
+  }
+}
+
+async function sendChatPayload(payload, { clearInput = false } = {}) {
+  if (!payload?.text && payload?.kind !== 'voice') return;
+  const message = {
+    senderId: chatClientId,
+    senderName: chatUserName(),
+    color: chatPlayerColor,
+    ...payload,
+  };
+  if (clearInput) input.value = '';
+  if (emojiPopover) emojiPopover.hidden = true;
+
+  if (!chatRemote) {
+    appendChatMessage({ ...message, at: new Date().toISOString() });
+    return;
+  }
+
+  sendBtn.disabled = true;
+  mic.disabled = true;
+  try {
+    const response = await fetch(`/api/rooms/${encodeURIComponent(chatRoomCode)}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'chat failed');
+    appendChatMessage(data.message);
+  } catch {
+    appendChatMessage({ ...message, at: new Date().toISOString() });
+  } finally {
+    sendBtn.disabled = false;
+    mic.disabled = false;
+  }
+}
+
+async function sendMessage(text, kind = 'text') {
+  text = (text || '').trim();
+  if (!text) return;
+  await sendChatPayload({ text, kind }, { clearInput: true });
+}
+
+sendBtn.addEventListener('click', () => sendMessage(input.value));
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(input.value); });
+document.querySelectorAll('.quick .chip').forEach(c => {
+  c.addEventListener('click', () => sendMessage(t(c.dataset.msgKey)));
+});
+emojiBtn?.addEventListener('click', () => {
+  if (!emojiPopover) return;
+  emojiPopover.hidden = !emojiPopover.hidden;
+});
+emojiPopover?.querySelectorAll('[data-emoji]').forEach(btn => {
+  btn.addEventListener('click', () => insertEmoji(btn.dataset.emoji));
+});
+document.addEventListener('click', (e) => {
+  if (!emojiPopover || emojiPopover.hidden) return;
+  if (e.target.closest('#emoji-btn, #emoji-popover')) return;
+  emojiPopover.hidden = true;
+});
+if (chatRemote) {
+  pollChat();
+  chatPollTimer = setInterval(pollChat, 1200);
+}
+
+function insertEmoji(emoji) {
+  if (!emoji || !input) return;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  const prefix = input.value.slice(0, start);
+  const suffix = input.value.slice(end);
+  const needsGapBefore = prefix && !/\s$/.test(prefix) ? ' ' : '';
+  const needsGapAfter = suffix && !/^\s/.test(suffix) ? ' ' : '';
+  const insert = `${needsGapBefore}${emoji}${needsGapAfter}`;
+  input.value = `${prefix}${insert}${suffix}`;
+  const caret = prefix.length + insert.length;
+  emojiPopover.hidden = true;
+  input.focus();
+  input.setSelectionRange(caret, caret);
+}
+
+/* ─── voice recording (mic in chat input) ─── */
+const mic = document.getElementById('mic-btn');
+const recInd = document.getElementById('rec-indicator');
+const recTime = document.getElementById('rec-time');
+const chatWrap = document.getElementById('chat-input-wrap');
+const inputEl = document.getElementById('chat-input');
+let recording = false;
+let recStart = 0;
+let recTimer = null;
+let mediaRecorder = null;
+let recStream = null;
+let recChunks = [];
+let sendRecordingOnStop = true;
+
+function fmtRec(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+function bestAudioMimeType() {
+  if (!window.MediaRecorder) return '';
+  if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ];
+  return types.find(type => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function paintRecording(active) {
+  recording = active;
+  chatWrap.classList.toggle('recording', active);
+  mic.classList.toggle('recording', active);
+  inputEl.placeholder = active ? t('recording') : (t('chat_ph') || 'Сообщение сопернику…');
+  inputEl.disabled = active;
+  emojiBtn.disabled = active;
+  sendBtn.disabled = active;
+}
+
+async function startRec() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    inputEl.placeholder = t('voice_unsupported');
+    return;
+  }
+
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    recChunks = [];
+    sendRecordingOnStop = true;
+    const mimeType = bestAudioMimeType();
+    mediaRecorder = new MediaRecorder(recStream, mimeType ? { mimeType } : undefined);
+    mediaRecorder.addEventListener('dataavailable', event => {
+      if (event.data?.size) recChunks.push(event.data);
+    });
+    mediaRecorder.addEventListener('stop', async () => {
+      const duration = Date.now() - recStart;
+      const chunks = recChunks.slice();
+      const stream = recStream;
+      const recorderMime = mediaRecorder?.mimeType || chunks[0]?.type || 'audio/webm';
+      const shouldSend = sendRecordingOnStop;
+
+      recording = false;
+      paintRecording(false);
+      clearInterval(recTimer);
+      recTimer = null;
+      mediaRecorder = null;
+      recStream = null;
+      recChunks = [];
+      stream?.getTracks().forEach(track => track.stop());
+
+      if (!shouldSend || duration <= 300 || !chunks.length) return;
+      const blob = new Blob(chunks, { type: recorderMime });
+      await sendVoiceBlob(blob, duration);
+    });
+
+    recStart = Date.now();
+    recording = true;
+    paintRecording(true);
+    recTime.textContent = '0:00';
+    recTimer = setInterval(() => { recTime.textContent = fmtRec(Date.now() - recStart); }, 200);
+    mediaRecorder.start();
+  } catch {
+    recording = false;
+    paintRecording(false);
+    recStream?.getTracks().forEach(track => track.stop());
+    recStream = null;
+    inputEl.placeholder = t('mic_denied');
+  }
+}
+
+function stopRec(send = true) {
+  if (!recording) return;
+  sendRecordingOnStop = send;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+}
+
+async function sendVoiceBlob(blob, duration) {
+  if (blob.size > 900 * 1024) {
+    inputEl.placeholder = t('voice_too_long');
+    return;
+  }
+  const audioData = await blobToDataUrl(blob);
+  await sendChatPayload({
+    kind: 'voice',
+    text: t('voice_message'),
+    audioData,
+    mimeType: blob.type || 'audio/webm',
+    duration,
+  });
+}
+
+mic.addEventListener('click', async () => {
+  if (recording) stopRec(true);
+  else await startRec();
+});
+
+/* ─── point click handled by NarduController via event delegation ─── */
+
+/* room lifecycle */
+const ACTIVE_ROOM_KEY = 'narduh-active-room';
+const CREATE_GAME_KEY = 'narduh-created-game';
+const roomUrl = new URL(location.href);
+const roomCode = roomUrl.searchParams.get('room') || '';
+const isWaitingHost = roomUrl.searchParams.get('waiting') === '1' && roomUrl.searchParams.get('host') === '1' && roomCode;
+const localPlayerColor = roomUrl.searchParams.get('color') || (roomUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
+let waitingPoll = null;
+let waitingPollBusy = false;
+let presenceTimer = null;
+let presenceBusy = false;
+let networkCountdownTimer = null;
+let networkDeadlineAt = 0;
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Ошибка игровой сессии.');
+  return data;
+}
+
+function storedActiveRoom() {
+  if (!roomCode) return null;
+  try {
+    const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
+    if (active?.code === roomCode) return active;
+    const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
+    if (created?.code === roomCode) return created;
+  } catch {}
+  return null;
+}
+
+async function activeRoom() {
+  if (!roomCode) return null;
+  try {
+    const data = await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}`);
+    return data.room || null;
+  } catch {
+    return null;
+  }
+}
+
+async function removeCurrentWaitingRoom() {
+  if (!roomCode) return;
+  await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}`, { method: 'DELETE' }).catch(() => {});
+  try {
+    const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
+    if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
+    const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
+    if (active?.code === roomCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
+  } catch {
+    localStorage.removeItem(CREATE_GAME_KEY);
+    localStorage.removeItem(ACTIVE_ROOM_KEY);
+  }
+}
+function isActiveRemoteRoom() {
+  return roomCode && roomUrl.searchParams.get('mode') === 'remote' && !isWaitingHost;
+}
+
+function reloadRoom() {
+  location.reload();
+}
+
+function updateNetworkCountdown() {
+  const panel = document.getElementById('network-panel');
+  const timer = panel?.querySelector('.network-timer');
+  const countdown = panel?.querySelector('[data-network-countdown]');
+  if (!panel || panel.hidden || !timer || !countdown) return;
+  if (!networkDeadlineAt) {
+    timer.hidden = true;
+    return;
+  }
+  const left = Math.max(0, Math.ceil((networkDeadlineAt - Date.now()) / 1000));
+  timer.hidden = false;
+  countdown.textContent = String(left);
+}
+
+function showNetworkPanel({ title, text, deadlineAt = 0, remainingMs = null }) {
+  const panel = document.getElementById('network-panel');
+  if (!panel) return;
+  panel.hidden = false;
+  panel.querySelector('[data-network-title]').textContent = title || t('network_loss_title');
+  panel.querySelector('[data-network-text]').textContent = text || t('network_loss_text');
+  networkDeadlineAt = deadlineAt || (Number.isFinite(remainingMs) ? Date.now() + remainingMs : 0);
+  updateNetworkCountdown();
+  if (!networkCountdownTimer) {
+    networkCountdownTimer = setInterval(updateNetworkCountdown, 1000);
+  }
+}
+
+function hideNetworkPanel() {
+  const panel = document.getElementById('network-panel');
+  if (panel) panel.hidden = true;
+  networkDeadlineAt = 0;
+  if (networkCountdownTimer) clearInterval(networkCountdownTimer);
+  networkCountdownTimer = null;
+}
+
+function handlePresence(presence) {
+  if (!presence || !isActiveRemoteRoom()) return;
+  if (presence.networkLoss) {
+    showNetworkPanel({
+      title: t('connection_lost_title'),
+      text: presence.networkLoss.message || t('network_forced_end'),
+      remainingMs: 0,
+    });
+    return;
+  }
+  if (presence.opponent?.disconnected) {
+    showNetworkPanel({
+      title: t('network_loss_title'),
+      text: t('network_loss_text'),
+      deadlineAt: presence.opponent.deadlineAt || 0,
+      remainingMs: presence.opponent.remainingMs,
+    });
+    return;
+  }
+  hideNetworkPanel();
+}
+
+async function sendPresenceHeartbeat() {
+  if (!isActiveRemoteRoom() || presenceBusy) return;
+  const gameState = window.NarduController?.getState?.();
+  if (gameState?.phase === 'over') {
+    hideNetworkPanel();
+    return;
+  }
+  presenceBusy = true;
+  try {
+    const data = await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}/presence`, {
+      method: 'POST',
+      body: JSON.stringify({
+        color: localPlayerColor,
+        name: NarduApp.getUser()?.name || earlyRoomText('guest'),
+      }),
+    });
+    handlePresence(data.presence);
+  } catch {
+    showNetworkPanel({
+      title: t('network_loss_title'),
+      text: t('server_unreachable_text'),
+    });
+  } finally {
+    presenceBusy = false;
+  }
+}
+
+function startPresenceProtocol() {
+  if (!isActiveRemoteRoom()) return;
+  sendPresenceHeartbeat();
+  presenceTimer = setInterval(sendPresenceHeartbeat, 3000);
+  window.addEventListener('online', sendPresenceHeartbeat);
+}
+
+async function reportActiveRemoteLeave() {
+  if (!isActiveRemoteRoom()) return false;
+  const gameState = window.NarduController?.getState?.();
+  if (gameState?.phase === 'over' || gameState?.winner) return false;
+
+  const published = await window.NarduController?.concedeRemoteGameByLobbyExit?.();
+  if (!published) return false;
+
+  await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}/leave`, {
+    method: 'POST',
+    body: JSON.stringify({
+      color: localPlayerColor,
+      name: NarduApp.getUser()?.name || earlyRoomText('guest'),
+    }),
+  }).catch(() => {});
+
+  try {
+    const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
+    if (active?.code === roomCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
+  } catch {
+    localStorage.removeItem(ACTIVE_ROOM_KEY);
+  }
+  return true;
+}
+async function leaveToLobby() {
+  if (presenceTimer) clearInterval(presenceTimer);
+  const remoteLeaveReported = await reportActiveRemoteLeave();
+  if (!remoteLeaveReported) await removeCurrentWaitingRoom();
+  location.href = 'index.html';
+}
+window.NarduRoom = { leaveToLobby, closeCurrentRoom: removeCurrentWaitingRoom };
+function paintRoomCode() {
+  const codeEl = document.querySelector('.crumbs .code');
+  if (codeEl && roomCode) codeEl.textContent = roomCode;
+}
+async function paintWaitingRoom() {
+  const panel = document.getElementById('game-wait-panel');
+  const room = await activeRoom();
+  const storedRoom = storedActiveRoom();
+  if (!panel || !isWaitingHost || !room) return;
+  panel.hidden = false;
+  panel.querySelector('[data-wait-code]').textContent = room.code;
+  panel.querySelector('[data-wait-access]').textContent = room.access === 'closed' ? t('access_closed') : t('access_open');
+  panel.querySelector('[data-wait-status]').textContent = t('status_waiting');
+  const passRow = panel.querySelector('[data-wait-password-row]');
+  passRow.hidden = room.access !== 'closed';
+  panel.querySelector('[data-wait-password]').textContent = storedRoom?.password || '—';
+}
+function watchWaitingRoom() {
+  if (!isWaitingHost) return;
+  waitingPoll = setInterval(async () => {
+    if (waitingPollBusy) return;
+    waitingPollBusy = true;
+    const room = await activeRoom();
+    waitingPollBusy = false;
+    if (!room) {
+      clearInterval(waitingPoll);
+      location.href = 'index.html';
+      return;
+    }
+    if (room.status === 'joined') {
+      clearInterval(waitingPoll);
+      const params = new URLSearchParams({
+        mode: 'remote',
+        room: room.code,
+        host: '1',
+        color: 'white',
+        opp: room.guestName || t('opponent'),
+        oppR: String(room.guestRating || 1000),
+        variant: room.variant || 'long',
+        opponent: 'player',
+        access: room.access || 'open',
+      });
+      location.href = 'room.html?' + params.toString();
+    }
+  }, 1000);
+}
+
+document.querySelector('[data-room-lobby]')?.addEventListener('click', () => {
+  leaveToLobby();
+});
+document.querySelectorAll('[data-room-reload]').forEach(btn => {
+  btn.addEventListener('click', reloadRoom);
+});
+paintRoomCode();
+if (!isWaitingHost) {
+  const panel = document.getElementById('game-wait-panel');
+  if (panel) panel.hidden = true;
+}
+
+/* boot the game */
+NarduController.setRenderer(fullBoardRender);
+NarduController.init({
+  waiting: Boolean(isWaitingHost),
+  mode: roomUrl.searchParams.get('mode') || undefined,
+  playerColor: localPlayerColor,
+});
+paintWaitingRoom();
+watchWaitingRoom();
+startPresenceProtocol();
+
+/* ─── i18n ─── */
+const I18N = {
+  ru: {
+    title_room: "Нарды — Комната",
+    brand_mark: "Н",
+    brand_name: "Нарды",
+    bot_initial: "Б",
+    brand_sub: "длинные · короткие · онлайн",
+    day: "День",
+    night: "Ночь",
+    profile: "Профиль",
+    theme: "Тема",
+    day_theme: "Дневная тема",
+    night_theme: "Ночная тема",
+    russian: "Русский",
+    sound: "Звук",
+    settings_icon: "Настройки",
+    crumb_lobby: "Лобби",
+    crumb_room: "Комната",
+    vs: "против",
+    match_to_5: "До 5",
+    btn_resign: "Сдаться",
+    btn_lobby: "Лобби",
+    mobile_board_fullscreen: "Развернуть поле",
+    mobile_board_exit: "Свернуть поле",
+    refresh: "Обновить",
+    reload_room_title: "Перезагрузить комнату и вернуться к сохранённой позиции",
+    wait_kicker: "Игровая комната",
+    wait_title: "Ожидание соперника",
+    wait_text: "Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.",
+    room_code: "Код",
+    access: "Доступ",
+    password: "Пароль",
+    status: "Статус",
+    status_waiting: "Ждём подключения",
+    access_open: "Открытая",
+    access_closed: "Закрытая",
+    network: "Сеть",
+    network_loss_title: "Потеря сетевого соединения",
+    connection_lost_title: "Соединение потеряно",
+    network_loss_text: "Ждём восстановления соединения соперника. Позиция партии сохранена.",
+    network_forced_end: "Соединение потеряно, игра принудительно завершена",
+    server_unreachable_text: "Нет связи с сервером. Позиция партии сохраняется на сервере; после восстановления можно перезагрузить комнату.",
+    remaining: "Осталось",
+    seconds: "секунд",
+    reload_room: "Перезагрузить комнату",
+    unrated: "Без рейтинга",
+    side_dark: "Тёмные",
+    side_white: "Белые",
+    timer_clock: "Часы",
+    timer_onboard: "На доске",
+    match_to: "Партия до 5",
+    stat_time: "Время",
+    stat_onboard: "На доске",
+    stat_match: "Партии",
+    stat_to_win: "До победы",
+    your_turn: "Ваш ход",
+    helps_title: "Подсказки",
+    help_roll: "Автобросок кубиков",
+    help_undo: "Отменить ход",
+    help_theme: "Сменить тему",
+    help_lang: "Сменить язык",
+    prompt_lead: "Ваш ход.",
+    prompt_body: "Выберите шашку или перетащите её на подсвеченное поле.",
+    btn_undo: "Отменить",
+    btn_undo_move: "Отменить ход",
+    btn_bear_off: "Снять",
+    bear_white: "Белые",
+    bear_dark: "Тёмные",
+    tab_text: "Текст",
+    tab_voice: "Голос",
+    voice_hint: "Зажмите кнопку, чтобы говорить",
+    history_title: "Ход партии",
+    round_1: "Раунд 1",
+    opening_dice: "Стартовые кубики 6 : 1",
+    opening_roll: "Стартовый бросок",
+    opening_sub: "хост 6, гость 1 — первыми ходят Белые",
+    verify_title: "Проверка честности",
+    verify_start: "Старт",
+    verify_roll_2: "Бросок #2",
+    chat_title: "Чат",
+    chat_with: "с соперником",
+    chat_empty: "Сообщений пока нет — отправьте первое.",
+    chat_ph: "Сообщение сопернику…",
+    record_voice: "Записать голосовое сообщение",
+    record_voice_short: "Записать голосовое",
+    emoji: "Эмодзи",
+    send: "Отправить",
+    chip_gl: "Удачи!",
+    chip_nice: "Хороший ход",
+    chip_thanks: "Спасибо за игру",
+    chip_gg: "GG",
+    just_now: "сейчас",
+    opponent: "Соперник",
+    guest: "Гость",
+    bear_off_count: "Снято шашек: {count}",
+    audio_unavailable: "Аудио недоступно",
+    play_voice: "Воспроизвести голосовое сообщение",
+    recording: "Запись…",
+    voice_unsupported: "Браузер не поддерживает запись голоса",
+    mic_denied: "Доступ к микрофону не получен",
+    voice_too_long: "Голосовое сообщение слишком длинное",
+    voice_message: "Голосовое сообщение",
+  },
+  en: {
+    title_room: "Backgammon — Room",
+    brand_mark: "B",
+    brand_name: "Backgammon",
+    bot_initial: "B",
+    brand_sub: "long · short · online",
+    day: "Day",
+    night: "Night",
+    profile: "Profile",
+    theme: "Theme",
+    day_theme: "Day theme",
+    night_theme: "Night theme",
+    russian: "Russian",
+    sound: "Sound",
+    settings_icon: "Settings",
+    crumb_lobby: "Lobby",
+    crumb_room: "Room",
+    vs: "vs",
+    match_to_5: "To 5",
+    btn_resign: "Resign",
+    btn_lobby: "Lobby",
+    mobile_board_fullscreen: "Expand board",
+    mobile_board_exit: "Exit board view",
+    refresh: "Refresh",
+    reload_room_title: "Reload the room and restore the saved position",
+    wait_kicker: "Game room",
+    wait_title: "Waiting for opponent",
+    wait_text: "Send your opponent the room code and password if the game is closed. The match starts after the second player connects.",
+    room_code: "Code",
+    access: "Access",
+    password: "Password",
+    status: "Status",
+    status_waiting: "Waiting for connection",
+    access_open: "Open",
+    access_closed: "Closed",
+    network: "Network",
+    network_loss_title: "Network connection lost",
+    connection_lost_title: "Connection lost",
+    network_loss_text: "Waiting for the opponent to reconnect. The game position is saved.",
+    network_forced_end: "Connection lost, the game was ended automatically",
+    server_unreachable_text: "Cannot reach the server. The game position is saved on the server; reload the room after the connection is restored.",
+    remaining: "Remaining",
+    seconds: "seconds",
+    reload_room: "Reload room",
+    unrated: "Unrated",
+    side_dark: "Dark",
+    side_white: "White",
+    timer_clock: "Clock",
+    timer_onboard: "On board",
+    match_to: "Match to 5",
+    stat_time: "Time",
+    stat_onboard: "On board",
+    stat_match: "Games",
+    stat_to_win: "To win",
+    your_turn: "Your turn",
+    helps_title: "Shortcuts",
+    help_roll: "Auto-roll dice",
+    help_undo: "Undo move",
+    help_theme: "Toggle theme",
+    help_lang: "Switch language",
+    prompt_lead: "Your move.",
+    prompt_body: "Pick a checker or drag it onto a highlighted point.",
+    btn_undo: "Undo",
+    btn_undo_move: "Undo move",
+    btn_bear_off: "Bear off",
+    bear_white: "White",
+    bear_dark: "Dark",
+    tab_text: "Text",
+    tab_voice: "Voice",
+    voice_hint: "Hold to talk",
+    history_title: "Match log",
+    round_1: "Round 1",
+    opening_dice: "Opening dice 6 : 1",
+    opening_roll: "Opening roll",
+    opening_sub: "host 6, guest 1 — White moves first",
+    verify_title: "Fairness check",
+    verify_start: "Start",
+    verify_roll_2: "Roll #2",
+    chat_title: "Chat",
+    chat_with: "with opponent",
+    chat_empty: "No messages yet — send the first.",
+    chat_ph: "Message your opponent…",
+    record_voice: "Record a voice message",
+    record_voice_short: "Record voice",
+    emoji: "Emoji",
+    send: "Send",
+    chip_gl: "Good luck!",
+    chip_nice: "Nice move",
+    chip_thanks: "Thanks for the game",
+    chip_gg: "GG",
+    just_now: "now",
+    opponent: "Opponent",
+    guest: "Guest",
+    bear_off_count: "Checkers borne off: {count}",
+    audio_unavailable: "Audio unavailable",
+    play_voice: "Play voice message",
+    recording: "Recording…",
+    voice_unsupported: "This browser does not support voice recording",
+    mic_denied: "Microphone access was not granted",
+    voice_too_long: "Voice message is too long",
+    voice_message: "Voice message",
+  },
+};
+let LANG = localStorage.getItem('narduh-lang') || 'ru';
+
+function t(key) { return (I18N[LANG] && I18N[LANG][key]) ?? key; }
+
+function applyLang(lang) {
+  LANG = lang;
+  localStorage.setItem('narduh-lang', lang);
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.dataset.i18n;
+    if (I18N[lang][k] != null) el.textContent = I18N[lang][k];
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const k = el.dataset.i18nPh;
+    if (I18N[lang][k] != null) el.placeholder = I18N[lang][k];
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const k = el.dataset.i18nTitle;
+    if (I18N[lang][k] != null) el.title = I18N[lang][k];
+  });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+    const k = el.dataset.i18nAria;
+    if (I18N[lang][k] != null) el.setAttribute('aria-label', I18N[lang][k]);
+  });
+  document.querySelectorAll('.lang-switch button').forEach(b =>
+    b.classList.toggle('active', b.dataset.langSet === lang));
+  paintBoardFocusButton();
+  window.NarduController?.render?.();
+  paintWaitingRoom();
+}
+
+function paintBoardFocusButton() {
+  const active = document.body.classList.contains('board-focus');
+  const text = t(active ? 'mobile_board_exit' : 'mobile_board_fullscreen');
+  document.querySelectorAll('[data-board-focus]').forEach(btn => {
+    const label = btn.querySelector('[data-board-focus-label]');
+    if (label) label.textContent = text;
+    btn.title = text;
+    btn.setAttribute('aria-label', text);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function rerenderBoardAfterViewportChange(delay = 80) {
+  window.setTimeout(() => window.NarduController?.render?.(), delay);
+}
+
+async function lockLandscapeOrientation() {
+  try {
+    if (window.screen?.orientation?.lock) {
+      await window.screen.orientation.lock('landscape');
+    }
+  } catch (e) {}
+}
+
+function unlockOrientation() {
+  try {
+    window.screen?.orientation?.unlock?.();
+  } catch (e) {}
+}
+
+async function enterBoardFocus() {
+  document.body.classList.add('board-focus');
+  paintBoardFocusButton();
+  document.querySelector('.center')?.scrollIntoView({ block: 'start', inline: 'nearest' });
+  rerenderBoardAfterViewportChange(40);
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    }
+  } catch (e) {}
+  await lockLandscapeOrientation();
+  rerenderBoardAfterViewportChange(180);
+}
+
+async function exitBoardFocus() {
+  document.body.classList.remove('board-focus');
+  paintBoardFocusButton();
+  unlockOrientation();
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+  } catch (e) {}
+  rerenderBoardAfterViewportChange(80);
+}
+
+document.querySelectorAll('[data-board-focus]').forEach(btn => btn.addEventListener('click', () => {
+  if (document.body.classList.contains('board-focus')) exitBoardFocus();
+  else enterBoardFocus();
+}));
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('board-focus')) {
+    document.body.classList.remove('board-focus');
+    unlockOrientation();
+    paintBoardFocusButton();
+    rerenderBoardAfterViewportChange(80);
+  }
+});
+
+window.addEventListener('orientationchange', () => rerenderBoardAfterViewportChange(180));
+window.addEventListener('resize', () => {
+  if (document.body.classList.contains('board-focus')) rerenderBoardAfterViewportChange(120);
+});
+
+applyLang(LANG);
+
+document.querySelectorAll('.lang-switch button').forEach(btn => {
+  btn.addEventListener('click', () => applyLang(btn.dataset.langSet));
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'l' || e.key === 'L') applyLang(LANG === 'ru' ? 'en' : 'ru');
+});
+</script>
+
+</body>
+</html>

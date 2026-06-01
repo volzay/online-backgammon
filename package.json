@@ -1,0 +1,13 @@
+{
+  "name": "nardy-online",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Длинные нарды — онлайн (UI prototype, static deploy)",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'static site — nothing to build'"
+  },
+  "keywords": ["backgammon", "nardy", "long-backgammon"],
+  "license": "UNLICENSED"
+}

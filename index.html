@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title data-i18n="title_lobby">Нарды — Лобби</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <a class="brand" href="index.html">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </a>
+
+    <nav class="topnav">
+      <a class="navlink active" href="index.html" data-i18n="nav_lobby">Лобби</a>
+      <a class="navlink" href="settings.html" data-i18n="nav_settings">Настройки</a>
+    </nav>
+
+    <div class="spacer"></div>
+
+    <button class="user-chip" data-go="settings.html" title="Профиль" data-i18n-title="profile">
+      <div class="av" data-user-initial>A</div>
+      <span class="nm" data-user-name>—</span>
+      <span class="tier" data-user-tier>Bronze</span>
+      <span class="rt" data-user-rating>—</span>
+    </button>
+
+    <div class="theme-switch" role="tablist">
+      <button data-theme-set="day"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><span data-i18n="day">День</span></button>
+      <button data-theme-set="night" class="active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span data-i18n="night">Ночь</span></button>
+    </div>
+    <div class="theme-switch lang-switch">
+      <button data-lang-set="ru" class="active"><span>RU</span></button>
+      <button data-lang-set="en"><span>EN</span></button>
+    </div>
+
+    <button class="iconbtn" data-sound-toggle aria-label="Звук" data-i18n-aria="sound">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </button>
+    <button class="iconbtn" data-go="settings.html" aria-label="Настройки" data-i18n-aria="settings_icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <!-- LOBBY HEAD -->
+  <div class="lobby-head">
+    <div>
+      <h1 class="lobby-h1"><span data-i18n="lobby_ready_prefix">Готовы к партии, </span><em data-user-name>—</em><span data-i18n="lobby_ready_suffix">?</span></h1>
+      <p class="lobby-sub" data-i18n="lobby_sub">Выберите формат — мы найдём соперника или соберём стол под вас.</p>
+    </div>
+    <div class="lobby-quickstat">
+      <div class="qs"><span class="qs-n" id="qs-online">2 184</span><span class="qs-l" data-i18n="qs_online">сейчас в сети</span></div>
+      <div class="qs"><span class="qs-n" id="qs-games">347</span><span class="qs-l" data-i18n="qs_games">партий идёт</span></div>
+      <div class="qs"><span class="qs-n" id="qs-myrating" data-user-rating>—</span><span class="qs-l" data-i18n="qs_rating">ваш рейтинг</span></div>
+    </div>
+  </div>
+
+  <!-- PLAY CARDS -->
+  <section class="play-grid">
+    <button class="play-card primary" data-action="quick">
+      <div class="play-ico">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <div class="play-body">
+        <div class="play-title" data-i18n="play_quick">Быстрая игра</div>
+        <div class="play-sub" data-i18n="play_quick_sub">Подберём соперника по рейтингу</div>
+        <div class="play-foot">
+          <span class="play-pill" data-i18n="long_backgammon">Длинные нарды</span>
+          <span class="play-pill">5 + 0</span>
+        </div>
+      </div>
+      <div class="play-arrow">→</div>
+    </button>
+
+    <button class="play-card" data-action="create">
+      <div class="play-ico">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </div>
+      <div class="play-body">
+        <div class="play-title" data-i18n="play_create">Создать игру</div>
+        <div class="play-sub" data-i18n="play_create_sub">Настроить соперника и доступ</div>
+      </div>
+      <div class="play-arrow">→</div>
+    </button>
+
+    <button class="play-card" data-action="code">
+      <div class="play-ico">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </div>
+      <div class="play-body">
+        <div class="play-title" data-i18n="play_code">По коду</div>
+        <div class="play-sub" data-i18n="play_code_sub">Сыграть с другом по приглашению</div>
+      </div>
+      <div class="play-arrow">→</div>
+    </button>
+  </section>
+
+  <!-- CREATE GAME -->
+  <section class="create-game-panel" id="create-game-panel" hidden>
+    <div class="create-game-head">
+      <div>
+        <h2 data-i18n="create_game_title">Создать игру</h2>
+        <p data-i18n="create_game_text">Выберите параметры партии перед переходом на игровую доску.</p>
+      </div>
+      <button class="ghostbtn" type="button" data-create-close>
+        <span data-i18n="hide">Скрыть</span>
+      </button>
+    </div>
+
+    <form class="create-game-form" id="create-game-form" novalidate>
+      <div class="create-field">
+        <label data-i18n="opponent_choice">Выбор соперника</label>
+        <div class="choice-grid two">
+          <button class="choice-btn active" type="button" data-create-option="opponent" data-value="player" aria-pressed="true" data-i18n="opponent_player">Игрок</button>
+          <button class="choice-btn" type="button" data-create-option="opponent" data-value="bot" aria-pressed="false" data-i18n="opponent_bot">Бот</button>
+        </div>
+      </div>
+
+      <div class="create-field" data-bot-settings hidden>
+        <label data-i18n="bot_difficulty">Сложность бота</label>
+        <div class="choice-grid three">
+          <button class="choice-btn active" type="button" data-create-option="difficulty" data-value="easy" aria-pressed="true" data-i18n="difficulty_easy">Лёгкий</button>
+          <button class="choice-btn" type="button" data-create-option="difficulty" data-value="medium" aria-pressed="false" data-i18n="difficulty_medium">Средний</button>
+          <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard" aria-pressed="false" data-i18n="difficulty_hard">Сложный</button>
+        </div>
+      </div>
+
+      <div class="create-field">
+        <label data-i18n="game_variant">Вид нард</label>
+        <div class="choice-grid two">
+          <button class="choice-btn active" type="button" data-create-option="variant" data-value="long" aria-pressed="true" data-i18n="long_backgammon">Длинные нарды</button>
+          <button class="choice-btn" type="button" data-create-option="variant" data-value="short" aria-pressed="false" data-i18n="short_backgammon">Короткие нарды</button>
+        </div>
+      </div>
+
+      <div class="create-field" data-access-settings>
+        <label data-i18n="access">Доступ</label>
+        <div class="choice-grid two">
+          <button class="choice-btn active" type="button" data-create-option="access" data-value="open" aria-pressed="true" data-i18n="access_open">Открытая</button>
+          <button class="choice-btn" type="button" data-create-option="access" data-value="closed" aria-pressed="false" data-i18n="access_closed">Закрытая</button>
+        </div>
+      </div>
+
+      <div class="create-field create-password-field" data-password-settings hidden>
+        <label for="create-password" data-i18n="closed_game_password">Пароль закрытой игры</label>
+        <input id="create-password" name="password" type="password" minlength="4" autocomplete="off" placeholder="Например: 1234 или secret" data-i18n-ph="closed_game_password_ph" disabled />
+        <p data-i18n="closed_game_password_hint">Этот пароль сообщите сопернику для входа в закрытую игру.</p>
+      </div>
+
+      <div class="create-summary">
+        <span id="create-game-summary">Игрок · Длинные нарды · Открытая</span>
+      </div>
+
+      <div class="create-actions">
+        <p class="create-error" id="create-game-error" role="alert"></p>
+        <button class="joinbtn create-submit" type="submit" data-i18n="create_game_title">Создать игру</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- JOIN BY CODE -->
+  <section class="join-code-panel" id="join-code-panel" hidden>
+    <div class="create-game-head">
+      <div>
+        <h2 data-i18n="join_by_code_title">Войти по коду</h2>
+        <p data-i18n="join_by_code_text">Введите код закрытой или открытой комнаты, который сообщил соперник.</p>
+      </div>
+      <button class="ghostbtn" type="button" data-code-close>
+        <span data-i18n="hide">Скрыть</span>
+      </button>
+    </div>
+    <form class="join-code-form" id="join-code-form" novalidate>
+      <div class="create-field">
+        <label for="join-code" data-i18n="room_code">Код комнаты</label>
+        <input id="join-code" name="code" type="text" autocomplete="off" maxlength="8" placeholder="Например: A7K2" data-i18n-ph="room_code_ph" />
+      </div>
+      <div class="create-field">
+        <label for="join-password" data-i18n="password">Пароль</label>
+        <input id="join-password" name="password" type="password" autocomplete="off" placeholder="Если комната закрытая" data-i18n-ph="room_password_ph" />
+      </div>
+      <div class="create-actions">
+        <p class="create-error" id="join-code-error" role="alert"></p>
+        <button class="joinbtn create-submit" type="submit" data-i18n="join">Войти</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- TABLES + SIDEBAR -->
+  <section class="lobby-grid">
+
+    <div class="panel tables-panel">
+      <div class="between" style="margin-bottom: 14px;">
+        <h3 style="margin:0;" data-i18n="open_tables">ИГРОВЫЕ СЕССИИ</h3>
+        <div class="filters">
+          <button class="filter active" type="button" data-session-filter="all" data-i18n="filters_all">Все</button>
+          <button class="filter" type="button" data-session-filter="long" data-i18n="filters_long">Длинные</button>
+          <button class="filter" type="button" data-session-filter="short" data-i18n="filters_short">Короткие</button>
+          <button class="filter" type="button" data-session-filter="friends" data-i18n="filters_friends">Друзья</button>
+          <button class="filter" type="button" data-session-filter="in-game" data-i18n="filters_in_game">В игре</button>
+        </div>
+      </div>
+
+      <div class="tables-list" id="tables-list">
+        <!-- rendered by JS -->
+      </div>
+
+      <div class="tables-foot">
+        <span class="muted" data-i18n="updated_now">Обновлено только что</span>
+        <button class="ghostbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span data-i18n="refresh">Обновить</span></button>
+      </div>
+    </div>
+
+    <aside class="side-stack">
+
+      <div class="panel">
+        <div class="between" style="margin-bottom: 10px;">
+          <h3 style="margin:0;" data-i18n="leaderboard">Лидерборд</h3>
+          <span class="muted" style="font-size:11px;" data-i18n="season_7">сезон 7</span>
+        </div>
+        <ol class="lb-list" id="lb-list"></ol>
+      </div>
+
+      <div class="panel">
+        <div class="between" style="margin-bottom: 10px;">
+          <h3 style="margin:0;" data-i18n="online_now">Сейчас в сети</h3>
+          <span class="muted" style="font-size:11px;"><span id="friends-count">8</span> <span data-i18n="friends_count">друзей</span></span>
+        </div>
+        <ul class="friends-list" id="friends-list"></ul>
+      </div>
+
+      <div class="panel slim">
+        <button class="ghostlink wide" data-logout>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span data-i18n="logout">Выйти</span>
+        </button>
+      </div>
+
+    </aside>
+
+  </section>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  NarduApp.requireAuth();
+  const tt = (key) => NarduApp.t(key);
+
+  /* mock tables */
+  const tables = [
+    { host: 'Sereja91',     rating: 1742, variant: 'long',  timer: '5 + 0',  stakes: '—', watchers: 4 },
+    { host: 'mukhtar',      rating: 1480, variant: 'long',  timer: '10 + 0', stakes: '—', watchers: 0, friend: true },
+    { host: 'Александра',   rating: 1322, variant: 'short', timer: '3 + 2',  stakes: '—', watchers: 12 },
+    { host: 'Bot medium',   rating: 1200, variant: 'long',  timer: '5 + 0',  stakes: '—', watchers: 0, bot: true, hostKey: 'bot_medium' },
+    { host: 'irina_b',      rating: 1655, variant: 'long',  timer: '15 + 0', stakes: '—', watchers: 2 },
+    { host: 'Tigran',       rating: 1898, variant: 'short', timer: '5 + 3',  stakes: '—', watchers: 31 },
+    { host: 'Bot easy',     rating:  900, variant: 'long',  timer: '∞',      stakes: '—', watchers: 0, bot: true, hostKey: 'bot_easy' },
+  ];
+
+  function tierFor(r) {
+    return NarduApp.ratingTierFor(r);
+  }
+
+  function isRatingValue(value) {
+    return Number.isFinite(Number(value));
+  }
+
+  function ratingMeta(rating, tier = '') {
+    if (!isRatingValue(rating)) {
+      return `<span class="tier-pill muted">${escapeHtml(tt('unrated'))}</span><span class="muted">—</span>`;
+    }
+    const tierCode = tier || tierFor(rating);
+    return `<span class="tier-pill ${tierCode.toLowerCase()}">${escapeHtml(NarduApp.tierLabel(tierCode))}</span><span class="muted">${escapeHtml(rating)}</span>`;
+  }
+
+  const ACTIVE_ROOM_KEY = 'narduh-active-room';
+  const opponentLabelKeys = { player: 'opponent_player', bot: 'opponent_bot' };
+  const difficultyLabelKeys = { easy: 'difficulty_easy', medium: 'difficulty_medium', hard: 'difficulty_hard' };
+  const variantLabelKeys = { long: 'long_backgammon', short: 'short_backgammon' };
+  const accessLabelKeys = { open: 'access_open', closed: 'access_closed' };
+  const botNameKeys = { easy: 'bot_easy', medium: 'bot_medium', hard: 'bot_hard' };
+  function labelFor(map, value, fallback = value) {
+    return tt(map[value] || fallback);
+  }
+  let playerRooms = [];
+  let activeSessionFilter = 'all';
+
+  function readPlayerRooms() {
+    return playerRooms;
+  }
+
+  async function apiJson(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(NarduApp.translateServerMessage(data.error) || tt('err_session'));
+      err.status = response.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  async function refreshPlayerRooms() {
+    if (document.activeElement?.matches('[data-room-password-input]')) return;
+    try {
+      const data = await apiJson('/api/rooms');
+      playerRooms = data.rooms || [];
+      renderTables();
+    } catch {
+      /* keep the last visible session list if the server is restarting */
+    }
+  }
+
+  function userRating() {
+    const user = NarduApp.getUser();
+    return NarduApp.isRatedUser(user) ? Number(user.rating || 1000) : null;
+  }
+
+  function userRatingEligible() {
+    return NarduApp.isRatedUser(NarduApp.getUser());
+  }
+
+  function userId() {
+    return NarduApp.getUser()?.id || '';
+  }
+
+  function userName() {
+    return NarduApp.getUser()?.name || 'Guest';
+  }
+
+  function normalizedName(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    })[ch]);
+  }
+
+  function goToExistingPlayerRoom(room) {
+    if (!room?.code) return false;
+    const isHost = normalizedName(room.hostName) === normalizedName(userName());
+      const params = new URLSearchParams({
+        mode: 'remote',
+        room: room.code,
+        color: isHost ? 'white' : 'dark',
+        opp: isHost ? (room.guestName || tt('opponent_waiting')) : room.hostName,
+        oppR: String(isHost ? (room.guestRating || 0) : (room.hostRating || 0)),
+        variant: room.variant || 'long',
+        opponent: 'player',
+        access: room.access || 'open',
+    });
+    if (isHost) params.set('host', '1');
+    else params.set('guest', '1');
+    if (room.status === 'waiting' && isHost) params.set('waiting', '1');
+    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: isHost ? 'host' : 'guest' }));
+    if (isHost) localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(room));
+    location.href = 'room.html?' + params.toString();
+    return true;
+  }
+
+  function tableRows() {
+    const playerRooms = readPlayerRooms()
+      .map(room => ({
+        host: room.status === 'joined'
+          ? `${room.hostName} ${tt('vs') || 'vs'} ${room.guestName || tt('room_opponent')}`
+          : room.hostName,
+        hostName: room.hostName,
+        guestName: room.guestName || '',
+        rating: room.hostRating,
+        tier: room.hostTier || '',
+        mode: labelFor(variantLabelKeys, room.variant || 'long', 'long_backgammon'),
+        variant: room.variant || 'long',
+        timer: room.status === 'joined' ? 'live' : '∞',
+        access: room.access || 'open',
+        stakes: labelFor(accessLabelKeys, room.access || 'open', 'access_open'),
+        watchers: 0,
+        roomCode: room.code,
+        localRoom: true,
+        playing: room.status === 'joined',
+        status: room.status || 'waiting',
+      }));
+    return [...playerRooms, ...tables].filter(matchesSessionFilter);
+  }
+
+  function matchesSessionFilter(row) {
+    if (activeSessionFilter === 'all') return true;
+    if (activeSessionFilter === 'long') return row.variant === 'long';
+    if (activeSessionFilter === 'short') return row.variant === 'short';
+    if (activeSessionFilter === 'friends') return Boolean(row.friend);
+    if (activeSessionFilter === 'in-game') return row.status === 'joined' || row.playing === true;
+    return true;
+  }
+
+  function lockIcon(access) {
+    const closed = access === 'closed';
+    return closed
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M9 10V7a4 4 0 0 1 7.5-2"/></svg>';
+  }
+
+  function passwordCell(t) {
+    if (t.status === 'joined' || !t.localRoom || t.access !== 'closed') {
+      return '<span class="session-pass-empty" aria-hidden="true"></span>';
+    }
+    return `
+      <label class="session-password-field">
+        <input class="session-password-input" data-room-password-input type="password" autocomplete="off" placeholder="${escapeHtml(tt('password'))}" aria-label="${escapeHtml(tt('closed_game_password'))}" />
+        <span class="session-password-error" data-room-error></span>
+      </label>
+    `;
+  }
+
+  function accessCell(t, access) {
+    if (t.status === 'joined') {
+      return `<span class="session-status in-game">${escapeHtml(tt('in_game'))}</span>`;
+    }
+    if (!t.localRoom) {
+      return `<span class="session-status waiting">${escapeHtml(tt('waiting'))}</span>`;
+    }
+    return `<span class="session-access ${access === 'closed' ? 'closed' : 'open'}">${lockIcon(access)}<span>${escapeHtml(labelFor(accessLabelKeys, access, 'access_open'))}</span></span>`;
+  }
+
+  function isRoomParticipant(rowOrRoom) {
+    const name = normalizedName(userName());
+    return Boolean(name) && (
+      normalizedName(rowOrRoom.hostName) === name
+      || normalizedName(rowOrRoom.guestName) === name
+    );
+  }
+
+  function playerRoomByCode(code) {
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    return readPlayerRooms().find(room => room.code === normalizedCode) || null;
+  }
+
+  function row(t) {
+    const initial = (t.host[0] || '?').toUpperCase();
+    const access = t.access || 'open';
+    const status = t.status || 'waiting';
+    const canReturn = t.roomCode && status === 'joined' && isRoomParticipant(t);
+    const canJoin = t.roomCode ? (status === 'waiting' || canReturn) : true;
+    const actionLabel = status === 'joined' ? (canReturn ? tt('return_to_room') : tt('in_game')) : tt('join');
+    const hostLabel = escapeHtml(t.hostKey ? tt(t.hostKey) : t.host);
+    const modeLabel = t.mode || labelFor(variantLabelKeys, t.variant || 'long', 'long_backgammon');
+    const meta = t.status === 'joined'
+      ? `<span class="session-versus">${escapeHtml(t.hostName)} · ${escapeHtml(t.guestName || tt('room_opponent'))}</span>`
+      : ratingMeta(t.rating, t.tier);
+    return `
+      <div class="table-row ${status === 'joined' ? 'in-game' : ''} ${canReturn ? 'returnable' : ''}" data-host="${escapeHtml(t.host)}" data-access="${access}" data-status="${status}" data-variant="${t.variant || ''}" ${t.roomCode ? `data-room-code="${t.roomCode}"` : ''}>
+        <div class="t-host">
+          <div class="t-av ${t.bot ? 'bot' : ''}">${initial}</div>
+          <div>
+            <div class="t-name">${hostLabel}${t.bot ? ' <span class="bot-pill">BOT</span>' : ''}${t.localRoom && status !== 'joined' ? ' <span class="bot-pill">ROOM</span>' : ''}</div>
+            <div class="t-meta">${meta}</div>
+          </div>
+        </div>
+        <div class="t-cell"><span class="t-pill">${escapeHtml(modeLabel)}</span></div>
+        <div class="t-cell session-access-cell">${accessCell(t, access)}</div>
+        <div class="t-cell session-password-cell">${passwordCell({ ...t, access })}</div>
+        <div class="t-cell"><span class="t-pill mono">${t.timer}</span></div>
+        <div class="t-cell mono muted">${t.watchers ? '👁 ' + t.watchers : ''}</div>
+        <div class="t-cell"><button class="joinbtn" ${canJoin ? `data-join="${escapeHtml(t.host)}"` : 'disabled'}>${actionLabel}</button></div>
+      </div>
+    `;
+  }
+
+  function renderTables() {
+    const rows = tableRows();
+    document.getElementById('tables-list').innerHTML = rows.length
+      ? rows.map(row).join('')
+      : `<div class="sessions-empty">${escapeHtml(tt('no_sessions'))}</div>`;
+  }
+  renderTables();
+  refreshPlayerRooms();
+  setInterval(refreshPlayerRooms, 2500);
+
+  document.querySelectorAll('[data-session-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeSessionFilter = btn.dataset.sessionFilter || 'all';
+      document.querySelectorAll('[data-session-filter]').forEach(item => {
+        const active = item === btn;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-pressed', String(active));
+      });
+      renderTables();
+    });
+  });
+
+  document.querySelector('.tables-foot .ghostbtn')?.addEventListener('click', refreshPlayerRooms);
+
+  document.getElementById('tables-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-join]');
+    const row = e.target.closest('.table-row');
+    if (!row) return;
+    if (e.target.closest('[data-room-password-input]')) return;
+    if (row.dataset.status === 'joined') {
+      const room = playerRoomByCode(row.dataset.roomCode);
+      if (room && isRoomParticipant(room)) goToExistingPlayerRoom(room);
+      return;
+    }
+    if (row.dataset.roomCode) {
+      const passwordInput = row.querySelector('[data-room-password-input]');
+      const error = row.querySelector('[data-room-error]');
+      if (!btn && row.dataset.access === 'closed') {
+        passwordInput?.focus();
+        return;
+      }
+      if (error) error.textContent = '';
+      row.classList.remove('row-error');
+      const result = await joinPlayerRoom(row.dataset.roomCode, passwordInput?.value || '');
+      if (!result.ok) {
+        if (error) error.textContent = result.message;
+        row.classList.add('row-error');
+        passwordInput?.focus();
+      }
+      return;
+    }
+    const host = (btn?.dataset.join) || row.dataset.host;
+    const t = tables.find(x => x.host === host);
+    if (!t) return;
+    const params = new URLSearchParams({
+      mode: t.bot ? 'bot' : 'remote',
+      opp: t.host,
+      oppR: t.rating,
+    });
+    location.href = 'room.html?' + params.toString();
+  });
+
+  const CREATE_GAME_KEY = 'narduh-created-game';
+  const createGamePanel = document.getElementById('create-game-panel');
+  const createGameForm = document.getElementById('create-game-form');
+  const createPassword = document.getElementById('create-password');
+  const createSummary = document.getElementById('create-game-summary');
+  const createError = document.getElementById('create-game-error');
+  const joinCodePanel = document.getElementById('join-code-panel');
+  const joinCodeForm = document.getElementById('join-code-form');
+  const joinCodeInput = document.getElementById('join-code');
+  const joinPasswordInput = document.getElementById('join-password');
+  const joinCodeError = document.getElementById('join-code-error');
+  const createState = {
+    opponent: 'player',
+    difficulty: 'easy',
+    variant: 'long',
+    access: 'open',
+  };
+  const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+
+  function syncCreatePanel() {
+    document.querySelectorAll('[data-create-option]').forEach(btn => {
+      const key = btn.dataset.createOption;
+      const active = createState[key] === btn.dataset.value;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+
+    const botSettings = document.querySelector('[data-bot-settings]');
+    const accessSettings = document.querySelector('[data-access-settings]');
+    const passwordSettings = document.querySelector('[data-password-settings]');
+    const showBotSettings = createState.opponent === 'bot';
+    const showAccessSettings = createState.opponent !== 'bot';
+    const showPassword = showAccessSettings && createState.access === 'closed';
+
+    botSettings.hidden = !showBotSettings;
+    accessSettings.hidden = !showAccessSettings;
+    passwordSettings.hidden = !showPassword;
+    createPassword.disabled = !showPassword;
+    createPassword.required = showPassword;
+
+    const parts = [
+      labelFor(opponentLabelKeys, createState.opponent),
+      createState.opponent === 'bot' ? labelFor(difficultyLabelKeys, createState.difficulty) : null,
+      labelFor(variantLabelKeys, createState.variant),
+      showAccessSettings ? labelFor(accessLabelKeys, createState.access) : null,
+    ].filter(Boolean);
+    createSummary.textContent = parts.join(' · ');
+  }
+
+  function showCreatePanel() {
+    createGamePanel.hidden = false;
+    createGamePanel.classList.add('is-open');
+    joinCodePanel.hidden = true;
+    syncCreatePanel();
+    createGamePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showJoinCodePanel() {
+    joinCodePanel.hidden = false;
+    createGamePanel.hidden = true;
+    joinCodeError.textContent = '';
+    joinCodePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    joinCodeInput.focus();
+  }
+
+  document.querySelector('[data-create-close]').addEventListener('click', () => {
+    createGamePanel.hidden = true;
+    createGamePanel.classList.remove('is-open');
+  });
+
+  document.querySelector('[data-code-close]').addEventListener('click', () => {
+    joinCodePanel.hidden = true;
+  });
+
+  document.querySelectorAll('[data-create-option]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      createState[btn.dataset.createOption] = btn.dataset.value;
+      createError.textContent = '';
+      syncCreatePanel();
+      if (btn.dataset.createOption === 'access' && btn.dataset.value === 'closed') {
+        createPassword.focus();
+      }
+    });
+  });
+
+  createGameForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = createPassword.value.trim();
+    if (createState.opponent !== 'bot' && createState.access === 'closed' && password.length < 4) {
+      createError.textContent = tt('err_closed_password_min');
+      createPassword.focus();
+      return;
+    }
+
+    if (createState.opponent === 'bot') {
+      const settings = {
+        ...createState,
+        access: 'open',
+        password: '',
+        createdAt: new Date().toISOString(),
+      };
+      localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(settings));
+
+      const params = new URLSearchParams({
+        mode: 'bot',
+        opp: tt(botNameKeys[createState.difficulty]),
+        oppR: String(botRatings[createState.difficulty]),
+        variant: createState.variant,
+        opponent: 'bot',
+        access: 'open',
+        difficulty: createState.difficulty,
+      });
+      location.href = 'room.html?' + params.toString();
+      return;
+    }
+
+    let room;
+    try {
+      const data = await apiJson('/api/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          hostName: userName(),
+          hostRating: userRating(),
+          hostUserId: userId(),
+          hostRatingEligible: userRatingEligible(),
+          variant: createState.variant,
+          access: createState.access,
+          password: createState.access === 'closed' ? password : '',
+        }),
+      });
+      room = data.room;
+    } catch (err) {
+      if (err.data?.room && goToExistingPlayerRoom(err.data.room)) return;
+      createError.textContent = err.message || tt('err_create_session');
+      return;
+    }
+
+    localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(room));
+    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'host' }));
+
+    const params = new URLSearchParams({
+      mode: 'remote',
+      room: room.code,
+      host: '1',
+      waiting: '1',
+      color: 'white',
+      opp: tt('opponent_waiting'),
+      oppR: '0',
+      variant: room.variant,
+      opponent: 'player',
+      access: room.access,
+    });
+    location.href = 'room.html?' + params.toString();
+  });
+
+  syncCreatePanel();
+
+  async function joinPlayerRoom(code, password) {
+    const normalizedCode = code.trim().toUpperCase();
+    if (!normalizedCode) return { ok: false, message: tt('err_enter_room_code') };
+
+    let room;
+    try {
+      const data = await apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/join`, {
+        method: 'POST',
+        body: JSON.stringify({
+          guestName: userName(),
+          guestRating: userRating(),
+          guestUserId: userId(),
+          guestRatingEligible: userRatingEligible(),
+          password,
+        }),
+      });
+      room = data.room;
+    } catch (err) {
+      await refreshPlayerRooms();
+      return { ok: false, message: err.message || tt('err_join_room') };
+    }
+
+    if (room?.status === 'joined' && isRoomParticipant(room)) {
+      goToExistingPlayerRoom(room);
+      return { ok: true };
+    }
+
+    const params = new URLSearchParams({
+      mode: 'remote',
+      room: room.code,
+      guest: '1',
+      color: 'dark',
+      opp: room.hostName,
+      oppR: String(room.hostRating || 0),
+      variant: room.variant,
+      opponent: 'player',
+      access: room.access,
+    });
+    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'guest' }));
+    location.href = 'room.html?' + params.toString();
+    return { ok: true };
+  }
+
+  joinCodeForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    joinCodeError.textContent = '';
+    const result = await joinPlayerRoom(joinCodeInput.value, joinPasswordInput.value);
+    if (!result.ok) {
+      joinCodeError.textContent = result.message;
+    }
+  });
+
+  document.querySelectorAll('[data-action]').forEach(b => {
+    b.addEventListener('click', () => {
+      const a = b.dataset.action;
+      let params;
+      if (a === 'quick') {
+        params = new URLSearchParams({ mode: 'bot', opp: tt('room_opponent'), oppR: 1100 });
+      } else if (a === 'create') {
+        showCreatePanel();
+        return;
+      } else {
+        showJoinCodePanel();
+        return;
+      }
+      location.href = 'room.html?' + params.toString();
+    });
+  });
+
+  /* leaderboard */
+  const lb = [
+    { name: 'Tigran',    rating: 1898 },
+    { name: 'Sereja91',  rating: 1742 },
+    { name: 'irina_b',   rating: 1655 },
+    { name: 'mukhtar',   rating: 1480 },
+    { name: 'Александра', rating: 1322 },
+  ];
+  function renderLeaderboard() {
+    document.getElementById('lb-list').innerHTML = lb.map((p, i) => `
+      <li class="lb-row">
+        <span class="lb-rank">${i+1}</span>
+        <div class="lb-av">${p.name[0].toUpperCase()}</div>
+        <span class="lb-name">${p.name}</span>
+        <span class="lb-rating mono">${p.rating}</span>
+      </li>
+    `).join('');
+  }
+
+  /* friends */
+  const friends = [
+    { name: 'mukhtar',   playing: false },
+    { name: 'Sereja91',  playing: true  },
+    { name: 'irina_b',   playing: false },
+    { name: 'Aram',      playing: false },
+    { name: 'Karen',     playing: true  },
+  ];
+  function renderFriends() {
+    document.getElementById('friends-list').innerHTML = friends.map(f => `
+      <li class="fr-row">
+        <div class="fr-av">${f.name[0].toUpperCase()}<span class="dot ${f.playing ? 'busy' : 'online'}"></span></div>
+        <span class="fr-name">${f.name}</span>
+        <span class="fr-status muted">${f.playing ? tt('status_playing') : tt('status_free')}</span>
+        <button class="fr-invite" title="${escapeHtml(tt('invite'))}">＋</button>
+      </li>
+    `).join('');
+  }
+
+  function renderLocalizedLobby() {
+    syncCreatePanel();
+    renderTables();
+    renderLeaderboard();
+    renderFriends();
+  }
+
+  renderLeaderboard();
+  renderFriends();
+  window.addEventListener('nardu:langchange', renderLocalizedLobby);
+</script>
+
+</body>
+</html>
