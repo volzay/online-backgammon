@@ -1040,17 +1040,18 @@ window.NarduBoardEngine = (function () {
     return boardCssPx('--checker-seat-inset', Math.max(6, currentCheckerSize() * 0.36));
   }
 
-  function stackAreaHeight(pointEl) {
+  function stackAreaHeight(pointEl, count = 1) {
+    const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
+    if (count >= 12) return boardHeight * 0.74;
     const pointHeight = pointEl?.getBoundingClientRect?.().height;
     if (Number.isFinite(pointHeight) && pointHeight > 0) return pointHeight;
-    const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
     return boardHeight / 2;
   }
 
   function stackGap(count, checkerSize = currentCheckerSize(), pointEl = null) {
     if (count <= 1) return 0;
     const preferred = checkerSize * (count <= 5 ? 0.62 : count <= 8 ? 0.48 : count <= 12 ? 0.36 : 0.29);
-    const available = stackAreaHeight(pointEl) - stackInset() * 2 - checkerSize;
+    const available = stackAreaHeight(pointEl, count) - stackInset() * 2 - checkerSize;
     const fitted = available / Math.max(1, count - 1);
     return Math.max(0, Math.min(preferred, fitted));
   }

@@ -462,8 +462,9 @@ function stackInsetPx() {
   return boardCssPx('--checker-seat-inset', Math.max(6, checkerSizePx() * 0.36));
 }
 
-function stackAreaHeightPx() {
+function stackAreaHeightPx(count = 1) {
   const boardHeight = document.getElementById('board')?.getBoundingClientRect().height || 540;
+  if (count >= 12) return boardHeight * 0.74;
   return boardHeight / 2;
 }
 
@@ -471,7 +472,7 @@ function stackGap(count) {
   if (count <= 1) return 0;
   const checker = checkerSizePx();
   const preferred = checker * (count <= 5 ? 0.62 : count <= 8 ? 0.48 : count <= 12 ? 0.36 : 0.29);
-  const available = stackAreaHeightPx() - stackInsetPx() * 2 - checker;
+  const available = stackAreaHeightPx(count) - stackInsetPx() * 2 - checker;
   const fitted = available / Math.max(1, count - 1);
   return Math.max(0, Math.min(preferred, fitted));
 }
