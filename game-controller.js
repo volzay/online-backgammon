@@ -347,7 +347,13 @@ window.NarduController = (function () {
 
   function clearStaleDragClones() {
     if (dragState) return;
-    document.querySelectorAll('.board-drag-checker').forEach(clone => clone.remove());
+    removeDragClones();
+  }
+
+  function removeDragClones(except = null) {
+    document.querySelectorAll('.board-drag-checker').forEach(clone => {
+      if (clone !== except) clone.remove();
+    });
   }
 
   function startRemoteSync() {
@@ -1505,14 +1511,23 @@ window.NarduController = (function () {
   function onPointerDown(e) {
     if (e.button !== undefined && e.button !== 0) return;
     const pt = e.target.closest('[data-point]');
-    if (!pt || !pt.closest('.board')) return;
+    const board = pt?.closest('.board');
+    if (!pt || !board) return;
     const point = parseInt(pt.dataset.point, 10);
     if (Number.isNaN(point) || !canStartCheckerDrag(point)) return;
     const checker = pt.querySelector('.stack')?.lastElementChild;
     if (!checker) return;
 
+    if (dragState) cleanupDrag();
+    removeDragClones();
+    e.preventDefault();
+    try {
+      board.setPointerCapture?.(e.pointerId);
+    } catch (err) {}
+
     dragState = {
       pointerId: e.pointerId,
+      captureEl: board,
       from: point,
       startX: e.clientX,
       startY: e.clientY,
@@ -1542,6 +1557,7 @@ window.NarduController = (function () {
     suppressClickUntil = Date.now() + 400;
     setSelection(dragState.from, dragState.targets);
     render();
+    removeDragClones();
 
     const freshChecker = document.querySelector(`[data-point="${dragState.from}"] .stack`)?.lastElementChild;
     const rect = freshChecker?.getBoundingClientRect() || dragState.sourceRect;
@@ -1594,7 +1610,11 @@ window.NarduController = (function () {
   function onPointerUp(e) {
     if (!dragState || e.pointerId !== dragState.pointerId) return;
     if (!dragState.active) {
-      dragState = null;
+      const from = dragState.from;
+      cleanupDrag();
+      suppressClickUntil = Date.now() + 180;
+      e.preventDefault();
+      onPointClick(from);
       return;
     }
     e.preventDefault();
@@ -1625,10 +1645,24 @@ window.NarduController = (function () {
     const clone = dragState?.clone || null;
     dragState?.hoverEl?.classList.remove('drag-over');
     if (restoreHidden && dragState?.hiddenChecker) dragState.hiddenChecker.style.visibility = '';
-    if (removeClone) clone?.remove();
+    try {
+      if (dragState?.captureEl?.hasPointerCapture?.(dragState.pointerId)) {
+        dragState.captureEl.releasePointerCapture(dragState.pointerId);
+      }
+    } catch (err) {}
+    if (removeClone) {
+      removeDragClones();
+    } else {
+      removeDragClones(clone);
+    }
     document.body.classList.remove('checker-dragging');
     dragState = null;
     return clone;
+  }
+
+  function cancelActiveDrag() {
+    if (dragState) cleanupDrag();
+    else removeDragClones();
   }
 
   function releaseCommittedDragClone(clone) {
@@ -2192,6 +2226,12 @@ window.NarduController = (function () {
   document.addEventListener('pointermove', onPointerMove, { passive: false });
   document.addEventListener('pointerup', onPointerUp);
   document.addEventListener('pointercancel', onPointerCancel);
+  window.addEventListener('blur', cancelActiveDrag);
+  window.addEventListener('pagehide', cancelActiveDrag);
+  window.addEventListener('scroll', cancelActiveDrag, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cancelActiveDrag();
+  });
 
   document.addEventListener('click', (e) => {
     if (Date.now() < suppressClickUntil) {
