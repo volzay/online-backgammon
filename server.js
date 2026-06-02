@@ -436,6 +436,7 @@ function ensureAccountData(user) {
   assignRegisteredRating(user);
   user.ratingHistory = Array.isArray(user.ratingHistory) ? user.ratingHistory : [];
   user.friends = Array.isArray(user.friends) ? user.friends : [];
+  user.friendRequests = Array.isArray(user.friendRequests) ? user.friendRequests : [];
   user.friendMessages = Array.isArray(user.friendMessages) ? user.friendMessages : [];
   user.friends = user.friends
     .map(friend => {
@@ -449,6 +450,27 @@ function ensureAccountData(user) {
     })
     .filter(Boolean)
     .filter((friend, index, all) => all.findIndex(item => item.userId === friend.userId) === index);
+  user.friendRequests = user.friendRequests
+    .map(request => {
+      const fromUser = authState.users.find(item => item.id === request.fromUserId) || findAuthUserByNickname(request.fromName);
+      const toUser = authState.users.find(item => item.id === request.toUserId) || findAuthUserByNickname(request.toName);
+      if (!fromUser || !toUser || fromUser.id === toUser.id) return null;
+      const status = ["pending", "accepted", "declined", "cancelled"].includes(request.status) ? request.status : "pending";
+      return {
+        id: request.id || id("frq"),
+        fromUserId: fromUser.id,
+        fromName: fromUser.nickname,
+        toUserId: toUser.id,
+        toName: toUser.nickname,
+        status,
+        createdAt: request.createdAt || now(),
+        respondedAt: request.respondedAt || "",
+        cancelledAt: request.cancelledAt || "",
+      };
+    })
+    .filter(Boolean)
+    .filter((request, index, all) => all.findIndex(item => item.id === request.id) === index)
+    .slice(-500);
   user.friendMessages = user.friendMessages
     .filter(message => message && message.id && message.threadId && message.text)
     .slice(-500);
@@ -495,6 +517,85 @@ function friendSummaryFor(user, friendUser) {
   };
 }
 
+function accountFriendRequestCopy(request, fromUser, toUser) {
+  return {
+    id: request.id,
+    fromUserId: fromUser.id,
+    fromName: fromUser.nickname,
+    toUserId: toUser.id,
+    toName: toUser.nickname,
+    status: request.status || "pending",
+    createdAt: request.createdAt || now(),
+    respondedAt: request.respondedAt || "",
+    cancelledAt: request.cancelledAt || "",
+  };
+}
+
+function syncFriendRequestCopies(request) {
+  const fromUser = authState.users.find(item => item.id === request.fromUserId);
+  const toUser = authState.users.find(item => item.id === request.toUserId);
+  if (!fromUser || !toUser) return null;
+  const copy = accountFriendRequestCopy(request, fromUser, toUser);
+  [fromUser, toUser].forEach(holder => {
+    holder.friendRequests = Array.isArray(holder.friendRequests) ? holder.friendRequests : [];
+    const index = holder.friendRequests.findIndex(item => item.id === copy.id);
+    if (index >= 0) {
+      holder.friendRequests[index] = copy;
+    } else {
+      holder.friendRequests.unshift(copy);
+    }
+    holder.friendRequests = holder.friendRequests.slice(0, 500);
+  });
+  return copy;
+}
+
+function friendRequestSummaryFor(viewer, request) {
+  const fromUser = authState.users.find(item => item.id === request.fromUserId);
+  const toUser = authState.users.find(item => item.id === request.toUserId);
+  if (!fromUser || !toUser) return null;
+  const otherUser = request.fromUserId === viewer.id ? toUser : fromUser;
+  return {
+    id: request.id,
+    status: request.status,
+    direction: request.fromUserId === viewer.id ? "outgoing" : "incoming",
+    createdAt: request.createdAt || "",
+    respondedAt: request.respondedAt || "",
+    cancelledAt: request.cancelledAt || "",
+    player: accountUserRef(otherUser),
+    from: accountUserRef(fromUser),
+    to: accountUserRef(toUser),
+  };
+}
+
+function publicFriendRequestsFor(user) {
+  ensureAccountData(user);
+  const active = user.friendRequests
+    .filter(request => request.status !== "cancelled")
+    .map(request => friendRequestSummaryFor(user, request))
+    .filter(Boolean)
+    .sort((a, b) => String(b.respondedAt || b.createdAt).localeCompare(String(a.respondedAt || a.createdAt)));
+  return {
+    incoming: active
+      .filter(request => request.direction === "incoming" && request.status === "pending")
+      .slice(0, 20),
+    outgoing: active
+      .filter(request => request.direction === "outgoing" && ["pending", "accepted", "declined"].includes(request.status))
+      .slice(0, 20),
+  };
+}
+
+function friendRelationship(user, otherUser) {
+  ensureAccountData(user);
+  if (user.friends.some(friend => friend.userId === otherUser.id)) return "friend";
+  const request = user.friendRequests.find(item => (
+    item.status === "pending"
+    && ((item.fromUserId === user.id && item.toUserId === otherUser.id)
+      || (item.fromUserId === otherUser.id && item.toUserId === user.id))
+  ));
+  if (!request) return "";
+  return request.fromUserId === user.id ? "outgoing" : "incoming";
+}
+
 function publicAccountProfile(user) {
   ensureAccountData(user);
   const friends = user.friends
@@ -529,6 +630,7 @@ function publicAccountProfile(user) {
       koks: games.filter(game => game.resultType === "koks").length,
     },
     friends,
+    friendRequests: publicFriendRequestsFor(user),
   };
 }
 
@@ -550,6 +652,87 @@ function addMutualFriend(user, friendUser) {
     friendUser.friends.unshift({ userId: user.id, nickname: user.nickname, addedAt });
   }
   return { ok: true };
+}
+
+function findPendingFriendRequestBetween(user, friendUser) {
+  ensureAccountData(user);
+  return user.friendRequests.find(request => (
+    request.status === "pending"
+    && ((request.fromUserId === user.id && request.toUserId === friendUser.id)
+      || (request.fromUserId === friendUser.id && request.toUserId === user.id))
+  )) || null;
+}
+
+function createFriendRequest(user, friendUser) {
+  ensureAccountData(user);
+  ensureAccountData(friendUser);
+  if (user.id === friendUser.id) {
+    return { ok: false, status: "self", message: "Нельзя добавить себя в друзья." };
+  }
+  if (user.friends.some(friend => friend.userId === friendUser.id)) {
+    return { ok: false, status: "friends", message: "Игрок уже у вас в друзьях." };
+  }
+  const existing = findPendingFriendRequestBetween(user, friendUser);
+  if (existing) {
+    if (existing.toUserId === user.id) {
+      return acceptFriendRequest(user, existing.id);
+    }
+    return { ok: true, status: "pending", message: "Заявка уже отправлена." };
+  }
+  const request = {
+    id: id("frq"),
+    fromUserId: user.id,
+    fromName: user.nickname,
+    toUserId: friendUser.id,
+    toName: friendUser.nickname,
+    status: "pending",
+    createdAt: now(),
+    respondedAt: "",
+    cancelledAt: "",
+  };
+  syncFriendRequestCopies(request);
+  return { ok: true, status: "pending", message: "Заявка отправлена." };
+}
+
+function acceptFriendRequest(user, requestId) {
+  ensureAccountData(user);
+  const request = user.friendRequests.find(item => item.id === requestId && item.toUserId === user.id && item.status === "pending");
+  if (!request) {
+    return { ok: false, status: "missing", message: "Заявка не найдена или уже обработана." };
+  }
+  const friendUser = authState.users.find(item => item.id === request.fromUserId);
+  if (!friendUser) {
+    return { ok: false, status: "missing", message: "Игрок не найден." };
+  }
+  addMutualFriend(user, friendUser);
+  request.status = "accepted";
+  request.respondedAt = now();
+  syncFriendRequestCopies(request);
+  return { ok: true, status: "accepted", message: "Заявка принята." };
+}
+
+function declineFriendRequest(user, requestId) {
+  ensureAccountData(user);
+  const request = user.friendRequests.find(item => item.id === requestId && item.toUserId === user.id && item.status === "pending");
+  if (!request) {
+    return { ok: false, status: "missing", message: "Заявка не найдена или уже обработана." };
+  }
+  request.status = "declined";
+  request.respondedAt = now();
+  syncFriendRequestCopies(request);
+  return { ok: true, status: "declined", message: "Заявка отклонена." };
+}
+
+function cancelFriendRequest(user, requestId) {
+  ensureAccountData(user);
+  const request = user.friendRequests.find(item => item.id === requestId && item.fromUserId === user.id && item.status === "pending");
+  if (!request) {
+    return { ok: false, status: "missing", message: "Заявка не найдена или уже обработана." };
+  }
+  request.status = "cancelled";
+  request.cancelledAt = now();
+  syncFriendRequestCopies(request);
+  return { ok: true, status: "cancelled", message: "Заявка отменена." };
 }
 
 function removeMutualFriend(user, friendUser) {
@@ -1593,6 +1776,10 @@ async function handleApi(req, res, url) {
             if (message.fromUserId === user.id) message.fromName = user.nickname;
             if (message.toUserId === user.id) message.toName = user.nickname;
           });
+          item.friendRequests.forEach(request => {
+            if (request.fromUserId === user.id) request.fromName = user.nickname;
+            if (request.toUserId === user.id) request.toName = user.nickname;
+          });
         });
         const adminUser = findAdminUser(oldNickname);
         if (adminUser) {
@@ -1612,7 +1799,10 @@ async function handleApi(req, res, url) {
           ? authState.users
               .filter(item => item.id !== user.id && normalizePlayerName(item.nickname).includes(q))
               .slice(0, 8)
-              .map(accountUserRef)
+              .map(item => ({
+                ...accountUserRef(item),
+                relationship: friendRelationship(user, item),
+              }))
           : [];
         sendJson(res, 200, { players }, { "Cache-Control": "no-store" });
         return;
@@ -1625,7 +1815,7 @@ async function handleApi(req, res, url) {
           sendJson(res, 404, { error: "Игрок не найден." });
           return;
         }
-        const result = addMutualFriend(user, friendUser);
+        const result = createFriendRequest(user, friendUser);
         if (!result.ok) {
           sendJson(res, 400, { error: result.message });
           return;
@@ -1633,7 +1823,51 @@ async function handleApi(req, res, url) {
         user.lastSeenAt = now();
         friendUser.lastSeenAt ||= now();
         saveAuthState();
-        sendJson(res, 200, publicAccountProfile(user));
+        sendJson(res, 200, {
+          ...publicAccountProfile(user),
+          requestStatus: result.status,
+          message: result.message,
+        });
+        return;
+      }
+
+      if (method === "POST" && parts.length === 5 && parts[2] === "friend-requests") {
+        const requestId = parts[3];
+        const action = parts[4];
+        const result = action === "accept"
+          ? acceptFriendRequest(user, requestId)
+          : (action === "decline" ? declineFriendRequest(user, requestId) : null);
+        if (!result) {
+          sendJson(res, 404, { error: "Неизвестное действие с заявкой." });
+          return;
+        }
+        if (!result.ok) {
+          sendJson(res, 400, { error: result.message });
+          return;
+        }
+        user.lastSeenAt = now();
+        saveAuthState();
+        sendJson(res, 200, {
+          ...publicAccountProfile(user),
+          requestStatus: result.status,
+          message: result.message,
+        });
+        return;
+      }
+
+      if (method === "DELETE" && parts.length === 4 && parts[2] === "friend-requests") {
+        const result = cancelFriendRequest(user, parts[3]);
+        if (!result.ok) {
+          sendJson(res, 400, { error: result.message });
+          return;
+        }
+        user.lastSeenAt = now();
+        saveAuthState();
+        sendJson(res, 200, {
+          ...publicAccountProfile(user),
+          requestStatus: result.status,
+          message: result.message,
+        });
         return;
       }
 

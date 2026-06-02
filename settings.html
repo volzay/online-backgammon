@@ -303,6 +303,7 @@
               <button class="ghostbtn" type="submit">Добавить</button>
             </form>
             <div class="friend-search-results" id="friend-search-results"></div>
+            <div class="friend-requests" id="friend-requests-settings"></div>
             <div class="account-list" id="friends-list-settings">
               <div class="account-empty">Друзей пока нет.</div>
             </div>
@@ -403,6 +404,7 @@ const accountState = {
   profile: null,
   selectedFriendId: null,
   messageTimer: null,
+  profileTimer: null,
   searchTimer: null,
 };
 
@@ -501,6 +503,7 @@ function fallbackProfile() {
       koks: games.filter(game => game.resultType === 'koks').length,
     },
     friends: [],
+    friendRequests: { incoming: [], outgoing: [] },
   };
 }
 
@@ -553,6 +556,7 @@ function renderAccount() {
   document.getElementById('account-losses').textContent = String(losses);
   document.getElementById('account-special-wins').textContent = String(games.filter(game => game.resultType === 'mars' || game.resultType === 'koks').length);
   renderGames(games);
+  renderFriendRequests(profile.friendRequests || { incoming: [], outgoing: [] });
   renderFriends(profile.friends || []);
 }
 
@@ -606,6 +610,76 @@ function renderFriends(friends) {
   `).join('');
   bindFriendRows();
   loadMessages(accountState.selectedFriendId, { silent: true });
+}
+
+function requestStatusText(status) {
+  if (status === 'accepted') return 'Принято';
+  if (status === 'declined') return 'Отклонено';
+  return 'Ожидает ответа';
+}
+
+function renderRequestPlayer(request) {
+  const player = request.player || request.from || request.to || {};
+  return `
+    <span class="friend-avatar">${escapeHtml((player.name || player.nickname || '?')[0]?.toUpperCase() || '?')}</span>
+    <span>
+      <strong>${escapeHtml(player.name || player.nickname || 'Игрок')}</strong>
+      <small>${escapeHtml(player.rating || '—')} · ${escapeHtml(player.tier || 'Bronze')}</small>
+    </span>
+  `;
+}
+
+function renderFriendRequests(requests) {
+  const box = document.getElementById('friend-requests-settings');
+  if (!box) return;
+  const incoming = requests.incoming || [];
+  const outgoing = requests.outgoing || [];
+  if (!incoming.length && !outgoing.length) {
+    box.innerHTML = '';
+    return;
+  }
+  const incomingHtml = incoming.length ? `
+    <div class="friend-request-group">
+      <div class="friend-request-title">Входящие приглашения</div>
+      ${incoming.map(request => `
+        <div class="friend-request-row">
+          <div class="friend-request-player">${renderRequestPlayer(request)}</div>
+          <div class="friend-request-actions">
+            <button class="ghostbtn tiny" type="button" data-accept-request="${escapeHtml(request.id)}">Принять</button>
+            <button class="dangerbtn outline tiny" type="button" data-decline-request="${escapeHtml(request.id)}">Отклонить</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+  const outgoingHtml = outgoing.length ? `
+    <div class="friend-request-group">
+      <div class="friend-request-title">Отправленные приглашения</div>
+      ${outgoing.map(request => `
+        <div class="friend-request-row">
+          <div class="friend-request-player">${renderRequestPlayer(request)}</div>
+          <div class="friend-request-actions">
+            <span class="request-status ${escapeHtml(request.status)}">${requestStatusText(request.status)}</span>
+            ${request.status === 'pending' ? `<button class="ghostbtn tiny" type="button" data-cancel-request="${escapeHtml(request.id)}">Отменить</button>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+  box.innerHTML = `${incomingHtml}${outgoingHtml}`;
+  bindRequestRows();
+}
+
+function bindRequestRows() {
+  document.querySelectorAll('[data-accept-request]').forEach(button => {
+    button.addEventListener('click', () => respondFriendRequest(button.dataset.acceptRequest, 'accept'));
+  });
+  document.querySelectorAll('[data-decline-request]').forEach(button => {
+    button.addEventListener('click', () => respondFriendRequest(button.dataset.declineRequest, 'decline'));
+  });
+  document.querySelectorAll('[data-cancel-request]').forEach(button => {
+    button.addEventListener('click', () => cancelFriendRequest(button.dataset.cancelRequest));
+  });
 }
 
 function bindFriendRows() {
@@ -697,8 +771,8 @@ async function searchFriends(query) {
   try {
     const data = await accountApi(`/api/account/players?${accountQuery()}&q=${encodeURIComponent(query.trim())}`);
     box.innerHTML = (data.players || []).map(player => `
-      <button type="button" data-add-found-friend="${escapeHtml(player.nickname)}">
-        ${escapeHtml(player.nickname)} <span>${escapeHtml(player.rating || '—')}</span>
+      <button type="button" ${player.relationship === 'friend' || player.relationship === 'outgoing' ? 'disabled' : `data-add-found-friend="${escapeHtml(player.nickname)}"`}>
+        ${escapeHtml(player.nickname)} <span>${escapeHtml(player.rating || '—')} · ${player.relationship === 'friend' ? 'уже в друзьях' : (player.relationship === 'outgoing' ? 'заявка отправлена' : (player.relationship === 'incoming' ? 'принять заявку' : ''))}</span>
       </button>
     `).join('');
     box.querySelectorAll('[data-add-found-friend]').forEach(button => {
@@ -726,9 +800,38 @@ async function addFriend(rawValue) {
     document.getElementById('friend-query').value = '';
     document.getElementById('friend-search-results').innerHTML = '';
     renderAccount();
-    flash('Друг добавлен');
+    flash(data.message || (data.requestStatus === 'pending' ? 'Заявка отправлена' : 'Друг добавлен'));
   } catch (err) {
     flash(err.message || 'Не удалось добавить друга');
+  }
+}
+
+async function respondFriendRequest(requestId, action) {
+  if (!registeredUser() || !requestId) return;
+  try {
+    const data = await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ userId: currentUser().id }),
+    });
+    accountState.profile = { ...data, games: mergeGames(data.games || []) };
+    renderAccount();
+    flash(data.message || (action === 'accept' ? 'Заявка принята' : 'Заявка отклонена'));
+  } catch (err) {
+    flash(err.message || 'Не удалось обработать заявку');
+  }
+}
+
+async function cancelFriendRequest(requestId) {
+  if (!registeredUser() || !requestId) return;
+  try {
+    const data = await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}?${accountQuery()}`, {
+      method: 'DELETE',
+    });
+    accountState.profile = { ...data, games: mergeGames(data.games || []) };
+    renderAccount();
+    flash(data.message || 'Заявка отменена');
+  } catch (err) {
+    flash(err.message || 'Не удалось отменить заявку');
   }
 }
 
@@ -832,7 +935,11 @@ setActiveSettingsNav();
 accountState.messageTimer = setInterval(() => {
   if (accountState.selectedFriendId) loadMessages(accountState.selectedFriendId, { silent: true });
 }, 4000);
-window.addEventListener('beforeunload', () => clearInterval(accountState.messageTimer));
+accountState.profileTimer = setInterval(() => loadAccountProfile({ silent: true }), 7000);
+window.addEventListener('beforeunload', () => {
+  clearInterval(accountState.messageTimer);
+  clearInterval(accountState.profileTimer);
+});
 loadAccountProfile({ silent: true });
 
 let toastT;
