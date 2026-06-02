@@ -113,11 +113,11 @@
             <div class="s-hint" data-i18n="accent_color_hint">Подсветка ваших ходов и кнопок</div>
           </div>
           <div class="swatch-row">
-            <button class="swatch-pick active" style="--c: oklch(0.78 0.13 78)" title="Янтарь" data-i18n-title="amber"></button>
-            <button class="swatch-pick" style="--c: oklch(0.74 0.15 155)" title="Зелёный" data-i18n-title="green"></button>
-            <button class="swatch-pick" style="--c: oklch(0.65 0.20 25)" title="Тёрн" data-i18n-title="turn"></button>
-            <button class="swatch-pick" style="--c: oklch(0.65 0.18 260)" title="Лазурь" data-i18n-title="azure"></button>
-            <button class="swatch-pick" style="--c: oklch(0.70 0.16 320)" title="Сирень" data-i18n-title="lilac"></button>
+            <button class="swatch-pick active" data-accent-set="amber" style="--c: oklch(0.78 0.13 78)" title="Янтарь" data-i18n-title="amber"></button>
+            <button class="swatch-pick" data-accent-set="green" style="--c: oklch(0.74 0.15 155)" title="Зелёный" data-i18n-title="green"></button>
+            <button class="swatch-pick" data-accent-set="turn" style="--c: oklch(0.65 0.20 25)" title="Тёрн" data-i18n-title="turn"></button>
+            <button class="swatch-pick" data-accent-set="azure" style="--c: oklch(0.65 0.18 260)" title="Лазурь" data-i18n-title="azure"></button>
+            <button class="swatch-pick" data-accent-set="lilac" style="--c: oklch(0.70 0.16 320)" title="Сирень" data-i18n-title="lilac"></button>
           </div>
         </div>
 
@@ -126,19 +126,16 @@
             <div class="s-lbl" data-i18n="board_style">Стиль доски</div>
             <div class="s-hint" data-i18n="board_style_hint">Текстура и тон сукна</div>
           </div>
-          <div class="seg">
-            <button class="active" data-i18n="wood">Дерево</button>
-            <button data-i18n="bone">Кость</button>
-            <button data-i18n="stone">Камень</button>
+          <div class="appearance-stack">
+            <div class="seg">
+              <button class="active" data-board-style-set="wood" data-i18n="wood">Дерево</button>
+              <button data-board-style-set="bone" data-i18n="bone">Кость</button>
+              <button data-board-style-set="stone" data-i18n="stone">Камень</button>
+            </div>
+            <div class="board-style-preview" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </div>
           </div>
-        </div>
-
-        <div class="s-row">
-          <div>
-            <div class="s-lbl" data-i18n="animations">Анимации</div>
-            <div class="s-hint" data-i18n="animations_hint">Плавность ходов и кубиков</div>
-          </div>
-          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
         </div>
       </section>
 
@@ -900,13 +897,17 @@ vs.addEventListener('input', () => {
   document.getElementById('vol-val').textContent = vs.value + '%';
 });
 
-document.querySelectorAll('.swatch-pick').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.swatch-pick').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    const c = getComputedStyle(b).getPropertyValue('--c').trim();
-    document.documentElement.style.setProperty('--accent', c);
+document.querySelectorAll('[data-accent-set]').forEach(button => {
+  button.addEventListener('click', () => {
+    NarduApp.applyAccent(button.dataset.accentSet);
     flash('Акцент обновлён');
+  });
+});
+
+document.querySelectorAll('[data-board-style-set]').forEach(button => {
+  button.addEventListener('click', () => {
+    NarduApp.applyBoardStyle(button.dataset.boardStyleSet);
+    flash('Стиль доски обновлён');
   });
 });
 

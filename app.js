@@ -4,7 +4,17 @@
   const LANG_KEY = 'narduh-lang';
   const USER_KEY = 'narduh-user';
   const SOUND_KEY = 'narduh-sound';
+  const ACCENT_KEY = 'narduh-accent';
+  const BOARD_STYLE_KEY = 'narduh-board-style';
   const DEFAULT_RATING = 1000;
+  const ACCENTS = {
+    amber: { accent: 'oklch(0.78 0.13 78)', soft: 'oklch(0.78 0.13 78 / 0.16)' },
+    green: { accent: 'oklch(0.74 0.15 155)', soft: 'oklch(0.74 0.15 155 / 0.16)' },
+    turn: { accent: 'oklch(0.65 0.20 25)', soft: 'oklch(0.65 0.20 25 / 0.15)' },
+    azure: { accent: 'oklch(0.65 0.18 260)', soft: 'oklch(0.65 0.18 260 / 0.16)' },
+    lilac: { accent: 'oklch(0.70 0.16 320)', soft: 'oklch(0.70 0.16 320 / 0.16)' },
+  };
+  const BOARD_STYLES = new Set(['wood', 'bone', 'stone']);
   const RATING_TIERS = [
     { name: 'Diamond', min: 2100, key: 'tier_diamond' },
     { name: 'Platinum', min: 1800, key: 'tier_platinum' },
@@ -24,6 +34,34 @@
     return localStorage.getItem(THEME_KEY) || 'night';
   }
   applyTheme(currentTheme());
+
+  function currentAccent() {
+    const saved = localStorage.getItem(ACCENT_KEY);
+    return ACCENTS[saved] ? saved : 'amber';
+  }
+  function applyAccent(name) {
+    const key = ACCENTS[name] ? name : 'amber';
+    const palette = ACCENTS[key];
+    document.documentElement.style.setProperty('--accent', palette.accent);
+    document.documentElement.style.setProperty('--accent-soft', palette.soft);
+    localStorage.setItem(ACCENT_KEY, key);
+    document.querySelectorAll('[data-accent-set]').forEach(b =>
+      b.classList.toggle('active', b.dataset.accentSet === key));
+  }
+  applyAccent(currentAccent());
+
+  function currentBoardStyle() {
+    const saved = localStorage.getItem(BOARD_STYLE_KEY);
+    return BOARD_STYLES.has(saved) ? saved : 'wood';
+  }
+  function applyBoardStyle(name) {
+    const style = BOARD_STYLES.has(name) ? name : 'wood';
+    document.documentElement.setAttribute('data-board-style', style);
+    localStorage.setItem(BOARD_STYLE_KEY, style);
+    document.querySelectorAll('[data-board-style-set]').forEach(b =>
+      b.classList.toggle('active', b.dataset.boardStyleSet === style));
+  }
+  applyBoardStyle(currentBoardStyle());
 
   /* ── LANG ── */
   const dicts = {
@@ -133,7 +171,7 @@
       sec_notify: 'Уведомления',
       sec_privacy: 'Приватность',
       theme: 'Тема',
-      theme_hint: 'Авто — следует системе',
+      theme_hint: 'Выбор сохраняется сразу',
       interface_language: 'Язык интерфейса',
       interface_language_hint: 'Перевод применяется сразу',
       russian: 'Русский',
@@ -340,7 +378,7 @@
       sec_notify: 'Notifications',
       sec_privacy: 'Privacy',
       theme: 'Theme',
-      theme_hint: 'Auto follows your system',
+      theme_hint: 'Saved immediately',
       interface_language: 'Interface language',
       interface_language_hint: 'Translation applies immediately',
       russian: 'Russian',
@@ -619,6 +657,12 @@
     document.querySelectorAll('[data-lang-set]').forEach(b => {
       b.addEventListener('click', () => applyLang(b.dataset.langSet));
     });
+    document.querySelectorAll('[data-accent-set]').forEach(b => {
+      b.addEventListener('click', () => applyAccent(b.dataset.accentSet));
+    });
+    document.querySelectorAll('[data-board-style-set]').forEach(b => {
+      b.addEventListener('click', () => applyBoardStyle(b.dataset.boardStyleSet));
+    });
     document.querySelectorAll('[data-sound-toggle]').forEach(b => {
       b.addEventListener('click', () => setSound(!currentSound()));
     });
@@ -634,6 +678,8 @@
         applyTheme(currentTheme() === 'day' ? 'night' : 'day');
       }
     });
+    applyAccent(currentAccent());
+    applyBoardStyle(currentBoardStyle());
     applyLang(currentLang());
     paintUser();
     paintSound();
@@ -642,6 +688,8 @@
 
   window.NarduApp = {
     applyTheme, currentTheme,
+    applyAccent, currentAccent,
+    applyBoardStyle, currentBoardStyle,
     applyLang, currentLang, dicts,
     getUser, setUser, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
