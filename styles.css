@@ -3124,9 +3124,31 @@ body.board-focus .bear-pip {
   gap: 6px;
   margin-top: 10px;
 }
+.friends-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.friends-list-head b {
+  min-width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  font-size: 11px;
+}
 .friend-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   padding: 8px;
@@ -3162,6 +3184,21 @@ body.board-focus .bear-pip {
   margin-top: 2px;
   color: var(--ink-3);
   font-size: 11px;
+}
+.friend-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: oklch(0.78 0.18 145);
+  background: oklch(0.78 0.18 145 / 0.12);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.friend-remove-btn {
+  white-space: nowrap;
 }
 .friend-avatar {
   width: 30px;
@@ -3464,6 +3501,13 @@ body.board-focus .bear-pip {
   }
   .friend-request-row {
     grid-template-columns: 1fr;
+  }
+  .friend-row {
+    grid-template-columns: 1fr;
+  }
+  .friend-status,
+  .friend-remove-btn {
+    justify-self: start;
   }
   .friend-request-actions {
     justify-content: flex-start;

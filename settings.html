@@ -451,6 +451,12 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
+function formatFriendMeta(friend) {
+  const rating = friend.rating ? `Рейтинг ${friend.rating}` : 'Без рейтинга';
+  const tier = friend.tier ? ` · ${friend.tier}` : '';
+  return `${rating}${tier}`;
+}
+
 function resultText(game) {
   return game.didWin ? 'Победа' : 'Поражение';
 }
@@ -592,19 +598,26 @@ function renderFriends(friends) {
   if (!friends.some(friend => friend.id === accountState.selectedFriendId)) {
     accountState.selectedFriendId = friends[0].id;
   }
-  list.innerHTML = friends.map(friend => `
+  list.innerHTML = `
+    <div class="friends-list-head">
+      <span>Ваши друзья</span>
+      <b>${friends.length}</b>
+    </div>
+    ${friends.map(friend => `
     <div class="friend-row ${friend.id === accountState.selectedFriendId ? 'active' : ''}" data-friend-id="${escapeHtml(friend.id)}">
       <button class="friend-main" type="button" data-select-friend="${escapeHtml(friend.id)}">
         <span class="friend-avatar">${escapeHtml((friend.name || friend.nickname || '?')[0]?.toUpperCase() || '?')}</span>
         <span>
           <strong>${escapeHtml(friend.name || friend.nickname)}</strong>
-          <small>${friend.lastMessage ? escapeHtml(friend.lastMessage.text) : 'Сообщений пока нет'}</small>
+          <small>${escapeHtml(formatFriendMeta(friend))}</small>
         </span>
         ${friend.unread ? `<b class="unread-badge">${friend.unread}</b>` : ''}
       </button>
-      <button class="ghostbtn tiny" type="button" data-remove-friend="${escapeHtml(friend.id)}">Удалить</button>
+      <span class="friend-status">В друзьях</span>
+      <button class="dangerbtn outline tiny friend-remove-btn" type="button" data-remove-friend="${escapeHtml(friend.id)}" data-friend-name="${escapeHtml(friend.name || friend.nickname || 'игрока')}">Убрать из друзей</button>
     </div>
-  `).join('');
+    `).join('')}
+  `;
   bindFriendRows();
   loadMessages(accountState.selectedFriendId, { silent: true });
 }
@@ -688,7 +701,10 @@ function bindFriendRows() {
   });
   document.querySelectorAll('[data-remove-friend]').forEach(button => {
     button.addEventListener('click', async () => {
-      await removeFriend(button.dataset.removeFriend);
+      const name = button.dataset.friendName || 'игрока';
+      const ok = confirm(`Убрать ${name} из друзей? Переписка сохранится, но писать можно будет только после новой дружбы.`);
+      if (!ok) return;
+      await removeFriend(button.dataset.removeFriend, name);
     });
   });
 }
@@ -832,7 +848,7 @@ async function cancelFriendRequest(requestId) {
   }
 }
 
-async function removeFriend(friendId) {
+async function removeFriend(friendId, friendName = 'Друг') {
   if (!registeredUser() || !friendId) return;
   try {
     const data = await accountApi(`/api/account/friends/${encodeURIComponent(friendId)}?${accountQuery()}`, {
@@ -841,9 +857,9 @@ async function removeFriend(friendId) {
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     if (accountState.selectedFriendId === friendId) accountState.selectedFriendId = null;
     renderAccount();
-    flash('Друг удалён');
+    flash(`${friendName} убран из друзей`);
   } catch (err) {
-    flash(err.message || 'Не удалось удалить друга');
+    flash(err.message || 'Не удалось убрать из друзей');
   }
 }
 
