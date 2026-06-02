@@ -330,6 +330,7 @@ window.NarduController = (function () {
 
   /* ── re-render orchestration ──────────────── */
   function render() {
+    clearStaleDragClones();
     if (onRender) onRender();
     renderDice();
     renderBoardDice();
@@ -342,6 +343,11 @@ window.NarduController = (function () {
     renderResign();
     /* ensure auth/user paint is current */
     window.NarduApp?.paintUser?.();
+  }
+
+  function clearStaleDragClones() {
+    if (dragState) return;
+    document.querySelectorAll('.board-drag-checker').forEach(clone => clone.remove());
   }
 
   function startRemoteSync() {
