@@ -2093,7 +2093,12 @@ window.NarduController = (function () {
     const didWin = state.winner === playerColor;
     const resultKey = gameResultKey();
     if ((mode === 'bot' || mode === 'remote') && localRatingRecordedKey !== resultKey) {
-      const r = NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey);
+      const r = NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
+        resultType: state.resultType || '',
+        winner: state.winner,
+        score: { ...state.score },
+        finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
+      });
       lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;
       localRatingRecordedKey = resultKey;
     }

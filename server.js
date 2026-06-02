@@ -413,7 +413,168 @@ function publicUser(user) {
     rating: user.rating,
     tier: user.tier,
     ratingEligible: true,
+    history: Array.isArray(user.ratingHistory) ? user.ratingHistory.slice(0, 100) : [],
     guest: false,
+  };
+}
+
+function accountUserRef(user) {
+  if (!user) return null;
+  assignRegisteredRating(user);
+  return {
+    id: user.id,
+    nickname: user.nickname,
+    name: user.nickname,
+    email: user.email,
+    rating: user.rating,
+    tier: user.tier,
+  };
+}
+
+function ensureAccountData(user) {
+  if (!user) return null;
+  assignRegisteredRating(user);
+  user.ratingHistory = Array.isArray(user.ratingHistory) ? user.ratingHistory : [];
+  user.friends = Array.isArray(user.friends) ? user.friends : [];
+  user.friendMessages = Array.isArray(user.friendMessages) ? user.friendMessages : [];
+  user.friends = user.friends
+    .map(friend => {
+      const friendUser = authState.users.find(item => item.id === friend.userId) || findAuthUserByNickname(friend.nickname);
+      if (!friendUser || friendUser.id === user.id) return null;
+      return {
+        userId: friendUser.id,
+        nickname: friendUser.nickname,
+        addedAt: friend.addedAt || now(),
+      };
+    })
+    .filter(Boolean)
+    .filter((friend, index, all) => all.findIndex(item => item.userId === friend.userId) === index);
+  user.friendMessages = user.friendMessages
+    .filter(message => message && message.id && message.threadId && message.text)
+    .slice(-500);
+  return user;
+}
+
+function findAccountUser({ userId = "", nickname = "", email = "" } = {}) {
+  const idValue = String(userId || "").trim();
+  const emailValue = normalizeEmail(email);
+  const nicknameValue = normalizePlayerName(nickname);
+  return authState.users.find(user => (
+    (idValue && user.id === idValue)
+    || (emailValue && normalizeEmail(user.email) === emailValue)
+    || (nicknameValue && normalizePlayerName(user.nickname) === nicknameValue)
+  )) || null;
+}
+
+function accountUserFromRequest(url, body = {}) {
+  return findAccountUser({
+    userId: body.userId || url.searchParams.get("userId"),
+    nickname: body.nickname || body.name || url.searchParams.get("nickname") || url.searchParams.get("name"),
+    email: body.email || url.searchParams.get("email"),
+  });
+}
+
+function friendSummaryFor(user, friendUser) {
+  ensureAccountData(user);
+  ensureAccountData(friendUser);
+  const messages = user.friendMessages.filter(message => (
+    message.fromUserId === friendUser.id || message.toUserId === friendUser.id
+  ));
+  const latest = messages.sort((a, b) => String(b.at).localeCompare(String(a.at)))[0] || null;
+  const unread = messages.filter(message => message.fromUserId === friendUser.id && !message.readAt).length;
+  return {
+    ...accountUserRef(friendUser),
+    addedAt: user.friends.find(friend => friend.userId === friendUser.id)?.addedAt || "",
+    lastMessage: latest ? {
+      id: latest.id,
+      text: latest.text,
+      at: latest.at,
+      own: latest.fromUserId === user.id,
+    } : null,
+    unread,
+  };
+}
+
+function publicAccountProfile(user) {
+  ensureAccountData(user);
+  const friends = user.friends
+    .map(friend => authState.users.find(item => item.id === friend.userId))
+    .filter(Boolean)
+    .map(friendUser => friendSummaryFor(user, friendUser))
+    .sort((a, b) => String(b.lastMessage?.at || b.addedAt).localeCompare(String(a.lastMessage?.at || a.addedAt)));
+  const games = user.ratingHistory
+    .slice(0, 100)
+    .map(entry => ({
+      resultKey: entry.resultKey,
+      ts: Number(entry.ts || Date.parse(entry.finishedAt || "") || Date.now()),
+      at: entry.finishedAt || (entry.ts ? new Date(Number(entry.ts)).toISOString() : ""),
+      opponent: entry.opponent || "",
+      opponentRating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : null,
+      didWin: Boolean(entry.didWin),
+      mode: entry.mode || "",
+      resultType: entry.resultType || "",
+      score: entry.score || null,
+      delta: Number(entry.delta || 0),
+      ratingAfter: Number(entry.ratingAfter || user.rating),
+      tierAfter: entry.tierAfter || user.tier,
+    }));
+  return {
+    user: publicUser(user),
+    games,
+    stats: {
+      gamesPlayed: games.length,
+      wins: games.filter(game => game.didWin).length,
+      losses: games.filter(game => !game.didWin).length,
+      mars: games.filter(game => game.resultType === "mars").length,
+      koks: games.filter(game => game.resultType === "koks").length,
+    },
+    friends,
+  };
+}
+
+function normalizeFriendTarget(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 64);
+}
+
+function addMutualFriend(user, friendUser) {
+  ensureAccountData(user);
+  ensureAccountData(friendUser);
+  if (user.id === friendUser.id) {
+    return { ok: false, message: "Нельзя добавить себя в друзья." };
+  }
+  const addedAt = now();
+  if (!user.friends.some(friend => friend.userId === friendUser.id)) {
+    user.friends.unshift({ userId: friendUser.id, nickname: friendUser.nickname, addedAt });
+  }
+  if (!friendUser.friends.some(friend => friend.userId === user.id)) {
+    friendUser.friends.unshift({ userId: user.id, nickname: user.nickname, addedAt });
+  }
+  return { ok: true };
+}
+
+function removeMutualFriend(user, friendUser) {
+  ensureAccountData(user);
+  ensureAccountData(friendUser);
+  user.friends = user.friends.filter(friend => friend.userId !== friendUser.id);
+  friendUser.friends = friendUser.friends.filter(friend => friend.userId !== user.id);
+}
+
+function accountThreadId(a, b) {
+  return [String(a || ""), String(b || "")].sort().join(":");
+}
+
+function publicFriendMessage(message, viewerId) {
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    fromUserId: message.fromUserId,
+    fromName: message.fromName,
+    toUserId: message.toUserId,
+    toName: message.toName,
+    text: message.text,
+    at: message.at,
+    own: message.fromUserId === viewerId,
+    readAt: message.readAt || null,
   };
 }
 
@@ -1357,10 +1518,19 @@ async function handleApi(req, res, url) {
         user.ratingHistory.unshift({
           resultKey,
           ts: Number(body.ts || Date.now()),
+          finishedAt: body.finishedAt || new Date(Number(body.ts || Date.now())).toISOString(),
           opponent: String(body.opponent || "").slice(0, 32),
           opponentRating: Number.isFinite(Number(body.opponentRating)) ? Number(body.opponentRating) : null,
           didWin: Boolean(body.didWin),
           mode: String(body.mode || "").slice(0, 20),
+          resultType: ["mars", "koks"].includes(body.resultType) ? body.resultType : "",
+          winner: body.winner === "dark" ? "dark" : (body.winner === "white" ? "white" : ""),
+          score: body.score && typeof body.score === "object"
+            ? {
+                white: Number(body.score.white) || 0,
+                dark: Number(body.score.dark) || 0,
+              }
+            : null,
           delta: Number(body.delta || 0),
           ratingAfter: user.rating,
           tierAfter: user.tier,
@@ -1373,6 +1543,182 @@ async function handleApi(req, res, url) {
       saveAdminState();
       sendJson(res, 200, { ok: true, user: publicUser(user) });
       return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "account") {
+      const body = method === "GET" ? {} : await readJsonBody(req);
+      const user = accountUserFromRequest(url, body);
+      if (!user) {
+        sendJson(res, 401, { error: "Нужен зарегистрированный аккаунт." });
+        return;
+      }
+      ensureAccountData(user);
+
+      if (method === "GET" && parts.length === 3 && parts[2] === "profile") {
+        sendJson(res, 200, publicAccountProfile(user), { "Cache-Control": "no-store" });
+        return;
+      }
+
+      if (method === "PATCH" && parts.length === 3 && parts[2] === "profile") {
+        const nextNickname = normalizeNickname(body.nickname || body.name || user.nickname);
+        const nextEmail = normalizeEmail(body.email || user.email);
+        if (nextNickname.length < 3 || nextNickname.length > 20 || !/^[\p{L}\p{N}_ -]+$/u.test(nextNickname)) {
+          sendJson(res, 400, { error: "Никнейм должен быть от 3 до 20 символов." });
+          return;
+        }
+        const nicknameOwner = findAuthUserByNickname(nextNickname);
+        if (nicknameOwner && nicknameOwner.id !== user.id) {
+          sendJson(res, 409, { error: "Такой никнейм уже занят." });
+          return;
+        }
+        if (nextEmail && !isValidEmail(nextEmail)) {
+          sendJson(res, 400, { error: "Введите корректный email." });
+          return;
+        }
+        const emailOwner = nextEmail ? findAuthUserByEmail(nextEmail) : null;
+        if (emailOwner && emailOwner.id !== user.id) {
+          sendJson(res, 409, { error: "На эту электронную почту уже зарегистрирован аккаунт." });
+          return;
+        }
+        const oldNickname = user.nickname;
+        user.nickname = nextNickname;
+        if (nextEmail) user.email = nextEmail;
+        user.lastSeenAt = now();
+        authState.users.forEach(item => {
+          ensureAccountData(item);
+          item.friends.forEach(friend => {
+            if (friend.userId === user.id) friend.nickname = user.nickname;
+          });
+          item.friendMessages.forEach(message => {
+            if (message.fromUserId === user.id) message.fromName = user.nickname;
+            if (message.toUserId === user.id) message.toName = user.nickname;
+          });
+        });
+        const adminUser = findAdminUser(oldNickname);
+        if (adminUser) {
+          adminUser.name = user.nickname;
+          adminUser.email = user.email;
+        }
+        touchAdminUser({ name: user.nickname, email: user.email, rating: user.rating, tier: user.tier, registered: true, ip: clientIp(req), source: "account" });
+        saveAuthState();
+        saveAdminState();
+        sendJson(res, 200, publicAccountProfile(user));
+        return;
+      }
+
+      if (method === "GET" && parts.length === 3 && parts[2] === "players") {
+        const q = normalizePlayerName(url.searchParams.get("q"));
+        const players = q
+          ? authState.users
+              .filter(item => item.id !== user.id && normalizePlayerName(item.nickname).includes(q))
+              .slice(0, 8)
+              .map(accountUserRef)
+          : [];
+        sendJson(res, 200, { players }, { "Cache-Control": "no-store" });
+        return;
+      }
+
+      if (method === "POST" && parts.length === 3 && parts[2] === "friends") {
+        const target = normalizeFriendTarget(body.friend || body.friendNickname || body.friendId || body.target);
+        const friendUser = findAccountUser({ userId: target, nickname: target, email: target });
+        if (!friendUser) {
+          sendJson(res, 404, { error: "Игрок не найден." });
+          return;
+        }
+        const result = addMutualFriend(user, friendUser);
+        if (!result.ok) {
+          sendJson(res, 400, { error: result.message });
+          return;
+        }
+        user.lastSeenAt = now();
+        friendUser.lastSeenAt ||= now();
+        saveAuthState();
+        sendJson(res, 200, publicAccountProfile(user));
+        return;
+      }
+
+      if (method === "DELETE" && parts.length === 4 && parts[2] === "friends") {
+        const friendUser = findAccountUser({ userId: parts[3], nickname: decodeURIComponent(parts[3]) });
+        if (!friendUser) {
+          sendJson(res, 404, { error: "Игрок не найден." });
+          return;
+        }
+        removeMutualFriend(user, friendUser);
+        user.lastSeenAt = now();
+        saveAuthState();
+        sendJson(res, 200, publicAccountProfile(user));
+        return;
+      }
+
+      if (method === "GET" && parts.length === 3 && parts[2] === "messages") {
+        const friendUser = findAccountUser({
+          userId: url.searchParams.get("friendId"),
+          nickname: url.searchParams.get("friend"),
+        });
+        if (!friendUser) {
+          sendJson(res, 404, { error: "Игрок не найден." });
+          return;
+        }
+        ensureAccountData(friendUser);
+        const threadId = accountThreadId(user.id, friendUser.id);
+        const messages = user.friendMessages
+          .filter(message => message.threadId === threadId)
+          .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        const readAt = now();
+        messages.forEach(message => {
+          if (message.toUserId === user.id && !message.readAt) message.readAt = readAt;
+        });
+        friendUser.friendMessages.forEach(message => {
+          if (message.threadId === threadId && message.toUserId === user.id && !message.readAt) message.readAt = readAt;
+        });
+        saveAuthState();
+        sendJson(res, 200, {
+          friend: accountUserRef(friendUser),
+          messages: messages.map(message => publicFriendMessage(message, user.id)),
+        }, { "Cache-Control": "no-store" });
+        return;
+      }
+
+      if (method === "POST" && parts.length === 3 && parts[2] === "messages") {
+        const friendUser = findAccountUser({
+          userId: body.friendId,
+          nickname: body.friend || body.friendNickname,
+        });
+        if (!friendUser) {
+          sendJson(res, 404, { error: "Игрок не найден." });
+          return;
+        }
+        ensureAccountData(friendUser);
+        if (!user.friends.some(friend => friend.userId === friendUser.id)) {
+          sendJson(res, 403, { error: "Сначала добавьте игрока в друзья." });
+          return;
+        }
+        const text = normalizeChatText(body.text);
+        if (!text) {
+          sendJson(res, 400, { error: "Сообщение не может быть пустым." });
+          return;
+        }
+        const message = {
+          id: id("msg"),
+          threadId: accountThreadId(user.id, friendUser.id),
+          fromUserId: user.id,
+          fromName: user.nickname,
+          toUserId: friendUser.id,
+          toName: friendUser.nickname,
+          text,
+          at: now(),
+          readAt: null,
+        };
+        user.friendMessages.push(message);
+        friendUser.friendMessages.push({ ...message });
+        user.friendMessages = user.friendMessages.slice(-500);
+        friendUser.friendMessages = friendUser.friendMessages.slice(-500);
+        user.lastSeenAt = now();
+        friendUser.lastSeenAt ||= now();
+        saveAuthState();
+        sendJson(res, 201, { message: publicFriendMessage(message, user.id) });
+        return;
+      }
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "rooms") {

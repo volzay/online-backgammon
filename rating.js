@@ -72,7 +72,7 @@ window.NarduRating = (function () {
   }
 
   /* record a finished game in the current user's profile */
-  function record(opponentName, opponentRating, didWin, mode = 'bot', resultKey = '') {
+  function record(opponentName, opponentRating, didWin, mode = 'bot', resultKey = '', details = {}) {
     const user = NarduApp.getUser();
     if (!isRatedUser(user)) return null;
     assignProfileRating(user);
@@ -89,6 +89,10 @@ window.NarduRating = (function () {
       opponentRating: opponent,
       didWin,
       mode,
+      resultType: details.resultType || '',
+      winner: details.winner || '',
+      score: details.score || null,
+      finishedAt: details.finishedAt || new Date().toISOString(),
       delta,
       ratingAfter: user.rating,
       tierAfter: user.tier,
