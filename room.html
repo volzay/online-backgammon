@@ -1117,6 +1117,7 @@ function isActiveRemoteRoom() {
 }
 
 function reloadRoom() {
+  window.NarduController?.prepareRoomReload?.();
   location.reload();
 }
 

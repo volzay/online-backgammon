@@ -36,6 +36,7 @@ window.NarduController = (function () {
   let lastRatingResult = null;
   let gameOverSoundKey = null;
   let rematchRestartToken = null;
+  const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
   const OPENING_RESULT_PAUSE_MS = 2600;
   const MOVE_SOUND_SETTLE_MS = 210;
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
@@ -226,6 +227,83 @@ window.NarduController = (function () {
 
   function getState() { return state; }
 
+  function roomReloadSignature() {
+    return `${location.pathname}${location.search}`;
+  }
+
+  function cloneStateForRestore(source) {
+    return JSON.parse(JSON.stringify(source || {}));
+  }
+
+  function prepareRoomReload() {
+    if (!state || state.phase === 'waiting') return false;
+    try {
+      syncTurnClock();
+      const snapshot = {
+        v: 1,
+        at: Date.now(),
+        signature: roomReloadSignature(),
+        mode,
+        playerColor,
+        roomCode: remoteCode || state.roomCode || '',
+        state: cloneStateForRestore({
+          ...state,
+          selected: null,
+          hints: [],
+          fullHints: [],
+        }),
+      };
+      sessionStorage.setItem(ROOM_RELOAD_SNAPSHOT_KEY, JSON.stringify(snapshot));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function consumeRoomReloadSnapshot(expected = {}) {
+    let snapshot = null;
+    try {
+      snapshot = JSON.parse(sessionStorage.getItem(ROOM_RELOAD_SNAPSHOT_KEY) || 'null');
+    } catch {}
+    try {
+      sessionStorage.removeItem(ROOM_RELOAD_SNAPSHOT_KEY);
+    } catch {}
+    if (!snapshot?.state || snapshot.signature !== roomReloadSignature()) return null;
+    if (Date.now() - (Number(snapshot.at) || 0) > 10 * 60 * 1000) return null;
+    if (snapshot.mode && expected.mode && snapshot.mode !== expected.mode) return null;
+    if (snapshot.playerColor && expected.playerColor && snapshot.playerColor !== expected.playerColor) return null;
+    if ((snapshot.roomCode || '') !== (expected.roomCode || '')) return null;
+    return snapshot.state;
+  }
+
+  function normalizeRestoredState(restored, url) {
+    const base = NarduGame.initialState();
+    const saved = cloneStateForRestore(restored);
+    return {
+      ...base,
+      ...saved,
+      points: saved.points || base.points,
+      off: { ...base.off, ...(saved.off || {}) },
+      score: { ...base.score, ...(saved.score || {}) },
+      dice: Array.isArray(saved.dice) ? saved.dice.slice() : [],
+      rolled: Array.isArray(saved.rolled) ? saved.rolled.slice() : [],
+      turnMoves: Array.isArray(saved.turnMoves) ? saved.turnMoves.map(move => ({ ...move })) : [],
+      firstMoveDone: { ...base.firstMoveDone, ...(saved.firstMoveDone || {}) },
+      headPlayedThisTurn: { ...base.headPlayedThisTurn, ...(saved.headPlayedThisTurn || {}) },
+      history: Array.isArray(saved.history) ? saved.history.map(item => ({ ...item })) : [],
+      openingRoll: saved.openingRoll ? cloneStateForRestore(saved.openingRoll) : null,
+      selected: null,
+      hints: [],
+      fullHints: [],
+      mode,
+      playerColor,
+      viewColor: mode === 'remote' ? playerColor : 'white',
+      roomCode: url.searchParams.get('room') || '',
+      turnClock: normalizedTurnClock(saved.turnClock || base.turnClock),
+      matchScore: normalizedMatchScore(saved.matchScore || base.matchScore),
+    };
+  }
+
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
     const url = new URL(location.href);
@@ -238,8 +316,10 @@ window.NarduController = (function () {
     if (statTimer) clearInterval(statTimer);
     statTimer = null;
 
-    state = NarduGame.initialState();
-    if (opts.matchScore) {
+    const roomCode = url.searchParams.get('room') || '';
+    const restoredState = waitingForOpponent ? null : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
+    state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState();
+    if (opts.matchScore && !restoredState) {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     state.hints = [];
@@ -248,7 +328,7 @@ window.NarduController = (function () {
     state.mode = mode;
     state.playerColor = playerColor;
     state.viewColor = mode === 'remote' ? playerColor : 'white';
-    state.roomCode = url.searchParams.get('room') || '';
+    state.roomCode = roomCode;
     remoteCode = state.roomCode;
     remoteVersion = 0;
     remoteAnimatedRollTokens = new Set();
@@ -2271,5 +2351,5 @@ window.NarduController = (function () {
     undoLastMove();
   });
 
-  return { init, getState, render, setRenderer, onPointClick, publishRemoteState, concedeRemoteGameByLobbyExit };
+  return { init, getState, render, setRenderer, onPointClick, publishRemoteState, prepareRoomReload, concedeRemoteGameByLobbyExit };
 })();
