@@ -1591,10 +1591,14 @@ body::before {
   }
   .center {
     gap: 8px;
+    height: calc(100svh - 20px);
+    min-height: 300px;
   }
   .board-wrap {
+    flex: 1 1 auto;
     width: 100%;
     max-width: 100%;
+    min-height: 0;
     padding: 8px;
   }
   .board {
@@ -1607,10 +1611,11 @@ body::before {
     --groove-radius: 14px;
     --groove-offset: 8px;
     grid-template-columns: 1fr 22px 1fr;
-    height: clamp(178px, calc(100svh - 178px), 260px);
-    min-height: 178px;
+    height: 100%;
+    min-height: 0;
   }
   .action-tray {
+    flex: 0 0 auto;
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
     align-items: center;
@@ -1690,7 +1695,6 @@ body::before {
     --groove-height: 21px;
     --groove-radius: 19px;
     --groove-offset: 10px;
-    height: clamp(220px, calc(100svh - 136px), 320px);
   }
 }
 
