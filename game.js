@@ -459,6 +459,18 @@ window.NarduGame = (function () {
     return checkersInTrackRange(state, color, 0, 5);
   }
 
+  function outsideHomeCount(state, color) {
+    return checkersInTrackRange(state, color, 0, 17);
+  }
+
+  function outsideHomePips(state, color) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color) return total;
+      const pos = pathPos(color, Number(point));
+      return total + (pos >= 0 && pos < 18 ? data.count * (18 - pos) : 0);
+    }, 0);
+  }
+
   function botStackPenalty(state, color) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
@@ -527,6 +539,41 @@ window.NarduGame = (function () {
     return score;
   }
 
+  function marsRiskScore(state, color) {
+    if ((state.off[color] || 0) > 0) return 0;
+    const opponentPressure = finishPressureScore(state, opponentOf(color));
+    const ownPressure = finishPressureScore(state, color);
+    return Math.max(0, opponentPressure - ownPressure * 0.55 - 90);
+  }
+
+  function hardMarsEmergencyScore(state, next, color) {
+    const risk = marsRiskScore(state, color);
+    if (risk <= 0) return 0;
+
+    const beforeOutside = outsideHomeCount(state, color);
+    const afterOutside = outsideHomeCount(next, color);
+    const outsideReduction = beforeOutside - afterOutside;
+    const homeGain = homeCheckersForScore(next, color) - homeCheckersForScore(state, color);
+    const offGain = (next.off[color] || 0) - (state.off[color] || 0);
+    const pipsGain = pipsFor(state, color) - pipsFor(next, color);
+    const outsideProgress = outsideHomePips(state, color) - outsideHomePips(next, color);
+    const riskReduction = risk - marsRiskScore(next, color);
+    const urgency = Math.min(2.2, 1 + risk / 220);
+
+    let score = 0;
+    score += offGain * 320000;
+    score += outsideReduction * 52000;
+    score -= afterOutside * 19000;
+    score += outsideProgress * 28000;
+    score -= outsideHomePips(next, color) * 3600;
+    score += homeGain * 9500;
+    score += pipsGain * 1700;
+    score += riskReduction * 1800;
+    score += homeReady(next, color) ? 90000 : 0;
+    if (homeReady(next, color)) score -= farthestFromOff(next, color) * 4200;
+    return score * urgency;
+  }
+
   function scoreMediumSequence(state, color, sequence) {
     const next = cloneState(state);
     let score = 0;
@@ -582,6 +629,7 @@ window.NarduGame = (function () {
     score -= (botStackPenalty(next, color) - botStackPenalty(state, color)) * 1.15;
     score += (startZoneCount(state, color) - startZoneCount(next, color)) * 14;
     score -= startZoneCount(next, color) * 2.2;
+    score += hardMarsEmergencyScore(state, next, color);
     score += hardKoksEmergencyScore(state, next, color);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
     score -= koksRiskScore(next, color) * 0.9;

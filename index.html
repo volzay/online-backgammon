@@ -291,6 +291,18 @@
   const variantLabelKeys = { long: 'long_backgammon', short: 'short_backgammon' };
   const accessLabelKeys = { open: 'access_open', closed: 'access_closed' };
   const botNameKeys = { easy: 'bot_easy', medium: 'bot_medium', hard: 'bot_hard' };
+  function createLocalGameCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = new Uint8Array(8);
+    if (window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    let code = '';
+    for (let i = 0; i < bytes.length; i += 1) code += alphabet[bytes[i] % alphabet.length];
+    return `${code.slice(0, 4)}-${code.slice(4)}`;
+  }
   function labelFor(map, value, fallback = value) {
     return tt(map[value] || fallback);
   }
@@ -658,6 +670,7 @@
         mode: 'bot',
         opp: tt(botNameKeys[createState.difficulty]),
         oppR: String(botRatings[createState.difficulty]),
+        game: createLocalGameCode(),
         variant: createState.variant,
         opponent: 'bot',
         access: 'open',
@@ -765,7 +778,7 @@
       const a = b.dataset.action;
       let params;
       if (a === 'quick') {
-        params = new URLSearchParams({ mode: 'bot', opp: tt('room_opponent'), oppR: 1100 });
+        params = new URLSearchParams({ mode: 'bot', opp: tt('room_opponent'), oppR: 1100, game: createLocalGameCode() });
       } else if (a === 'create') {
         showCreatePanel();
         return;

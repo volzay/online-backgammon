@@ -77,7 +77,7 @@
         <span data-i18n="crumb_lobby">Лобби</span>
         <span class="dot"></span>
         <b data-i18n="crumb_room">Комната</b>
-        <span class="code">5K7M-23M7</span>
+        <span class="code">—</span>
       </div>
       <h1><span data-you-name>abuabu</span> <em data-i18n="vs">против</em> <span data-opp-name>Бот лёгкий</span></h1>
     </div>
@@ -1056,6 +1056,8 @@ const ACTIVE_ROOM_KEY = 'narduh-active-room';
 const CREATE_GAME_KEY = 'narduh-created-game';
 const roomUrl = new URL(location.href);
 const roomCode = roomUrl.searchParams.get('room') || '';
+const localGameCode = roomCode ? '' : ensureLocalGameCode();
+const displayRoomCode = roomCode || localGameCode;
 const isWaitingHost = roomUrl.searchParams.get('waiting') === '1' && roomUrl.searchParams.get('host') === '1' && roomCode;
 const localPlayerColor = roomUrl.searchParams.get('color') || (roomUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
 let waitingPoll = null;
@@ -1076,6 +1078,34 @@ async function apiJson(url, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Ошибка игровой сессии.');
   return data;
+}
+
+function normalizeLocalGameCode(value) {
+  const raw = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (raw.length < 8) return '';
+  return `${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
+}
+
+function createLocalGameCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let code = '';
+  for (let i = 0; i < bytes.length; i += 1) code += alphabet[bytes[i] % alphabet.length];
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+function ensureLocalGameCode() {
+  const existing = normalizeLocalGameCode(roomUrl.searchParams.get('game'));
+  if (existing) return existing;
+  const code = createLocalGameCode();
+  roomUrl.searchParams.set('game', code);
+  history.replaceState(null, '', roomUrl.toString());
+  return code;
 }
 
 function storedActiveRoom() {
@@ -1245,7 +1275,7 @@ async function leaveToLobby() {
 window.NarduRoom = { leaveToLobby, closeCurrentRoom: removeCurrentWaitingRoom };
 function paintRoomCode() {
   const codeEl = document.querySelector('.crumbs .code');
-  if (codeEl && roomCode) codeEl.textContent = roomCode;
+  if (codeEl) codeEl.textContent = displayRoomCode || '—';
 }
 async function paintWaitingRoom() {
   const panel = document.getElementById('game-wait-panel');
@@ -1307,6 +1337,7 @@ NarduController.setRenderer(fullBoardRender);
 NarduController.init({
   waiting: Boolean(isWaitingHost),
   mode: roomUrl.searchParams.get('mode') || undefined,
+  roomCode: displayRoomCode,
   playerColor: localPlayerColor,
 });
 paintWaitingRoom();

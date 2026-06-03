@@ -318,7 +318,7 @@ window.NarduController = (function () {
     if (statTimer) clearInterval(statTimer);
     statTimer = null;
 
-    const roomCode = url.searchParams.get('room') || '';
+    const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
     const restoredState = waitingForOpponent ? null : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
     state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState();
     if (opts.matchScore && !restoredState) {
