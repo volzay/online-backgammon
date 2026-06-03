@@ -14,6 +14,7 @@ window.NarduController = (function () {
   let opponentName = 'Easy bot';
   let opponentRating = 900;
   let botDifficulty = 'easy';
+  let variant = 'long';
   let pending = null;            /* { from } — currently selected source point */
   let isAnimating = false;
   let isRolling = false;
@@ -278,12 +279,14 @@ window.NarduController = (function () {
   }
 
   function normalizeRestoredState(restored, url) {
-    const base = NarduGame.initialState();
     const saved = cloneStateForRestore(restored);
+    const base = NarduGame.initialState(saved.variant || variant);
     return {
       ...base,
       ...saved,
+      variant: saved.variant || base.variant,
       points: saved.points || base.points,
+      bar: { ...base.bar, ...(saved.bar || {}) },
       off: { ...base.off, ...(saved.off || {}) },
       score: { ...base.score, ...(saved.score || {}) },
       dice: Array.isArray(saved.dice) ? saved.dice.slice() : [],
@@ -299,7 +302,7 @@ window.NarduController = (function () {
       mode,
       playerColor,
       viewColor: mode === 'remote' ? playerColor : 'white',
-      roomCode: url.searchParams.get('room') || '',
+      roomCode: url.searchParams.get('room') || url.searchParams.get('game') || '',
       turnClock: normalizedTurnClock(saved.turnClock || base.turnClock),
       matchScore: normalizedMatchScore(saved.matchScore || base.matchScore),
     };
@@ -313,6 +316,7 @@ window.NarduController = (function () {
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
     botDifficulty = normalizeBotDifficulty(opts.difficulty || url.searchParams.get('difficulty') || botDifficulty);
+    variant = normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
     playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
 
     if (statTimer) clearInterval(statTimer);
@@ -320,13 +324,14 @@ window.NarduController = (function () {
 
     const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
     const restoredState = waitingForOpponent ? null : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
-    state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState();
+    state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState(variant);
     if (opts.matchScore && !restoredState) {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     state.hints = [];
     state.fullHints = [];
     state.selected = null;
+    state.variant = state.variant || variant;
     state.mode = mode;
     state.playerColor = playerColor;
     state.botDifficulty = botDifficulty;
@@ -374,6 +379,10 @@ window.NarduController = (function () {
   function normalizeBotDifficulty(value) {
     const key = String(value || '').trim().toLowerCase();
     return ['easy', 'medium', 'hard'].includes(key) ? key : 'easy';
+  }
+
+  function normalizeVariant(value) {
+    return value === 'short' ? 'short' : 'long';
   }
 
   function applyLocalBearOffDemo(url) {
@@ -941,7 +950,7 @@ window.NarduController = (function () {
     }
     return Object.entries(state?.points || {}).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
-      const pos = NarduGame.pathPos(color, Number(point));
+      const pos = NarduGame.pathPos(color, Number(point), state);
       return total + data.count * Math.max(0, 24 - pos);
     }, 0);
   }
@@ -1799,7 +1808,7 @@ window.NarduController = (function () {
       maybeScheduleAutoEndTurn();
       return;
     }
-    animateMove(from, NarduGame.moveTo(state.turn, from, die), () => {
+    animateMove(from, NarduGame.moveTo(state.turn, from, die, state), () => {
       pushUndoSnapshot();
       const applied = NarduGame.applyMove(state, from, die, { autoEnd: false });
       if (!applied) {
@@ -2022,7 +2031,7 @@ window.NarduController = (function () {
         return;
       }
       const m = moves[i++];
-      const to = NarduGame.moveTo(state.turn, m.from, m.die);
+      const to = NarduGame.moveTo(state.turn, m.from, m.die, state);
       animateMove(m.from, to, () => {
         const applied = NarduGame.applyMove(state, m.from, m.die);
         if (!applied) {
@@ -2288,6 +2297,7 @@ window.NarduController = (function () {
         opponent: opponentName,
         opponentRating,
         difficulty: botDifficulty,
+        variant,
         playerColor,
         matchScore: nextMatchScore,
         skipRemoteSync: deferRemoteStart,

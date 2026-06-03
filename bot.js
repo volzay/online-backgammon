@@ -18,22 +18,22 @@ window.NarduBot = (function () {
   }
 
   function headCount(state, color) {
-    return state.points?.[NarduGame.headPoint(color)]?.count || 0;
+    return state.points?.[NarduGame.headPoint(color, state)]?.count || 0;
   }
 
   /* score a candidate single move for the easy bot */
   function evalMove(state, from, die) {
     const color = state.turn;
-    const to = NarduGame.moveTo(color, from, die);
+    const to = NarduGame.moveTo(color, from, die, state);
     let score = die * 3;
 
     if (to === 0) return 1000 + die;
     if (!state.points?.[to]) score += 5;
     if (NarduGame.pointColor(state, to) === color) score += 2;
     if (NarduGame.allInHome(state, color)) {
-      score += NarduGame.pointToTrack(color, to) * 2;
+      score += NarduGame.pointToTrack(color, to, state) * 2;
     }
-    if (from === NarduGame.headPoint(color)) score += headCount(state, color) > 9 ? 6 : -2;
+    if (from === NarduGame.headPoint(color, state)) score += headCount(state, color) > 9 ? 6 : -2;
     score += Math.random() * 4;
     return score;
   }
@@ -41,20 +41,16 @@ window.NarduBot = (function () {
   function pickEasyMove(state) {
     let best = null;
     let bestScore = -Infinity;
-    for (const k in state.points) {
-      const point = state.points[k];
-      if (point.color !== state.turn) continue;
-      const from = Number(k);
-      const tried = new Set();
-      for (const die of state.dice) {
-        if (tried.has(die)) continue;
-        tried.add(die);
-        if (!NarduGame.isValidMove(state, from, die)) continue;
-        const score = evalMove(state, from, die);
-        if (score > bestScore) {
-          best = { from, die };
-          bestScore = score;
-        }
+    const tried = new Set();
+    for (const move of NarduGame.legalNextMoves(state)) {
+      const key = `${move.from}:${move.die}`;
+      if (tried.has(key)) continue;
+      tried.add(key);
+      if (!NarduGame.isValidMove(state, move.from, move.die)) continue;
+      const score = evalMove(state, move.from, move.die);
+      if (score > bestScore) {
+        best = { from: move.from, die: move.die };
+        bestScore = score;
       }
     }
     return best;

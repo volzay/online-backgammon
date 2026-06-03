@@ -5,15 +5,41 @@
    ------------------------------------------------------------------ */
 
 window.NarduGame = (function () {
-  const WHITE_PATH = [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-  const DARK_PATH = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
+  const LONG_WHITE_PATH = [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+  const LONG_DARK_PATH = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
+  const SHORT_WHITE_PATH = LONG_WHITE_PATH;
+  const SHORT_DARK_PATH = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
 
-  function initialState() {
+  function normalizeVariant(value) {
+    return value === 'short' ? 'short' : 'long';
+  }
+
+  function initialPointsFor(variant) {
+    if (variant === 'short') {
+      return {
+        24: { color: 'white', count: 2 },
+        13: { color: 'white', count: 5 },
+        8: { color: 'white', count: 3 },
+        6: { color: 'white', count: 5 },
+        1: { color: 'dark', count: 2 },
+        12: { color: 'dark', count: 5 },
+        17: { color: 'dark', count: 3 },
+        19: { color: 'dark', count: 5 },
+      };
+    }
+
     return {
-      points: {
-        24: { color: 'white', count: 15 },
-        12: { color: 'dark', count: 15 },
-      },
+      24: { color: 'white', count: 15 },
+      12: { color: 'dark', count: 15 },
+    };
+  }
+
+  function initialState(variant = 'long') {
+    const normalizedVariant = normalizeVariant(variant);
+    return {
+      variant: normalizedVariant,
+      points: initialPointsFor(normalizedVariant),
+      bar: { white: 0, dark: 0 },
       off: { white: 0, dark: 0 },
       score: { white: 0, dark: 0 },
       dice: [],
@@ -125,43 +151,74 @@ window.NarduGame = (function () {
     return state;
   }
 
-  function pathFor(color) {
-    return color === 'white' ? WHITE_PATH : DARK_PATH;
+  function variantOf(stateOrVariant = 'long') {
+    return typeof stateOrVariant === 'object'
+      ? normalizeVariant(stateOrVariant?.variant)
+      : normalizeVariant(stateOrVariant);
+  }
+
+  function isShort(state) {
+    return variantOf(state) === 'short';
+  }
+
+  function pathFor(color, stateOrVariant = 'long') {
+    const variant = variantOf(stateOrVariant);
+    if (variant === 'short') return color === 'white' ? SHORT_WHITE_PATH : SHORT_DARK_PATH;
+    return color === 'white' ? LONG_WHITE_PATH : LONG_DARK_PATH;
   }
 
   function opponentOf(color) {
     return color === 'white' ? 'dark' : 'white';
   }
 
-  function pathPos(color, point) {
-    return pathFor(color).indexOf(Number(point));
+  function pathPos(color, point, stateOrVariant = 'long') {
+    return pathFor(color, stateOrVariant).indexOf(Number(point));
   }
 
-  function pointToTrack(color, point) {
-    return pathPos(color, point);
+  function pointToTrack(color, point, stateOrVariant = 'long') {
+    return pathPos(color, point, stateOrVariant);
   }
 
-  function trackToPoint(color, track) {
-    return pathFor(color)[track] || 0;
+  function trackToPoint(color, track, stateOrVariant = 'long') {
+    return pathFor(color, stateOrVariant)[track] || 0;
   }
 
-  function moveTo(color, fromPoint, distance) {
-    const pos = pathPos(color, fromPoint);
+  function barPoint(color) {
+    return color === 'white' ? 25 : -1;
+  }
+
+  function isBarPointFor(color, point) {
+    return Number(point) === barPoint(color);
+  }
+
+  function moveTo(color, fromPoint, distance, stateOrVariant = 'long') {
+    if (variantOf(stateOrVariant) === 'short' && isBarPointFor(color, fromPoint)) {
+      return pathFor(color, stateOrVariant)[distance - 1] || 0;
+    }
+    const pos = pathPos(color, fromPoint, stateOrVariant);
     if (pos < 0) return 0;
     const next = pos + distance;
-    return next >= 24 ? 0 : pathFor(color)[next];
+    return next >= 24 ? 0 : pathFor(color, stateOrVariant)[next];
   }
 
   function pointColor(state, point) {
+    if (isShort(state)) {
+      if (isBarPointFor('white', point)) return (state.bar?.white || 0) > 0 ? 'white' : null;
+      if (isBarPointFor('dark', point)) return (state.bar?.dark || 0) > 0 ? 'dark' : null;
+    }
     return state.points[point]?.color || null;
   }
 
   function pointCount(state, point) {
+    if (isShort(state)) {
+      if (isBarPointFor('white', point)) return state.bar?.white || 0;
+      if (isBarPointFor('dark', point)) return state.bar?.dark || 0;
+    }
     return state.points[point]?.count || 0;
   }
 
-  function headPoint(color) {
-    return pathFor(color)[0];
+  function headPoint(color, stateOrVariant = 'long') {
+    return pathFor(color, stateOrVariant)[0];
   }
 
   function allInHome(state, color) {
@@ -169,7 +226,8 @@ window.NarduGame = (function () {
   }
 
   function homeReady(state, color) {
-    const home = new Set(pathFor(color).slice(18));
+    if (isShort(state) && (state.bar?.[color] || 0) > 0) return false;
+    const home = new Set(pathFor(color, state).slice(18));
     return Object.entries(state.points).every(([point, data]) => (
       data.color !== color || home.has(Number(point))
     ));
@@ -177,12 +235,12 @@ window.NarduGame = (function () {
 
   function canBearOffFrom(state, color, from, die) {
     if (!homeReady(state, color)) return false;
-    const pos = pathPos(color, from);
+    const pos = pathPos(color, from, state);
     if (pos < 18) return false;
     const exact = 24 - pos;
     if (die === exact) return true;
     if (die < exact) return false;
-    const path = pathFor(color);
+    const path = pathFor(color, state);
     return !path.slice(18, pos).some(point => state.points[point]?.color === color);
   }
 
@@ -190,7 +248,7 @@ window.NarduGame = (function () {
     let maxDist = 0;
     Object.entries(state.points).forEach(([point, data]) => {
       if (data.color !== color) return;
-      const pos = pathPos(color, Number(point));
+      const pos = pathPos(color, Number(point), state);
       maxDist = Math.max(maxDist, 24 - pos);
     });
     return maxDist;
@@ -206,10 +264,12 @@ window.NarduGame = (function () {
 
   function pointOpenFor(state, color, point) {
     const target = state.points[point];
+    if (isShort(state)) return !target || target.color === color || target.count === 1;
     return !target || target.color === color;
   }
 
   function moveSources(state, color) {
+    if (isShort(state) && (state.bar?.[color] || 0) > 0) return [barPoint(color)];
     return Object.entries(state.points)
       .filter(([, data]) => data.color === color)
       .map(([point]) => Number(point));
@@ -221,16 +281,22 @@ window.NarduGame = (function () {
       return { ok: false, message: 'Сейчас нельзя ходить.' };
     }
 
-    const source = state.points[from];
+    const fromBar = isShort(state) && isBarPointFor(color, from);
+    const source = fromBar
+      ? { color, count: state.bar?.[color] || 0 }
+      : state.points[from];
     if (!source || source.color !== color || source.count < 1) {
       return { ok: false, message: 'Выберите свою шашку.' };
+    }
+    if (isShort(state) && (state.bar?.[color] || 0) > 0 && !fromBar) {
+      return { ok: false, message: 'Сначала нужно войти шашкой с бара.' };
     }
 
     const bearOff = to === 0 || to < 1 || to > 24;
     const indexes = dieIndex === null ? state.dice.map((_, index) => index) : [dieIndex];
     const matchedIndex = indexes.find(index => {
       const value = state.dice[index];
-      const dest = moveTo(color, from, value);
+      const dest = moveTo(color, from, value, state);
       return bearOff
         ? dest === 0 && canBearOffFrom(state, color, from, value)
         : dest === to;
@@ -244,11 +310,11 @@ window.NarduGame = (function () {
     if (bearOff && !canBearOffFrom(state, color, from, die)) {
       return { ok: false, message: 'Снимать шашки можно только из дома и по правилу старшего пункта.' };
     }
-    if (!bearOff && moveTo(color, from, die) !== to) {
-      return { ok: false, message: 'Ход должен идти по маршруту длинных нард.' };
+    if (!bearOff && moveTo(color, from, die, state) !== to) {
+      return { ok: false, message: isShort(state) ? 'Ход должен соответствовать направлению коротких нард.' : 'Ход должен идти по маршруту длинных нард.' };
     }
 
-    if (from === headPoint(color)) {
+    if (!isShort(state) && from === headPoint(color, state)) {
       const used = state.turnMoves.filter(move => move.from === from).length;
       if (used >= headMoveLimit(state, color)) {
         return { ok: false, message: 'С головы можно взять только одну шашку за ход.' };
@@ -259,7 +325,7 @@ window.NarduGame = (function () {
       if (!pointOpenFor(state, color, to)) {
         return { ok: false, message: 'Пункт закрыт соперником.' };
       }
-      if (violatesLongBlockRuleDuringMove(state, color, from, to, false)) {
+      if (!isShort(state) && violatesLongBlockRuleDuringMove(state, color, from, to, false)) {
         return { ok: false, message: 'Нельзя строить блок из шести, запирающий все 15 шашек соперника.' };
       }
     }
@@ -273,7 +339,7 @@ window.NarduGame = (function () {
     const seen = new Set();
     for (const from of moveSources(state, color)) {
       state.dice.forEach((die, dieIndex) => {
-        const dest = moveTo(color, from, die);
+        const dest = moveTo(color, from, die, state);
         const to = dest === 0 ? 0 : dest;
         const check = basicLegalMove(state, color, from, to, dieIndex);
         if (!check.ok) return;
@@ -290,7 +356,7 @@ window.NarduGame = (function () {
     normalizeState(state);
     if (state.phase !== 'move') return false;
     const color = state.turn;
-    const to = moveTo(color, from, die);
+    const to = moveTo(color, from, die, state);
     const basic = basicLegalMove(state, color, from, to, state.dice.indexOf(die));
     if (!basic.ok) return false;
     return bestMoveSequences(state, color).some(sequence => (
@@ -329,7 +395,7 @@ window.NarduGame = (function () {
     let allowed = null;
 
     if (state.dice.includes(value)) {
-      const to = moveTo(color, from, value);
+      const to = moveTo(color, from, value, state);
       allowed = sequences.find(sequence => (
         sequence[0]?.from === from && sequence[0]?.to === to && sequence[0]?.die === value
       ));
@@ -351,6 +417,8 @@ window.NarduGame = (function () {
       from,
       to: move.bearOff ? 'снято' : move.to,
       die: move.die,
+      hit: Boolean(move.hit),
+      hitColor: move.hitColor || null,
       at: new Date().toISOString(),
     });
 
@@ -363,14 +431,28 @@ window.NarduGame = (function () {
   }
 
   function commitMove(state, color, move) {
-    const source = state.points[move.from];
-    source.count -= 1;
-    if (source.count === 0) delete state.points[move.from];
+    const fromBar = isShort(state) && isBarPointFor(color, move.from);
+    if (fromBar) {
+      state.bar[color] = Math.max(0, (state.bar[color] || 0) - 1);
+    } else {
+      const source = state.points[move.from];
+      source.count -= 1;
+      if (source.count === 0) delete state.points[move.from];
+    }
 
     if (move.bearOff) {
       state.off[color] += 1;
-      state.score[color] += 24 - pathPos(color, move.from);
+      state.score[color] += 24 - pathPos(color, move.from, state);
     } else {
+      const target = state.points[move.to];
+      const hit = isShort(state) && target?.color && target.color !== color && target.count === 1;
+      if (hit) {
+        const opponent = target.color;
+        state.bar[opponent] = (state.bar[opponent] || 0) + 1;
+        state.points[move.to] = { color, count: 0 };
+        move.hit = true;
+        move.hitColor = opponent;
+      }
       if (!state.points[move.to]) state.points[move.to] = { color, count: 0 };
       state.points[move.to].count += 1;
       state.score[color] += move.die;
@@ -382,7 +464,7 @@ window.NarduGame = (function () {
     if (removeIndex !== -1) state.dice.splice(removeIndex, 1);
 
     state.turnMoves.push({ color, from: move.from, to: move.to, die: move.die, bearOff: move.bearOff });
-    if (move.from === headPoint(color)) state.headPlayedThisTurn[color] = true;
+    if (!isShort(state) && move.from === headPoint(color, state)) state.headPlayedThisTurn[color] = true;
 
     if (state.off[color] >= 15) {
       state.winner = color;
@@ -391,20 +473,50 @@ window.NarduGame = (function () {
     }
   }
 
-  function rawMoveSequences(state, color) {
+  function sequenceCacheKey(state, color) {
+    const points = Object.entries(state.points)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([point, data]) => `${point}:${data.color}:${data.count}`)
+      .join('|');
+    const moves = state.turnMoves
+      .map(move => `${move.from}:${move.to}:${move.die}`)
+      .join('|');
+    return [
+      state.variant,
+      color,
+      state.turn,
+      state.phase,
+      state.dice.join(','),
+      state.rolled.join(','),
+      `${state.bar?.white || 0}:${state.bar?.dark || 0}`,
+      `${state.off?.white || 0}:${state.off?.dark || 0}`,
+      moves,
+      points,
+    ].join(';');
+  }
+
+  function rawMoveSequences(state, color, memo = new Map()) {
     normalizeState(state);
     if (!state.dice.length || state.winner || state.phase !== 'move') return [[]];
+    const cacheKey = sequenceCacheKey(state, color);
+    const cached = memo.get(cacheKey);
+    if (cached) return cached;
     const moves = legalNextMoves(state, color);
-    if (!moves.length) return [[]];
+    if (!moves.length) {
+      const none = [[]];
+      memo.set(cacheKey, none);
+      return none;
+    }
 
     const sequences = [];
     for (const move of moves) {
       const next = cloneState(state);
       commitMove(next, color, move);
-      for (const tail of rawMoveSequences(next, color)) {
+      for (const tail of rawMoveSequences(next, color, memo)) {
         sequences.push([move, ...tail]);
       }
     }
+    memo.set(cacheKey, sequences);
     return sequences;
   }
 
@@ -440,7 +552,7 @@ window.NarduGame = (function () {
   function checkersInTrackRange(state, color, start, end) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
-      const pos = pathPos(color, Number(point));
+      const pos = pathPos(color, Number(point), state);
       return total + (pos >= start && pos <= end ? data.count : 0);
     }, 0);
   }
@@ -466,7 +578,7 @@ window.NarduGame = (function () {
   function outsideHomePips(state, color) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
-      const pos = pathPos(color, Number(point));
+      const pos = pathPos(color, Number(point), state);
       return total + (pos >= 0 && pos < 18 ? data.count * (18 - pos) : 0);
     }, 0);
   }
@@ -474,16 +586,16 @@ window.NarduGame = (function () {
   function botStackPenalty(state, color) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
-      const pos = pathPos(color, Number(point));
+      const pos = pathPos(color, Number(point), state);
       const excess = Math.max(0, data.count - (pos >= 18 ? 4 : 3));
-      return total + excess * excess * (Number(point) === headPoint(color) ? 5 : 3);
+      return total + excess * excess * (Number(point) === headPoint(color, state) ? 5 : 3);
     }, 0);
   }
 
   function blockControlScore(state, color) {
     const opponent = opponentOf(color);
     let run = 0;
-    return pathFor(opponent).reduce((score, point, index) => {
+    return pathFor(opponent, state).reduce((score, point, index) => {
       if (state.points[point]?.color === color) {
         run += 1;
         const zone = index < 12 ? 1.25 : index < 18 ? 1 : 0.55;
@@ -492,6 +604,132 @@ window.NarduGame = (function () {
       run = 0;
       return score;
     }, 0);
+  }
+
+  function shortMadePointCount(state, color, rangeStart = 0, rangeEnd = 23) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color || data.count < 2) return total;
+      const pos = pathPos(color, Number(point), state);
+      return total + (pos >= rangeStart && pos <= rangeEnd ? 1 : 0);
+    }, 0);
+  }
+
+  function shortPrimeScore(state, color) {
+    const opponent = opponentOf(color);
+    let run = 0;
+    return pathFor(opponent, state).reduce((score, point, index) => {
+      const made = state.points[point]?.color === color && state.points[point]?.count >= 2;
+      if (!made) {
+        run = 0;
+        return score;
+      }
+      run += 1;
+      const zone = index < 6 ? 1.35 : index < 18 ? 1 : 0.65;
+      return score + run * run * 4.5 * zone;
+    }, 0);
+  }
+
+  function shortCanBeHit(state, color, point) {
+    const opponent = opponentOf(color);
+    const target = Number(point);
+    if ((state.bar?.[opponent] || 0) > 0) {
+      for (let die = 1; die <= 6; die += 1) {
+        if (moveTo(opponent, barPoint(opponent), die, state) === target) return true;
+      }
+      return false;
+    }
+    return Object.entries(state.points).some(([from, data]) => {
+      if (data.color !== opponent) return false;
+      for (let die = 1; die <= 6; die += 1) {
+        if (moveTo(opponent, Number(from), die, state) === target) return true;
+      }
+      return false;
+    });
+  }
+
+  function shortBlotExposureScore(state, color) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color || data.count !== 1) return total;
+      const pos = pathPos(color, Number(point), state);
+      let risk = pos >= 18 ? 18 : pos <= 5 ? 10 : 13;
+      if (shortCanBeHit(state, color, Number(point))) risk += pos >= 18 ? 68 : 42;
+      if (homeReady(state, color)) risk += 25;
+      return total + risk;
+    }, 0);
+  }
+
+  function shortBoardStrengthScore(state, color) {
+    const opponent = opponentOf(color);
+    const homeMade = shortMadePointCount(state, color, 18, 23);
+    const homeCheckers = checkersInTrackRange(state, color, 18, 23);
+    const opponentOnBar = state.bar?.[opponent] || 0;
+    return homeMade * 28 + homeCheckers * 1.8 + opponentOnBar * (42 + homeMade * 18);
+  }
+
+  function scoreShortSequence(state, color, sequence, difficulty = 'medium') {
+    const hard = difficulty === 'hard';
+    const next = cloneState(state);
+    const opponent = opponentOf(color);
+    const beforePips = pipsFor(state, color);
+    const beforeOpponentPips = pipsFor(state, opponent);
+    const beforeExposure = shortBlotExposureScore(state, color);
+    const beforeOpponentExposure = shortBlotExposureScore(state, opponent);
+    const beforeMade = shortMadePointCount(state, color);
+    const beforeHomeMade = shortMadePointCount(state, color, 18, 23);
+    const beforePrime = shortPrimeScore(state, color);
+    const beforeBoard = shortBoardStrengthScore(state, color);
+    let score = 0;
+
+    sequence.forEach(move => {
+      const target = move.bearOff ? null : next.points[move.to];
+      const fromBar = isBarPointFor(color, move.from);
+      const fromPos = fromBar ? -1 : pathPos(color, move.from, next);
+      const toPos = move.bearOff ? 24 : pathPos(color, move.to, next);
+      const hit = !move.bearOff && target?.color === opponent && target.count === 1;
+
+      if (fromBar) score += hard ? 260 : 120;
+      if (move.bearOff) {
+        score += hard ? 260 + move.die * 8 : 120 + move.die * 4;
+      } else {
+        if (hit) score += hard ? 210 + Math.max(0, 18 - toPos) * 5 : 95;
+        if (!target) score += hard ? 20 : 8;
+        else if (target.color === color) {
+          score += target.count === 1 ? (hard ? 78 : 34) : -(target.count > 4 ? (target.count - 4) * 12 : 0);
+        }
+        if (toPos >= 18) score += hard ? 30 : 12;
+        if (fromPos >= 0 && fromPos <= 5 && toPos > fromPos) score += hard ? 18 : 7;
+        score += move.die * (hard ? 5 : 3);
+      }
+      commitMove(next, color, move);
+    });
+
+    const pipsGain = beforePips - pipsFor(next, color);
+    const opponentPipsGain = beforeOpponentPips - pipsFor(next, opponent);
+    const exposureGain = beforeExposure - shortBlotExposureScore(next, color);
+    const opponentExposureGain = shortBlotExposureScore(next, opponent) - beforeOpponentExposure;
+    const madeGain = shortMadePointCount(next, color) - beforeMade;
+    const homeMadeGain = shortMadePointCount(next, color, 18, 23) - beforeHomeMade;
+    const primeGain = shortPrimeScore(next, color) - beforePrime;
+    const boardGain = shortBoardStrengthScore(next, color) - beforeBoard;
+
+    score += pipsGain * (hard ? 3.3 : 1.8);
+    score -= opponentPipsGain * (hard ? 1.4 : 0.5);
+    score += exposureGain * (hard ? 2.8 : 1.1);
+    score += opponentExposureGain * (hard ? 1.1 : 0.4);
+    score += madeGain * (hard ? 38 : 16);
+    score += homeMadeGain * (hard ? 72 : 28);
+    score += primeGain * (hard ? 1.8 : 0.8);
+    score += boardGain * (hard ? 1.35 : 0.55);
+    score -= (next.bar?.[color] || 0) * (hard ? 260 : 120);
+    score += (next.bar?.[opponent] || 0) * (hard ? 120 : 42);
+    score += ((next.off[color] || 0) - (state.off[color] || 0)) * (hard ? 230 : 110);
+    if (homeReady(next, color)) score += hard ? 70 + (next.off[color] || 0) * 65 : 30;
+    score -= stackPenalty(next, color) * (hard ? 1.2 : 0.5);
+    if (hard) {
+      score += hardMarsEmergencyScore(state, next, color);
+      score += hardKoksEmergencyScore(state, next, color);
+    }
+    return score;
   }
 
   function koksRiskScore(state, color) {
@@ -581,10 +819,10 @@ window.NarduGame = (function () {
       if (move.bearOff) score += 90 + move.die;
       else {
         const target = next.points[move.to];
-        const headBefore = pointCount(next, headPoint(color));
+        const headBefore = pointCount(next, headPoint(color, state));
         if (target?.color === color) score += 8;
         if (!target) score += 5;
-        score += move.from === headPoint(color) && headBefore > 8 ? 8 : -2;
+        score += move.from === headPoint(color, state) && headBefore > 8 ? 8 : -2;
         score += move.die * 4;
       }
       commitMove(next, color, move);
@@ -597,6 +835,8 @@ window.NarduGame = (function () {
   }
 
   function scoreSequence(state, color, sequence, difficulty = 'medium') {
+    if (isShort(state)) return scoreShortSequence(state, color, sequence, difficulty);
+
     const hard = difficulty === 'hard';
     if (!hard) return scoreMediumSequence(state, color, sequence);
 
@@ -605,15 +845,15 @@ window.NarduGame = (function () {
     let score = 0;
     sequence.forEach(move => {
       const target = move.bearOff ? null : next.points[move.to];
-      const fromPos = pathPos(color, move.from);
-      const toPos = move.bearOff ? 24 : pathPos(color, move.to);
-      const headBefore = pointCount(next, headPoint(color));
+      const fromPos = pathPos(color, move.from, state);
+      const toPos = move.bearOff ? 24 : pathPos(color, move.to, state);
+      const headBefore = pointCount(next, headPoint(color, state));
 
       if (move.bearOff) score += 190 + move.die * 3;
       else {
         if (!target) score += 13;
         else if (target.color === color) score += target.count <= 1 ? 3 : -Math.min(18, (target.count - 1) * 5);
-        if (move.from === headPoint(color)) score += 18 + Math.min(36, headBefore * 2);
+        if (move.from === headPoint(color, state)) score += 18 + Math.min(36, headBefore * 2);
         else if (fromPos >= 0 && fromPos <= 5) score += 14;
         if (toPos >= 18) score += 16;
         score += move.die * 6;
@@ -653,12 +893,12 @@ window.NarduGame = (function () {
   function violatesLongBlockRuleDuringMove(state, color, from, to, bearOff) {
     if (bearOff) return false;
     const preview = previewMovePoints(state, color, from, to, false);
-    return violatesLongBlockRule(preview, color, state.off);
+    return violatesLongBlockRule(preview, color, state.off, state);
   }
 
-  function violatesLongBlockRule(points, color, off = { white: 0, dark: 0 }) {
+  function violatesLongBlockRule(points, color, off = { white: 0, dark: 0 }, stateOrVariant = 'long') {
     const opponent = opponentOf(color);
-    const opponentPath = pathFor(opponent);
+    const opponentPath = pathFor(opponent, stateOrVariant);
     const opponentOnBoard = Object.values(points).reduce((total, point) => (
       total + (point.color === opponent ? point.count : 0)
     ), 0);
@@ -689,7 +929,14 @@ window.NarduGame = (function () {
   function resultTypeFor(state, winner) {
     const loser = opponentOf(winner);
     if (state.off[loser] > 0) return null;
-    const loserStart = new Set(pathFor(loser).slice(0, 6));
+    if (isShort(state)) {
+      const winnerHome = new Set(pathFor(winner, state).slice(18));
+      const hasCheckerInWinnerHome = Object.entries(state.points).some(([point, data]) => (
+        data.color === loser && winnerHome.has(Number(point))
+      ));
+      return (state.bar?.[loser] || 0) > 0 || hasCheckerInWinnerHome ? 'koks' : 'mars';
+    }
+    const loserStart = new Set(pathFor(loser, state).slice(0, 6));
     const hasCheckerInStart = Object.entries(state.points).some(([point, data]) => (
       data.color === loser && loserStart.has(Number(point))
     ));
@@ -699,8 +946,8 @@ window.NarduGame = (function () {
   function pipsFor(state, color) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color) return total;
-      return total + data.count * Math.max(0, 24 - pathPos(color, Number(point)));
-    }, 0);
+      return total + data.count * Math.max(0, 24 - pathPos(color, Number(point), state));
+    }, (state.bar?.[color] || 0) * 25);
   }
 
   function madePointCount(state, color) {
@@ -712,7 +959,7 @@ window.NarduGame = (function () {
   function stackPenalty(state, color) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color || data.count <= 5) return total;
-      const pos = pathPos(color, Number(point));
+      const pos = pathPos(color, Number(point), state);
       return total + (data.count - 5) * (pos < 18 ? 4 : 1.2);
     }, 0);
   }
@@ -724,7 +971,9 @@ window.NarduGame = (function () {
   function cloneState(state) {
     return {
       ...state,
+      variant: normalizeVariant(state.variant),
       points: clonePoints(state.points),
+      bar: { white: 0, dark: 0, ...(state.bar || {}) },
       off: { ...state.off },
       score: { ...state.score },
       dice: [...state.dice],
@@ -746,7 +995,11 @@ window.NarduGame = (function () {
   }
 
   function normalizeState(state) {
+    state.variant = normalizeVariant(state.variant);
     state.points ||= {};
+    state.bar ||= { white: 0, dark: 0 };
+    state.bar.white = Number(state.bar.white) || 0;
+    state.bar.dark = Number(state.bar.dark) || 0;
     state.off ||= { white: 0, dark: 0 };
     state.score ||= { white: 0, dark: 0 };
     state.dice ||= [];
@@ -798,6 +1051,7 @@ window.NarduGame = (function () {
     trackToPoint,
     pathFor,
     pathPos,
+    barPoint,
     pipsFor,
     opponentOf,
     endTurn,

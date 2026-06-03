@@ -599,7 +599,36 @@ function fullBoardRender() {
   renderQuad('q-tr', darkView ? TR_DARK_VIEW : TR, false);
   renderQuad('q-bl', darkView ? BL_DARK_VIEW : BL, true);
   renderQuad('q-br', darkView ? BR_DARK_VIEW : BR, true);
+  renderBar();
   renderBearOff();
+}
+
+function renderBar() {
+  const bar = document.querySelector('#board > .bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  const entries = state.viewColor === 'dark' ? ['white', 'dark'] : ['dark', 'white'];
+  entries.forEach(color => {
+    const point = NarduGame.barPoint(color);
+    const count = state.bar?.[color] || 0;
+    const holder = document.createElement('div');
+    holder.className = `bar-stack ${color}`;
+    holder.dataset.point = point;
+    if (state.selected === point) holder.classList.add('selected');
+
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    for (let i = 0; i < count; i += 1) {
+      const checker = document.createElement('div');
+      checker.className = `chk ${color}`;
+      checker.style.zIndex = i;
+      checker.style.setProperty('--bar-index', i);
+      checker.innerHTML = checkerSVG(color);
+      stack.appendChild(checker);
+    }
+    holder.appendChild(stack);
+    bar.appendChild(holder);
+  });
 }
 
 /* update borne-off checker trays */
@@ -1338,6 +1367,7 @@ NarduController.init({
   waiting: Boolean(isWaitingHost),
   mode: roomUrl.searchParams.get('mode') || undefined,
   roomCode: displayRoomCode,
+  variant: roomUrl.searchParams.get('variant') || undefined,
   playerColor: localPlayerColor,
 });
 paintWaitingRoom();
