@@ -486,11 +486,45 @@ window.NarduGame = (function () {
     const opponent = opponentOf(color);
     const ownStart = startZoneCount(state, color);
     if (!ownStart) return 0;
-    const opponentThreat = (state.off[opponent] || 0) * 16 + homeCheckersForScore(state, opponent) * 2.6;
-    const ownEscape = (state.off[color] || 0) * 10 + homeCheckersForScore(state, color) * 1.6;
+    const opponentThreat = finishPressureScore(state, opponent);
+    const ownEscape = (state.off[color] || 0) * 24 + homeCheckersForScore(state, color) * 1.8;
     const danger = Math.max(0, opponentThreat - ownEscape - 28);
     const noCheckerOff = (state.off[color] || 0) === 0 ? 85 : 0;
-    return ownStart * danger * 0.8 + noCheckerOff * Math.min(1, danger / 40);
+    return ownStart * danger * 1.15 + noCheckerOff * Math.min(1, danger / 40);
+  }
+
+  function finishPressureScore(state, color) {
+    const pips = pipsFor(state, color);
+    const off = state.off[color] || 0;
+    const home = homeCheckersForScore(state, color);
+    let pressure = off * 22 + home * 2.4 + Math.max(0, 95 - pips) * 3;
+    if (homeReady(state, color)) pressure += 80;
+    return pressure;
+  }
+
+  function hardKoksEmergencyActive(state, color) {
+    return (state.off[color] || 0) === 0
+      && finishPressureScore(state, opponentOf(color)) >= 135;
+  }
+
+  function hardKoksEmergencyScore(state, next, color) {
+    if (!hardKoksEmergencyActive(state, color)) return 0;
+
+    const beforeStart = startZoneCount(state, color);
+    const afterStart = startZoneCount(next, color);
+    const startReduction = beforeStart - afterStart;
+    const homeGain = homeCheckersForScore(next, color) - homeCheckersForScore(state, color);
+    const offGain = (next.off[color] || 0) - (state.off[color] || 0);
+    const safeFromKoks = afterStart === 0 || (next.off[color] || 0) > 0;
+
+    let score = 0;
+    score += offGain * 220000;
+    score += startReduction * 46000;
+    score -= afterStart * 22000;
+    score += homeGain * 5200;
+    score += safeFromKoks ? 70000 : 0;
+    score -= pipsFor(next, color) * 35;
+    return score;
   }
 
   function scoreMediumSequence(state, color, sequence) {
@@ -548,7 +582,9 @@ window.NarduGame = (function () {
     score -= (botStackPenalty(next, color) - botStackPenalty(state, color)) * 1.15;
     score += (startZoneCount(state, color) - startZoneCount(next, color)) * 14;
     score -= startZoneCount(next, color) * 2.2;
-    score -= koksRiskScore(next, color) * 0.7;
+    score += hardKoksEmergencyScore(state, next, color);
+    score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
+    score -= koksRiskScore(next, color) * 0.9;
     if (homeReady(next, color)) score += (next.off[color] || 0) * 55;
     score -= stackPenalty(next, color) * 0.35;
     return score;
