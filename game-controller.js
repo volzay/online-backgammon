@@ -13,6 +13,7 @@ window.NarduController = (function () {
   let playerColor = 'white';
   let opponentName = 'Easy bot';
   let opponentRating = 900;
+  let botDifficulty = 'easy';
   let pending = null;            /* { from } — currently selected source point */
   let isAnimating = false;
   let isRolling = false;
@@ -311,6 +312,7 @@ window.NarduController = (function () {
     const waitingForOpponent = opts.waiting || url.searchParams.get('waiting') === '1';
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
+    botDifficulty = normalizeBotDifficulty(opts.difficulty || url.searchParams.get('difficulty') || botDifficulty);
     playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
 
     if (statTimer) clearInterval(statTimer);
@@ -327,6 +329,7 @@ window.NarduController = (function () {
     state.selected = null;
     state.mode = mode;
     state.playerColor = playerColor;
+    state.botDifficulty = botDifficulty;
     state.viewColor = mode === 'remote' ? playerColor : 'white';
     state.roomCode = roomCode;
     remoteCode = state.roomCode;
@@ -366,6 +369,11 @@ window.NarduController = (function () {
     const autoStartDelay = mode === 'remote' ? 1300 : 650;
     if (state.phase === 'opening') scheduleOpeningRoll(autoStartDelay);
     else scheduleAutoRoll(autoStartDelay);
+  }
+
+  function normalizeBotDifficulty(value) {
+    const key = String(value || '').trim().toLowerCase();
+    return ['easy', 'medium', 'hard'].includes(key) ? key : 'easy';
   }
 
   function applyLocalBearOffDemo(url) {
@@ -2002,7 +2010,7 @@ window.NarduController = (function () {
   function playBotTurn() {
     NarduSound.prime();
     undoStack = [];
-    const moves = NarduBot.plan(state);
+    const moves = NarduBot.plan(state, { difficulty: botDifficulty });
     if (moves.length === 0) {
       NarduGame.endTurn(state); afterTurn(); return;
     }
@@ -2279,6 +2287,7 @@ window.NarduController = (function () {
         mode,
         opponent: opponentName,
         opponentRating,
+        difficulty: botDifficulty,
         playerColor,
         matchScore: nextMatchScore,
         skipRemoteSync: deferRemoteStart,

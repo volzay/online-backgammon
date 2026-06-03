@@ -422,33 +422,135 @@ window.NarduGame = (function () {
     return best;
   }
 
-  function chooseBotSequence(state, color = state.turn) {
+  function chooseBotSequence(state, color = state.turn, options = {}) {
+    const difficulty = normalizeBotDifficulty(options.difficulty);
     const sequences = bestMoveSequences(state, color).filter(sequence => sequence.length);
     if (!sequences.length) return [];
     return sequences
-      .map(sequence => ({ sequence, score: scoreSequence(state, color, sequence) }))
+      .map(sequence => ({ sequence, score: scoreSequence(state, color, sequence, difficulty) }))
       .sort((a, b) => b.score - a.score)[0]
       .sequence
       .map(move => ({ ...move }));
   }
 
-  function scoreSequence(state, color, sequence) {
+  function normalizeBotDifficulty(value) {
+    return value === 'hard' ? 'hard' : 'medium';
+  }
+
+  function checkersInTrackRange(state, color, start, end) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color) return total;
+      const pos = pathPos(color, Number(point));
+      return total + (pos >= start && pos <= end ? data.count : 0);
+    }, 0);
+  }
+
+  function occupiedPointCount(state, color) {
+    return Object.values(state.points).reduce((total, point) => (
+      total + (point.color === color ? 1 : 0)
+    ), 0);
+  }
+
+  function homeCheckersForScore(state, color) {
+    return checkersInTrackRange(state, color, 18, 23) + (state.off[color] || 0);
+  }
+
+  function startZoneCount(state, color) {
+    return checkersInTrackRange(state, color, 0, 5);
+  }
+
+  function botStackPenalty(state, color) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color) return total;
+      const pos = pathPos(color, Number(point));
+      const excess = Math.max(0, data.count - (pos >= 18 ? 4 : 3));
+      return total + excess * excess * (Number(point) === headPoint(color) ? 5 : 3);
+    }, 0);
+  }
+
+  function blockControlScore(state, color) {
+    const opponent = opponentOf(color);
+    let run = 0;
+    return pathFor(opponent).reduce((score, point, index) => {
+      if (state.points[point]?.color === color) {
+        run += 1;
+        const zone = index < 12 ? 1.25 : index < 18 ? 1 : 0.55;
+        return score + 5 * zone + run * run * 1.4;
+      }
+      run = 0;
+      return score;
+    }, 0);
+  }
+
+  function koksRiskScore(state, color) {
+    const opponent = opponentOf(color);
+    const ownStart = startZoneCount(state, color);
+    if (!ownStart) return 0;
+    const opponentThreat = (state.off[opponent] || 0) * 16 + homeCheckersForScore(state, opponent) * 2.6;
+    const ownEscape = (state.off[color] || 0) * 10 + homeCheckersForScore(state, color) * 1.6;
+    const danger = Math.max(0, opponentThreat - ownEscape - 28);
+    const noCheckerOff = (state.off[color] || 0) === 0 ? 85 : 0;
+    return ownStart * danger * 0.8 + noCheckerOff * Math.min(1, danger / 40);
+  }
+
+  function scoreMediumSequence(state, color, sequence) {
     const next = cloneState(state);
     let score = 0;
     sequence.forEach(move => {
-      if (move.bearOff) score += 80 + move.die;
+      if (move.bearOff) score += 90 + move.die;
       else {
         const target = next.points[move.to];
-        if (target?.color === color) score += 10;
-        if (move.from === headPoint(color)) score -= 4;
+        const headBefore = pointCount(next, headPoint(color));
+        if (target?.color === color) score += 8;
+        if (!target) score += 5;
+        score += move.from === headPoint(color) && headBefore > 8 ? 8 : -2;
         score += move.die * 4;
       }
       commitMove(next, color, move);
     });
-    score += (pipsFor(state, opponentOf(color)) - pipsFor(next, opponentOf(color))) * 0.2;
-    score += (pipsFor(state, color) - pipsFor(next, color)) * 1.6;
-    score += (madePointCount(next, color) - madePointCount(state, color)) * 14;
+    score += (pipsFor(state, color) - pipsFor(next, color)) * 1.45;
+    score += (madePointCount(next, color) - madePointCount(state, color)) * 12;
+    score += (startZoneCount(state, color) - startZoneCount(next, color)) * 5;
     score -= stackPenalty(next, color);
+    return score;
+  }
+
+  function scoreSequence(state, color, sequence, difficulty = 'medium') {
+    const hard = difficulty === 'hard';
+    if (!hard) return scoreMediumSequence(state, color, sequence);
+
+    const next = cloneState(state);
+    const opponent = opponentOf(color);
+    let score = 0;
+    sequence.forEach(move => {
+      const target = move.bearOff ? null : next.points[move.to];
+      const fromPos = pathPos(color, move.from);
+      const toPos = move.bearOff ? 24 : pathPos(color, move.to);
+      const headBefore = pointCount(next, headPoint(color));
+
+      if (move.bearOff) score += 190 + move.die * 3;
+      else {
+        if (!target) score += 13;
+        else if (target.color === color) score += target.count <= 1 ? 3 : -Math.min(18, (target.count - 1) * 5);
+        if (move.from === headPoint(color)) score += 18 + Math.min(36, headBefore * 2);
+        else if (fromPos >= 0 && fromPos <= 5) score += 14;
+        if (toPos >= 18) score += 16;
+        score += move.die * 6;
+      }
+      commitMove(next, color, move);
+    });
+    score += (pipsFor(state, color) - pipsFor(next, color)) * 3;
+    score += ((next.off[color] || 0) - (state.off[color] || 0)) * 170;
+    score -= ((next.off[opponent] || 0) - (state.off[opponent] || 0)) * 70;
+    score += (occupiedPointCount(next, color) - occupiedPointCount(state, color)) * 7;
+    score += (madePointCount(next, color) - madePointCount(state, color)) * 10;
+    score += (blockControlScore(next, color) - blockControlScore(state, color)) * 0.45;
+    score -= (botStackPenalty(next, color) - botStackPenalty(state, color)) * 1.15;
+    score += (startZoneCount(state, color) - startZoneCount(next, color)) * 14;
+    score -= startZoneCount(next, color) * 2.2;
+    score -= koksRiskScore(next, color) * 0.7;
+    if (homeReady(next, color)) score += (next.off[color] || 0) * 55;
+    score -= stackPenalty(next, color) * 0.35;
     return score;
   }
 

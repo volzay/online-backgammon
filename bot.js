@@ -1,82 +1,100 @@
-/* ───────────────────────────────────────────────────────
-   bot.js — simple heuristic bot for Long Backgammon
+/* ---------------------------------------------------------------
+   bot.js - heuristic bot for Long Backgammon.
    Exposes: window.NarduBot
-   ─────────────────────────────────────────────────────── */
+   --------------------------------------------------------------- */
 window.NarduBot = (function () {
+  const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
 
-  /* score a candidate single move */
+  function normalizeDifficulty(value, state = {}) {
+    const raw = String(value || state.botDifficulty || '').trim().toLowerCase();
+    if (DIFFICULTIES.has(raw)) return raw;
+    if (/hard|слож|1500/.test(raw)) return 'hard';
+    if (/medium|сред|1200/.test(raw)) return 'medium';
+    return 'easy';
+  }
+
+  function cloneState(state) {
+    return JSON.parse(JSON.stringify(state));
+  }
+
+  function headCount(state, color) {
+    return state.points?.[NarduGame.headPoint(color)]?.count || 0;
+  }
+
+  /* score a candidate single move for the easy bot */
   function evalMove(state, from, die) {
     const color = state.turn;
     const to = NarduGame.moveTo(color, from, die);
-    let s = 0;
+    let score = die * 3;
 
-    if (to === 0) return 1000 + die;        /* bearing off is great */
-
-    s += die * 3;                            /* more pips ≈ more progress */
-
-    /* stacking on own column = mild bonus */
-    if (NarduGame.pointColor(state, to) === color) s += 6;
-
-    /* moving deeper into home = strong bonus when close to bear-off */
+    if (to === 0) return 1000 + die;
+    if (!state.points?.[to]) score += 5;
+    if (NarduGame.pointColor(state, to) === color) score += 2;
     if (NarduGame.allInHome(state, color)) {
-      const trackTo = NarduGame.pointToTrack(color, to);
-      s += trackTo * 2;
+      score += NarduGame.pointToTrack(color, to) * 2;
     }
-
-    /* avoid leaving single-checker exposure (less critical without hitting,
-       but keeps stacks tidy) */
-    const srcCount = state.points[from].count;
-    if (srcCount === 1) s -= 2;
-    if (srcCount > 4)   s += 2;
-
-    /* prefer to move from head only when needed */
-    if (from === NarduGame.headPoint(color)) s -= 3;
-
-    return s;
+    if (from === NarduGame.headPoint(color)) score += headCount(state, color) > 9 ? 6 : -2;
+    score += Math.random() * 4;
+    return score;
   }
 
-  function pickBestMove(state) {
-    const sequence = NarduGame.chooseBotSequence?.(state, state.turn);
-    if (sequence?.length) {
-      return { from: sequence[0].from, die: sequence[0].die };
-    }
-
-    let best = null, bestScore = -Infinity;
+  function pickEasyMove(state) {
+    let best = null;
+    let bestScore = -Infinity;
     for (const k in state.points) {
-      const p = state.points[k];
-      if (p.color !== state.turn) continue;
-      const from = +k;
+      const point = state.points[k];
+      if (point.color !== state.turn) continue;
+      const from = Number(k);
       const tried = new Set();
-      for (const d of state.dice) {
-        if (tried.has(d)) continue;
-        tried.add(d);
-        if (!NarduGame.isValidMove(state, from, d)) continue;
-        const sc = evalMove(state, from, d);
-        if (sc > bestScore) { bestScore = sc; best = { from, die: d }; }
+      for (const die of state.dice) {
+        if (tried.has(die)) continue;
+        tried.add(die);
+        if (!NarduGame.isValidMove(state, from, die)) continue;
+        const score = evalMove(state, from, die);
+        if (score > bestScore) {
+          best = { from, die };
+          bestScore = score;
+        }
       }
     }
     return best;
   }
 
-  /* Play out the bot's turn, returning the list of moves it made.
-     Each move is { from, die } so the UI can animate them sequentially. */
-  function plan(state) {
-    /* clone state so we don't mutate before animation finishes */
-    const s = JSON.parse(JSON.stringify(state));
-    const sequence = NarduGame.chooseBotSequence?.(s, s.turn);
-    if (sequence?.length) {
-      return sequence.map(move => ({ from: move.from, die: move.die }));
-    }
-
+  function chooseEasySequence(state) {
     const moves = [];
-    while (s.phase === 'move' && s.dice.length && NarduGame.hasAnyMoves(s)) {
-      const m = pickBestMove(s);
-      if (!m) break;
-      NarduGame.applyMove(s, m.from, m.die);
-      moves.push(m);
+    const preview = cloneState(state);
+    while (preview.phase === 'move' && preview.dice.length && NarduGame.hasAnyMoves(preview)) {
+      const move = pickEasyMove(preview);
+      if (!move) break;
+      moves.push({ from: move.from, die: move.die });
+      NarduGame.applyMove(preview, move.from, move.die, { autoEnd: false });
     }
     return moves;
   }
 
-  return { plan, pickBestMove, evalMove };
+  function chooseSequence(state, difficulty = 'easy') {
+    if (difficulty === 'easy') return chooseEasySequence(state);
+    return NarduGame.chooseBotSequence?.(state, state.turn, { difficulty }) || [];
+  }
+
+  function pickBestMove(state, options = {}) {
+    const difficulty = normalizeDifficulty(options.difficulty, state);
+    const sequence = chooseSequence(state, difficulty);
+    return sequence?.length ? { from: sequence[0].from, die: sequence[0].die } : null;
+  }
+
+  /* Play out the bot's turn, returning the list of moves it made.
+     Each move is { from, die } so the UI can animate them sequentially. */
+  function plan(state, options = {}) {
+    const preview = cloneState(state);
+    const difficulty = normalizeDifficulty(options.difficulty, preview);
+    return chooseSequence(preview, difficulty)
+      .map(move => ({ from: move.from, die: move.die }));
+  }
+
+  return {
+    plan,
+    pickBestMove,
+    evalMove,
+  };
 })();
