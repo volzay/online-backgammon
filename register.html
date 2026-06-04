@@ -111,6 +111,7 @@
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="auth-client.js"></script>
 <script>
   NarduApp.requireGuest();
   document.getElementById('year').textContent = new Date().getFullYear();
@@ -146,10 +147,11 @@
     }
     setRegisterMessage('');
     try {
-      const data = await apiJson('/api/register', {
-        method: 'POST',
-        body: JSON.stringify({ nickname: nick, email, password: pass }),
-      });
+      const data = await NarduAuth.register({ nickname: nick, email, password: pass });
+      if (data.pendingConfirmation) {
+        setRegisterMessage(NarduApp.t('msg_confirm_email'), 'success');
+        return;
+      }
       NarduApp.setUser(data.user);
       setRegisterMessage(NarduApp.t('msg_account_created'), 'success');
       window.setTimeout(() => { location.href = 'index.html'; }, 450);

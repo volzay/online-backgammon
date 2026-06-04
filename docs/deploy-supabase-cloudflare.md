@@ -31,18 +31,19 @@ The repository now includes:
 - `supabase/schema.sql` - initial Supabase schema for profiles, friends, rooms, game state, room chat, presence, rating events, and Realtime publication.
 - `runtime-config.js` - local placeholder for public runtime config.
 - `supabase-client.js` - lazy browser helper for Supabase JS and Realtime channels.
+- `auth-client.js` - login/register/recovery helper with Supabase support and local `/api/*` fallback.
 - `scripts/build-cloudflare-pages.js` - static build that writes `dist/` for Cloudflare Pages.
 - `wrangler.toml` - Pages output directory config.
 
-The UI is not fully switched to Supabase yet. Existing pages still call `/api/*` when they need online features. The next implementation step is replacing those calls with Supabase Auth/Postgres/Realtime operations.
+The UI is not fully switched to Supabase yet. Login and registration can use Supabase when `SUPABASE_URL` and `SUPABASE_ANON_KEY` are configured; other online features still call `/api/*`.
 
 ## Migration Order
 
 1. Auth:
-   - Replace `/api/register` with `supabase.auth.signUp`.
-   - Insert profile row into `public.profiles`.
-   - Replace `/api/login` with `supabase.auth.signInWithPassword`.
-   - Keep the current local user shape in `NarduApp.setUser`.
+   - Done: `/api/register` fallback plus `supabase.auth.signUp`.
+   - Done: `auth.users` trigger creates `public.profiles` rows.
+   - Done: `/api/login` fallback plus `supabase.auth.signInWithPassword`.
+   - Current Supabase limitation: sign-in uses email, not nickname. Nickname sign-in still works on the local `server.js` backend.
 
 2. Lobby and rooms:
    - Replace `GET /api/rooms` with a `rooms` query.

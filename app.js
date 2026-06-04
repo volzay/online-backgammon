@@ -273,6 +273,7 @@
       msg_recovery_code_sent: 'Код восстановления отправлен.',
       msg_password_changed: 'Пароль изменён. Войдите с новым паролем.',
       msg_account_created: 'Аккаунт создан. Информационное письмо отправлено на email.',
+      msg_confirm_email: 'Аккаунт создан. Проверьте email и подтвердите регистрацию.',
     },
     en: {
       title_login: 'Backgammon — Sign in',
@@ -479,6 +480,7 @@
       msg_recovery_code_sent: 'Recovery code sent.',
       msg_password_changed: 'Password changed. Sign in with the new password.',
       msg_account_created: 'Account created. An informational email has been sent.',
+      msg_confirm_email: 'Account created. Check your email and confirm registration.',
     },
   };
 
@@ -591,6 +593,11 @@
     localStorage.setItem(USER_KEY, JSON.stringify(u));
   }
   function logout() {
+    if (window.NarduSupabase?.configured?.()) {
+      window.NarduSupabase.client()
+        .then(client => client.auth.signOut())
+        .catch(() => {});
+    }
     localStorage.removeItem(USER_KEY);
     location.href = 'login.html';
   }

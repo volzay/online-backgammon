@@ -250,6 +250,7 @@ node --check homegate.js
 - `docs/deploy-supabase-cloudflare.md`;
 - `supabase/schema.sql`;
 - `supabase-client.js`;
+- `auth-client.js`;
 - `runtime-config.js`;
 - `wrangler.toml`.
 

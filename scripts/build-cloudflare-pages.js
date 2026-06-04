@@ -16,6 +16,7 @@ const STATIC_FILES = [
   "app.js",
   "runtime-config.js",
   "supabase-client.js",
+  "auth-client.js",
   "game.js",
   "game-controller.js",
   "bot.js",

@@ -137,6 +137,7 @@
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="auth-client.js"></script>
 <script>
   NarduApp.requireGuest();
   document.getElementById('year').textContent = new Date().getFullYear();
@@ -169,10 +170,7 @@
     if (!identifier || !password) return;
     setMessage('login-message', '');
     try {
-      const data = await apiJson('/api/login', {
-        method: 'POST',
-        body: JSON.stringify({ identifier, password }),
-      });
+      const data = await NarduAuth.login({ identifier, password });
       NarduApp.setUser(data.user);
       location.href = 'index.html';
     } catch (error) {
@@ -200,11 +198,8 @@
     const email = document.getElementById('recovery-email').value.trim();
     setMessage('recovery-message', '');
     try {
-      const data = await apiJson('/api/password-recovery/request', {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      });
-      document.getElementById('recovery-reset-form').hidden = false;
+      const data = await NarduAuth.requestPasswordRecovery(email);
+      document.getElementById('recovery-reset-form').hidden = Boolean(data.supabaseLink);
       setMessage('recovery-message', data.message ? NarduApp.translateServerMessage(data.message) : NarduApp.t('msg_recovery_code_sent'), 'success');
     } catch (error) {
       setMessage('recovery-message', error.message, 'error');
