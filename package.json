@@ -2,11 +2,11 @@
   "name": "nardy-online",
   "version": "0.1.0",
   "private": true,
-  "description": "Длинные нарды — онлайн (UI prototype, static deploy)",
+  "description": "Нарды онлайн — Supabase-ready static frontend",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "build": "echo 'static site — nothing to build'"
+    "build": "node scripts/build-cloudflare-pages.js"
   },
   "keywords": ["backgammon", "nardy", "long-backgammon"],
   "license": "UNLICENSED"

@@ -245,6 +245,16 @@ node --check homegate.js
 
 Статический деплой на Vercel / GitHub Pages / Netlify покажет HTML/CSS/JS, но не даст рабочие аккаунты, комнаты, чат, рейтинг и админку. Для полноценного деплоя используйте Node-хостинг, контейнер или VPS.
 
+Альтернативный бесплатный путь в работе: Cloudflare Pages для frontend и Supabase Auth/Postgres/Realtime для backend. Подготовительные файлы:
+
+- `docs/deploy-supabase-cloudflare.md`;
+- `supabase/schema.sql`;
+- `supabase-client.js`;
+- `runtime-config.js`;
+- `wrangler.toml`.
+
+Для Cloudflare Pages используйте `npm run build` и output directory `dist`.
+
 Для production нужно заменить JSON-хранилище на БД, подключить SMTP/почтовый сервис и задать сильный `ADMIN_PASSWORD`.
 
 ## Текущие ограничения
@@ -253,5 +263,4 @@ node --check homegate.js
 - Активные комнаты живут в памяти процесса.
 - Email отправляется только в локальный outbox.
 - Реальные лидерборд, друзья, matchmaking, турниры и сезоны пока не подключены к серверу.
-- В UI есть выбор коротких нард, но основной движок правил сейчас реализует длинные нарды.
 - Realtime построен на HTTP polling, не на WebSocket.
