@@ -474,6 +474,11 @@ window.NarduController = (function () {
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
     try {
+      if (window.NarduRooms?.configured?.()) {
+        const data = await window.NarduRooms.putGameState(remoteCode, remoteStatePayload(), remoteVersion);
+        if (Number.isFinite(data.version)) remoteVersion = data.version;
+        return;
+      }
       const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -489,6 +494,12 @@ window.NarduController = (function () {
   async function pollRemoteState() {
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isRolling || isAnimating || isChainingMove) return;
     try {
+      if (window.NarduRooms?.configured?.()) {
+        const data = await window.NarduRooms.getGameState(remoteCode);
+        if (!data.state || !Number.isFinite(data.version) || data.version <= remoteVersion) return;
+        applyRemoteState(data.state, data.version);
+        return;
+      }
       const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`);
       const data = await response.json().catch(() => ({}));
       if (response.status === 404) {
@@ -497,7 +508,8 @@ window.NarduController = (function () {
       }
       if (!response.ok || !data.state || !Number.isFinite(data.version) || data.version <= remoteVersion) return;
       applyRemoteState(data.state, data.version);
-    } catch {
+    } catch (err) {
+      if (err?.status === 404) handleRemoteRoomMissing();
       /* the next poll will retry */
     }
   }

@@ -76,6 +76,7 @@ DATA_DIR=/tmp/nardy-dev ADMIN_PASSWORD=adminpass npm start
 ### Онлайн-игра
 
 Удалённая игра реализована без WebSocket: клиент периодически обменивается состоянием через HTTP.
+При сборке для GitHub Pages те же действия выполняются через Supabase (`rooms`, `room_messages`, `rooms.game_state`, `rooms.presence`) с локальным `/api/rooms/*` fallback для разработки.
 
 - `GET /api/rooms` показывает комнаты.
 - `POST /api/rooms` создаёт комнату.
@@ -143,6 +144,22 @@ data/
 `data/` добавлен в `.gitignore`. Комнаты хранятся в памяти процесса; при перезапуске сервера активные комнаты исчезают, а аккаунты, админское состояние и outbox остаются в JSON.
 
 `mail-outbox.json` - локальная имитация отправки email. Реальный SMTP-провайдер пока не подключён.
+
+## GitHub Pages + Supabase
+
+Статическая сборка для GitHub Pages создаётся командой:
+
+```bash
+npm run build
+```
+
+Она пишет `dist/`, добавляет `.nojekyll` и подставляет публичный Supabase runtime config. Ожидаемый адрес после деплоя:
+
+```text
+https://volzay.github.io/online-backgammon/
+```
+
+Перед публикацией в Supabase нужно выполнить `supabase/schema.sql` в SQL Editor и включить GitHub Pages source `GitHub Actions` в настройках репозитория.
 
 ## Переменные окружения
 

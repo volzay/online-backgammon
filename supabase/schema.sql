@@ -261,6 +261,23 @@ to authenticated
 using (host_user_id = auth.uid() or guest_user_id = auth.uid())
 with check (host_user_id = auth.uid() or guest_user_id = auth.uid());
 
+drop policy if exists "authenticated users can join waiting rooms" on public.rooms;
+create policy "authenticated users can join waiting rooms"
+on public.rooms for update
+to authenticated
+using (
+  status = 'waiting'
+  and guest_user_id is null
+  and host_user_id is not null
+  and host_user_id <> auth.uid()
+)
+with check (
+  status = 'joined'
+  and guest_user_id = auth.uid()
+  and host_user_id is not null
+  and host_user_id <> auth.uid()
+);
+
 drop policy if exists "room players can read room chat" on public.room_messages;
 create policy "room players can read room chat"
 on public.room_messages for select

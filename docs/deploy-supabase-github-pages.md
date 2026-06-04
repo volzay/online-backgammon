@@ -47,10 +47,11 @@ The repository includes:
 - `runtime-config.js` - local placeholder for public runtime config.
 - `supabase-client.js` - lazy browser helper for Supabase JS and Realtime channels.
 - `auth-client.js` - login/register/recovery helper with Supabase support and local `/api/*` fallback.
+- `rooms-client.js` - lobby rooms, room lifecycle, game-state sync, presence, and room chat with Supabase support and local `/api/rooms/*` fallback.
 - `scripts/build-github-pages.js` - static build that writes `dist/` for GitHub Pages.
 - `.github/workflows/pages.yml` - GitHub Actions deployment workflow.
 
-The UI is not fully switched to Supabase yet. Login and registration can use Supabase when the generated `runtime-config.js` contains Supabase settings; other online features still call `/api/*`.
+Login, registration, lobby rooms, remote game state, presence, and room chat can use Supabase when the generated `runtime-config.js` contains Supabase settings. The account settings and admin surface still use the local server path and need separate migration work.
 
 ## Migration Order
 
@@ -61,20 +62,20 @@ The UI is not fully switched to Supabase yet. Login and registration can use Sup
    - Current Supabase limitation: sign-in uses email, not nickname. Nickname sign-in still works on the local `server.js` backend.
 
 2. Lobby and rooms:
-   - Replace `GET /api/rooms` with a `rooms` query.
-   - Replace `POST /api/rooms` with a room insert.
-   - Replace `POST /api/rooms/:code/join` with a room update.
-   - Subscribe to `rooms` changes through Realtime.
+   - Done: `GET /api/rooms` fallback plus `rooms` query.
+   - Done: `POST /api/rooms` fallback plus room insert.
+   - Done: `POST /api/rooms/:code/join` fallback plus room update.
+   - Current implementation polls the room rows; Realtime subscriptions can be added later for lower latency.
 
 3. Game state:
-   - Replace `GET /api/rooms/:code/game` with a `rooms.game_state` read.
-   - Replace `PUT /api/rooms/:code/game` with a `rooms` update.
-   - Use Realtime Broadcast or Postgres changes on `rooms` for low-latency updates.
+   - Done: `GET /api/rooms/:code/game` fallback plus `rooms.game_state` read.
+   - Done: `PUT /api/rooms/:code/game` fallback plus `rooms` update.
+   - Current implementation keeps the existing polling rhythm; Realtime Broadcast or Postgres changes can replace it later.
 
 4. Chat and presence:
-   - Replace room chat endpoints with `room_messages`.
-   - Use Supabase Realtime Presence per `room:<CODE>` channel.
-   - Use Broadcast for fast transient events and Postgres rows for durable chat history.
+   - Done: room chat fallback plus `room_messages` rows.
+   - Done: heartbeat fallback plus `rooms.presence` JSON.
+   - Later: use Supabase Realtime Presence per `room:<CODE>` channel and Broadcast for fast transient events.
 
 5. Account settings:
    - Replace `/api/account/*` with `profiles`, `friend_requests`, `friendships`, and `friend_messages`.
@@ -109,4 +110,5 @@ The local URL is optional, but useful while testing Supabase Auth from the local
 
 - GitHub Pages hosts static assets; it does not run the current `server.js`.
 - Supabase Realtime supports Broadcast, Presence, and Postgres Changes. Supabase recommends Broadcast for scalable and secure realtime subscriptions.
+- Closed room passwords in the Supabase path are stored as SHA-256 hashes in `rooms.password_hash`; production should move room creation/joining to server-side RPC or Edge Functions for stricter validation.
 - The free Supabase plan is suitable for MVP testing, but production should add server-side validation for moves and stricter RLS policies.

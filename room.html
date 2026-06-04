@@ -395,6 +395,7 @@
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="rooms-client.js"></script>
 <script src="dice-engine.js"></script>
 <script src="dice-webgl.js"></script>
 <script src="board-engine.js"></script>
@@ -739,7 +740,8 @@ function chatNearBottom() {
 }
 
 function buildChatMessage(message) {
-  const own = message.senderId === chatClientId;
+  const userId = window.NarduApp?.getUser?.()?.id || '';
+  const own = message.senderId === chatClientId || (userId && (message.senderId === userId || message.senderUserId === userId));
   const msg = document.createElement('div');
   msg.className = `chat-msg ${own ? 'me' : 'them'} ${message.kind === 'emoji' ? 'emoji-msg' : ''} ${message.kind === 'voice' ? 'voice' : ''}`;
   msg.dataset.chatId = message.id || '';
@@ -856,9 +858,8 @@ async function pollChat() {
   if (!chatRemote || chatPollBusy) return;
   chatPollBusy = true;
   try {
-    const response = await fetch(`/api/rooms/${encodeURIComponent(chatRoomCode)}/chat?after=${chatLastId}`);
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) appendChatMessages(data.messages || []);
+    const data = await NarduRooms.listChatMessages(chatRoomCode, chatLastId);
+    appendChatMessages(data.messages || []);
   } catch {
     /* next poll retries */
   } finally {
@@ -885,13 +886,7 @@ async function sendChatPayload(payload, { clearInput = false } = {}) {
   sendBtn.disabled = true;
   mic.disabled = true;
   try {
-    const response = await fetch(`/api/rooms/${encodeURIComponent(chatRoomCode)}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(message),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'chat failed');
+    const data = await NarduRooms.sendChatMessage(chatRoomCode, message);
     appendChatMessage(data.message);
   } catch {
     appendChatMessage({ ...message, at: new Date().toISOString() });
@@ -1153,7 +1148,7 @@ function storedActiveRoom() {
 async function activeRoom() {
   if (!roomCode) return null;
   try {
-    const data = await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}`);
+    const data = await NarduRooms.getRoom(roomCode);
     return data.room || null;
   } catch {
     return null;
@@ -1162,7 +1157,7 @@ async function activeRoom() {
 
 async function removeCurrentWaitingRoom() {
   if (!roomCode) return;
-  await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}`, { method: 'DELETE' }).catch(() => {});
+  await NarduRooms.deleteRoom(roomCode).catch(() => {});
   try {
     const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
     if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
@@ -1248,12 +1243,9 @@ async function sendPresenceHeartbeat() {
   }
   presenceBusy = true;
   try {
-    const data = await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}/presence`, {
-      method: 'POST',
-      body: JSON.stringify({
-        color: localPlayerColor,
-        name: NarduApp.getUser()?.name || earlyRoomText('guest'),
-      }),
+    const data = await NarduRooms.updatePresence(roomCode, {
+      color: localPlayerColor,
+      name: NarduApp.getUser()?.name || earlyRoomText('guest'),
     });
     handlePresence(data.presence);
   } catch {
@@ -1281,12 +1273,9 @@ async function reportActiveRemoteLeave() {
   const published = await window.NarduController?.concedeRemoteGameByLobbyExit?.();
   if (!published) return false;
 
-  await apiJson(`/api/rooms/${encodeURIComponent(roomCode)}/leave`, {
-    method: 'POST',
-    body: JSON.stringify({
-      color: localPlayerColor,
-      name: NarduApp.getUser()?.name || earlyRoomText('guest'),
-    }),
+  await NarduRooms.leaveRoom(roomCode, {
+    color: localPlayerColor,
+    name: NarduApp.getUser()?.name || earlyRoomText('guest'),
   }).catch(() => {});
 
   try {

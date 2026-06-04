@@ -13,4 +13,6 @@
 
 If email confirmation is enabled, registration shows a confirmation message and the user signs in after following the email link. If email confirmation is disabled for MVP testing, sign-up returns an active session immediately.
 
+The GitHub Pages frontend uses Supabase for Auth, lobby rooms, room join, game-state sync, presence heartbeat, and room chat. Local development still falls back to `server.js` when `runtime-config.js` has empty Supabase values.
+
 The browser must only receive the public anon/publishable key. Never expose the `service_role` key in `runtime-config.js`, GitHub Actions, or frontend code.

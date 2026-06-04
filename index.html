@@ -256,6 +256,7 @@
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="rooms-client.js"></script>
 <script>
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
@@ -336,7 +337,7 @@
   async function refreshPlayerRooms() {
     if (document.activeElement?.matches('[data-room-password-input]')) return;
     try {
-      const data = await apiJson('/api/rooms');
+      const data = await NarduRooms.listRooms();
       playerRooms = data.rooms || [];
       renderTables();
     } catch {
@@ -684,17 +685,14 @@
 
     let room;
     try {
-      const data = await apiJson('/api/rooms', {
-        method: 'POST',
-        body: JSON.stringify({
-          hostName: userName(),
-          hostRating: userRating(),
-          hostUserId: userId(),
-          hostRatingEligible: userRatingEligible(),
-          variant: createState.variant,
-          access: createState.access,
-          password: createState.access === 'closed' ? password : '',
-        }),
+      const data = await NarduRooms.createRoom({
+        hostName: userName(),
+        hostRating: userRating(),
+        hostUserId: userId(),
+        hostRatingEligible: userRatingEligible(),
+        variant: createState.variant,
+        access: createState.access,
+        password: createState.access === 'closed' ? password : '',
       });
       room = data.room;
     } catch (err) {
@@ -729,15 +727,12 @@
 
     let room;
     try {
-      const data = await apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/join`, {
-        method: 'POST',
-        body: JSON.stringify({
-          guestName: userName(),
-          guestRating: userRating(),
-          guestUserId: userId(),
-          guestRatingEligible: userRatingEligible(),
-          password,
-        }),
+      const data = await NarduRooms.joinRoom(normalizedCode, {
+        guestName: userName(),
+        guestRating: userRating(),
+        guestUserId: userId(),
+        guestRatingEligible: userRatingEligible(),
+        password,
       });
       room = data.room;
     } catch (err) {
