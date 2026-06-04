@@ -29,6 +29,13 @@
     return data;
   }
 
+  function publicPageUrl(page) {
+    const cfg = window.NarduSupabase?.config?.() || {};
+    const configuredBase = String(cfg.siteBaseUrl || "").replace(/\/+$/, "");
+    if (configuredBase) return `${configuredBase}/${page}`;
+    return new URL(page, location.href).href;
+  }
+
   async function profileForAuthUser(supabase, authUser) {
     const { data: profile, error } = await supabase
       .from("profiles")
@@ -77,6 +84,7 @@
       password,
       options: {
         data: { nickname, name: nickname },
+        emailRedirectTo: publicPageUrl("login.html"),
       },
     });
     if (error) throw new Error(error.message);
@@ -125,7 +133,7 @@
     if (window.NarduSupabase?.configured?.()) {
       const supabase = await window.NarduSupabase.client();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${location.origin}/login.html`,
+        redirectTo: publicPageUrl("login.html"),
       });
       if (error) throw new Error(error.message);
       return { ok: true, message: NarduApp.t("msg_recovery_code_sent"), supabaseLink: true };

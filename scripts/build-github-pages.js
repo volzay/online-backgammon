@@ -3,6 +3,9 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
+const DEFAULT_SUPABASE_URL = "https://pzknykygxtbzdhuitzzh.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_MLLEF0G2GhSKSL7grWm-zg_FKHzDKNO";
+const DEFAULT_SITE_BASE_URL = "https://volzay.github.io/online-backgammon";
 
 const STATIC_FILES = [
   "index.html",
@@ -26,7 +29,6 @@ const STATIC_FILES = [
   "sound.js",
   "rating.js",
   "homegate.js",
-  "_headers",
 ];
 
 function copyFile(file) {
@@ -39,9 +41,10 @@ function copyFile(file) {
 
 function writeRuntimeConfig() {
   const config = {
-    supabaseUrl: process.env.SUPABASE_URL || "",
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
-    deployTarget: "cloudflare-pages",
+    supabaseUrl: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
+    siteBaseUrl: process.env.SITE_BASE_URL || DEFAULT_SITE_BASE_URL,
+    deployTarget: "github-pages",
   };
   const body = `window.NARDU_ENV = ${JSON.stringify(config, null, 2)};\n`;
   fs.writeFileSync(path.join(DIST, "runtime-config.js"), body);
@@ -51,4 +54,5 @@ fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 STATIC_FILES.forEach(copyFile);
 writeRuntimeConfig();
-console.log(`Cloudflare Pages build written to ${path.relative(ROOT, DIST)}/`);
+fs.writeFileSync(path.join(DIST, ".nojekyll"), "");
+console.log(`GitHub Pages build written to ${path.relative(ROOT, DIST)}/`);

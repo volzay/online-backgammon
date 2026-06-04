@@ -245,16 +245,17 @@ node --check homegate.js
 
 Статический деплой на Vercel / GitHub Pages / Netlify покажет HTML/CSS/JS, но не даст рабочие аккаунты, комнаты, чат, рейтинг и админку. Для полноценного деплоя используйте Node-хостинг, контейнер или VPS.
 
-Альтернативный бесплатный путь в работе: Cloudflare Pages для frontend и Supabase Auth/Postgres/Realtime для backend. Подготовительные файлы:
+Альтернативный бесплатный путь в работе: GitHub Pages для frontend и Supabase Auth/Postgres/Realtime для backend. Подготовительные файлы:
 
-- `docs/deploy-supabase-cloudflare.md`;
+- `docs/deploy-supabase-github-pages.md`;
 - `supabase/schema.sql`;
 - `supabase-client.js`;
 - `auth-client.js`;
 - `runtime-config.js`;
-- `wrangler.toml`.
+- `.github/workflows/pages.yml`.
 
-Для Cloudflare Pages используйте `npm run build` и output directory `dist`.
+Для GitHub Pages используйте source `GitHub Actions`. Workflow `Deploy GitHub Pages` собирает `dist` командой `npm run build`.
+Ожидаемый адрес GitHub Pages: `https://volzay.github.io/online-backgammon/`.
 
 Для production нужно заменить JSON-хранилище на БД, подключить SMTP/почтовый сервис и задать сильный `ADMIN_PASSWORD`.
 

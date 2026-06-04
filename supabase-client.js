@@ -7,6 +7,7 @@
     return {
       url: String(env.supabaseUrl || "").trim(),
       anonKey: String(env.supabaseAnonKey || "").trim(),
+      siteBaseUrl: String(env.siteBaseUrl || "").trim(),
       deployTarget: String(env.deployTarget || "local"),
     };
   }
@@ -36,7 +37,7 @@
 
   async function client() {
     if (!configured()) {
-      throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY for Cloudflare Pages.");
+      throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY for GitHub Pages.");
     }
     if (!clientPromise) {
       clientPromise = (async () => {
