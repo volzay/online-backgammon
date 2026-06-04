@@ -148,7 +148,7 @@ data/
 
 | Переменная | Значение по умолчанию | Назначение |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | Адрес, на котором слушает сервер |
+| `HOST` | `0.0.0.0` | Адрес, на котором слушает сервер |
 | `PORT` | `4177` | Порт сервера |
 | `DATA_DIR` | `./data` | Папка JSON-хранилища |
 | `ADMIN_LOGIN` | `admin` | Логин администратора |
@@ -245,7 +245,27 @@ node --check homegate.js
 
 Статический деплой на Vercel / GitHub Pages / Netlify покажет HTML/CSS/JS, но не даст рабочие аккаунты, комнаты, чат, рейтинг и админку. Для полноценного деплоя используйте Node-хостинг, контейнер или VPS.
 
-Для production нужно заменить JSON-хранилище на БД, подключить SMTP/почтовый сервис и задать сильный `ADMIN_PASSWORD`.
+### Render
+
+В репозитории есть `render.yaml` для Render Blueprint:
+
+- сервис: Node.js web service;
+- build command: `npm ci`;
+- start command: `npm start`;
+- `HOST=0.0.0.0`;
+- `DATA_DIR=/var/data`;
+- persistent disk: `/var/data`, 1 GB;
+- `ADMIN_PASSWORD` нужно задать вручную в Render Dashboard.
+
+После деплоя проверьте:
+
+```text
+https://<service-name>.onrender.com/api/health
+```
+
+В production сервер не стартует без `ADMIN_PASSWORD`, чтобы не использовать dev fallback-пароль администратора.
+
+Для полноценного production-релиза лучше заменить JSON-хранилище на БД и подключить SMTP/почтовый сервис.
 
 ## Текущие ограничения
 
@@ -253,5 +273,4 @@ node --check homegate.js
 - Активные комнаты живут в памяти процесса.
 - Email отправляется только в локальный outbox.
 - Реальные лидерборд, друзья, matchmaking, турниры и сезоны пока не подключены к серверу.
-- В UI есть выбор коротких нард, но основной движок правил сейчас реализует длинные нарды.
 - Realtime построен на HTTP polling, не на WebSocket.
