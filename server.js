@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { URL } = require("url");
 
-const HOST = process.env.HOST || "0.0.0.0";
+const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 4177);
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
@@ -14,7 +14,6 @@ const AUTH_STATE_PATH = path.join(DATA_DIR, "auth-users.json");
 const MAIL_OUTBOX_PATH = path.join(DATA_DIR, "mail-outbox.json");
 const DEFAULT_ADMIN_LOGIN = process.env.ADMIN_LOGIN || "admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "adM)in27-05!26";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const ADMIN_COOKIE_NAME = "nardy_admin";
 const ADMIN_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const configuredArchiveHours = Number(process.env.ADMIN_ARCHIVE_HOURS || 60);
@@ -2231,15 +2230,6 @@ async function handleApi(req, res, url) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
-  if (url.pathname === "/api/health") {
-    sendJson(res, 200, {
-      ok: true,
-      service: "nardy-online",
-      uptime: Math.round(process.uptime()),
-      dataDir: DATA_DIR,
-    });
-    return;
-  }
   if (url.pathname.startsWith("/api/")) {
     handleApi(req, res, url);
     return;
@@ -2272,11 +2262,6 @@ const server = http.createServer((req, res) => {
     res.end(req.method === "HEAD" ? undefined : content);
   });
 });
-
-if (IS_PRODUCTION && !process.env.ADMIN_PASSWORD) {
-  console.error("ADMIN_PASSWORD must be set in production.");
-  process.exit(1);
-}
 
 server.listen(PORT, HOST, () => {
   console.log(`Nardy portal is running at http://${HOST}:${PORT}`);
