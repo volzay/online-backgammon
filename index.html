@@ -12,7 +12,9 @@
   /* tiny auth gate — runs before render so unauth'd users bounce to login */
   (function(){
     try {
-      if (!localStorage.getItem('narduh-user')) location.replace('login.html');
+      if (!localStorage.getItem('narduh-user')) {
+        location.replace('login.html' + location.search + location.hash);
+      }
     } catch(e) {}
   })();
 </script>
