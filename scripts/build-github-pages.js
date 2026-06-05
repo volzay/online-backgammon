@@ -6,6 +6,7 @@ const DIST = path.join(ROOT, "dist");
 const DEFAULT_SUPABASE_URL = "https://pzknykygxtbzdhuitzzh.supabase.co";
 const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_MLLEF0G2GhSKSL7grWm-zg_FKHzDKNO";
 const DEFAULT_SITE_BASE_URL = "https://volzay.github.io/online-backgammon";
+const DEFAULT_ADMIN_EMAILS = "openthedoorcap@gmail.com";
 
 const STATIC_FILES = [
   "index.html",
@@ -45,6 +46,7 @@ function writeRuntimeConfig() {
     supabaseUrl: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
     siteBaseUrl: process.env.SITE_BASE_URL || DEFAULT_SITE_BASE_URL,
+    adminEmails: process.env.ADMIN_EMAILS || DEFAULT_ADMIN_EMAILS,
     deployTarget: "github-pages",
   };
   const body = `window.NARDU_ENV = ${JSON.stringify(config, null, 2)};\n`;

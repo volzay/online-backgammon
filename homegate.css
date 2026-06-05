@@ -326,7 +326,8 @@
 .room-status,
 .variant-badge,
 .state-pill,
-.admin-count {
+.admin-count,
+.readonly-note {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -354,6 +355,15 @@
 
 .room-status {
   color: var(--ink-3);
+}
+
+.readonly-note {
+  justify-content: flex-start;
+  color: var(--ink-4);
+  background: var(--panel-2);
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: left;
 }
 
 .room-meta-grid {

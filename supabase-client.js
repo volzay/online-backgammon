@@ -8,6 +8,7 @@
       url: String(env.supabaseUrl || "").trim(),
       anonKey: String(env.supabaseAnonKey || "").trim(),
       siteBaseUrl: String(env.siteBaseUrl || "").trim(),
+      adminEmails: String(env.adminEmails || "").trim(),
       deployTarget: String(env.deployTarget || "local"),
     };
   }

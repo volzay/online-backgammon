@@ -4,6 +4,8 @@ const TAB_KEY = "narduh_admin_tab";
 
 const state = {
   admin: null,
+  backend: "server",
+  readonlyAdmin: false,
   configured: true,
   retentionHours: 60,
   adminTab: localStorage.getItem(TAB_KEY) || "rooms",
@@ -28,6 +30,33 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "Ошибка админ-панели.");
   return data;
+}
+
+function supabaseAdminMode() {
+  return Boolean(window.NarduSupabase?.configured?.());
+}
+
+function adminEmails() {
+  const raw = window.NarduSupabase?.config?.().adminEmails || window.NARDU_ENV?.adminEmails || "";
+  return new Set(String(raw).split(",").map(item => item.trim().toLowerCase()).filter(Boolean));
+}
+
+function isAllowedSupabaseAdmin(user) {
+  const allowed = adminEmails();
+  return Boolean(user?.email && allowed.has(String(user.email).toLowerCase()));
+}
+
+async function supabaseClient() {
+  if (!window.NarduSupabase?.client) throw new Error("Supabase не подключён.");
+  return window.NarduSupabase.client();
+}
+
+function setSupabaseAdmin(user) {
+  state.admin = { login: user.email, email: user.email, id: user.id };
+  state.backend = "supabase";
+  state.readonlyAdmin = true;
+  state.configured = true;
+  state.retentionHours = 0;
 }
 
 function escapeHtml(value) {
@@ -86,6 +115,7 @@ function allRooms() {
 }
 
 function archiveRetentionText() {
+  if (state.backend === "supabase") return "Supabase";
   return `${state.retentionHours} часов`;
 }
 
@@ -151,9 +181,117 @@ function userStatusText(user) {
 }
 
 function passwordStateText(user) {
+  if (user.passwordState === "supabase") return "Supabase Auth";
   if (user.passwordState === "set") return "Задан админом";
   if (user.passwordState === "client") return "Локальный профиль";
   return "Нет пароля";
+}
+
+function rollStats(game) {
+  const rolls = (game?.history || []).filter(item => item.roll);
+  const doubles = rolls.filter(item => {
+    const [a, b] = String(item.roll).split(":").map(Number);
+    return Number.isFinite(a) && a === b;
+  });
+  return {
+    rolls: rolls.length,
+    doubles: doubles.length,
+    doubleRate: rolls.length ? doubles.length / rolls.length : 0,
+    lastRoll: rolls[0] ? { color: rolls[0].color, roll: rolls[0].roll, at: rolls[0].at, sha256: rolls[0].sha256 } : null,
+  };
+}
+
+function supabasePlayersForRoom(room) {
+  const players = [];
+  if (room.host_name) {
+    players.push({
+      id: room.host_user_id || `host:${room.id}`,
+      name: room.host_name,
+      color: "white",
+      rating: room.host_registered ? room.host_rating : null,
+      ratingEligible: Boolean(room.host_registered),
+    });
+  }
+  if (room.guest_name) {
+    players.push({
+      id: room.guest_user_id || `guest:${room.id}`,
+      name: room.guest_name,
+      color: "dark",
+      rating: room.guest_registered ? room.guest_rating : null,
+      ratingEligible: Boolean(room.guest_registered),
+    });
+  }
+  return players;
+}
+
+function latestSupabaseRoomEventAt(room) {
+  const game = room.game_state || {};
+  const dates = [
+    room.updated_at,
+    room.joined_at,
+    room.archived_at,
+    room.created_at,
+    game.finishedAt,
+    game.history?.[0]?.at,
+  ].filter(Boolean);
+  return dates.sort().at(-1) || room.updated_at || room.created_at;
+}
+
+function supabaseRoomSummary(room) {
+  const game = room.game_state || {};
+  const players = supabasePlayersForRoom(room);
+  const stats = rollStats(game);
+  const winnerColor = game.winner || null;
+  const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
+  return {
+    id: room.id,
+    archiveId: null,
+    source: "active",
+    code: room.code,
+    name: `${room.host_name || "Хост"}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
+    variant: room.variant,
+    status: game.phase === "over" || game.winner ? "over" : room.status,
+    privacy: room.access === "closed" ? "password" : "open",
+    players,
+    createdAt: room.created_at,
+    updatedAt: latestSupabaseRoomEventAt(room),
+    archivedAt: room.archived_at || null,
+    adminCloseReason: room.closed_reason || null,
+    winner: winnerColor,
+    winnerName: winnerPlayer?.name || null,
+    winnerPlayer: winnerPlayer || null,
+    resultType: game.resultType || null,
+    borneOff: game.borneOff || game.off || { white: 0, dark: 0 },
+    historyCount: game.history?.length || 0,
+    chatCount: game.chat?.length || 0,
+    ...stats,
+  };
+}
+
+function supabaseRoomDetail(room) {
+  const summary = supabaseRoomSummary(room);
+  const game = { ...(room.game_state || {}) };
+  game.history = Array.isArray(game.history) ? game.history : [];
+  game.chat = Array.isArray(game.chat) ? game.chat : [];
+  game.off ||= { white: 0, dark: 0 };
+  game.borneOff = game.borneOff || game.off;
+  return {
+    summary,
+    session: {
+      id: room.id,
+      code: room.code,
+      name: summary.name,
+      variant: room.variant,
+      status: summary.status,
+      privacy: summary.privacy,
+      players: summary.players,
+      createdAt: room.created_at,
+      updatedAt: summary.updatedAt,
+      joinedAt: room.joined_at || null,
+      closedByAdmin: null,
+      game,
+    },
+  };
 }
 
 function banHistoryText(item) {
@@ -184,7 +322,7 @@ function banPopoverHtml(user) {
 function roomCard(room) {
   const key = roomKey(room);
   const selected = state.watch.includes(key);
-  const canClose = room.source === "active";
+  const canClose = room.source === "active" && !state.readonlyAdmin;
   return `
     <article class="room-card ${selected ? "selected" : ""}">
       <div class="room-head">
@@ -222,7 +360,7 @@ function monitorCard(key) {
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">Убрать</button>
       </article>`;
   }
-  const canClose = room.source === "active";
+  const canClose = room.source === "active" && !state.readonlyAdmin;
   return `
     <article class="room-card monitor-card selected">
       <div class="room-head">
@@ -365,7 +503,7 @@ function detailHtml() {
         <div class="detail-row"><span>Снято</span><strong>${borneOffText(summary)}</strong></div>
         <div class="detail-row"><span>Победитель</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
         ${summary.adminCloseReason ? `<div class="detail-row"><span>Причина закрытия</span><strong>${escapeHtml(summary.adminCloseReason)}</strong></div>` : ""}
-        ${summary.source === "active" ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">Закрыть комнату</button>` : ""}
+        ${summary.source === "active" && !state.readonlyAdmin ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">Закрыть комнату</button>` : ""}
       </div>
       <div class="detail-section">
         <div class="detail-section-head">
@@ -382,16 +520,27 @@ function detailHtml() {
 }
 
 function loginView() {
+  const supabaseMode = state.backend === "supabase" || supabaseAdminMode();
+  const description = supabaseMode
+    ? "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и игроков."
+    : "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.";
+  const fields = supabaseMode
+    ? `
+          <div class="field"><label>Email администратора</label><input name="email" type="email" autocomplete="username" autofocus /></div>
+          <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
+    : `
+          <input name="login" type="hidden" value="admin" />
+          <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" autofocus />${passwordToggleHtml()}</div></div>`;
   return `
     <div class="admin-shell">
       <section class="admin-panel admin-login">
         <div class="eyebrow">Администрирование</div>
         <h1>Вход в панель</h1>
-        <p>Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.</p>
+        <p>${description}</p>
+        ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает без серверного API: доступны просмотр Supabase-комнат и профилей, серверные действия отключены.</p>` : ""}
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
         <form data-form="admin-login">
-          <input name="login" type="hidden" value="admin" />
-          <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" autofocus />${passwordToggleHtml()}</div></div>
+          ${fields}
           <button class="btn full">Войти</button>
         </form>
         ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
@@ -408,6 +557,7 @@ function adminTabsHtml() {
 }
 
 function adminPasswordPanelHtml() {
+  if (state.readonlyAdmin) return "";
   if (!state.adminPasswordOpen) return "";
   return `
     <section class="admin-panel admin-password-panel">
@@ -435,6 +585,9 @@ function adminPasswordPanelHtml() {
 
 function roomsDashboardHtml() {
   const watched = state.watch.map(monitorCard).join("") || `<p class="admin-empty">Выберите комнаты кнопкой “На монитор”.</p>`;
+  const archiveEmpty = state.backend === "supabase"
+    ? "Архив закрытых комнат на GitHub Pages недоступен без server-side admin function."
+    : "Архив пока пуст.";
   return `
     <section class="admin-grid">
       <div class="admin-column">
@@ -444,7 +597,7 @@ function roomsDashboardHtml() {
         </div>
         <div class="admin-panel">
           <h2>Архив ${archiveRetentionText()}</h2>
-          <div class="room-list">${state.archive.map(roomCard).join("") || `<p class="admin-empty">Архив пока пуст.</p>`}</div>
+          <div class="room-list">${state.archive.map(roomCard).join("") || `<p class="admin-empty">${archiveEmpty}</p>`}</div>
         </div>
       </div>
       <div class="admin-column">
@@ -462,6 +615,15 @@ function roomsDashboardHtml() {
 
 function playerRow(user) {
   const statusClass = user.banned ? "banned" : "active";
+  const passwordAction = state.readonlyAdmin
+    ? `<span class="readonly-note">только просмотр</span>`
+    : `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">Сменить</button>`;
+  const userActions = state.readonlyAdmin
+    ? `<span class="readonly-note">Серверные действия отключены</span>`
+    : `${user.banned
+        ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">Разбанить</button>`
+        : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">Забанить</button>`}
+        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">Удалить</button>`;
   return `
     <div class="player-row">
       <div class="player-main">
@@ -472,7 +634,7 @@ function playerRow(user) {
       <div>${escapeHtml(user.ip || "-")}</div>
       <div class="password-cell">
         <span>${passwordStateText(user)}</span>
-        <button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">Сменить</button>
+        ${passwordAction}
       </div>
       <div>${fmtDate(user.createdAt)}</div>
       <div class="metric-number">${user.activeRooms || 0}</div>
@@ -483,10 +645,7 @@ function playerRow(user) {
         ${banPopoverHtml(user)}
       </div>
       <div class="player-actions">
-        ${user.banned
-          ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">Разбанить</button>`
-          : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">Забанить</button>`}
-        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">Удалить</button>
+        ${userActions}
       </div>
     </div>`;
 }
@@ -519,15 +678,16 @@ function playersDashboardHtml() {
 }
 
 function dashboardView() {
+  const adminModeLabel = state.readonlyAdmin ? "GitHub Pages · Supabase мониторинг" : `архив ${archiveRetentionText()}`;
   return `
     <div class="admin-shell">
       <header class="admin-top">
         <div>
-          <div class="eyebrow">Админ-панель · архив ${archiveRetentionText()}</div>
+          <div class="eyebrow">Админ-панель · ${adminModeLabel}</div>
           <h1>${state.adminTab === "players" ? "Игроки" : "Мониторинг комнат"}</h1>
         </div>
         <div class="admin-actions">
-          <button class="btn ghost small" data-action="toggle-admin-password">Сменить пароль</button>
+          ${state.readonlyAdmin ? "" : `<button class="btn ghost small" data-action="toggle-admin-password">Сменить пароль</button>`}
           <button class="btn ghost small" data-action="refresh">Обновить</button>
           <button class="btn ghost small" data-action="logout">Выйти</button>
         </div>
@@ -550,6 +710,29 @@ function renderPreservingScroll() {
 }
 
 async function loadMe() {
+  if (supabaseAdminMode()) {
+    state.backend = "supabase";
+    state.readonlyAdmin = true;
+    state.configured = true;
+    try {
+      const client = await supabaseClient();
+      const { data, error } = await client.auth.getUser();
+      if (error && !/session missing/i.test(error.message || "")) throw error;
+      if (data.user && isAllowedSupabaseAdmin(data.user)) {
+        setSupabaseAdmin(data.user);
+        await refresh();
+        return;
+      }
+      if (data.user) await client.auth.signOut();
+      state.admin = null;
+      render();
+      return;
+    } catch (error) {
+      state.notice = error.message;
+      render();
+      return;
+    }
+  }
   const data = await api("/api/admin/me");
   state.admin = data.admin;
   state.configured = data.configured;
@@ -560,6 +743,55 @@ async function loadMe() {
 
 async function refresh() {
   const snapshot = scrollSnapshot();
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { data: rooms, error: roomsError } = await client
+      .from("rooms")
+      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason")
+      .neq("status", "closed")
+      .order("updated_at", { ascending: false });
+    if (roomsError) throw roomsError;
+    state.active = (rooms || []).map(supabaseRoomSummary);
+    state.archive = [];
+    state.audit = [];
+    state.retentionHours = 0;
+    try {
+      const { data: users, error: usersError } = await client
+        .from("profiles")
+        .select("id,nickname,email,rating,tier,rating_eligible,banned_at,banned_reason,created_at,last_seen_at,updated_at")
+        .order("updated_at", { ascending: false });
+      if (usersError) throw usersError;
+      const activeRoomCounts = new Map();
+      state.active.forEach(room => {
+        (room.players || []).forEach(player => {
+          if (!player.id) return;
+          activeRoomCounts.set(player.id, (activeRoomCounts.get(player.id) || 0) + 1);
+        });
+      });
+      state.users = (users || []).map(user => ({
+        id: user.id,
+        name: user.nickname || user.email || user.id,
+        email: user.email || "",
+        ip: "-",
+        passwordState: "supabase",
+        createdAt: user.created_at,
+        activeRooms: activeRoomCounts.get(user.id) || 0,
+        gamesPlayed: 0,
+        rating: user.rating,
+        banned: Boolean(user.banned_at),
+        banReason: user.banned_reason || "",
+        banHistory: [],
+      }));
+      state.usersError = "";
+    } catch (error) {
+      state.users = [];
+      state.usersError = error.message;
+    }
+    saveWatch();
+    render();
+    restoreScrollSnapshot(snapshot);
+    return;
+  }
   const sessionsData = await api("/api/admin/sessions");
   state.active = sessionsData.active || [];
   state.archive = sessionsData.archive || [];
@@ -581,6 +813,20 @@ async function refresh() {
 async function openRoom(key) {
   const room = roomByKey(key);
   if (!room) return;
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { data, error } = await client
+      .from("rooms")
+      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason")
+      .eq("id", room.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Комната недоступна.");
+    state.detail = supabaseRoomDetail(data);
+    state.detailKey = key;
+    render();
+    return;
+  }
   const id = room.source === "archive" ? room.archiveId : room.id;
   state.detail = await api(`/api/admin/sessions/${encodeURIComponent(id)}`);
   state.detailKey = key;
@@ -588,6 +834,11 @@ async function openRoom(key) {
 }
 
 async function closeRoom(key) {
+  if (state.readonlyAdmin) {
+    state.notice = "На GitHub Pages закрытие комнаты требует серверной Supabase Edge Function.";
+    renderPreservingScroll();
+    return;
+  }
   const room = roomByKey(key);
   if (!room || room.source !== "active") return;
   const reason = window.prompt(`Причина закрытия комнаты ${room.code}`, "");
@@ -612,6 +863,11 @@ function userById(id) {
 }
 
 async function changeUserPassword(userId) {
+  if (state.readonlyAdmin) {
+    state.notice = "Смена пароля игрока требует серверной Supabase Edge Function.";
+    renderPreservingScroll();
+    return;
+  }
   const user = userById(userId);
   if (!user) return;
   const password = window.prompt(`Новый серверный пароль для ${user.name}`, "");
@@ -630,6 +886,11 @@ async function changeUserPassword(userId) {
 }
 
 async function banPlayer(userId) {
+  if (state.readonlyAdmin) {
+    state.notice = "Бан игрока требует серверной Supabase Edge Function.";
+    renderPreservingScroll();
+    return;
+  }
   const user = userById(userId);
   if (!user) return;
   const reason = window.prompt(`Причина бана для ${user.name}`, "");
@@ -643,6 +904,11 @@ async function banPlayer(userId) {
 }
 
 async function unbanPlayer(userId) {
+  if (state.readonlyAdmin) {
+    state.notice = "Разбан игрока требует серверной Supabase Edge Function.";
+    renderPreservingScroll();
+    return;
+  }
   const user = userById(userId);
   if (!user) return;
   await api(`/api/admin/users/${encodeURIComponent(userId)}/unban`, { method: "POST" });
@@ -651,6 +917,11 @@ async function unbanPlayer(userId) {
 }
 
 async function deletePlayer(userId) {
+  if (state.readonlyAdmin) {
+    state.notice = "Удаление игрока требует серверной Supabase Edge Function.";
+    renderPreservingScroll();
+    return;
+  }
   const user = userById(userId);
   if (!user) return;
   if (!window.confirm(`Удалить игрока ${user.name}? Активные комнаты игрока будут закрыты.`)) return;
@@ -666,12 +937,29 @@ document.addEventListener("submit", async event => {
   const data = Object.fromEntries(new FormData(form).entries());
   try {
     if (form.dataset.form === "admin-login") {
+      if (supabaseAdminMode()) {
+        const client = await supabaseClient();
+        const email = String(data.email || "").trim();
+        const password = String(data.password || "");
+        if (!email || !password) throw new Error("Введите email и пароль администратора.");
+        const { data: authData, error } = await client.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (!isAllowedSupabaseAdmin(authData.user)) {
+          await client.auth.signOut();
+          throw new Error("Этот Supabase-аккаунт не входит в список администраторов.");
+        }
+        setSupabaseAdmin(authData.user);
+        state.notice = "";
+        await refresh();
+        return;
+      }
       const response = await api("/api/admin/login", { method: "POST", body: data });
       state.admin = response.admin;
       state.notice = "";
       await refresh();
     }
     if (form.dataset.form === "admin-password") {
+      if (state.readonlyAdmin) throw new Error("Смена пароля администратора недоступна в режиме GitHub Pages.");
       if (String(data.newPassword || "") !== String(data.repeatPassword || "")) {
         throw new Error("Новый пароль и повтор не совпадают.");
       }
@@ -709,6 +997,11 @@ document.addEventListener("click", async event => {
       return;
     }
     if (button.dataset.action === "toggle-admin-password") {
+      if (state.readonlyAdmin) {
+        state.notice = "Смена пароля администратора недоступна в режиме GitHub Pages.";
+        renderPreservingScroll();
+        return;
+      }
       state.adminPasswordOpen = !state.adminPasswordOpen;
       state.notice = "";
       renderPreservingScroll();
@@ -723,7 +1016,12 @@ document.addEventListener("click", async event => {
     }
     if (button.dataset.action === "refresh") await refresh();
     if (button.dataset.action === "logout") {
-      await api("/api/admin/logout", { method: "POST" });
+      if (state.backend === "supabase") {
+        const client = await supabaseClient();
+        await client.auth.signOut();
+      } else {
+        await api("/api/admin/logout", { method: "POST" });
+      }
       state.admin = null;
       state.detail = null;
       render();
