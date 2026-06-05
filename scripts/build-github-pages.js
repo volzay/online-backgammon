@@ -6,7 +6,7 @@ const DIST = path.join(ROOT, "dist");
 const DEFAULT_SUPABASE_URL = "https://pzknykygxtbzdhuitzzh.supabase.co";
 const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_MLLEF0G2GhSKSL7grWm-zg_FKHzDKNO";
 const DEFAULT_SITE_BASE_URL = "https://volzay.github.io/online-backgammon";
-const DEFAULT_ADMIN_EMAILS = "openthedoorcap@gmail.com";
+const DEFAULT_ADMIN_EMAILS = "volzay@yandex.ru,openthedoorcap@gmail.com";
 const BUILD_VERSION = (process.env.GITHUB_SHA || Date.now().toString(36)).slice(0, 12);
 
 const STATIC_FILES = [

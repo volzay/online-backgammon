@@ -50,6 +50,28 @@ function isAllowedSupabaseAdmin(user) {
   return Boolean(user?.email && allowed.has(String(user.email).toLowerCase()));
 }
 
+function isAllowedSupabaseAdminEmail(email) {
+  return adminEmails().has(String(email || "").trim().toLowerCase());
+}
+
+function isInvalidSupabaseCredentials(error) {
+  return /invalid login credentials/i.test(String(error?.message || ""));
+}
+
+function adminAuthErrorMessage(error) {
+  const message = String(error?.message || error || "");
+  if (isInvalidSupabaseCredentials(error)) {
+    return "Неверный пароль или такой Auth-пользователь ещё не создан в Supabase. Пароль от dashboard.supabase.com здесь не подходит.";
+  }
+  if (/email not confirmed/i.test(message)) {
+    return "Email администратора ещё не подтверждён в Supabase Auth. Подтвердите письмо или временно отключите Confirm email.";
+  }
+  if (/email rate limit exceeded/i.test(message)) {
+    return "Supabase временно ограничил отправку писем. Для теста отключите Confirm email или подключите SMTP.";
+  }
+  return message || "Ошибка входа в админ-панель.";
+}
+
 async function supabaseClient() {
   if (!window.NarduSupabase?.client) throw new Error("Supabase не подключён.");
   return window.NarduSupabase.client();
@@ -61,6 +83,31 @@ function setSupabaseAdmin(user) {
   state.readonlyAdmin = true;
   state.configured = true;
   state.retentionHours = 0;
+}
+
+async function signInOrCreateSupabaseAdmin(client, email, password) {
+  const normalizedEmail = String(email || "").trim();
+  if (!isAllowedSupabaseAdminEmail(normalizedEmail)) {
+    throw new Error("Этот email не входит в список администраторов.");
+  }
+
+  const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
+  if (!error) return data.user;
+  if (!isInvalidSupabaseCredentials(error)) throw new Error(adminAuthErrorMessage(error));
+
+  const { data: signUpData, error: signUpError } = await client.auth.signUp({
+    email: normalizedEmail,
+    password,
+    options: {
+      data: { nickname: normalizedEmail.split("@")[0], name: normalizedEmail.split("@")[0], admin: true },
+      emailRedirectTo: window.NarduSupabase?.config?.().siteBaseUrl
+        ? `${window.NarduSupabase.config().siteBaseUrl.replace(/\/+$/, "")}/homegate.html`
+        : new URL("homegate.html", location.href).href,
+    },
+  });
+  if (signUpError) throw new Error(adminAuthErrorMessage(signUpError));
+  if (signUpData.session?.user) return signUpData.session.user;
+  throw new Error("Auth-пользователь администратора создан. Подтвердите email или отключите Confirm email в Supabase, затем войдите этим же паролем.");
 }
 
 function escapeHtml(value) {
@@ -530,8 +577,8 @@ function loginView() {
     : "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.";
   const allowedEmails = adminEmailsText();
   const supabaseHelp = allowedEmails
-    ? `Email администратора: ${allowedEmails}. Пароль — пароль этого Supabase-аккаунта.`
-    : "Email администратора задаётся в runtime-config.js. Пароль — пароль этого Supabase-аккаунта.";
+    ? `Email администратора: ${allowedEmails}. Введите пароль игрового Auth-пользователя проекта; пароль от dashboard.supabase.com здесь не подходит.`
+    : "Email администратора задаётся в runtime-config.js. Нужен пароль Auth-пользователя проекта, а не пароль от dashboard.supabase.com.";
   const fields = supabaseMode
     ? `
           <div class="field"><label>Email администратора</label><input name="email" type="email" autocomplete="username" value="${escapeHtml(allowedEmails.split(",")[0] || "")}" autofocus /></div>
@@ -951,13 +998,12 @@ document.addEventListener("submit", async event => {
         const email = String(data.email || "").trim();
         const password = String(data.password || "");
         if (!email || !password) throw new Error("Введите email и пароль администратора.");
-        const { data: authData, error } = await client.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        if (!isAllowedSupabaseAdmin(authData.user)) {
+        const user = await signInOrCreateSupabaseAdmin(client, email, password);
+        if (!isAllowedSupabaseAdmin(user)) {
           await client.auth.signOut();
           throw new Error("Этот Supabase-аккаунт не входит в список администраторов.");
         }
-        setSupabaseAdmin(authData.user);
+        setSupabaseAdmin(user);
         state.notice = "";
         await refresh();
         return;
