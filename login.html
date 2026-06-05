@@ -139,8 +139,20 @@
 <script src="app.js"></script>
 <script src="auth-client.js"></script>
 <script>
-  NarduApp.requireGuest();
   document.getElementById('year').textContent = new Date().getFullYear();
+  (async () => {
+    try {
+      const redirect = await NarduAuth.handleAuthRedirect();
+      if (redirect?.user) {
+        NarduApp.setUser(redirect.user);
+        location.replace('index.html');
+        return;
+      }
+    } catch (error) {
+      setMessage('login-message', error.message, 'error');
+    }
+    NarduApp.requireGuest();
+  })();
 
   function rndRating() { return 950 + Math.floor(Math.random() * 400); }
   async function apiJson(url, options = {}) {

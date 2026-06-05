@@ -144,7 +144,35 @@
     }, "err_auth");
   }
 
+  async function handleAuthRedirect() {
+    if (!window.NarduSupabase?.configured?.()) return null;
+    const supabase = await window.NarduSupabase.client();
+    const url = new URL(location.href);
+    const hasHashSession = /(?:^|&)access_token=/.test(url.hash.replace(/^#/, ""));
+    const code = url.searchParams.get("code");
+    if (!hasHashSession && !code) return null;
+
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw new Error(error.message);
+      url.searchParams.delete("code");
+      history.replaceState(null, "", url.pathname + (url.search ? `?${url.searchParams.toString()}` : "") + url.hash);
+    }
+
+    let { data, error } = await supabase.auth.getSession();
+    if (error) throw new Error(error.message);
+    if (!data.session?.user && hasHashSession) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      ({ data, error } = await supabase.auth.getSession());
+      if (error) throw new Error(error.message);
+    }
+    if (!data.session?.user) return null;
+    if (hasHashSession) history.replaceState(null, "", location.pathname + location.search);
+    return { user: await profileForAuthUser(supabase, data.session.user), authRedirect: true };
+  }
+
   window.NarduAuth = {
+    handleAuthRedirect,
     login,
     register,
     requestPasswordRecovery,
