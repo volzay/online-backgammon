@@ -29,6 +29,7 @@ window.NarduController = (function () {
   let isChainingMove = false;
   let remoteCode = '';
   let remoteVersion = 0;
+  let remotePublishQueue = Promise.resolve();
   let remotePollTimer = null;
   let isApplyingRemote = false;
   let remoteAnimatedRollTokens = new Set();
@@ -473,26 +474,39 @@ window.NarduController = (function () {
   async function publishRemoteState() {
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
+    const payload = remoteStatePayload();
+    remotePublishQueue = remotePublishQueue
+      .catch(() => {})
+      .then(() => publishRemoteStateNow(payload));
+    return remotePublishQueue;
+  }
+
+  async function publishRemoteStateNow(payload) {
+    if (mode !== 'remote' || !remoteCode || payload.phase === 'waiting' || isApplyingRemote) return;
+    const version = remoteVersion;
     try {
       if (window.NarduRooms?.configured?.()) {
-        const data = await window.NarduRooms.putGameState(remoteCode, remoteStatePayload(), remoteVersion);
+        const data = await window.NarduRooms.putGameState(remoteCode, payload, version);
         if (Number.isFinite(data.version)) remoteVersion = data.version;
         return;
       }
       const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: remoteStatePayload(), version: remoteVersion }),
+        body: JSON.stringify({ state: payload, version }),
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok && Number.isFinite(data.version)) remoteVersion = data.version;
-    } catch {
+    } catch (error) {
+      if (error?.status === 409) {
+        await pollRemoteState({ force: true });
+      }
       /* keep local play responsive while the room server recovers */
     }
   }
 
-  async function pollRemoteState() {
-    if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isRolling || isAnimating || isChainingMove) return;
+  async function pollRemoteState(options = {}) {
+    if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || (!options.force && (isRolling || isAnimating || isChainingMove))) return;
     try {
       if (window.NarduRooms?.configured?.()) {
         const data = await window.NarduRooms.getGameState(remoteCode);

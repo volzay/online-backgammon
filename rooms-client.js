@@ -354,11 +354,17 @@
       updates.archived_at = new Date().toISOString();
       updates.closed_reason = "finished";
     }
-    const { error } = await client
+    const { data, error } = await client
       .from("rooms")
       .update(updates)
-      .eq("code", normalizedCode);
+      .eq("code", normalizedCode)
+      .eq("game_version", Number(version) || 0)
+      .select("game_version")
+      .maybeSingle();
     if (error) throw supabaseError(error, "Could not save game state.");
+    if (!data) {
+      throw roomError("Состояние комнаты уже обновлено другим клиентом. Подтягиваем актуальный ход.", 409);
+    }
     return { ok: true, version: nextVersion };
   }
 
