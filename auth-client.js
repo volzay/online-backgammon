@@ -29,6 +29,18 @@
     return data;
   }
 
+  function authErrorMessage(error, fallbackKey = "err_auth") {
+    const message = String(error?.message || error || "");
+    if (/email rate limit exceeded/i.test(message)) {
+      return "Supabase временно ограничил отправку писем подтверждения. Попробуйте позже или войдите, если аккаунт уже создан.";
+    }
+    if (/already registered|already been registered|user already registered/i.test(message)) {
+      return "На эту электронную почту уже зарегистрирован аккаунт.";
+    }
+    if (/invalid email/i.test(message)) return "Введите корректный email.";
+    return message || NarduApp.t(fallbackKey);
+  }
+
   function publicPageUrl(page) {
     const cfg = window.NarduSupabase?.config?.() || {};
     const configuredBase = String(cfg.siteBaseUrl || "").replace(/\/+$/, "");
@@ -71,7 +83,7 @@
       throw new Error("Для входа через Supabase используйте email. Вход по никнейму будет включен после переноса профилей.");
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(authErrorMessage(error));
     if (!data.user) throw new Error(NarduApp.t("err_auth"));
     return { user: await profileForAuthUser(supabase, data.user) };
   }
@@ -87,7 +99,7 @@
         emailRedirectTo: publicPageUrl("login.html"),
       },
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(authErrorMessage(error, "err_register"));
     if (!data.user) throw new Error(NarduApp.t("err_register"));
     if (!data.session) {
       return { user: normalizeProfile({}, data.user), emailSent: true, pendingConfirmation: true };
@@ -107,7 +119,7 @@
       .upsert(profile, { onConflict: "id" })
       .select("id,nickname,email,rating,tier,rating_eligible")
       .single();
-    if (profileError) throw new Error(profileError.message);
+    if (profileError) throw new Error(authErrorMessage(profileError, "err_register"));
     return { user: normalizeProfile(savedProfile, data.user), emailSent: Boolean(!data.session) };
   }
 
@@ -135,7 +147,7 @@
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: publicPageUrl("login.html"),
       });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(authErrorMessage(error));
       return { ok: true, message: NarduApp.t("msg_recovery_code_sent"), supabaseLink: true };
     }
     return apiJson("/api/password-recovery/request", {
@@ -154,17 +166,17 @@
 
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(authErrorMessage(error));
       url.searchParams.delete("code");
       history.replaceState(null, "", url.pathname + (url.search ? `?${url.searchParams.toString()}` : "") + url.hash);
     }
 
     let { data, error } = await supabase.auth.getSession();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(authErrorMessage(error));
     if (!data.session?.user && hasHashSession) {
       await new Promise(resolve => setTimeout(resolve, 500));
       ({ data, error } = await supabase.auth.getSession());
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(authErrorMessage(error));
     }
     if (!data.session?.user) return null;
     if (hasHashSession) history.replaceState(null, "", location.pathname + location.search);
