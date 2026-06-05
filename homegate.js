@@ -41,6 +41,10 @@ function adminEmails() {
   return new Set(String(raw).split(",").map(item => item.trim().toLowerCase()).filter(Boolean));
 }
 
+function adminEmailsText() {
+  return [...adminEmails()].join(", ");
+}
+
 function isAllowedSupabaseAdmin(user) {
   const allowed = adminEmails();
   return Boolean(user?.email && allowed.has(String(user.email).toLowerCase()));
@@ -524,9 +528,13 @@ function loginView() {
   const description = supabaseMode
     ? "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и игроков."
     : "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.";
+  const allowedEmails = adminEmailsText();
+  const supabaseHelp = allowedEmails
+    ? `Email администратора: ${allowedEmails}. Пароль — пароль этого Supabase-аккаунта.`
+    : "Email администратора задаётся в runtime-config.js. Пароль — пароль этого Supabase-аккаунта.";
   const fields = supabaseMode
     ? `
-          <div class="field"><label>Email администратора</label><input name="email" type="email" autocomplete="username" autofocus /></div>
+          <div class="field"><label>Email администратора</label><input name="email" type="email" autocomplete="username" value="${escapeHtml(allowedEmails.split(",")[0] || "")}" autofocus /></div>
           <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
     : `
           <input name="login" type="hidden" value="admin" />
@@ -537,6 +545,7 @@ function loginView() {
         <div class="eyebrow">Администрирование</div>
         <h1>Вход в панель</h1>
         <p>${description}</p>
+        ${supabaseMode ? `<p class="admin-hint">${escapeHtml(supabaseHelp)}</p>` : ""}
         ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает без серверного API: доступны просмотр Supabase-комнат и профилей, серверные действия отключены.</p>` : ""}
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
         <form data-form="admin-login">

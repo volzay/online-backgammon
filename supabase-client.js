@@ -1,5 +1,8 @@
 (function () {
-  const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  const SUPABASE_CDNS = [
+    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
+    "https://unpkg.com/@supabase/supabase-js@2",
+  ];
   let clientPromise = null;
 
   function config() {
@@ -36,13 +39,27 @@
     });
   }
 
+  async function loadSupabaseSdk() {
+    if (window.supabase?.createClient) return;
+    const errors = [];
+    for (const src of SUPABASE_CDNS) {
+      try {
+        await loadScript(src);
+        if (window.supabase?.createClient) return;
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    throw new Error("Не удалось загрузить Supabase SDK. Проверьте интернет, блокировщик рекламы или попробуйте другой браузер.");
+  }
+
   async function client() {
     if (!configured()) {
       throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY for GitHub Pages.");
     }
     if (!clientPromise) {
       clientPromise = (async () => {
-        if (!window.supabase?.createClient) await loadScript(SUPABASE_CDN);
+        await loadSupabaseSdk();
         const cfg = config();
         return window.supabase.createClient(cfg.url, cfg.anonKey, {
           auth: {
