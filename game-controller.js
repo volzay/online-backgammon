@@ -529,9 +529,11 @@ window.NarduController = (function () {
   function applyRemoteState(nextState, version) {
     isApplyingRemote = true;
     remoteVersion = version;
+    const previousStateForAnimation = state;
     const animateIncomingOpeningRoll = shouldAnimateIncomingRemoteOpeningRoll(nextState);
     const animateIncomingRoll = shouldAnimateIncomingRemoteRoll(nextState);
     const incomingMoveSounds = collectIncomingRemoteMoveSounds(nextState);
+    const incomingMoveAnimations = incomingMoveSounds.filter(canAnimateIncomingRemoteMove);
     const previousStartedAt = state?.startedAt;
     const previousFinishedAt = state?.finishedAt;
     const previousTurnClock = state?.turnClock;
@@ -540,7 +542,7 @@ window.NarduController = (function () {
     if (autoEndTimer) clearTimeout(autoEndTimer);
     autoRollTimer = null;
     autoEndTimer = null;
-    state = {
+    const remoteState = {
       ...JSON.parse(JSON.stringify(nextState)),
       selected: null,
       hints: [],
@@ -554,6 +556,7 @@ window.NarduController = (function () {
       turnClock: normalizedTurnClock(nextState.turnClock || previousTurnClock),
       matchScore: normalizedMatchScore(nextState.matchScore || previousMatchScore),
     };
+    state = remoteState;
     if (state.phase === 'over' && state.rematch?.status === 'accepted' && isRemoteHost()) {
       isApplyingRemote = false;
       startNextGame({ publish: true });
@@ -569,6 +572,18 @@ window.NarduController = (function () {
       isRolling = true;
       render();
       animateRemoteIncomingRoll();
+    } else if (previousStateForAnimation && incomingMoveAnimations.length > 0) {
+      state = {
+        ...JSON.parse(JSON.stringify(previousStateForAnimation)),
+        selected: null,
+        hints: [],
+        fullHints: [],
+        mode,
+        playerColor,
+        viewColor: mode === 'remote' ? playerColor : 'white',
+        roomCode: remoteCode,
+      };
+      animateRemoteIncomingMove(incomingMoveAnimations[0], remoteState);
     } else {
       render();
       if (state.phase === 'over' && state.winner) onGameOver();
@@ -608,6 +623,36 @@ window.NarduController = (function () {
       markGameplaySound(kind, offset);
       schedule(() => playMoveSound(move), offset);
       offset += kind === 'bearOff' ? 240 : 180;
+    });
+  }
+
+  function canAnimateIncomingRemoteMove(move) {
+    if (!move || move.color === playerColor) return false;
+    const from = Number(move.from);
+    if (!Number.isInteger(from) || from < 1 || from > 24) return false;
+    const to = remoteMoveTarget(move);
+    if (to !== 0 && (!Number.isInteger(to) || to < 1 || to > 24)) return false;
+    return NarduGame.pointColor(state, from) === move.color;
+  }
+
+  function remoteMoveTarget(move) {
+    return move?.to === 'снято' || move?.to === 'borne-off' ? 0 : Number(move?.to);
+  }
+
+  function animateRemoteIncomingMove(move, remoteState) {
+    const to = remoteMoveTarget(move);
+    isAnimating = true;
+    NarduBoardEngine.animateCheckerMove({
+      from: Number(move.from),
+      to,
+      color: move.color,
+      destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
+    }).then(() => {
+      isAnimating = false;
+      state = remoteState;
+      render();
+      if (state.phase === 'over' && state.winner) onGameOver();
+      else ensureAutoProgress(650);
     });
   }
 
