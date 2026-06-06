@@ -1122,7 +1122,16 @@ body::before {
 /* ───────── RIGHT COL ───────── */
 .right-col { display: flex; flex-direction: column; gap: 14px; }
 
-.history { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.history {
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
 .hist-item {
   display: grid; grid-template-columns: 28px 1fr;
   gap: 10px; font-size: 13px; color: var(--ink-2);
@@ -1445,6 +1454,9 @@ body::before {
   .right-col > .panel {
     width: min(100%, calc(100dvw - 28px));
     max-width: 100%;
+  }
+  .history {
+    max-height: min(44svh, 360px);
   }
 
   .player { padding: 12px; }

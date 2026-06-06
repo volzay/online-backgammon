@@ -981,11 +981,11 @@ window.NarduController = (function () {
     }, 0);
   }
 
-  /* ── history (last few moves) ─────────────── */
+  /* ── history ──────────────────────────────── */
   function renderHistory() {
     const list = document.getElementById('history-list') || document.querySelector('.history');
     if (!list) return;
-    const items = (state.history || []).slice(0, 8);
+    const items = state.history || [];
     if (!items.length) {
       list.innerHTML = `
         <div class="hist-item">
