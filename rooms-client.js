@@ -113,7 +113,7 @@
       throw roomError("Для онлайн-комнаты войдите через Supabase.", 401);
     }
 
-    const { data: profile, error: profileError } = await client
+    let { data: profile, error: profileError } = await client
       .from("profiles")
       .select("id,nickname,email,rating,tier,rating_eligible")
       .eq("id", authUser.id)
@@ -122,7 +122,7 @@
 
     const localUser = window.NarduApp?.getUser?.() || {};
     const metadata = authUser.user_metadata || {};
-    const nickname = profile?.nickname || metadata.nickname || metadata.name || localUser.name || authUser.email?.split("@")[0] || "Player";
+    const nickname = profile?.nickname || await createMissingProfile(client, authUser, localUser, metadata);
     const rating = Number(profile?.rating ?? localUser.rating ?? 1000);
     return {
       client,
@@ -135,6 +135,38 @@
         ratingEligible: profile?.rating_eligible !== false,
       },
     };
+  }
+
+  async function createMissingProfile(client, authUser, localUser = {}, metadata = {}) {
+    const baseNickname = String(metadata.nickname || metadata.name || localUser.nickname || localUser.name || authUser.email?.split("@")[0] || "Player")
+      .trim()
+      .slice(0, 20) || "Player";
+    const email = authUser.email || localUser.email || "";
+    const rating = Number(localUser.rating || 1000);
+    const tier = ratingTierFor(Number.isFinite(rating) ? rating : 1000);
+    let lastError = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nickname = attempt === 0
+        ? baseNickname
+        : `${baseNickname.slice(0, Math.max(3, 17 - String(attempt).length))}${attempt}`;
+      const { data, error } = await client
+        .from("profiles")
+        .insert({
+          id: authUser.id,
+          nickname,
+          email,
+          rating: Number.isFinite(rating) ? Math.round(rating) : 1000,
+          tier,
+          rating_eligible: true,
+          last_seen_at: new Date().toISOString(),
+        })
+        .select("id,nickname,email,rating,tier,rating_eligible")
+        .maybeSingle();
+      if (!error && data) return data.nickname;
+      lastError = error;
+      if (error?.code !== "23505") break;
+    }
+    throw supabaseError(lastError, "Could not create profile.");
   }
 
   async function getRoomRow(code, { includePassword = false, maybeClosed = false } = {}) {
