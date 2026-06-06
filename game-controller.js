@@ -372,9 +372,7 @@ window.NarduController = (function () {
     if (waitingForOpponent) return;
     if (!opts.skipRemoteSync) startRemoteSync();
     if (opts.skipAutoStart) return;
-    const autoStartDelay = mode === 'remote' ? 1300 : 650;
-    if (state.phase === 'opening') scheduleOpeningRoll(autoStartDelay);
-    else scheduleAutoRoll(autoStartDelay);
+    ensureAutoProgress(mode === 'remote' ? 1300 : 650);
   }
 
   function normalizeBotDifficulty(value) {
@@ -574,7 +572,7 @@ window.NarduController = (function () {
     } else {
       render();
       if (state.phase === 'over' && state.winner) onGameOver();
-      if (state.phase === 'roll' && isMyTurn()) scheduleAutoRoll(650);
+      ensureAutoProgress(650);
     }
     isApplyingRemote = false;
   }
@@ -675,11 +673,7 @@ window.NarduController = (function () {
         return;
       }
       render();
-      if (state.phase === 'opening-result' && isRemoteHost()) {
-        schedule(() => {
-          startOpeningTurnRoll();
-        }, OPENING_RESULT_PAUSE_MS);
-      }
+      scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
     });
   }
 
@@ -707,8 +701,7 @@ window.NarduController = (function () {
         return;
       }
       render();
-      if (state.phase === 'roll' && isMyTurn()) scheduleAutoRoll(650);
-      else maybeScheduleAutoEndTurn();
+      ensureAutoProgress(650);
     });
   }
 
@@ -1289,6 +1282,39 @@ window.NarduController = (function () {
     }, ms);
   }
 
+  function scheduleOpeningTurnRoll(ms = OPENING_RESULT_PAUSE_MS) {
+    if (state.phase !== 'opening-result' || state.phase === 'over' || isRolling || autoRollTimer) return;
+    if (mode === 'remote' && !isRemoteHost()) return;
+    autoRollTimer = schedule(() => {
+      autoRollTimer = null;
+      startOpeningTurnRoll();
+    }, ms);
+  }
+
+  function ensureAutoProgress(ms = 650) {
+    if (!state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
+    if (isRolling || isAnimating || isChainingMove) return;
+    if (state.phase === 'opening') {
+      scheduleOpeningRoll(ms);
+      return;
+    }
+    if (state.phase === 'opening-result') {
+      scheduleOpeningTurnRoll(ms);
+      return;
+    }
+    if (state.phase === 'roll') {
+      scheduleAutoRoll(ms);
+      return;
+    }
+    if (state.phase === 'move') {
+      if (mode === 'bot' && !isMyTurn()) {
+        schedule(playBotTurn, Math.max(450, ms));
+        return;
+      }
+      maybeScheduleAutoEndTurn();
+    }
+  }
+
   async function openingRoll() {
     if (state.phase !== 'opening' || isRolling) return;
     if (mode === 'remote' && !isRemoteHost()) return;
@@ -1334,9 +1360,7 @@ window.NarduController = (function () {
     ]).then(() => {
       isRolling = false;
       render();
-      schedule(() => {
-        startOpeningTurnRoll();
-      }, OPENING_RESULT_PAUSE_MS);
+      scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
     });
   }
 
@@ -1443,7 +1467,7 @@ window.NarduController = (function () {
   function afterTurn() {
     render();
     if (state.winner) { onGameOver(); return; }
-    if (state.phase === 'roll') scheduleAutoRoll(700);
+    ensureAutoProgress(700);
   }
 
   /* ── point click — select source or apply move ── */
@@ -2333,8 +2357,7 @@ window.NarduController = (function () {
       if (publish) {
         await publishRemoteState();
         startRemoteSync();
-        if (state.phase === 'opening') scheduleOpeningRoll(650);
-        else scheduleAutoRoll(650);
+        ensureAutoProgress(650);
       }
     }, 200);
   }
@@ -2361,7 +2384,9 @@ window.NarduController = (function () {
   window.addEventListener('scroll', cancelActiveDrag, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) cancelActiveDrag();
+    else ensureAutoProgress(350);
   });
+  window.addEventListener('online', () => ensureAutoProgress(350));
 
   document.addEventListener('click', (e) => {
     if (Date.now() < suppressClickUntil) {
