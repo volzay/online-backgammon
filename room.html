@@ -958,6 +958,11 @@ let mediaRecorder = null;
 let recStream = null;
 let recChunks = [];
 let sendRecordingOnStop = true;
+let recStarting = false;
+let micPointerId = null;
+let suppressMicClickUntil = 0;
+let pendingMicStopAfterStart = null;
+const mobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
 
 function fmtRec(ms) {
   const s = Math.floor(ms / 1000);
@@ -996,8 +1001,11 @@ function paintRecording(active) {
 }
 
 async function startRec() {
+  if (recording || recStarting) return;
+  recStarting = true;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
     inputEl.placeholder = t('voice_unsupported');
+    recStarting = false;
     return;
   }
 
@@ -1043,12 +1051,19 @@ async function startRec() {
     recTime.textContent = '0:00';
     recTimer = setInterval(() => { recTime.textContent = fmtRec(Date.now() - recStart); }, 200);
     mediaRecorder.start();
+    if (pendingMicStopAfterStart !== null) {
+      const shouldSend = pendingMicStopAfterStart;
+      pendingMicStopAfterStart = null;
+      stopRec(shouldSend);
+    }
   } catch {
     recording = false;
     paintRecording(false);
     recStream?.getTracks().forEach(track => track.stop());
     recStream = null;
     inputEl.placeholder = t('mic_denied');
+  } finally {
+    recStarting = false;
   }
 }
 
@@ -1075,7 +1090,47 @@ async function sendVoiceBlob(blob, duration) {
   });
 }
 
-mic.addEventListener('click', async () => {
+function stopMicPointer(send) {
+  micPointerId = null;
+  if (recording) stopRec(send);
+  else if (recStarting) {
+    sendRecordingOnStop = send;
+    pendingMicStopAfterStart = send;
+  }
+}
+
+if (mobileHoldToTalk) {
+  mic.style.touchAction = 'none';
+  mic.addEventListener('pointerdown', async (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    if (mic.disabled || micPointerId !== null) return;
+    event.preventDefault();
+    micPointerId = event.pointerId;
+    pendingMicStopAfterStart = null;
+    suppressMicClickUntil = Date.now() + 700;
+    try { mic.setPointerCapture?.(event.pointerId); } catch (err) {}
+    await startRec();
+  });
+  mic.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== micPointerId) return;
+    event.preventDefault();
+    suppressMicClickUntil = Date.now() + 700;
+    stopMicPointer(true);
+  });
+  mic.addEventListener('pointercancel', (event) => {
+    if (event.pointerId !== micPointerId) return;
+    event.preventDefault();
+    suppressMicClickUntil = Date.now() + 700;
+    stopMicPointer(false);
+  });
+  mic.addEventListener('contextmenu', event => event.preventDefault());
+}
+
+mic.addEventListener('click', async (event) => {
+  if (Date.now() < suppressMicClickUntil) {
+    event.preventDefault();
+    return;
+  }
   if (recording) stopRec(true);
   else await startRec();
 });
