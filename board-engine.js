@@ -7,7 +7,7 @@ window.NarduBoardEngine = (function () {
   const DIE_SIZE = 39;
   const DICE_GAP = 11;
   const DICE_ROLL_MS = 1550;
-  const CHECKER_MOVE_MS = 780;
+  const CHECKER_MOVE_MS = 1100;
   const HIT_COOLDOWN_MS = 74;
   const MAX_DPR = 2;
   const MIN_REST_ANGLE_DELTA = 16;
@@ -1001,8 +1001,8 @@ window.NarduBoardEngine = (function () {
         const x = quadraticPoint(start.x, control.x, end.x, eased);
         const y = quadraticPoint(start.y, control.y, end.y, eased);
         const lift = Math.sin(Math.PI * eased);
-        clone.style.transform = `translate3d(${x - start.x}px, ${y - start.y}px, 0) scale(${1 + lift * 0.1})`;
-        clone.style.filter = `drop-shadow(0 ${Math.round(7 + lift * 14)}px ${Math.round(14 + lift * 18)}px oklch(0 0 0 / ${0.46 - lift * 0.08}))`;
+        clone.style.transform = `translate3d(${x - start.x}px, ${y - start.y}px, 0) scale(${1 + lift * 0.14})`;
+        clone.style.filter = `drop-shadow(0 ${Math.round(8 + lift * 18)}px ${Math.round(16 + lift * 24)}px oklch(0 0 0 / ${0.5 - lift * 0.08})) brightness(${1 + lift * 0.08})`;
         if (t < 1) {
           requestAnimationFrame(frame);
           return;
@@ -1035,7 +1035,7 @@ window.NarduBoardEngine = (function () {
       y: target.y + source.height / 2,
     };
     const distance = Math.hypot(end.x - start.x, end.y - start.y);
-    const lift = Math.min(170, Math.max(92, distance * 0.28));
+    const lift = Math.min(260, Math.max(150, distance * 0.42));
     const middle = {
       x: (start.x + end.x) / 2,
       y: (start.y + end.y) / 2,
@@ -1056,7 +1056,7 @@ window.NarduBoardEngine = (function () {
     } else if (bothBottom) {
       controlY = Math.min(start.y, end.y) - lift;
     } else {
-      controlY = boardCenterY + (start.y < boardCenterY ? lift * 0.42 : -lift * 0.42);
+      controlY = boardCenterY + (start.y < boardCenterY ? lift * 0.62 : -lift * 0.62);
     }
     return {
       x: middle.x - source.width / 2,
