@@ -7,7 +7,7 @@ window.NarduBoardEngine = (function () {
   const DIE_SIZE = 39;
   const DICE_GAP = 11;
   const DICE_ROLL_MS = 1550;
-  const CHECKER_MOVE_MS = 560;
+  const CHECKER_MOVE_MS = 780;
   const HIT_COOLDOWN_MS = 74;
   const MAX_DPR = 2;
   const MIN_REST_ANGLE_DELTA = 16;
@@ -976,40 +976,92 @@ window.NarduBoardEngine = (function () {
       checker.style.opacity = '0';
     }
 
-    const dx = target.x - source.left;
-    const dy = target.y - source.top;
-    const lift = Math.min(96, Math.max(42, Math.abs(dx) * 0.2 + Math.abs(dy) * 0.1));
-    const arcY = checkerArcBendY(source, target, dy, lift);
-    const animation = clone.animate([
-      { transform: 'translate3d(0, 0, 0) scale(1.03)', filter: 'drop-shadow(0 10px 20px oklch(0 0 0 / 0.48))', offset: 0 },
-      { transform: `translate3d(${dx * 0.34}px, ${arcY * 0.74}px, 0) scale(1.09)`, filter: 'drop-shadow(0 18px 28px oklch(0 0 0 / 0.38))', offset: 0.46 },
-      { transform: `translate3d(${dx * 0.68}px, ${arcY * 0.72 + dy * 0.26}px, 0) scale(1.06)`, filter: 'drop-shadow(0 16px 24px oklch(0 0 0 / 0.4))', offset: 0.72 },
-      { transform: `translate3d(${dx}px, ${dy}px, 0) scale(1)`, filter: 'drop-shadow(0 5px 12px oklch(0 0 0 / 0.42))' },
-    ], {
-      duration: CHECKER_MOVE_MS,
-      easing: 'cubic-bezier(0.22, 0.74, 0.24, 1)',
-      fill: 'forwards',
+    return animateCheckerArc(clone, source, target).then(() => {
+      clone.remove();
+      return true;
     });
-
-    return animation.finished
-      .catch(() => null)
-      .then(() => {
-        clone.remove();
-        return true;
-      });
   }
 
-  function checkerArcBendY(source, target, dy, lift) {
-    const boardRect = document.getElementById('board')?.getBoundingClientRect();
-    if (!boardRect) return dy * 0.48 - lift;
+  function animateCheckerArc(clone, source, target) {
+    const start = {
+      x: source.left,
+      y: source.top,
+    };
+    const end = {
+      x: target.x,
+      y: target.y,
+    };
+    const control = checkerArcControlPoint(source, target);
+    const startedAt = performance.now();
 
-    const sourceCenterY = source.top + source.height / 2;
-    const targetCenterY = target.y + source.height / 2;
-    const routeMidY = (sourceCenterY + targetCenterY) / 2;
+    return new Promise(resolve => {
+      function frame(now) {
+        const t = Math.min(1, (now - startedAt) / CHECKER_MOVE_MS);
+        const eased = easeInOutCubic(t);
+        const x = quadraticPoint(start.x, control.x, end.x, eased);
+        const y = quadraticPoint(start.y, control.y, end.y, eased);
+        const lift = Math.sin(Math.PI * eased);
+        clone.style.transform = `translate3d(${x - start.x}px, ${y - start.y}px, 0) scale(${1 + lift * 0.1})`;
+        clone.style.filter = `drop-shadow(0 ${Math.round(7 + lift * 14)}px ${Math.round(14 + lift * 18)}px oklch(0 0 0 / ${0.46 - lift * 0.08}))`;
+        if (t < 1) {
+          requestAnimationFrame(frame);
+          return;
+        }
+        resolve();
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function quadraticPoint(start, control, end, t) {
+    const inv = 1 - t;
+    return inv * inv * start + 2 * inv * t * control + t * t * end;
+  }
+
+  function easeInOutCubic(t) {
+    return t < 0.5
+      ? 4 * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function checkerArcControlPoint(source, target) {
+    const boardRect = document.getElementById('board')?.getBoundingClientRect();
+    const start = {
+      x: source.left + source.width / 2,
+      y: source.top + source.height / 2,
+    };
+    const end = {
+      x: target.x + source.width / 2,
+      y: target.y + source.height / 2,
+    };
+    const distance = Math.hypot(end.x - start.x, end.y - start.y);
+    const lift = Math.min(170, Math.max(92, distance * 0.28));
+    const middle = {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    };
+    if (!boardRect) {
+      return {
+        x: middle.x - source.width / 2,
+        y: middle.y - lift - source.height / 2,
+      };
+    }
+
     const boardCenterY = boardRect.top + boardRect.height / 2;
-    const referenceY = Math.abs(routeMidY - boardCenterY) < 14 ? sourceCenterY : routeMidY;
-    const bendTowardCenter = referenceY < boardCenterY ? lift : -lift;
-    return dy * 0.48 + bendTowardCenter;
+    const bothTop = start.y < boardCenterY && end.y < boardCenterY;
+    const bothBottom = start.y >= boardCenterY && end.y >= boardCenterY;
+    let controlY;
+    if (bothTop) {
+      controlY = Math.max(start.y, end.y) + lift;
+    } else if (bothBottom) {
+      controlY = Math.min(start.y, end.y) - lift;
+    } else {
+      controlY = boardCenterY + (start.y < boardCenterY ? lift * 0.42 : -lift * 0.42);
+    }
+    return {
+      x: middle.x - source.width / 2,
+      y: controlY - source.height / 2,
+    };
   }
 
   function checkerTargetRect(opts) {
