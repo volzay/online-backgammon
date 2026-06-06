@@ -583,7 +583,7 @@ window.NarduController = (function () {
         viewColor: mode === 'remote' ? playerColor : 'white',
         roomCode: remoteCode,
       };
-      animateRemoteIncomingMove(incomingMoveAnimations[0], remoteState);
+      animateRemoteIncomingMoves(incomingMoveAnimations, remoteState);
     } else {
       render();
       if (state.phase === 'over' && state.winner) onGameOver();
@@ -632,28 +632,58 @@ window.NarduController = (function () {
     if (!Number.isInteger(from) || from < 1 || from > 24) return false;
     const to = remoteMoveTarget(move);
     if (to !== 0 && (!Number.isInteger(to) || to < 1 || to > 24)) return false;
-    return NarduGame.pointColor(state, from) === move.color;
+    return true;
   }
 
   function remoteMoveTarget(move) {
     return move?.to === 'снято' || move?.to === 'borne-off' ? 0 : Number(move?.to);
   }
 
-  function animateRemoteIncomingMove(move, remoteState) {
-    const to = remoteMoveTarget(move);
+  function animateRemoteIncomingMoves(moves, remoteState) {
     isAnimating = true;
-    NarduBoardEngine.animateCheckerMove({
-      from: Number(move.from),
-      to,
-      color: move.color,
-      destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
-    }).then(() => {
+    let index = 0;
+
+    function finish() {
       isAnimating = false;
       state = remoteState;
       render();
       if (state.phase === 'over' && state.winner) onGameOver();
       else ensureAutoProgress(650);
-    });
+    }
+
+    function step() {
+      if (index >= moves.length) {
+        finish();
+        return;
+      }
+      const move = moves[index++];
+      const from = Number(move.from);
+      const to = remoteMoveTarget(move);
+      if (NarduGame.pointColor(state, from) !== move.color) {
+        finish();
+        return;
+      }
+      NarduBoardEngine.animateCheckerMove({
+        from,
+        to,
+        color: move.color,
+        destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
+      }).then(() => {
+        const applied = NarduGame.applyMove(state, from, move.die, { autoEnd: false });
+        if (!applied) {
+          finish();
+          return;
+        }
+        render();
+        if (state.phase === 'over' || state.winner) {
+          finish();
+          return;
+        }
+        schedule(step, 120);
+      });
+    }
+
+    step();
   }
 
   function handleRemoteRoomMissing() {
@@ -1960,38 +1990,51 @@ window.NarduController = (function () {
       return;
     }
 
-    animateMove(from, finalTo, () => {
-      let currentFrom = from;
-      let appliedAll = true;
+    let index = 0;
+    let currentFrom = from;
 
-      for (const move of sequence) {
-        if (state.phase !== 'move' || state.winner) {
-          appliedAll = false;
-          break;
-        }
+    function finishSequence(appliedAll) {
+      render();
+      isChainingMove = false;
+      if (!appliedAll || state.winner) {
+        if (state.winner) onGameOver();
+        return;
+      }
+      publishRemoteState();
+      playMoveSound(finalMove);
+      afterUserSequence();
+    }
+
+    function stepSequence() {
+      if (index >= sequence.length) {
+        finishSequence(true);
+        return;
+      }
+      if (state.phase !== 'move' || state.winner) {
+        finishSequence(false);
+        return;
+      }
+      const move = sequence[index++];
+      const to = move.bearOff ? 0 : move.to;
+      animateMove(currentFrom, to, () => {
         pushUndoSnapshot();
         const applied = NarduGame.applyMove(state, currentFrom, move.die, { autoEnd: false });
         if (!applied) {
           undoStack.pop();
-          appliedAll = false;
-          break;
+          finishSequence(false);
+          return;
         }
         currentFrom = move.bearOff ? 0 : move.to;
-      }
+        render();
+        if (state.winner) {
+          finishSequence(true);
+          return;
+        }
+        schedule(stepSequence, 120);
+      }, { movingChecker: index === 1 ? options.movingChecker : null });
+    }
 
-      if (appliedAll) {
-        publishRemoteState();
-        playMoveSound(finalMove);
-      }
-      render();
-      if (!appliedAll || state.winner) {
-        isChainingMove = false;
-        if (state.winner) onGameOver();
-        return;
-      }
-      isChainingMove = false;
-      afterUserSequence();
-    }, { movingChecker: options.movingChecker });
+    stepSequence();
   }
 
   function afterUserSequence() {
