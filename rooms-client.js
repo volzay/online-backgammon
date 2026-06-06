@@ -1,6 +1,6 @@
 (function () {
   const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const PRESENCE_STALE_MS = 8000;
+  const PRESENCE_STALE_MS = 30000;
   const NETWORK_GRACE_MS = 120000;
   const roomIdCache = new Map();
 
@@ -404,6 +404,13 @@
     return color === "dark" ? "white" : "dark";
   }
 
+  function latestGameActivityMs(room, color) {
+    const history = Array.isArray(room?.game_state?.history) ? room.game_state.history : [];
+    const latest = history.find(item => item?.color === color && item.at);
+    const parsed = Date.parse(latest?.at || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   function networkLossMessage() {
     return "Соединение потеряно";
   }
@@ -450,7 +457,10 @@
     const presence = room?.presence || {};
     const opponent = opponentColor(viewerColor);
     const opponentPresence = presence[opponent] || null;
-    const lastSeen = Number(opponentPresence?.lastSeen || 0);
+    const lastSeen = Math.max(
+      Number(opponentPresence?.lastSeen || 0),
+      latestGameActivityMs(room, opponent),
+    );
     const disconnectedAt = lastSeen && nowMs > lastSeen + PRESENCE_STALE_MS
       ? opponentPresence.disconnectedAt || lastSeen + PRESENCE_STALE_MS
       : null;
@@ -508,7 +518,10 @@
     let gameVersion = Number(room.game_version || 0);
     const opponent = opponentColor(color);
     const opponentPresence = presence[opponent] || room.presence?.[opponent] || null;
-    const opponentLastSeen = Number(opponentPresence?.lastSeen || 0);
+    const opponentLastSeen = Math.max(
+      Number(opponentPresence?.lastSeen || 0),
+      latestGameActivityMs(room, opponent),
+    );
     const opponentDisconnectedAt = opponentLastSeen && nowMs > opponentLastSeen + PRESENCE_STALE_MS
       ? opponentPresence.disconnectedAt || opponentLastSeen + PRESENCE_STALE_MS
       : null;
@@ -520,6 +533,12 @@
         ...(presence[opponent] || {}),
         disconnectedAt: opponentDisconnectedAt,
         deadlineAt: opponentDeadlineAt,
+      };
+    } else if (presence[opponent]?.disconnectedAt) {
+      presence[opponent] = {
+        ...(presence[opponent] || {}),
+        disconnectedAt: null,
+        deadlineAt: null,
       };
     }
     const alreadyOver = gameState?.phase === "over" || gameState?.winner;
