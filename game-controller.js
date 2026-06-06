@@ -685,7 +685,7 @@ window.NarduController = (function () {
           finish();
           return;
         }
-        schedule(step, 120);
+        schedule(step, 60);
       });
     }
 
@@ -2036,7 +2036,7 @@ window.NarduController = (function () {
           finishSequence(true);
           return;
         }
-        schedule(stepSequence, 120);
+        schedule(stepSequence, 60);
       }, { movingChecker: index === 1 ? options.movingChecker : null });
     }
 
