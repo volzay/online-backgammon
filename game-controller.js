@@ -1777,10 +1777,10 @@ window.NarduController = (function () {
     const dragClone = cleanupDrag({ restoreHidden: false, removeClone: false });
     clearSelection();
     if (drop.type === 'sequence') {
-      doUserMoveSequence(from, drop.dest.moves, { instant: true, dragClone });
+      doUserMoveSequence(from, drop.dest.moves, { movingChecker: dragClone });
       return;
     }
-    doUserMove(from, drop.dest.die, drop.dest, { instant: true, dragClone });
+    doUserMove(from, drop.dest.die, drop.dest, { movingChecker: dragClone });
   }
 
   function onPointerCancel(e) {
@@ -1871,7 +1871,7 @@ window.NarduController = (function () {
       render();
       if (state.winner) { onGameOver(); return; }
       maybeScheduleAutoEndTurn();
-    });
+    }, { movingChecker: options.movingChecker });
   }
 
   function doUserMoveSequence(from, moves, options = {}) {
@@ -1946,7 +1946,7 @@ window.NarduController = (function () {
       }
       isChainingMove = false;
       afterUserSequence();
-    });
+    }, { movingChecker: options.movingChecker });
   }
 
   function afterUserSequence() {
@@ -2100,13 +2100,14 @@ window.NarduController = (function () {
   }
 
   /* ── animation: clone a flying checker from source to destination ── */
-  function animateMove(from, to, done) {
+  function animateMove(from, to, done, options = {}) {
     isAnimating = true;
     NarduBoardEngine.animateCheckerMove({
       from,
       to,
       color: state.turn,
       destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
+      movingChecker: options.movingChecker,
     }).then(() => {
       isAnimating = false;
       done();

@@ -7,7 +7,7 @@ window.NarduBoardEngine = (function () {
   const DIE_SIZE = 39;
   const DICE_GAP = 11;
   const DICE_ROLL_MS = 1550;
-  const CHECKER_MOVE_MS = 440;
+  const CHECKER_MOVE_MS = 560;
   const HIT_COOLDOWN_MS = 74;
   const MAX_DPR = 2;
   const MIN_REST_ANGLE_DELTA = 16;
@@ -943,17 +943,22 @@ window.NarduBoardEngine = (function () {
     const checker = stackEl?.lastElementChild;
     if (!checker) return Promise.resolve(false);
 
-    const source = checker.getBoundingClientRect();
+    const movingChecker = opts.movingChecker || null;
+    const source = (movingChecker || checker).getBoundingClientRect();
     const target = checkerTargetRect({
       color: opts.color,
       to: opts.to,
       source,
       destinationCount: opts.destinationCount || 0,
     });
-    if (!target) return Promise.resolve(false);
+    if (!target) {
+      movingChecker?.remove();
+      return Promise.resolve(false);
+    }
 
-    const clone = checker.cloneNode(true);
+    const clone = movingChecker || checker.cloneNode(true);
     clone.classList.add('board-flying-checker');
+    clone.classList.remove('board-drag-checker');
     Object.assign(clone.style, {
       position: 'fixed',
       left: `${source.left}px`,
@@ -964,21 +969,25 @@ window.NarduBoardEngine = (function () {
       zIndex: '9999',
       pointerEvents: 'none',
       filter: 'drop-shadow(0 8px 18px oklch(0 0 0 / 0.46))',
+      transform: 'translate3d(0, 0, 0) scale(1)',
     });
-    document.body.appendChild(clone);
-    checker.style.opacity = '0';
+    if (!movingChecker) {
+      document.body.appendChild(clone);
+      checker.style.opacity = '0';
+    }
 
     const dx = target.x - source.left;
     const dy = target.y - source.top;
-    const lift = Math.min(72, Math.max(34, Math.abs(dx) * 0.16 + Math.abs(dy) * 0.08));
+    const lift = Math.min(96, Math.max(42, Math.abs(dx) * 0.2 + Math.abs(dy) * 0.1));
     const arcY = checkerArcBendY(source, target, dy, lift);
     const animation = clone.animate([
-      { transform: 'translate3d(0, 0, 0) scale(1)', filter: 'drop-shadow(0 8px 18px oklch(0 0 0 / 0.46))' },
-      { transform: `translate3d(${dx * 0.48}px, ${arcY}px, 0) scale(1.08)`, filter: 'drop-shadow(0 16px 24px oklch(0 0 0 / 0.36))', offset: 0.55 },
+      { transform: 'translate3d(0, 0, 0) scale(1.03)', filter: 'drop-shadow(0 10px 20px oklch(0 0 0 / 0.48))', offset: 0 },
+      { transform: `translate3d(${dx * 0.34}px, ${arcY * 0.74}px, 0) scale(1.09)`, filter: 'drop-shadow(0 18px 28px oklch(0 0 0 / 0.38))', offset: 0.46 },
+      { transform: `translate3d(${dx * 0.68}px, ${arcY * 0.72 + dy * 0.26}px, 0) scale(1.06)`, filter: 'drop-shadow(0 16px 24px oklch(0 0 0 / 0.4))', offset: 0.72 },
       { transform: `translate3d(${dx}px, ${dy}px, 0) scale(1)`, filter: 'drop-shadow(0 5px 12px oklch(0 0 0 / 0.42))' },
     ], {
       duration: CHECKER_MOVE_MS,
-      easing: 'cubic-bezier(0.25, 0.82, 0.32, 1)',
+      easing: 'cubic-bezier(0.22, 0.74, 0.24, 1)',
       fill: 'forwards',
     });
 
