@@ -404,6 +404,47 @@
     return color === "dark" ? "white" : "dark";
   }
 
+  function networkLossMessage() {
+    return "Соединение потеряно";
+  }
+
+  function forceNetworkLossState(room, loserColor, nowMs = Date.now()) {
+    const winnerColor = opponentColor(loserColor);
+    const at = new Date(nowMs).toISOString();
+    const state = room?.game_state && typeof room.game_state === "object"
+      ? JSON.parse(JSON.stringify(room.game_state))
+      : {
+          points: {},
+          off: { white: 0, dark: 0 },
+          score: { white: 0, dark: 0 },
+          history: [],
+          matchScore: { white: 0, dark: 0, target: 5, recordedWinner: null },
+        };
+    state.dice = [];
+    state.rolled = [];
+    state.winner = winnerColor;
+    state.resultType = null;
+    state.phase = "over";
+    state.finishedAt ||= nowMs;
+    state.networkLoss = {
+      loserColor,
+      winnerColor,
+      message: networkLossMessage(),
+      at,
+    };
+    state.history ||= [];
+    if (!state.history.some(item => item?.networkLoss && item.at === at)) {
+      state.history.unshift({
+        networkLoss: true,
+        color: loserColor,
+        winnerColor,
+        message: networkLossMessage(),
+        at,
+      });
+    }
+    return state;
+  }
+
   function publicPresence(room, viewerColor) {
     const nowMs = Date.now();
     const presence = room?.presence || {};
@@ -463,9 +504,40 @@
         deadlineAt: null,
       },
     };
+    let gameState = room.game_state || null;
+    let gameVersion = Number(room.game_version || 0);
+    const opponent = opponentColor(color);
+    const opponentPresence = presence[opponent] || room.presence?.[opponent] || null;
+    const opponentLastSeen = Number(opponentPresence?.lastSeen || 0);
+    const opponentDisconnectedAt = opponentLastSeen && nowMs > opponentLastSeen + PRESENCE_STALE_MS
+      ? opponentPresence.disconnectedAt || opponentLastSeen + PRESENCE_STALE_MS
+      : null;
+    const opponentDeadlineAt = opponentDisconnectedAt
+      ? opponentPresence.deadlineAt || opponentDisconnectedAt + NETWORK_GRACE_MS
+      : null;
+    if (opponentDisconnectedAt) {
+      presence[opponent] = {
+        ...(presence[opponent] || {}),
+        disconnectedAt: opponentDisconnectedAt,
+        deadlineAt: opponentDeadlineAt,
+      };
+    }
+    const alreadyOver = gameState?.phase === "over" || gameState?.winner;
+    const shouldForceNetworkLoss = opponentDeadlineAt && nowMs >= opponentDeadlineAt && !alreadyOver;
+    const updates = { presence };
+    if (shouldForceNetworkLoss) {
+      gameState = forceNetworkLossState(room, opponent, nowMs);
+      gameVersion += 1;
+      updates.game_state = gameState;
+      updates.game_version = gameVersion;
+      updates.updated_at = new Date(nowMs).toISOString();
+      updates.status = "over";
+      updates.archived_at = new Date(nowMs).toISOString();
+      updates.closed_reason = "network_loss";
+    }
     const { data: updated, error: updateError } = await client
       .from("rooms")
-      .update({ presence })
+      .update(updates)
       .eq("code", normalizedCode)
       .select("presence,game_state,game_version,status")
       .maybeSingle();
@@ -473,8 +545,8 @@
     return {
       ok: true,
       presence: publicPresence(updated || { ...room, presence }, color),
-      state: updated?.game_state || room.game_state || null,
-      version: Number(updated?.game_version ?? room.game_version ?? 0),
+      state: updated?.game_state || gameState || null,
+      version: Number(updated?.game_version ?? gameVersion ?? 0),
     };
   }
 

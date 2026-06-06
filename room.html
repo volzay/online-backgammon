@@ -1275,6 +1275,11 @@ function hideNetworkPanel() {
 function handlePresence(presence) {
   if (!presence || !isActiveRemoteRoom()) return;
   if (presence.networkLoss) {
+    if (presence.networkLoss.loserColor === localPlayerColor) {
+      clearStoredActiveRoom();
+      location.href = 'index.html';
+      return;
+    }
     showNetworkPanel({
       title: t('connection_lost_title'),
       text: presence.networkLoss.message || t('network_forced_end'),
@@ -1294,6 +1299,18 @@ function handlePresence(presence) {
   hideNetworkPanel();
 }
 
+function clearStoredActiveRoom() {
+  try {
+    const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
+    if (active?.code === roomCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
+    const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
+    if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
+  } catch {
+    localStorage.removeItem(ACTIVE_ROOM_KEY);
+    localStorage.removeItem(CREATE_GAME_KEY);
+  }
+}
+
 async function sendPresenceHeartbeat() {
   if (!isActiveRemoteRoom() || presenceBusy) return;
   const gameState = window.NarduController?.getState?.();
@@ -1307,6 +1324,9 @@ async function sendPresenceHeartbeat() {
       color: localPlayerColor,
       name: NarduApp.getUser()?.name || earlyRoomText('guest'),
     });
+    if (data.state && Number.isFinite(data.version)) {
+      window.NarduController?.receiveRemoteState?.(data.state, data.version);
+    }
     handlePresence(data.presence);
   } catch {
     showNetworkPanel({

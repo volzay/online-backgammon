@@ -592,6 +592,12 @@ window.NarduController = (function () {
     isApplyingRemote = false;
   }
 
+  function receiveRemoteState(nextState, version) {
+    if (!nextState || !Number.isFinite(version) || version <= remoteVersion) return false;
+    applyRemoteState(nextState, version);
+    return true;
+  }
+
   function historyMoveKey(item) {
     return `${item.at || ''}|${item.color || ''}|${item.from || ''}|${item.to || ''}|${item.die || ''}`;
   }
@@ -2515,5 +2521,5 @@ window.NarduController = (function () {
     undoLastMove();
   });
 
-  return { init, getState, render, setRenderer, onPointClick, publishRemoteState, prepareRoomReload, concedeRemoteGameByLobbyExit };
+  return { init, getState, render, setRenderer, onPointClick, publishRemoteState, receiveRemoteState, prepareRoomReload, concedeRemoteGameByLobbyExit };
 })();
