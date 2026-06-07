@@ -508,13 +508,120 @@ async function supabaseAccountProfile() {
     registered: true,
     guest: false,
   };
+  const social = await loadSupabaseSocial(client, profile.id);
 
   return {
     user,
     games: mergeGames([]),
     stats: { gamesPlayed: 0, wins: 0, losses: 0, mars: 0, koks: 0 },
-    friends: [],
-    friendRequests: { incoming: [], outgoing: [] },
+    friends: social.friends,
+    friendRequests: social.friendRequests,
+    supabaseMode: true,
+  };
+}
+
+async function supabaseAccountContext() {
+  const client = await supabaseAccountClient();
+  const { data: authData, error: authError } = await client.auth.getUser();
+  if (authError) throw new Error(authError.message);
+  const authUser = authData?.user;
+  if (!authUser?.id) throw new Error('Войдите в аккаунт заново.');
+  let { data: profile, error } = await client
+    .from('profiles')
+    .select('id,nickname,email,rating,tier,rating_eligible')
+    .eq('id', authUser.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!profile) profile = await createSupabaseAccountProfile(client, authUser);
+  return { client, authUser, profile };
+}
+
+function publicProfile(profile = {}) {
+  return {
+    id: profile.id,
+    name: profile.nickname,
+    nickname: profile.nickname,
+    email: profile.email || '',
+    rating: Number(profile.rating || 0),
+    tier: profile.tier || NarduApp.ratingTierFor(profile.rating || 1000),
+  };
+}
+
+async function profilesByIds(client, ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))];
+  if (!uniqueIds.length) return new Map();
+  const { data, error } = await client
+    .from('profiles')
+    .select('id,nickname,email,rating,tier')
+    .in('id', uniqueIds);
+  if (error) throw new Error(error.message);
+  return new Map((data || []).map(profile => [profile.id, publicProfile(profile)]));
+}
+
+function friendThreadId(a, b) {
+  return [String(a || ''), String(b || '')].sort().join(':');
+}
+
+async function unreadCountsByFriend(client, myId, friendIds) {
+  if (!friendIds.length) return new Map();
+  const { data, error } = await client
+    .from('friend_messages')
+    .select('from_user_id,read_at')
+    .eq('to_user_id', myId)
+    .in('from_user_id', friendIds);
+  if (error) throw new Error(error.message);
+  const counts = new Map();
+  (data || []).forEach(message => {
+    if (message.read_at) return;
+    counts.set(message.from_user_id, (counts.get(message.from_user_id) || 0) + 1);
+  });
+  return counts;
+}
+
+async function loadSupabaseSocial(client, myId) {
+  const { data: requests, error } = await client
+    .from('friend_requests')
+    .select('id,from_user_id,to_user_id,status,created_at,responded_at')
+    .or(`from_user_id.eq.${myId},to_user_id.eq.${myId}`)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const rows = requests || [];
+  const accepted = rows.filter(row => row.status === 'accepted');
+  const friendIds = accepted.map(row => row.from_user_id === myId ? row.to_user_id : row.from_user_id);
+  const profiles = await profilesByIds(client, [
+    ...friendIds,
+    ...rows.map(row => row.from_user_id),
+    ...rows.map(row => row.to_user_id),
+  ]);
+  const unread = await unreadCountsByFriend(client, myId, friendIds);
+  const friendMap = new Map();
+  accepted.forEach(row => {
+    const id = row.from_user_id === myId ? row.to_user_id : row.from_user_id;
+    const profile = profiles.get(id);
+    if (profile) friendMap.set(id, { ...profile, unread: unread.get(id) || 0 });
+  });
+
+  return {
+    friends: [...friendMap.values()].sort((a, b) => String(a.nickname).localeCompare(String(b.nickname), 'ru')),
+    friendRequests: {
+      incoming: rows
+        .filter(row => row.status === 'pending' && row.to_user_id === myId)
+        .map(row => ({ id: row.id, status: row.status, player: profiles.get(row.from_user_id) || {} })),
+      outgoing: rows
+        .filter(row => row.status === 'pending' && row.from_user_id === myId)
+        .map(row => ({ id: row.id, status: row.status, player: profiles.get(row.to_user_id) || {} })),
+    },
+  };
+}
+
+async function refreshSupabaseSocial(client, myId, extra = {}) {
+  const social = await loadSupabaseSocial(client, myId);
+  return {
+    ...(accountState.profile || fallbackProfile()),
+    ...extra,
+    friends: social.friends,
+    friendRequests: social.friendRequests,
     supabaseMode: true,
   };
 }
@@ -808,11 +915,44 @@ async function loadMessages(friendId, { silent = false } = {}) {
   document.getElementById('message-thread-head').textContent = friend.name || friend.nickname || 'Друг';
   toggleMessageForm(true);
   try {
-    const data = await accountApi(`/api/account/messages?${accountQuery()}&friendId=${encodeURIComponent(friendId)}`);
+    const data = supabaseAccountMode()
+      ? await loadSupabaseMessages(friendId)
+      : await accountApi(`/api/account/messages?${accountQuery()}&friendId=${encodeURIComponent(friendId)}`);
     renderMessages(data.messages || []);
   } catch (err) {
     if (!silent) flash(err.message || 'Не удалось загрузить сообщения');
   }
+}
+
+async function loadSupabaseMessages(friendId) {
+  const { client, profile } = await supabaseAccountContext();
+  const threadId = friendThreadId(profile.id, friendId);
+  const { data, error } = await client
+    .from('friend_messages')
+    .select('id,thread_id,from_user_id,to_user_id,text,read_at,created_at')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: true })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  const unreadIds = (data || [])
+    .filter(message => message.to_user_id === profile.id && !message.read_at)
+    .map(message => message.id);
+  if (unreadIds.length) {
+    await client
+      .from('friend_messages')
+      .update({ read_at: new Date().toISOString() })
+      .in('id', unreadIds);
+  }
+  return {
+    messages: (data || []).map(message => ({
+      id: message.id,
+      fromName: message.from_user_id === profile.id ? profile.nickname : (accountState.profile?.friends || []).find(friend => friend.id === message.from_user_id)?.nickname,
+      text: message.text,
+      at: message.created_at,
+      own: message.from_user_id === profile.id,
+      readAt: message.read_at,
+    })),
+  };
 }
 
 function renderMessages(messages) {
@@ -880,6 +1020,7 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error('Профиль Supabase не найден.');
+  const social = await loadSupabaseSocial(client, data.id);
   return {
     user: {
       id: data.id,
@@ -893,8 +1034,9 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
       guest: false,
     },
     games: mergeGames([]),
-    friends: [],
-    friendRequests: { incoming: [], outgoing: [] },
+    friends: social.friends,
+    friendRequests: social.friendRequests,
+    supabaseMode: true,
   };
 }
 
@@ -905,7 +1047,9 @@ async function searchFriends(query) {
     return;
   }
   try {
-    const data = await accountApi(`/api/account/players?${accountQuery()}&q=${encodeURIComponent(query.trim())}`);
+    const data = supabaseAccountMode()
+      ? await searchSupabaseFriends(query.trim())
+      : await accountApi(`/api/account/players?${accountQuery()}&q=${encodeURIComponent(query.trim())}`);
     box.innerHTML = (data.players || []).map(player => `
       <button type="button" ${player.relationship === 'friend' || player.relationship === 'outgoing' ? 'disabled' : `data-add-found-friend="${escapeHtml(player.nickname)}"`}>
         ${escapeHtml(player.nickname)} <span>${escapeHtml(player.rating || '—')} · ${player.relationship === 'friend' ? 'уже в друзьях' : (player.relationship === 'outgoing' ? 'заявка отправлена' : (player.relationship === 'incoming' ? 'принять заявку' : ''))}</span>
@@ -919,6 +1063,42 @@ async function searchFriends(query) {
   }
 }
 
+async function searchSupabaseFriends(query) {
+  const { client, profile } = await supabaseAccountContext();
+  const term = query.replace(/[%_]/g, '').trim();
+  if (term.length < 2) return { players: [] };
+  const { data: players, error } = await client
+    .from('profiles')
+    .select('id,nickname,email,rating,tier')
+    .or(`nickname.ilike.%${term}%,email.ilike.%${term}%`)
+    .neq('id', profile.id)
+    .limit(8);
+  if (error) throw new Error(error.message);
+  const { data: requests, error: requestError } = await client
+    .from('friend_requests')
+    .select('from_user_id,to_user_id,status')
+    .or(`from_user_id.eq.${profile.id},to_user_id.eq.${profile.id}`);
+  if (requestError) throw new Error(requestError.message);
+  const relationshipFor = playerId => {
+    const accepted = (requests || []).find(row => row.status === 'accepted' && (
+      (row.from_user_id === profile.id && row.to_user_id === playerId)
+      || (row.to_user_id === profile.id && row.from_user_id === playerId)
+    ));
+    if (accepted) return 'friend';
+    const outgoing = (requests || []).find(row => row.status === 'pending' && row.from_user_id === profile.id && row.to_user_id === playerId);
+    if (outgoing) return 'outgoing';
+    const incoming = (requests || []).find(row => row.status === 'pending' && row.to_user_id === profile.id && row.from_user_id === playerId);
+    if (incoming) return 'incoming';
+    return 'none';
+  };
+  return {
+    players: (players || []).map(player => ({
+      ...publicProfile(player),
+      relationship: relationshipFor(player.id),
+    })),
+  };
+}
+
 async function addFriend(rawValue) {
   if (!registeredUser()) {
     flash('Друзья доступны только зарегистрированным игрокам');
@@ -927,10 +1107,12 @@ async function addFriend(rawValue) {
   const friend = String(rawValue || document.getElementById('friend-query').value || '').trim();
   if (!friend) return;
   try {
-    const data = await accountApi('/api/account/friends', {
-      method: 'POST',
-      body: JSON.stringify({ userId: currentUser().id, friend }),
-    });
+    const data = supabaseAccountMode()
+      ? await addSupabaseFriend(friend)
+      : await accountApi('/api/account/friends', {
+        method: 'POST',
+        body: JSON.stringify({ userId: currentUser().id, friend }),
+      });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     accountState.selectedFriendId = accountState.profile.friends?.find(item => item.nickname === friend || item.name === friend)?.id || accountState.selectedFriendId;
     document.getElementById('friend-query').value = '';
@@ -942,13 +1124,54 @@ async function addFriend(rawValue) {
   }
 }
 
+async function addSupabaseFriend(friend) {
+  const { client, profile } = await supabaseAccountContext();
+  const query = String(friend || '').trim();
+  const { data: found, error } = await client
+    .from('profiles')
+    .select('id,nickname,email,rating,tier')
+    .or(`nickname.ilike.${query},email.ilike.${query}`)
+    .neq('id', profile.id)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!found) throw new Error('Игрок не найден.');
+
+  const { data: existing, error: existingError } = await client
+    .from('friend_requests')
+    .select('id,from_user_id,to_user_id,status')
+    .or(`and(from_user_id.eq.${profile.id},to_user_id.eq.${found.id}),and(from_user_id.eq.${found.id},to_user_id.eq.${profile.id})`)
+    .in('status', ['pending', 'accepted'])
+    .limit(1)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+
+  if (existing?.status === 'accepted') {
+    return refreshSupabaseSocial(client, profile.id, { message: 'Игрок уже у вас в друзьях.' });
+  }
+  if (existing?.status === 'pending' && existing.to_user_id === profile.id) {
+    return respondSupabaseFriendRequest(existing.id, 'accept');
+  }
+  if (existing?.status === 'pending') {
+    return refreshSupabaseSocial(client, profile.id, { message: 'Заявка уже отправлена.', requestStatus: 'pending' });
+  }
+
+  const { error: insertError } = await client
+    .from('friend_requests')
+    .insert({ from_user_id: profile.id, to_user_id: found.id, status: 'pending' });
+  if (insertError) throw new Error(insertError.message);
+  return refreshSupabaseSocial(client, profile.id, { message: 'Заявка отправлена.', requestStatus: 'pending' });
+}
+
 async function respondFriendRequest(requestId, action) {
   if (!registeredUser() || !requestId) return;
   try {
-    const data = await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}/${action}`, {
-      method: 'POST',
-      body: JSON.stringify({ userId: currentUser().id }),
-    });
+    const data = supabaseAccountMode()
+      ? await respondSupabaseFriendRequest(requestId, action)
+      : await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: currentUser().id }),
+      });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     renderAccount();
     flash(data.message || (action === 'accept' ? 'Заявка принята' : 'Заявка отклонена'));
@@ -957,12 +1180,28 @@ async function respondFriendRequest(requestId, action) {
   }
 }
 
+async function respondSupabaseFriendRequest(requestId, action) {
+  const { client, profile } = await supabaseAccountContext();
+  const status = action === 'accept' ? 'accepted' : 'declined';
+  const { error } = await client
+    .from('friend_requests')
+    .update({ status, responded_at: new Date().toISOString() })
+    .eq('id', requestId)
+    .or(`from_user_id.eq.${profile.id},to_user_id.eq.${profile.id}`);
+  if (error) throw new Error(error.message);
+  return refreshSupabaseSocial(client, profile.id, {
+    message: status === 'accepted' ? 'Заявка принята.' : 'Заявка отклонена.',
+  });
+}
+
 async function cancelFriendRequest(requestId) {
   if (!registeredUser() || !requestId) return;
   try {
-    const data = await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}?${accountQuery()}`, {
-      method: 'DELETE',
-    });
+    const data = supabaseAccountMode()
+      ? await cancelSupabaseFriendRequest(requestId)
+      : await accountApi(`/api/account/friend-requests/${encodeURIComponent(requestId)}?${accountQuery()}`, {
+        method: 'DELETE',
+      });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     renderAccount();
     flash(data.message || 'Заявка отменена');
@@ -971,12 +1210,25 @@ async function cancelFriendRequest(requestId) {
   }
 }
 
+async function cancelSupabaseFriendRequest(requestId) {
+  const { client, profile } = await supabaseAccountContext();
+  const { error } = await client
+    .from('friend_requests')
+    .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+    .eq('id', requestId)
+    .eq('from_user_id', profile.id);
+  if (error) throw new Error(error.message);
+  return refreshSupabaseSocial(client, profile.id, { message: 'Заявка отменена.' });
+}
+
 async function removeFriend(friendId, friendName = 'Друг') {
   if (!registeredUser() || !friendId) return;
   try {
-    const data = await accountApi(`/api/account/friends/${encodeURIComponent(friendId)}?${accountQuery()}`, {
-      method: 'DELETE',
-    });
+    const data = supabaseAccountMode()
+      ? await removeSupabaseFriend(friendId)
+      : await accountApi(`/api/account/friends/${encodeURIComponent(friendId)}?${accountQuery()}`, {
+        method: 'DELETE',
+      });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     if (accountState.selectedFriendId === friendId) accountState.selectedFriendId = null;
     renderAccount();
@@ -986,22 +1238,51 @@ async function removeFriend(friendId, friendName = 'Друг') {
   }
 }
 
+async function removeSupabaseFriend(friendId) {
+  const { client, profile } = await supabaseAccountContext();
+  const { error } = await client
+    .from('friend_requests')
+    .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+    .or(`and(from_user_id.eq.${profile.id},to_user_id.eq.${friendId}),and(from_user_id.eq.${friendId},to_user_id.eq.${profile.id})`)
+    .eq('status', 'accepted');
+  if (error) throw new Error(error.message);
+  return refreshSupabaseSocial(client, profile.id, { message: 'Друг убран.' });
+}
+
 async function sendFriendMessage() {
   const input = document.getElementById('friend-message-input');
   const text = input.value.trim();
   const friendId = accountState.selectedFriendId;
   if (!text || !friendId) return;
   try {
-    await accountApi('/api/account/messages', {
-      method: 'POST',
-      body: JSON.stringify({ userId: currentUser().id, friendId, text }),
-    });
+    if (supabaseAccountMode()) {
+      await sendSupabaseFriendMessage(friendId, text);
+    } else {
+      await accountApi('/api/account/messages', {
+        method: 'POST',
+        body: JSON.stringify({ userId: currentUser().id, friendId, text }),
+      });
+    }
     input.value = '';
     await loadMessages(friendId);
     await loadAccountProfile({ silent: true });
   } catch (err) {
     flash(err.message || 'Не удалось отправить сообщение');
   }
+}
+
+async function sendSupabaseFriendMessage(friendId, text) {
+  const { client, profile } = await supabaseAccountContext();
+  const threadId = friendThreadId(profile.id, friendId);
+  const { error } = await client
+    .from('friend_messages')
+    .insert({
+      thread_id: threadId,
+      from_user_id: profile.id,
+      to_user_id: friendId,
+      text: String(text || '').trim().slice(0, 1200),
+    });
+  if (error) throw new Error(error.message);
 }
 
 function downloadHistory() {
