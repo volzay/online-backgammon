@@ -1996,6 +1996,41 @@ window.NarduController = (function () {
       return;
     }
 
+    if (options.movingChecker) {
+      animateMove(from, finalTo, () => {
+        let currentFrom = from;
+        let appliedAll = true;
+
+        for (const move of sequence) {
+          if (state.phase !== 'move' || state.winner) {
+            appliedAll = false;
+            break;
+          }
+          pushUndoSnapshot();
+          const applied = NarduGame.applyMove(state, currentFrom, move.die, { autoEnd: false });
+          if (!applied) {
+            undoStack.pop();
+            appliedAll = false;
+            break;
+          }
+          currentFrom = move.bearOff ? 0 : move.to;
+        }
+
+        if (appliedAll) {
+          publishRemoteState();
+          playMoveSound(finalMove);
+        }
+        render();
+        isChainingMove = false;
+        if (!appliedAll || state.winner) {
+          if (state.winner) onGameOver();
+          return;
+        }
+        afterUserSequence();
+      }, { movingChecker: options.movingChecker });
+      return;
+    }
+
     let index = 0;
     let currentFrom = from;
 
