@@ -614,6 +614,74 @@ window.NarduGame = (function () {
     }, 0);
   }
 
+  function longHeadBridgeScore(state, color) {
+    const head = headPoint(color, state);
+    const headCheckers = pointCount(state, head);
+    if (headCheckers <= 2) return 0;
+    return pathFor(color, state).slice(1, 7).reduce((score, point, index) => {
+      const data = state.points[point];
+      if (data?.color !== color) return score;
+      const weight = 7 - index;
+      const made = data.count >= 2;
+      const stackPenalty = Math.max(0, data.count - 3) * 0.7;
+      return score + weight * (made ? 12 : 5) - stackPenalty;
+    }, 0);
+  }
+
+  function opponentLongFenceThreat(state, color) {
+    const opponent = opponentOf(color);
+    const path = pathFor(color, state);
+    let run = 0;
+    let threat = 0;
+    path.forEach((point, index) => {
+      if (state.points[point]?.color === opponent) {
+        run += 1;
+        if (run >= 3) {
+          const behind = path.slice(0, Math.max(0, index - run + 1))
+            .reduce((total, p) => total + (state.points[p]?.color === color ? state.points[p].count : 0), 0);
+          const zone = index < 12 ? 1.35 : index < 18 ? 1 : 0.65;
+          threat += run * run * Math.max(1, behind) * zone;
+        }
+      } else {
+        run = 0;
+      }
+    });
+    return threat;
+  }
+
+  function longHeadEscapeOptions(state, color) {
+    const head = headPoint(color, state);
+    if (pointCount(state, head) <= 0) return 0;
+    let options = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const to = moveTo(color, head, die, state);
+      if (to && pointOpenFor(state, color, to)) options += state.points[to]?.color === color ? 2 : 1;
+    }
+    return options;
+  }
+
+  function longHeadLandingCoverageScore(state, color) {
+    const head = headPoint(color, state);
+    const headCheckers = pointCount(state, head);
+    if (headCheckers <= 2) return 0;
+    let score = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const to = moveTo(color, head, die, state);
+      if (!to) continue;
+      const data = state.points[to];
+      const open = pointOpenFor(state, color, to);
+      const weight = die >= 4 ? 18 : 10;
+      if (data?.color === color) {
+        score += weight * (data.count >= 2 ? 2.4 : 1.25);
+      } else if (open) {
+        score += weight * 0.35;
+      } else {
+        score -= weight * 1.8;
+      }
+    }
+    return score;
+  }
+
   function shortMadePointCount(state, color, rangeStart = 0, rangeEnd = 23) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color || data.count < 2) return total;
@@ -903,6 +971,10 @@ window.NarduGame = (function () {
     const startBefore = startZoneCount(state, color);
     const marsRiskBefore = marsRiskScore(state, color);
     const koksRiskBefore = koksRiskScore(state, color);
+    const bridgeBefore = longHeadBridgeScore(state, color);
+    const fenceBefore = opponentLongFenceThreat(state, color);
+    const escapeOptionsBefore = longHeadEscapeOptions(state, color);
+    const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
     let score = 0;
     sequence.forEach(move => {
       const target = move.bearOff ? null : next.points[move.to];
@@ -945,21 +1017,39 @@ window.NarduGame = (function () {
     const headUrgency = Math.max(0, headBefore - 3);
     const startUrgency = Math.max(0, startBefore - 5);
     const gammonUrgency = Math.max(marsRiskBefore * 0.08, koksRiskBefore * 0.055, koksUrgency * 0.12);
+    const bridgeAfter = longHeadBridgeScore(next, color);
+    const fenceAfter = opponentLongFenceThreat(next, color);
+    const escapeOptionsAfter = longHeadEscapeOptions(next, color);
+    const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
 
     score += outsideReduction * 780;
     score += outsidePipsGain * 42;
-    score += features.enterHomeMoves * (headBefore > 7 ? 420 : 980);
+    score += features.enterHomeMoves * (headBefore > 7 ? 80 : (headBefore > 4 ? 260 : 980));
     score += features.outsideMovePips * 58;
     score += madeOutsideGain * 145;
     score += features.coveredHeadLandings * (headBefore > 7 ? 920 : 260);
     score -= features.emptyHeadLandings * (headBefore > 7 ? 380 : 90);
     score += features.headMoves * (900 + headUrgency * 420 + startUrgency * 260 + gammonUrgency * 140);
     score += headReduction * (headBefore > 8 ? 1450 : 420);
+    score += (bridgeAfter - bridgeBefore) * (headBefore > 5 ? 1350 : 260);
+    score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
+    score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
+    if (headBefore > 5) {
+      score += bridgeAfter * 95;
+      score += escapeOptionsAfter * 180;
+      score += landingCoverageAfter * 42;
+    }
+    score -= Math.max(0, 4 - escapeOptionsAfter) * Math.max(0, headBefore - 4) * 420;
+    score -= Math.max(0, fenceAfter - fenceBefore) * (headBefore > 4 ? 240 : 90);
+    score -= fenceAfter * Math.max(0, headBefore - 5) * 18;
     if (canPlayHead && features.headMoves === 0 && headBefore > 3) {
       score -= 5200 + headUrgency * 1350 + startUrgency * 720 + gammonUrgency * 520;
     }
     if (features.headMoves === 0 && headBefore > 6) {
-      score -= features.enterHomeMoves * Math.max(0, headBefore - 6) * 520;
+      score -= features.enterHomeMoves * Math.max(0, headBefore - 6) * 980;
+    }
+    if (headBefore > 5 && bridgeAfter <= bridgeBefore) {
+      score -= features.enterHomeMoves * Math.max(1, headBefore - 5) * 720;
     }
     score += startReduction * (koksUrgency > 0 ? 220 + koksUrgency * 68 : 55);
     if (outsideAfter > 0) {
