@@ -81,6 +81,24 @@
     return Number.isFinite(rating) && rating > 0 ? rating : 1000;
   }
 
+  function localRoomProfile(authProfile = {}) {
+    const user = window.NarduApp?.getUser?.() || {};
+    if (user.guest) {
+      return {
+        name: String(user.name || user.nickname || "Guest").slice(0, 32),
+        rating: null,
+        registered: false,
+        ratingEligible: false,
+      };
+    }
+    return {
+      name: String(user.name || user.nickname || authProfile.name || "Игрок").slice(0, 32),
+      rating: normalizeRating(user.rating ?? authProfile.rating),
+      registered: true,
+      ratingEligible: user.ratingEligible !== false,
+    };
+  }
+
   function publicRoom(row, extras = {}) {
     if (!row) return null;
     const hostRating = row.host_registered ? normalizeRating(row.host_rating) : null;
@@ -229,6 +247,7 @@
     }
 
     const { client, authUser, profile } = await currentAuthContext();
+    const roomProfile = localRoomProfile(profile);
     const activeRoom = await findActiveRoomFor(client, authUser.id);
     if (activeRoom) {
       throw roomError(
@@ -251,9 +270,9 @@
       password_hash: passwordHash,
       status: "waiting",
       host_user_id: authUser.id,
-      host_name: profile.name,
-      host_rating: profile.rating,
-      host_registered: true,
+      host_name: roomProfile.name,
+      host_rating: roomProfile.registered ? roomProfile.rating : null,
+      host_registered: roomProfile.registered,
       presence: { white: null, dark: null },
       left_players: {},
     };
@@ -292,6 +311,7 @@
     }
 
     const { client, authUser, profile } = await currentAuthContext();
+    const roomProfile = localRoomProfile(profile);
     const room = await getRoomRow(normalizedCode, { includePassword: true });
     if (!room) throw roomError("Комната с таким кодом не найдена.", 404);
 
@@ -311,9 +331,9 @@
       .update({
         status: "joined",
         guest_user_id: authUser.id,
-        guest_name: profile.name,
-        guest_rating: profile.rating,
-        guest_registered: true,
+        guest_name: roomProfile.name,
+        guest_rating: roomProfile.registered ? roomProfile.rating : null,
+        guest_registered: roomProfile.registered,
         joined_at: joinedAt,
         presence: { white: null, dark: null },
         left_players: {},
