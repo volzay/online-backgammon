@@ -76,10 +76,15 @@
     return window.NarduApp?.ratingTierFor?.(rating) || "Bronze";
   }
 
+  function normalizeRating(value) {
+    const rating = Math.round(Number(value));
+    return Number.isFinite(rating) && rating > 0 ? rating : 1000;
+  }
+
   function publicRoom(row, extras = {}) {
     if (!row) return null;
-    const hostRating = row.host_registered ? Number(row.host_rating || 1000) : null;
-    const guestRating = row.guest_registered ? Number(row.guest_rating || 1000) : null;
+    const hostRating = row.host_registered ? normalizeRating(row.host_rating) : null;
+    const guestRating = row.guest_registered ? normalizeRating(row.guest_rating) : null;
     const room = {
       id: row.id,
       code: normalizeCode(row.code),
@@ -123,14 +128,14 @@
     const localUser = window.NarduApp?.getUser?.() || {};
     const metadata = authUser.user_metadata || {};
     const nickname = profile?.nickname || await createMissingProfile(client, authUser, localUser, metadata);
-    const rating = Number(profile?.rating ?? localUser.rating ?? 1000);
+    const rating = normalizeRating(profile?.rating ?? localUser.rating);
     return {
       client,
       authUser,
       profile: {
         id: authUser.id,
         name: nickname,
-        rating: Number.isFinite(rating) ? Math.round(rating) : 1000,
+        rating,
         registered: true,
         ratingEligible: profile?.rating_eligible !== false,
       },
@@ -142,8 +147,8 @@
       .trim()
       .slice(0, 20) || "Player";
     const email = authUser.email || localUser.email || "";
-    const rating = Number(localUser.rating || 1000);
-    const tier = ratingTierFor(Number.isFinite(rating) ? rating : 1000);
+    const rating = normalizeRating(localUser.rating);
+    const tier = ratingTierFor(rating);
     let lastError = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const nickname = attempt === 0
@@ -155,7 +160,7 @@
           id: authUser.id,
           nickname,
           email,
-          rating: Number.isFinite(rating) ? Math.round(rating) : 1000,
+          rating,
           tier,
           rating_eligible: true,
           last_seen_at: new Date().toISOString(),

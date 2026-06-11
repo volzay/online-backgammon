@@ -1,14 +1,15 @@
 (function () {
   function normalizeProfile(profile = {}, authUser = {}) {
     const metadata = authUser.user_metadata || {};
-    const rating = Number(profile.rating ?? metadata.rating ?? 1000);
+    const rawRating = Math.round(Number(profile.rating ?? metadata.rating ?? 1000));
+    const rating = Number.isFinite(rawRating) && rawRating > 0 ? rawRating : 1000;
     const nickname = profile.nickname || metadata.nickname || metadata.name || authUser.email?.split("@")[0] || "Player";
     return {
       id: profile.id || authUser.id || "",
       name: nickname,
       nickname,
       email: profile.email || authUser.email || "",
-      rating: Number.isFinite(rating) ? rating : 1000,
+      rating,
       tier: profile.tier || NarduApp.ratingTierFor(rating),
       ratingEligible: profile.rating_eligible !== false,
       registered: true,
