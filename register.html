@@ -58,29 +58,6 @@
           <span class="field-lbl" data-i18n="nickname">Никнейм</span>
           <input type="text" name="nickname" id="reg-nick" minlength="3" maxlength="20" autocomplete="username" required />
         </label>
-        <label class="field">
-          <span class="field-lbl" data-i18n="email">Email</span>
-          <input type="email" name="email" id="reg-email" autocomplete="email" required />
-        </label>
-        <label class="field">
-          <span class="field-lbl" data-i18n="password">Пароль</span>
-          <div class="password-field">
-            <input type="password" name="password" id="reg-pass" minlength="6" autocomplete="new-password" required />
-            <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
-              <span class="password-toggle-eye" aria-hidden="true"></span>
-            </button>
-          </div>
-        </label>
-        <label class="field">
-          <span class="field-lbl" data-i18n="password_confirm">Подтвердите пароль</span>
-          <div class="password-field">
-            <input type="password" name="password2" id="reg-pass2" minlength="6" autocomplete="new-password" required />
-            <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
-              <span class="password-toggle-eye" aria-hidden="true"></span>
-            </button>
-          </div>
-        </label>
-
         <label class="checkbox" style="margin: 6px 0 2px;">
           <input type="checkbox" id="reg-tos" required />
           <span class="cbox"></span>
@@ -138,16 +115,9 @@
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nick = document.getElementById('reg-nick').value.trim();
-    const pass = document.getElementById('reg-pass').value;
-    const pass2 = document.getElementById('reg-pass2').value;
-    const email = document.getElementById('reg-email').value.trim();
-    if (pass !== pass2) {
-      setRegisterMessage(NarduApp.t('err_passwords_mismatch'), 'error');
-      return;
-    }
     setRegisterMessage('');
     try {
-      const data = await NarduAuth.register({ nickname: nick, email, password: pass });
+      const data = await NarduAuth.register({ nickname: nick });
       if (data.pendingConfirmation) {
         setRegisterMessage(NarduApp.t('msg_confirm_email'), 'success');
         return;

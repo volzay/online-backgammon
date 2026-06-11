@@ -276,7 +276,7 @@
       err_passwords_mismatch: 'Пароли не совпадают.',
       msg_recovery_code_sent: 'Код восстановления отправлен.',
       msg_password_changed: 'Пароль изменён. Войдите с новым паролем.',
-      msg_account_created: 'Аккаунт создан. Информационное письмо отправлено на email.',
+      msg_account_created: 'Аккаунт создан.',
       msg_confirm_email: 'Аккаунт создан. Проверьте email и подтвердите регистрацию.',
     },
     en: {
@@ -487,7 +487,7 @@
       err_passwords_mismatch: 'Passwords do not match.',
       msg_recovery_code_sent: 'Recovery code sent.',
       msg_password_changed: 'Password changed. Sign in with the new password.',
-      msg_account_created: 'Account created. An informational email has been sent.',
+      msg_account_created: 'Account created.',
       msg_confirm_email: 'Account created. Check your email and confirm registration.',
     },
   };
