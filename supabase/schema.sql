@@ -396,7 +396,7 @@ begin
     'authenticated',
     'authenticated',
     synthetic_email,
-    crypt(clean_password, gen_salt('bf')),
+    extensions.crypt(clean_password, extensions.gen_salt('bf')),
     now_ts,
     '{"provider":"email","providers":["email"]}'::jsonb,
     jsonb_build_object('nickname', clean_nickname, 'name', clean_nickname),
@@ -419,7 +419,7 @@ begin
     updated_at
   )
   values (
-    new_user_id::text,
+    new_user_id,
     new_user_id,
     jsonb_build_object('sub', new_user_id::text, 'email', synthetic_email, 'email_verified', true, 'phone_verified', false),
     'email',
@@ -494,3 +494,5 @@ begin
   exception when duplicate_object then null;
   end;
 end $$;
+
+notify pgrst, 'reload schema';
