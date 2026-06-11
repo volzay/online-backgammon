@@ -571,6 +571,14 @@ window.NarduGame = (function () {
     return checkersInTrackRange(state, color, 0, 5);
   }
 
+  function madePointCountInTrackRange(state, color, start, end) {
+    return Object.entries(state.points).reduce((total, [point, data]) => {
+      if (data.color !== color || data.count < 2) return total;
+      const pos = pathPos(color, Number(point), state);
+      return total + (pos >= start && pos <= end ? 1 : 0);
+    }, 0);
+  }
+
   function outsideHomeCount(state, color) {
     return checkersInTrackRange(state, color, 0, 17);
   }
@@ -752,6 +760,47 @@ window.NarduGame = (function () {
     return pressure;
   }
 
+  function longSequenceFeatures(state, color, sequence) {
+    const preview = cloneState(state);
+    const head = headPoint(color, state);
+    let headMoves = 0;
+    let emptyHeadLandings = 0;
+    let coveredHeadLandings = 0;
+    let enterHomeMoves = 0;
+    let outsideMovePips = 0;
+    let homeInternalMoves = 0;
+
+    sequence.forEach(move => {
+      const fromHead = move.from === head;
+      const target = move.bearOff ? null : preview.points[move.to];
+      const fromPos = isBarPointFor(color, move.from) ? -1 : pathPos(color, move.from, preview);
+      const toPos = move.bearOff ? 24 : pathPos(color, move.to, preview);
+
+      if (fromHead) {
+        headMoves += 1;
+        if (!move.bearOff && !target) emptyHeadLandings += 1;
+        if (!move.bearOff && target?.color === color && target.count === 1) coveredHeadLandings += 1;
+      }
+      if (fromPos >= 0 && fromPos < 18) {
+        outsideMovePips += Math.max(0, Math.min(18, toPos) - fromPos);
+        if (toPos >= 18) enterHomeMoves += 1;
+      }
+      if (fromPos >= 18 && toPos >= 18 && !move.bearOff) {
+        homeInternalMoves += 1 + Math.max(0, toPos - fromPos) / 6;
+      }
+      commitMove(preview, color, move);
+    });
+
+    return {
+      headMoves,
+      emptyHeadLandings,
+      coveredHeadLandings,
+      enterHomeMoves,
+      outsideMovePips,
+      homeInternalMoves,
+    };
+  }
+
   function hardKoksEmergencyActive(state, color) {
     return (state.off[color] || 0) === 0
       && finishPressureScore(state, opponentOf(color)) >= 135;
@@ -842,17 +891,24 @@ window.NarduGame = (function () {
 
     const next = cloneState(state);
     const opponent = opponentOf(color);
+    const headBefore = pointCount(state, headPoint(color, state));
+    const outsideBefore = outsideHomeCount(state, color);
+    const outsidePipsBefore = outsideHomePips(state, color);
+    const madeOutsideBefore = madePointCountInTrackRange(state, color, 0, 17);
+    const startBefore = startZoneCount(state, color);
+    const marsRiskBefore = marsRiskScore(state, color);
+    const koksRiskBefore = koksRiskScore(state, color);
     let score = 0;
     sequence.forEach(move => {
       const target = move.bearOff ? null : next.points[move.to];
-      const fromPos = pathPos(color, move.from, state);
-      const toPos = move.bearOff ? 24 : pathPos(color, move.to, state);
+      const fromPos = pathPos(color, move.from, next);
+      const toPos = move.bearOff ? 24 : pathPos(color, move.to, next);
       const headBefore = pointCount(next, headPoint(color, state));
 
       if (move.bearOff) score += 190 + move.die * 3;
       else {
-        if (!target) score += 13;
-        else if (target.color === color) score += target.count <= 1 ? 3 : -Math.min(18, (target.count - 1) * 5);
+        if (!target) score += move.from === headPoint(color, state) && headBefore > 6 ? -18 : 10;
+        else if (target.color === color) score += target.count <= 1 ? 92 : -Math.min(22, (target.count - 1) * 5);
         if (move.from === headPoint(color, state)) score += 18 + Math.min(36, headBefore * 2);
         else if (fromPos >= 0 && fromPos <= 5) score += 14;
         if (toPos >= 18) score += 16;
@@ -869,6 +925,35 @@ window.NarduGame = (function () {
     score -= (botStackPenalty(next, color) - botStackPenalty(state, color)) * 1.15;
     score += (startZoneCount(state, color) - startZoneCount(next, color)) * 14;
     score -= startZoneCount(next, color) * 2.2;
+    const features = longSequenceFeatures(state, color, sequence);
+    const outsideAfter = outsideHomeCount(next, color);
+    const outsideReduction = outsideBefore - outsideAfter;
+    const outsidePipsGain = outsidePipsBefore - outsideHomePips(next, color);
+    const madeOutsideGain = madePointCountInTrackRange(next, color, 0, 17) - madeOutsideBefore;
+    const startReduction = startBefore - startZoneCount(next, color);
+    const headReduction = headBefore - pointCount(next, headPoint(color, state));
+    const finishPressure = finishPressureScore(state, opponent);
+    const koksUrgency = (state.off[color] || 0) === 0 && startBefore > 0
+      ? Math.max(0, finishPressure - 95)
+      : 0;
+
+    score += outsideReduction * 780;
+    score += outsidePipsGain * 42;
+    score += features.enterHomeMoves * 980;
+    score += features.outsideMovePips * 58;
+    score += madeOutsideGain * 145;
+    score += features.coveredHeadLandings * (headBefore > 7 ? 260 : 135);
+    score -= features.emptyHeadLandings * (headBefore > 7 ? 96 : 38);
+    score += headReduction * (headBefore > 8 ? 180 : 70);
+    score += startReduction * (koksUrgency > 0 ? 220 + koksUrgency * 68 : 55);
+    if (outsideAfter > 0) {
+      const homeShufflePenalty = marsRiskBefore > 0 || koksRiskBefore > 0 ? 15500 : 2600;
+      score -= features.homeInternalMoves * homeShufflePenalty;
+      score -= outsideHomePips(next, color) * (marsRiskBefore > 0 ? 560 : 24);
+    }
+    if (outsideBefore > 0 && outsideReduction <= 0 && features.homeInternalMoves > 0) {
+      score -= 8500 + features.homeInternalMoves * 3800;
+    }
     score += hardMarsEmergencyScore(state, next, color);
     score += hardKoksEmergencyScore(state, next, color);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
