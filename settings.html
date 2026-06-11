@@ -240,9 +240,14 @@
         <div class="s-row">
           <div>
             <div class="s-lbl" data-i18n="password">Пароль</div>
-            <div class="s-hint" data-i18n="last_password_change">Последняя смена 14 дней назад</div>
+            <div class="s-hint" data-i18n="password_change_hint">Для смены пароля укажите текущий пароль</div>
           </div>
-          <button class="ghostbtn" data-i18n="change_password">Сменить пароль</button>
+          <div class="s-control password-control">
+            <input type="password" id="acc-current-password" class="text-input" autocomplete="current-password" data-i18n-placeholder="current_password" placeholder="Текущий пароль" />
+            <input type="password" id="acc-new-password" class="text-input" autocomplete="new-password" data-i18n-placeholder="new_password" placeholder="Новый пароль" />
+            <input type="password" id="acc-repeat-password" class="text-input" autocomplete="new-password" data-i18n-placeholder="repeat_password" placeholder="Повторите пароль" />
+            <button class="ghostbtn" id="save-password" type="button" data-i18n="save_password">Сохранить пароль</button>
+          </div>
         </div>
 
         <div class="s-row danger">
@@ -1064,6 +1069,66 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
   };
 }
 
+function clearPasswordFields() {
+  ['acc-current-password', 'acc-new-password', 'acc-repeat-password'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+}
+
+async function changeAccountPassword() {
+  const currentPassword = document.getElementById('acc-current-password')?.value || '';
+  const newPassword = document.getElementById('acc-new-password')?.value || '';
+  const repeatPassword = document.getElementById('acc-repeat-password')?.value || '';
+  if (!registeredUser()) {
+    flash('Смена пароля доступна после входа в зарегистрированный аккаунт');
+    return;
+  }
+  if (!supabaseAccountMode()) {
+    flash('Смена пароля на публичном сайте доступна для Supabase-аккаунта');
+    return;
+  }
+  if (!currentPassword || !newPassword || !repeatPassword) {
+    flash('Заполните текущий пароль, новый пароль и повтор');
+    return;
+  }
+  if (newPassword.length < 6) {
+    flash('Новый пароль должен быть не короче 6 символов');
+    return;
+  }
+  if (newPassword !== repeatPassword) {
+    flash('Новый пароль и повтор не совпадают');
+    return;
+  }
+  if (newPassword === currentPassword) {
+    flash('Новый пароль должен отличаться от текущего');
+    return;
+  }
+
+  const button = document.getElementById('save-password');
+  if (button) button.disabled = true;
+  try {
+    const client = await supabaseAccountClient();
+    const { data: authData, error: authError } = await client.auth.getUser();
+    if (authError) throw new Error(authError.message);
+    const email = authData?.user?.email || currentUser().email || '';
+    if (!email) throw new Error('Email аккаунта не найден.');
+
+    const { error: signInError } = await client.auth.signInWithPassword({ email, password: currentPassword });
+    if (signInError) throw new Error('Текущий пароль указан неверно.');
+
+    const { error: updateError } = await client.auth.updateUser({ password: newPassword });
+    if (updateError) throw new Error(updateError.message || 'Не удалось изменить пароль.');
+
+    clearPasswordFields();
+    flash('Пароль изменён');
+  } catch (err) {
+    flash(err.message || 'Не удалось изменить пароль');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function searchFriends(query) {
   const box = document.getElementById('friend-search-results');
   if (!registeredUser() || query.trim().length < 2) {
@@ -1321,6 +1386,7 @@ function downloadHistory() {
 }
 
 document.getElementById('save-nick').addEventListener('click', saveAccountProfile);
+document.getElementById('save-password').addEventListener('click', changeAccountPassword);
 document.getElementById('refresh-account').addEventListener('click', () => loadAccountProfile());
 document.getElementById('friend-add-form').addEventListener('submit', (event) => {
   event.preventDefault();
