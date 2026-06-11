@@ -152,14 +152,6 @@
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="move_confirm">Подтверждение хода</div>
-            <div class="s-hint" data-i18n="move_confirm_hint">Запрос «применить» перед окончанием</div>
-          </div>
-          <label class="switch"><input type="checkbox"><span class="sw"></span></label>
-        </div>
-
-        <div class="s-row">
-          <div>
             <div class="s-lbl" data-i18n="animation_speed">Скорость анимации</div>
             <div class="s-hint" data-i18n="animation_speed_hint">Чем меньше — тем быстрее</div>
           </div>
@@ -339,7 +331,7 @@
             <div class="s-lbl" data-i18n="show_rating">Показывать рейтинг другим</div>
             <div class="s-hint" data-i18n="show_rating_hint">В лобби и в комнате</div>
           </div>
-          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="show-rating-toggle" checked><span class="sw"></span></label>
         </div>
 
         <div class="s-row">
@@ -1446,12 +1438,14 @@ document.querySelector('[data-i18n="download_json"]')?.addEventListener('click',
 const SETTINGS_KEYS = {
   animationSpeed: 'narduh-animation-speed',
   moveHints: 'narduh-move-hints',
+  showRating: 'narduh-show-rating',
   sound: 'narduh-sound',
   volume: 'narduh-vol',
 };
 
 const animationSpeedSlider = document.getElementById('animation-speed-slider');
 const moveHintsToggle = document.getElementById('move-hints-toggle');
+const showRatingToggle = document.getElementById('show-rating-toggle');
 const soundSettingsToggle = document.getElementById('sound-settings-toggle');
 const volumeSlider = document.getElementById('vol-slider');
 const volumeLabel = document.getElementById('vol-val');
@@ -1466,6 +1460,7 @@ function paintGameSettings() {
   const volume = numberSetting(SETTINGS_KEYS.volume, 70);
   animationSpeedSlider.value = String(animationSpeed);
   moveHintsToggle.checked = localStorage.getItem(SETTINGS_KEYS.moveHints) !== '0';
+  showRatingToggle.checked = localStorage.getItem(SETTINGS_KEYS.showRating) !== '0';
   soundSettingsToggle.checked = localStorage.getItem(SETTINGS_KEYS.sound) !== '0';
   volumeSlider.value = String(volume);
   volumeLabel.textContent = `${volume}%`;
@@ -1477,6 +1472,11 @@ animationSpeedSlider.addEventListener('input', () => {
 
 moveHintsToggle.addEventListener('change', () => {
   localStorage.setItem(SETTINGS_KEYS.moveHints, moveHintsToggle.checked ? '1' : '0');
+});
+
+showRatingToggle.addEventListener('change', () => {
+  localStorage.setItem(SETTINGS_KEYS.showRating, showRatingToggle.checked ? '1' : '0');
+  window.NarduApp?.paintUser?.();
 });
 
 soundSettingsToggle.addEventListener('change', () => {

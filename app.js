@@ -4,6 +4,7 @@
   const LANG_KEY = 'narduh-lang';
   const USER_KEY = 'narduh-user';
   const SOUND_KEY = 'narduh-sound';
+  const SHOW_RATING_KEY = 'narduh-show-rating';
   const ACCENT_KEY = 'narduh-accent';
   const BOARD_STYLE_KEY = 'narduh-board-style';
   const DEFAULT_RATING = 1000;
@@ -584,6 +585,12 @@
   function formatRating(user = getUser()) {
     return isRatedUser(user) ? String(user.rating ?? DEFAULT_RATING) : '—';
   }
+  function shouldShowRatingToOthers() {
+    return localStorage.getItem(SHOW_RATING_KEY) !== '0';
+  }
+  function publicRating(user = getUser()) {
+    return shouldShowRatingToOthers() && isRatedUser(user) ? Number(user.rating ?? DEFAULT_RATING) : null;
+  }
   function setUser(u) {
     assignProfileRating(u);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
@@ -696,6 +703,7 @@
     applyLang, currentLang, dicts,
     getUser, setUser, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
+    shouldShowRatingToOthers, publicRating,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
   };

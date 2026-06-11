@@ -77,8 +77,9 @@
   }
 
   function normalizeRating(value) {
+    if (value === null || value === undefined || value === "") return null;
     const rating = Math.round(Number(value));
-    return Number.isFinite(rating) && rating > 0 ? rating : 1000;
+    return Number.isFinite(rating) && rating > 0 ? rating : null;
   }
 
   function localRoomProfile(authProfile = {}) {
@@ -91,9 +92,11 @@
         ratingEligible: false,
       };
     }
+    const showRating = window.NarduApp?.shouldShowRatingToOthers?.() !== false;
+    const rating = normalizeRating(user.rating ?? authProfile.rating);
     return {
       name: String(user.name || user.nickname || authProfile.name || "Игрок").slice(0, 32),
-      rating: normalizeRating(user.rating ?? authProfile.rating),
+      rating: showRating ? rating : null,
       registered: true,
       ratingEligible: user.ratingEligible !== false,
     };
@@ -108,12 +111,12 @@
       code: normalizeCode(row.code),
       hostName: row.host_name || row.hostName || "",
       hostRating,
-      hostTier: row.host_registered ? ratingTierFor(hostRating) : "",
+      hostTier: row.host_registered && hostRating ? ratingTierFor(hostRating) : "",
       hostRegistered: Boolean(row.host_registered),
       hostRatingEligible: Boolean(row.host_registered),
       guestName: row.guest_name || row.guestName || "",
       guestRating,
-      guestTier: row.guest_registered ? ratingTierFor(guestRating) : "",
+      guestTier: row.guest_registered && guestRating ? ratingTierFor(guestRating) : "",
       guestRegistered: Boolean(row.guest_registered),
       guestRatingEligible: Boolean(row.guest_registered),
       opponent: "player",

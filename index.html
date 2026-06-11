@@ -358,6 +358,7 @@
 
   function userRating() {
     const user = NarduApp.getUser();
+    if (NarduApp.shouldShowRatingToOthers?.() === false) return null;
     return NarduApp.isRatedUser(user) ? Number(user.rating || 1000) : null;
   }
 
