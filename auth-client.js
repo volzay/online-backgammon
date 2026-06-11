@@ -41,9 +41,6 @@
     if (/duplicate key|profiles_nickname|nickname/i.test(message)) {
       return "Такой никнейм уже занят.";
     }
-    if (/anonymous|anon/i.test(message)) {
-      return "Регистрация по никнейму временно недоступна в Supabase. Включите Anonymous sign-ins в настройках Auth.";
-    }
     if (/invalid email/i.test(message)) return "Введите корректный email.";
     return message || NarduApp.t(fallbackKey);
   }
@@ -85,9 +82,15 @@
   async function signInSupabase({ identifier, password }) {
     if (!window.NarduSupabase?.configured?.()) return null;
     const supabase = await window.NarduSupabase.client();
-    const email = String(identifier || "").trim();
+    let email = String(identifier || "").trim();
     if (!email.includes("@")) {
-      throw new Error("Для входа через Supabase используйте email. Вход по никнейму будет включен после переноса профилей.");
+      const { data: nicknameEmail, error: nicknameError } = await supabase
+        .rpc("nickname_auth_email", { p_identifier: email });
+      if (nicknameError) {
+        throw new Error("Вход по никнейму ещё не включён в Supabase. Выполните обновлённый supabase/schema.sql.");
+      }
+      if (!nicknameEmail) throw new Error("Неверный никнейм/email или пароль.");
+      email = nicknameEmail;
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(authErrorMessage(error));
@@ -100,27 +103,23 @@
     const supabase = await window.NarduSupabase.client();
     const nicknameOnly = !String(email || "").trim();
     if (nicknameOnly) {
-      const { data, error } = await supabase.auth.signInAnonymously({
-        options: { data: { nickname, name: nickname } },
+      const { data: created, error: createError } = await supabase
+        .rpc("register_nickname_user", { p_nickname: nickname, p_password: password });
+      if (createError) {
+        if (/function .*register_nickname_user|Could not find the function/i.test(createError.message || "")) {
+          throw new Error("Регистрация по никнейму ещё не включена в Supabase. Выполните обновлённый supabase/schema.sql.");
+        }
+        throw new Error(authErrorMessage(createError, "err_register"));
+      }
+      const profile = Array.isArray(created) ? created[0] : created;
+      if (!profile?.auth_email) throw new Error(NarduApp.t("err_register"));
+      const { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: profile.auth_email,
+        password,
       });
-      if (error) throw new Error(authErrorMessage(error, "err_register"));
-      if (!data.user) throw new Error(NarduApp.t("err_register"));
-      const profile = {
-        id: data.user.id,
-        nickname,
-        email: "",
-        rating: 1000,
-        tier: "Bronze",
-        rating_eligible: true,
-        last_seen_at: new Date().toISOString(),
-      };
-      const { data: savedProfile, error: profileError } = await supabase
-        .from("profiles")
-        .upsert(profile, { onConflict: "id" })
-        .select("id,nickname,email,rating,tier,rating_eligible")
-        .single();
-      if (profileError) throw new Error(authErrorMessage(profileError, "err_register"));
-      return { user: normalizeProfile(savedProfile, data.user), anonymous: true };
+      if (signInError) throw new Error(authErrorMessage(signInError, "err_register"));
+      if (!sessionData.user) throw new Error(NarduApp.t("err_register"));
+      return { user: normalizeProfile(profile, sessionData.user), nicknameOnly: true };
     }
 
     const { data, error } = await supabase.auth.signUp({

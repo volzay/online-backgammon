@@ -336,6 +336,142 @@ $$;
 revoke all on function public.delete_current_user() from public;
 grant execute on function public.delete_current_user() to authenticated;
 
+create or replace function public.register_nickname_user(p_nickname text, p_password text)
+returns table (
+  id uuid,
+  nickname text,
+  email text,
+  auth_email text,
+  rating integer,
+  tier text,
+  rating_eligible boolean
+)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_nickname text := trim(coalesce(p_nickname, ''));
+  clean_password text := coalesce(p_password, '');
+  new_user_id uuid := gen_random_uuid();
+  synthetic_email text := 'user-' || new_user_id::text || '@nickname.local';
+  now_ts timestamptz := now();
+begin
+  if char_length(clean_nickname) < 3 or char_length(clean_nickname) > 20 then
+    raise exception 'Никнейм должен быть от 3 до 20 символов.';
+  end if;
+  if clean_nickname ~ '[[:cntrl:]@]' then
+    raise exception 'Никнейм содержит недопустимые символы.';
+  end if;
+  if char_length(clean_password) < 6 then
+    raise exception 'Пароль должен быть не короче 6 символов.';
+  end if;
+  if exists (
+    select 1 from public.profiles p
+    where lower(p.nickname) = lower(clean_nickname)
+  ) then
+    raise exception 'Такой никнейм уже занят.';
+  end if;
+
+  insert into auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    new_user_id,
+    'authenticated',
+    'authenticated',
+    synthetic_email,
+    crypt(clean_password, gen_salt('bf')),
+    now_ts,
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object('nickname', clean_nickname, 'name', clean_nickname),
+    now_ts,
+    now_ts,
+    '',
+    '',
+    '',
+    ''
+  );
+
+  insert into auth.identities (
+    id,
+    user_id,
+    identity_data,
+    provider,
+    provider_id,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  values (
+    new_user_id::text,
+    new_user_id,
+    jsonb_build_object('sub', new_user_id::text, 'email', synthetic_email, 'email_verified', true, 'phone_verified', false),
+    'email',
+    new_user_id::text,
+    now_ts,
+    now_ts,
+    now_ts
+  );
+
+  update public.profiles p
+  set
+    nickname = clean_nickname,
+    email = '',
+    rating = 1000,
+    tier = 'Bronze',
+    rating_eligible = true,
+    last_seen_at = now_ts
+  where p.id = new_user_id;
+
+  return query
+  select
+    p.id,
+    p.nickname,
+    p.email,
+    synthetic_email,
+    p.rating,
+    p.tier,
+    p.rating_eligible
+  from public.profiles p
+  where p.id = new_user_id;
+end;
+$$;
+
+revoke all on function public.register_nickname_user(text, text) from public;
+grant execute on function public.register_nickname_user(text, text) to anon, authenticated;
+
+create or replace function public.nickname_auth_email(p_identifier text)
+returns text
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select u.email
+  from public.profiles p
+  join auth.users u on u.id = p.id
+  where lower(p.nickname) = lower(trim(coalesce(p_identifier, '')))
+  limit 1
+$$;
+
+revoke all on function public.nickname_auth_email(text) from public;
+grant execute on function public.nickname_auth_email(text) to anon, authenticated;
+
 do $$
 begin
   begin
