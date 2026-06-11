@@ -7,7 +7,6 @@ window.NarduBoardEngine = (function () {
   const DIE_SIZE = 39;
   const DICE_GAP = 11;
   const DICE_ROLL_MS = 1550;
-  const CHECKER_MOVE_MS = 650;
   const HIT_COOLDOWN_MS = 74;
   const MAX_DPR = 2;
   const MIN_REST_ANGLE_DELTA = 16;
@@ -937,6 +936,12 @@ window.NarduBoardEngine = (function () {
     ctx.clearRect(0, 0, rect.width, rect.height);
   }
 
+  function checkerMoveDuration() {
+    const raw = parseInt(localStorage.getItem('narduh-animation-speed') || '60', 10);
+    const value = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 60));
+    return Math.round(260 + value * 6);
+  }
+
   function animateCheckerMove(opts = {}) {
     const fromEl = document.querySelector(`[data-point="${opts.from}"]`);
     const stackEl = fromEl?.querySelector('.stack');
@@ -996,7 +1001,7 @@ window.NarduBoardEngine = (function () {
 
     return new Promise(resolve => {
       function frame(now) {
-        const t = Math.min(1, (now - startedAt) / CHECKER_MOVE_MS);
+        const t = Math.min(1, (now - startedAt) / checkerMoveDuration());
         const eased = easeInOutCubic(t);
         const x = quadraticPoint(start.x, control.x, end.x, eased);
         const y = quadraticPoint(start.y, control.y, end.y, eased);

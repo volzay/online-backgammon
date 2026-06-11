@@ -526,8 +526,9 @@ function makePoint(num, idx, isBottom) {
     el.appendChild(stack);
   }
 
-  if (state.hints.includes(num)) el.classList.add('hint');
-  if (state.fullHints?.includes(num)) el.classList.add('full-hint');
+  const showMoveHints = localStorage.getItem('narduh-move-hints') !== '0';
+  if (showMoveHints && state.hints.includes(num)) el.classList.add('hint');
+  if (showMoveHints && state.fullHints?.includes(num)) el.classList.add('full-hint');
   if (state.selected === num) el.classList.add('selected');
   return el;
 }

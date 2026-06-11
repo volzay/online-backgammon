@@ -144,18 +144,10 @@
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="auto_roll">Авто-бросок кубиков</div>
-            <div class="s-hint" data-i18n="auto_roll_hint">Сразу после хода соперника</div>
-          </div>
-          <label class="switch"><input type="checkbox"><span class="sw"></span></label>
-        </div>
-
-        <div class="s-row">
-          <div>
             <div class="s-lbl" data-i18n="move_hints">Подсветка возможных ходов</div>
             <div class="s-hint" data-i18n="move_hints_hint">Поля, куда можно поставить шашку</div>
           </div>
-          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="move-hints-toggle" checked><span class="sw"></span></label>
         </div>
 
         <div class="s-row">
@@ -171,7 +163,7 @@
             <div class="s-lbl" data-i18n="animation_speed">Скорость анимации</div>
             <div class="s-hint" data-i18n="animation_speed_hint">Чем меньше — тем быстрее</div>
           </div>
-          <input type="range" min="0" max="100" value="60" class="slider" />
+          <input type="range" min="0" max="100" value="60" class="slider" id="animation-speed-slider" />
         </div>
 
         <div class="s-row">
@@ -179,7 +171,7 @@
             <div class="s-lbl" data-i18n="sounds">Звуки</div>
             <div class="s-hint" data-i18n="sounds_hint">Кубики, ходы, уведомления</div>
           </div>
-          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="sound-settings-toggle" checked><span class="sw"></span></label>
         </div>
 
         <div class="s-row">
@@ -215,26 +207,20 @@
           </div>
         </div>
 
-        <div class="s-row">
+        <div class="s-row account-readonly-row">
           <div>
             <div class="s-lbl" data-i18n="nickname">Никнейм</div>
             <div class="s-hint" data-i18n="nickname_visible_hint">Видно соперникам в партии</div>
           </div>
-          <div class="s-control">
-            <input type="text" id="acc-nick" class="text-input" />
-            <button class="ghostbtn" id="save-nick" data-i18n="save">Сохранить</button>
-          </div>
+          <div class="account-readonly-value" id="acc-nick">—</div>
         </div>
 
-        <div class="s-row">
+        <div class="s-row account-readonly-row">
           <div>
             <div class="s-lbl">Email</div>
             <div class="s-hint" data-i18n="email_hint">Используется для входа и восстановления</div>
           </div>
-          <div class="s-control">
-            <input type="email" id="acc-email" class="text-input" placeholder="—" />
-            <button class="ghostbtn" data-i18n="change">Изменить</button>
-          </div>
+          <div class="account-readonly-value" id="acc-email">—</div>
         </div>
 
         <div class="s-row">
@@ -759,8 +745,8 @@ async function loadAccountProfile({ silent = false } = {}) {
 function renderAccount() {
   const profile = accountState.profile || fallbackProfile();
   const user = profile.user || currentUser();
-  document.getElementById('acc-nick').value = user.name || user.nickname || '';
-  document.getElementById('acc-email').value = user.email || '';
+  document.getElementById('acc-nick').textContent = user.name || user.nickname || '—';
+  document.getElementById('acc-email').textContent = user.email || '—';
   const games = profile.games || [];
   const wins = games.filter(game => game.didWin).length;
   const losses = games.filter(game => !game.didWin).length;
@@ -1431,7 +1417,6 @@ function downloadHistory() {
   URL.revokeObjectURL(url);
 }
 
-document.getElementById('save-nick').addEventListener('click', saveAccountProfile);
 document.getElementById('save-password').addEventListener('click', changeAccountPassword);
 document.getElementById('delete-account-open').addEventListener('click', openDeleteAccountModal);
 document.getElementById('delete-account-confirm').addEventListener('click', deleteAccountConfirmed);
@@ -1458,10 +1443,67 @@ document.getElementById('friend-message-form').addEventListener('submit', (event
 });
 document.querySelector('[data-i18n="download_json"]')?.addEventListener('click', downloadHistory);
 
-const vs = document.getElementById('vol-slider');
-vs.addEventListener('input', () => {
-  document.getElementById('vol-val').textContent = vs.value + '%';
+const SETTINGS_KEYS = {
+  animationSpeed: 'narduh-animation-speed',
+  moveHints: 'narduh-move-hints',
+  sound: 'narduh-sound',
+  volume: 'narduh-vol',
+};
+
+const animationSpeedSlider = document.getElementById('animation-speed-slider');
+const moveHintsToggle = document.getElementById('move-hints-toggle');
+const soundSettingsToggle = document.getElementById('sound-settings-toggle');
+const volumeSlider = document.getElementById('vol-slider');
+const volumeLabel = document.getElementById('vol-val');
+
+function numberSetting(key, fallback, min = 0, max = 100) {
+  const value = parseInt(localStorage.getItem(key) || String(fallback), 10);
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : fallback));
+}
+
+function paintGameSettings() {
+  const animationSpeed = numberSetting(SETTINGS_KEYS.animationSpeed, 60);
+  const volume = numberSetting(SETTINGS_KEYS.volume, 70);
+  animationSpeedSlider.value = String(animationSpeed);
+  moveHintsToggle.checked = localStorage.getItem(SETTINGS_KEYS.moveHints) !== '0';
+  soundSettingsToggle.checked = localStorage.getItem(SETTINGS_KEYS.sound) !== '0';
+  volumeSlider.value = String(volume);
+  volumeLabel.textContent = `${volume}%`;
+}
+
+animationSpeedSlider.addEventListener('input', () => {
+  localStorage.setItem(SETTINGS_KEYS.animationSpeed, animationSpeedSlider.value);
 });
+
+moveHintsToggle.addEventListener('change', () => {
+  localStorage.setItem(SETTINGS_KEYS.moveHints, moveHintsToggle.checked ? '1' : '0');
+});
+
+soundSettingsToggle.addEventListener('change', () => {
+  localStorage.setItem(SETTINGS_KEYS.sound, soundSettingsToggle.checked ? '1' : '0');
+  if (soundSettingsToggle.checked) window.NarduSound?.prime?.();
+  window.NarduApp?.paintSound?.();
+});
+
+volumeSlider.addEventListener('input', () => {
+  const raw = parseInt(volumeSlider.value || '70', 10);
+  const value = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 70));
+  localStorage.setItem(SETTINGS_KEYS.volume, String(value));
+  volumeLabel.textContent = `${value}%`;
+  if (value > 0 && localStorage.getItem(SETTINGS_KEYS.sound) === '0') {
+    localStorage.setItem(SETTINGS_KEYS.sound, '1');
+    soundSettingsToggle.checked = true;
+    window.NarduApp?.paintSound?.();
+  }
+});
+
+document.querySelectorAll('[data-sound-toggle]').forEach(button => {
+  button.addEventListener('click', () => {
+    requestAnimationFrame(paintGameSettings);
+  });
+});
+
+paintGameSettings();
 
 document.querySelectorAll('[data-accent-set]').forEach(button => {
   button.addEventListener('click', () => {
