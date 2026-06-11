@@ -263,7 +263,7 @@
             <div class="s-lbl" data-i18n="delete_account">Удалить аккаунт</div>
             <div class="s-hint" data-i18n="delete_account_hint">Полное удаление профиля и истории</div>
           </div>
-          <button class="dangerbtn outline" data-i18n="delete">Удалить</button>
+          <button class="dangerbtn outline" id="delete-account-open" type="button" data-i18n="delete">Удалить</button>
         </div>
 
         <div class="account-block">
@@ -389,6 +389,17 @@
 
   </div>
 
+</div>
+
+<div class="confirm-modal" id="delete-account-modal" hidden>
+  <div class="confirm-backdrop" data-delete-account-cancel></div>
+  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
+    <h2 id="delete-account-title" data-i18n="delete_account_question">Желаете удалить аккаунт?</h2>
+    <div class="confirm-actions">
+      <button class="ghostbtn" type="button" data-delete-account-cancel data-i18n="no">Нет</button>
+      <button class="dangerbtn" type="button" id="delete-account-confirm" data-i18n="yes">Да</button>
+    </div>
+  </div>
 </div>
 
 <script src="runtime-config.js"></script>
@@ -1129,6 +1140,61 @@ async function changeAccountPassword() {
   }
 }
 
+function openDeleteAccountModal() {
+  const modal = document.getElementById('delete-account-modal');
+  if (!modal) return;
+  modal.hidden = false;
+  document.body.classList.add('modal-open');
+  document.getElementById('delete-account-confirm')?.focus();
+}
+
+function closeDeleteAccountModal() {
+  const modal = document.getElementById('delete-account-modal');
+  if (!modal) return;
+  modal.hidden = true;
+  document.body.classList.remove('modal-open');
+  document.getElementById('delete-account-open')?.focus();
+}
+
+async function deleteSupabaseAccount() {
+  const client = await supabaseAccountClient();
+  const { data: authData, error: authError } = await client.auth.getUser();
+  if (authError) throw new Error(authError.message);
+  if (!authData?.user?.id) throw new Error('Войдите в аккаунт заново.');
+  const { error } = await client.rpc('delete_current_user');
+  if (error) {
+    if (/function .*delete_current_user|Could not find the function/i.test(error.message || '')) {
+      throw new Error('Удаление аккаунта ещё не включено в Supabase. Выполните обновлённый supabase/schema.sql.');
+    }
+    throw new Error(error.message || 'Не удалось удалить аккаунт.');
+  }
+  await client.auth.signOut().catch(() => {});
+}
+
+async function deleteAccountConfirmed() {
+  if (!registeredUser()) {
+    localStorage.removeItem('narduh-user');
+    location.href = 'login.html';
+    return;
+  }
+  const button = document.getElementById('delete-account-confirm');
+  if (button) button.disabled = true;
+  try {
+    if (supabaseAccountMode()) {
+      await deleteSupabaseAccount();
+    } else {
+      await accountApi(`/api/account/profile?${accountQuery()}`, { method: 'DELETE' });
+    }
+    localStorage.removeItem('narduh-user');
+    location.href = 'login.html';
+  } catch (err) {
+    flash(err.message || 'Не удалось удалить аккаунт');
+    closeDeleteAccountModal();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function searchFriends(query) {
   const box = document.getElementById('friend-search-results');
   if (!registeredUser() || query.trim().length < 2) {
@@ -1387,6 +1453,16 @@ function downloadHistory() {
 
 document.getElementById('save-nick').addEventListener('click', saveAccountProfile);
 document.getElementById('save-password').addEventListener('click', changeAccountPassword);
+document.getElementById('delete-account-open').addEventListener('click', openDeleteAccountModal);
+document.getElementById('delete-account-confirm').addEventListener('click', deleteAccountConfirmed);
+document.querySelectorAll('[data-delete-account-cancel]').forEach(button => {
+  button.addEventListener('click', closeDeleteAccountModal);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !document.getElementById('delete-account-modal')?.hidden) {
+    closeDeleteAccountModal();
+  }
+});
 document.getElementById('refresh-account').addEventListener('click', () => loadAccountProfile());
 document.getElementById('friend-add-form').addEventListener('submit', (event) => {
   event.preventDefault();

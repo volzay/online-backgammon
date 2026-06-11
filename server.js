@@ -1793,6 +1793,22 @@ async function handleApi(req, res, url) {
         return;
       }
 
+      if (method === "DELETE" && parts.length === 3 && parts[2] === "profile") {
+        authState.users = authState.users.filter(item => item.id !== user.id);
+        authState.passwordResets = authState.passwordResets.filter(item => item.userId !== user.id);
+        authState.users.forEach(item => {
+          ensureAccountData(item);
+          item.friends = item.friends.filter(friend => friend.userId !== user.id);
+          item.friendRequests = item.friendRequests.filter(request => request.fromUserId !== user.id && request.toUserId !== user.id);
+          item.friendMessages = item.friendMessages.filter(message => message.fromUserId !== user.id && message.toUserId !== user.id);
+        });
+        adminState.users = adminState.users.filter(item => normalizePlayerName(item.name) !== normalizePlayerName(user.nickname));
+        saveAuthState();
+        saveAdminState();
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
       if (method === "GET" && parts.length === 3 && parts[2] === "players") {
         const q = normalizePlayerName(url.searchParams.get("q"));
         const players = q
