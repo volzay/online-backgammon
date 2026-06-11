@@ -98,7 +98,7 @@
   async function signUpSupabase({ nickname, email, password }) {
     if (!window.NarduSupabase?.configured?.()) return null;
     const supabase = await window.NarduSupabase.client();
-    const nicknameOnly = !String(email || "").trim() && !String(password || "");
+    const nicknameOnly = !String(email || "").trim();
     if (nicknameOnly) {
       const { data, error } = await supabase.auth.signInAnonymously({
         options: { data: { nickname, name: nickname } },
