@@ -46,7 +46,69 @@ window.NarduRating = (function () {
     user.ratingEligible = true;
     return user;
   }
-  function syncRegisteredRating(user, entry) {
+  async function syncSupabaseRating(user, entry) {
+    if (!window.NarduSupabase?.configured?.() || !user?.id) return false;
+    const client = await window.NarduSupabase.client();
+    const rating = normalizeRating(user.rating);
+    const tier = tierFor(rating);
+    const now = new Date().toISOString();
+    const { data: authData, error: authError } = await client.auth.getUser();
+    if (authError || authData?.user?.id !== user.id) return false;
+
+    const { data: profile, error: profileError } = await client
+      .from('profiles')
+      .update({
+        rating,
+        tier,
+        rating_eligible: true,
+        last_seen_at: now,
+      })
+      .eq('id', user.id)
+      .select('id,nickname,email,rating,tier,rating_eligible')
+      .maybeSingle();
+    if (profileError) throw profileError;
+
+    if (entry?.resultKey) {
+      const { error: eventError } = await client
+        .from('rating_events')
+        .insert({
+          user_id: user.id,
+          result_key: String(entry.resultKey || '').slice(0, 120),
+          opponent: String(entry.opponent || '').slice(0, 32),
+          opponent_rating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : null,
+          did_win: Boolean(entry.didWin),
+          mode: String(entry.mode || '').slice(0, 20),
+          result_type: ['mars', 'koks'].includes(entry.resultType) ? entry.resultType : '',
+          winner: entry.winner === 'dark' ? 'dark' : (entry.winner === 'white' ? 'white' : ''),
+          score: entry.score && typeof entry.score === 'object' ? {
+            white: Number(entry.score.white) || 0,
+            dark: Number(entry.score.dark) || 0,
+          } : null,
+          delta: Number(entry.delta || 0),
+          rating_after: rating,
+        });
+      if (eventError && eventError.code !== '23505') throw eventError;
+    }
+
+    const current = NarduApp.getUser();
+    if (profile && current && !current.guest && current.id === profile.id) {
+      NarduApp.setUser({
+        ...current,
+        name: profile.nickname || current.name,
+        nickname: profile.nickname || current.nickname,
+        email: profile.email || current.email || '',
+        rating: profile.rating,
+        tier: profile.tier,
+        ratingEligible: profile.rating_eligible !== false,
+        registered: true,
+        guest: false,
+      });
+      NarduApp.paintUser();
+    }
+    return true;
+  }
+
+  function syncServerRating(user, entry) {
     if (!isRatedUser(user)) return;
     fetch('/api/rating/sync', {
       method: 'POST',
@@ -69,6 +131,17 @@ window.NarduRating = (function () {
         NarduApp.paintUser();
       })
       .catch(() => {});
+  }
+
+  function syncRegisteredRating(user, entry) {
+    if (!isRatedUser(user)) return;
+    syncSupabaseRating(user, entry)
+      .then(done => {
+        if (!done) syncServerRating(user, entry);
+      })
+      .catch(() => {
+        if (!window.NarduSupabase?.configured?.()) syncServerRating(user, entry);
+      });
   }
 
   /* record a finished game in the current user's profile */
