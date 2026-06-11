@@ -79,20 +79,21 @@
 
   <!-- PLAY CARDS -->
   <section class="play-grid">
-    <button class="play-card primary" data-action="quick">
+    <div class="play-card primary" data-action="quick" role="button" tabindex="0">
       <div class="play-ico">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       </div>
       <div class="play-body">
         <div class="play-title" data-i18n="play_quick">Быстрая игра</div>
         <div class="play-sub" data-i18n="play_quick_sub">Подберём соперника по рейтингу</div>
-        <div class="play-foot">
-          <span class="play-pill" data-i18n="long_backgammon">Длинные нарды</span>
+        <div class="play-foot quick-variant" role="group" aria-label="Вид нард" data-i18n-aria="game_variant">
+          <button class="play-pill active" type="button" data-quick-variant="long" aria-pressed="true" data-i18n="long_backgammon">Длинные нарды</button>
+          <button class="play-pill" type="button" data-quick-variant="short" aria-pressed="false" data-i18n="short_backgammon">Короткие нарды</button>
           <span class="play-pill">5 + 0</span>
         </div>
       </div>
       <div class="play-arrow">→</div>
-    </button>
+    </div>
 
     <button class="play-card" data-action="create">
       <div class="play-ico">
@@ -593,7 +594,18 @@
     variant: 'long',
     access: 'open',
   };
+  const quickState = {
+    variant: 'long',
+  };
   const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+
+  function syncQuickVariant() {
+    document.querySelectorAll('[data-quick-variant]').forEach(btn => {
+      const active = quickState.variant === btn.dataset.quickVariant;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+  }
 
   function syncCreatePanel() {
     document.querySelectorAll('[data-create-option]').forEach(btn => {
@@ -660,6 +672,15 @@
       }
     });
   });
+
+  document.querySelectorAll('[data-quick-variant]').forEach(btn => {
+    btn.addEventListener('click', event => {
+      event.stopPropagation();
+      quickState.variant = btn.dataset.quickVariant === 'short' ? 'short' : 'long';
+      syncQuickVariant();
+    });
+  });
+  syncQuickVariant();
 
   createGameForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -781,11 +802,20 @@
   });
 
   document.querySelectorAll('[data-action]').forEach(b => {
-    b.addEventListener('click', () => {
+    const runAction = () => {
       const a = b.dataset.action;
       let params;
       if (a === 'quick') {
-        params = new URLSearchParams({ mode: 'bot', opp: tt('room_opponent'), oppR: 1100, game: createLocalGameCode() });
+        params = new URLSearchParams({
+          mode: 'bot',
+          opp: tt('room_opponent'),
+          oppR: 1100,
+          game: createLocalGameCode(),
+          variant: quickState.variant,
+          opponent: 'bot',
+          access: 'open',
+          difficulty: 'medium',
+        });
       } else if (a === 'create') {
         showCreatePanel();
         return;
@@ -794,6 +824,15 @@
         return;
       }
       location.href = 'room.html?' + params.toString();
+    };
+    b.addEventListener('click', event => {
+      if (event.target.closest('[data-quick-variant]')) return;
+      runAction();
+    });
+    b.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      runAction();
     });
   });
 

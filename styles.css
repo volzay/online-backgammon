@@ -2398,12 +2398,34 @@ body.board-focus .bear-pip {
 .play-sub { font-size: 12px; color: var(--ink-3); }
 .play-foot { display: flex; gap: 6px; margin-top: 10px; }
 .play-pill {
+  appearance: none;
+  font: inherit;
   font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 3px 8px; border-radius: 999px;
   background: var(--panel-2); border: 1px solid var(--line-2);
   color: var(--ink-2); font-weight: 500;
 }
-.play-card.primary .play-pill { background: oklch(0 0 0 / 0.15); color: oklch(0.16 0.04 50); border-color: transparent; }
+.quick-variant { flex-wrap: wrap; }
+.quick-variant .play-pill {
+  cursor: pointer;
+}
+.quick-variant .play-pill:not(button) {
+  cursor: default;
+}
+.play-card.primary .play-pill {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.play-card.primary button.play-pill:hover {
+  border-color: var(--accent);
+}
+.play-card.primary button.play-pill.active {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
 .play-arrow {
   font-size: 22px; color: var(--ink-3); padding-right: 4px;
   transition: transform 0.15s, color 0.15s;
