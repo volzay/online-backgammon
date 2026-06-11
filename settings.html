@@ -502,11 +502,12 @@ async function supabaseAccountProfile() {
     guest: false,
   };
   const social = await loadSupabaseSocial(client, profile.id);
+  const games = await loadSupabaseGames(client, profile.id);
 
   return {
     user,
-    games: mergeGames([]),
-    stats: { gamesPlayed: 0, wins: 0, losses: 0, mars: 0, koks: 0 },
+    games,
+    stats: statsForGames(games),
     friends: social.friends,
     friendRequests: social.friendRequests,
     supabaseMode: true,
@@ -650,6 +651,40 @@ function resultTypeText(type) {
   return 'Обычная';
 }
 
+async function loadSupabaseGames(client, userId) {
+  const { data, error } = await client
+    .from('rating_events')
+    .select('result_key,opponent,opponent_rating,did_win,mode,result_type,winner,score,delta,rating_after,created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return mergeGames((data || []).map(row => ({
+    resultKey: row.result_key,
+    ts: Date.parse(row.created_at || '') || Date.now(),
+    at: row.created_at || '',
+    opponent: row.opponent || '',
+    opponentRating: row.opponent_rating ?? null,
+    didWin: Boolean(row.did_win),
+    mode: row.mode || '',
+    resultType: row.result_type || '',
+    winner: row.winner || '',
+    score: row.score || null,
+    delta: Number(row.delta || 0),
+    ratingAfter: row.rating_after,
+  })));
+}
+
+function statsForGames(games = []) {
+  return {
+    gamesPlayed: games.length,
+    wins: games.filter(game => game.didWin).length,
+    losses: games.filter(game => !game.didWin).length,
+    mars: games.filter(game => game.resultType === 'mars').length,
+    koks: games.filter(game => game.resultType === 'koks').length,
+  };
+}
+
 function localGames() {
   const history = currentUser().history || [];
   return history.map(item => ({
@@ -681,13 +716,7 @@ function fallbackProfile() {
   return {
     user: currentUser(),
     games,
-    stats: {
-      gamesPlayed: games.length,
-      wins: games.filter(game => game.didWin).length,
-      losses: games.filter(game => !game.didWin).length,
-      mars: games.filter(game => game.resultType === 'mars').length,
-      koks: games.filter(game => game.resultType === 'koks').length,
-    },
+    stats: statsForGames(games),
     friends: [],
     friendRequests: { incoming: [], outgoing: [] },
   };
@@ -1014,6 +1043,7 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
   if (error) throw new Error(error.message);
   if (!data) throw new Error('Профиль Supabase не найден.');
   const social = await loadSupabaseSocial(client, data.id);
+  const games = await loadSupabaseGames(client, data.id);
   return {
     user: {
       id: data.id,
@@ -1026,7 +1056,8 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
       registered: true,
       guest: false,
     },
-    games: mergeGames([]),
+    games,
+    stats: statsForGames(games),
     friends: social.friends,
     friendRequests: social.friendRequests,
     supabaseMode: true,
