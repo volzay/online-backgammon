@@ -801,6 +801,11 @@ window.NarduGame = (function () {
     };
   }
 
+  function hasLegalHeadMove(state, color) {
+    const head = headPoint(color, state);
+    return legalNextMoves(state, color).some(move => move.from === head);
+  }
+
   function hardKoksEmergencyActive(state, color) {
     return (state.off[color] || 0) === 0
       && finishPressureScore(state, opponentOf(color)) >= 135;
@@ -936,15 +941,26 @@ window.NarduGame = (function () {
     const koksUrgency = (state.off[color] || 0) === 0 && startBefore > 0
       ? Math.max(0, finishPressure - 95)
       : 0;
+    const canPlayHead = hasLegalHeadMove(state, color);
+    const headUrgency = Math.max(0, headBefore - 3);
+    const startUrgency = Math.max(0, startBefore - 5);
+    const gammonUrgency = Math.max(marsRiskBefore * 0.08, koksRiskBefore * 0.055, koksUrgency * 0.12);
 
     score += outsideReduction * 780;
     score += outsidePipsGain * 42;
-    score += features.enterHomeMoves * 980;
+    score += features.enterHomeMoves * (headBefore > 7 ? 420 : 980);
     score += features.outsideMovePips * 58;
     score += madeOutsideGain * 145;
-    score += features.coveredHeadLandings * (headBefore > 7 ? 260 : 135);
-    score -= features.emptyHeadLandings * (headBefore > 7 ? 96 : 38);
-    score += headReduction * (headBefore > 8 ? 180 : 70);
+    score += features.coveredHeadLandings * (headBefore > 7 ? 920 : 260);
+    score -= features.emptyHeadLandings * (headBefore > 7 ? 380 : 90);
+    score += features.headMoves * (900 + headUrgency * 420 + startUrgency * 260 + gammonUrgency * 140);
+    score += headReduction * (headBefore > 8 ? 1450 : 420);
+    if (canPlayHead && features.headMoves === 0 && headBefore > 3) {
+      score -= 5200 + headUrgency * 1350 + startUrgency * 720 + gammonUrgency * 520;
+    }
+    if (features.headMoves === 0 && headBefore > 6) {
+      score -= features.enterHomeMoves * Math.max(0, headBefore - 6) * 520;
+    }
     score += startReduction * (koksUrgency > 0 ? 220 + koksUrgency * 68 : 55);
     if (outsideAfter > 0) {
       const homeShufflePenalty = marsRiskBefore > 0 || koksRiskBefore > 0 ? 15500 : 2600;
