@@ -497,10 +497,85 @@ window.NarduController = (function () {
       if (response.ok && Number.isFinite(data.version)) remoteVersion = data.version;
     } catch (error) {
       if (error?.status === 409) {
-        await pollRemoteState({ force: true });
+        const recovered = await recoverRemotePublishConflict(payload);
+        if (!recovered) await pollRemoteState({ force: true });
       }
       /* keep local play responsive while the room server recovers */
     }
+  }
+
+  async function recoverRemotePublishConflict(payload) {
+    if (!window.NarduRooms?.configured?.()) return false;
+    try {
+      const current = await window.NarduRooms.getGameState(remoteCode);
+      if (!current.state || !Number.isFinite(current.version)) return false;
+      if (!shouldRetryRemotePayload(payload, current.state)) {
+        applyRemoteState(current.state, current.version);
+        return false;
+      }
+      remoteVersion = current.version;
+      const saved = await window.NarduRooms.putGameState(remoteCode, payload, current.version);
+      if (Number.isFinite(saved.version)) remoteVersion = saved.version;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function historyComparableKey(item = {}) {
+    return [
+      item.opening ? 'opening' : '',
+      item.openingMove ? 'openingMove' : '',
+      item.color || '',
+      item.roll || '',
+      item.from ?? '',
+      item.to ?? '',
+      item.die ?? '',
+      item.resign ? 'resign' : '',
+      item.leave ? 'leave' : '',
+      item.winnerColor || '',
+      item.sha256 || '',
+    ].join('|');
+  }
+
+  function recentHistorySignature(source) {
+    return (source?.history || [])
+      .slice(0, 8)
+      .map(historyComparableKey)
+      .join('||');
+  }
+
+  function isExhaustedMoveState(source) {
+    if (!source || source.phase !== 'move' || source.winner) return false;
+    if (!Array.isArray(source.dice) || source.dice.length === 0) return true;
+    try {
+      return !NarduGame.hasAnyMoves(JSON.parse(JSON.stringify(source)));
+    } catch {
+      return false;
+    }
+  }
+
+  function shouldRetryRemotePayload(payload, current) {
+    if (!payload || !current || payload.phase === 'waiting') return false;
+    if (payload.startedAt && current.startedAt && Number(payload.startedAt) !== Number(current.startedAt)) return false;
+    const payloadHistory = payload.history || [];
+    const currentHistory = current.history || [];
+    if (payloadHistory.length > currentHistory.length) return true;
+    if (payloadHistory.length < currentHistory.length) return false;
+
+    const sameRecentHistory = recentHistorySignature(payload) === recentHistorySignature(current);
+    if (!sameRecentHistory) return false;
+
+    if (payload.phase === 'over' && !current.winner) return true;
+    if (payload.phase === 'roll' && current.phase === 'move' && current.turn !== payload.turn) {
+      return isExhaustedMoveState(current);
+    }
+    if (payload.phase === 'move' && current.phase === 'move' && payload.turn === current.turn) {
+      const payloadDice = Array.isArray(payload.dice) ? payload.dice.length : 0;
+      const currentDice = Array.isArray(current.dice) ? current.dice.length : 0;
+      return payloadDice < currentDice;
+    }
+    return false;
   }
 
   async function pollRemoteState(options = {}) {
