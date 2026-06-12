@@ -183,19 +183,19 @@
         <div class="account-summary">
           <div class="account-stat">
             <span class="account-stat-value" id="account-games-played">0</span>
-            <span class="account-stat-label">партий</span>
+            <span class="account-stat-label" data-i18n="account_stat_games">партий</span>
           </div>
           <div class="account-stat">
             <span class="account-stat-value" id="account-wins">0</span>
-            <span class="account-stat-label">побед</span>
+            <span class="account-stat-label" data-i18n="account_stat_wins">побед</span>
           </div>
           <div class="account-stat">
             <span class="account-stat-value" id="account-losses">0</span>
-            <span class="account-stat-label">поражений</span>
+            <span class="account-stat-label" data-i18n="account_stat_losses">поражений</span>
           </div>
           <div class="account-stat">
             <span class="account-stat-value" id="account-special-wins">0</span>
-            <span class="account-stat-label">марс/кокс</span>
+            <span class="account-stat-label" data-i18n="account_stat_special">марс/кокс</span>
           </div>
         </div>
 
@@ -209,7 +209,7 @@
 
         <div class="s-row account-readonly-row">
           <div>
-            <div class="s-lbl">Email</div>
+            <div class="s-lbl" data-i18n="email">Email</div>
             <div class="s-hint" data-i18n="email_hint">Используется для входа и восстановления</div>
           </div>
           <div class="account-readonly-value" id="acc-email">—</div>
@@ -221,9 +221,9 @@
             <div class="s-hint" data-i18n="password_change_hint">Для смены пароля укажите текущий пароль</div>
           </div>
           <div class="s-control password-control">
-            <input type="password" id="acc-current-password" class="text-input" autocomplete="current-password" data-i18n-placeholder="current_password" placeholder="Текущий пароль" />
-            <input type="password" id="acc-new-password" class="text-input" autocomplete="new-password" data-i18n-placeholder="new_password" placeholder="Новый пароль" />
-            <input type="password" id="acc-repeat-password" class="text-input" autocomplete="new-password" data-i18n-placeholder="repeat_password" placeholder="Повторите пароль" />
+            <input type="password" id="acc-current-password" class="text-input" autocomplete="current-password" data-i18n-ph="current_password" placeholder="Текущий пароль" />
+            <input type="password" id="acc-new-password" class="text-input" autocomplete="new-password" data-i18n-ph="new_password" placeholder="Новый пароль" />
+            <input type="password" id="acc-repeat-password" class="text-input" autocomplete="new-password" data-i18n-ph="repeat_password" placeholder="Повторите пароль" />
             <button class="ghostbtn" id="save-password" type="button" data-i18n="save_password">Сохранить пароль</button>
           </div>
         </div>
@@ -247,24 +247,24 @@
         <div class="account-block">
           <div class="account-block-head">
             <div>
-              <h4>История партий</h4>
-              <p>Соперники, победы/поражения, рейтинг и особые результаты.</p>
+              <h4 data-i18n="match_history_title">История партий</h4>
+              <p data-i18n="match_history_desc">Соперники, победы/поражения, рейтинг и особые результаты.</p>
             </div>
-            <button class="ghostbtn" id="refresh-account">Обновить</button>
+            <button class="ghostbtn" id="refresh-account" data-i18n="refresh">Обновить</button>
           </div>
           <div class="account-table-wrap">
             <table class="account-table">
               <thead>
                 <tr>
-                  <th>Дата</th>
-                  <th>Соперник</th>
-                  <th>Результат</th>
-                  <th>Тип</th>
-                  <th>Рейтинг</th>
+                  <th data-i18n="date">Дата</th>
+                  <th data-i18n="opponent">Соперник</th>
+                  <th data-i18n="result">Результат</th>
+                  <th data-i18n="type">Тип</th>
+                  <th data-i18n="rating">Рейтинг</th>
                 </tr>
               </thead>
               <tbody id="match-history-list">
-                <tr><td colspan="5" class="empty-cell">История партий пока пуста.</td></tr>
+                <tr><td colspan="5" class="empty-cell" data-i18n="match_history_empty">История партий пока пуста.</td></tr>
               </tbody>
             </table>
           </div>
@@ -274,36 +274,36 @@
           <div class="account-block">
             <div class="account-block-head">
               <div>
-                <h4>Друзья</h4>
-                <p>Добавляйте зарегистрированных игроков по никнейму или email.</p>
+                <h4 data-i18n="friends_title">Друзья</h4>
+                <p data-i18n="friends_desc">Добавляйте зарегистрированных игроков по никнейму или email.</p>
               </div>
             </div>
             <form class="friend-add" id="friend-add-form">
-              <input class="text-input" id="friend-query" type="text" placeholder="Никнейм или email" autocomplete="off" />
-              <button class="ghostbtn" type="submit">Добавить</button>
+              <input class="text-input" id="friend-query" type="text" placeholder="Никнейм или email" data-i18n-ph="friend_search_placeholder" autocomplete="off" />
+              <button class="ghostbtn" type="submit" data-i18n="add_friend">Добавить</button>
             </form>
             <div class="friend-search-results" id="friend-search-results"></div>
             <div class="friend-requests" id="friend-requests-settings"></div>
             <div class="account-list" id="friends-list-settings">
-              <div class="account-empty">Друзей пока нет.</div>
+              <div class="account-empty" data-i18n="friends_empty">Друзей пока нет.</div>
             </div>
           </div>
 
           <div class="account-block">
             <div class="account-block-head">
               <div>
-                <h4>Сообщения</h4>
-                <p>Выберите друга и отправьте личное сообщение.</p>
+                <h4 data-i18n="messages_title">Сообщения</h4>
+                <p data-i18n="messages_desc">Выберите друга и отправьте личное сообщение.</p>
               </div>
             </div>
             <div class="friend-message-panel">
-              <div class="message-thread-head" id="message-thread-head">Друг не выбран</div>
+              <div class="message-thread-head" id="message-thread-head" data-i18n="friend_not_selected">Друг не выбран</div>
               <div class="message-thread" id="friend-message-thread">
-                <div class="account-empty">Выберите друга из списка слева.</div>
+                <div class="account-empty" data-i18n="friend_select_prompt">Выберите друга из списка слева.</div>
               </div>
               <form class="friend-message-form" id="friend-message-form">
-                <input class="text-input" id="friend-message-input" type="text" placeholder="Сообщение другу…" autocomplete="off" disabled />
-                <button class="ghostbtn" type="submit" disabled>Отправить</button>
+                <input class="text-input" id="friend-message-input" type="text" placeholder="Сообщение другу…" data-i18n-ph="friend_message_placeholder" autocomplete="off" disabled />
+                <button class="ghostbtn" type="submit" data-i18n="send" disabled>Отправить</button>
               </form>
             </div>
           </div>
@@ -454,7 +454,7 @@ async function supabaseAccountProfile() {
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError) throw new Error(authError.message);
   const authUser = authData?.user;
-  if (!authUser?.id) throw new Error('Войдите в аккаунт заново.');
+  if (!authUser?.id) throw new Error(tr('account_login_again', 'Войдите в аккаунт заново.'));
 
   let { data: profile, error } = await client
     .from('profiles')
@@ -493,7 +493,7 @@ async function supabaseAccountContext() {
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError) throw new Error(authError.message);
   const authUser = authData?.user;
-  if (!authUser?.id) throw new Error('Войдите в аккаунт заново.');
+  if (!authUser?.id) throw new Error(tr('account_login_again', 'Войдите в аккаунт заново.'));
   let { data: profile, error } = await client
     .from('profiles')
     .select('id,nickname,email,rating,tier,rating_eligible')
@@ -604,25 +604,37 @@ function escapeHtml(value) {
   })[ch]);
 }
 
+function tr(key, fallback = '') {
+  return NarduApp.t?.(key, fallback) || fallback || key;
+}
+
+function interpolate(key, values = {}, fallback = '') {
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, value),
+    tr(key, fallback),
+  );
+}
+
 function formatDate(value) {
   const date = new Date(Number(value) || value || Date.now());
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  const locale = NarduApp.currentLang?.() === 'en' ? 'en-US' : 'ru-RU';
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
 function formatFriendMeta(friend) {
-  const rating = friend.rating ? `Рейтинг ${friend.rating}` : 'Без рейтинга';
+  const rating = friend.rating ? `${tr('friend_rating', 'Рейтинг')} ${friend.rating}` : tr('unrated', 'Без рейтинга');
   const tier = friend.tier ? ` · ${friend.tier}` : '';
   return `${rating}${tier}`;
 }
 
 function resultText(game) {
-  return game.didWin ? 'Победа' : 'Поражение';
+  return game.didWin ? tr('win_result', 'Победа') : tr('loss_result', 'Поражение');
 }
 
 function resultTypeText(type) {
-  if (type === 'mars') return 'Марс';
-  if (type === 'koks') return 'Кокс';
-  return 'Обычная';
+  if (type === 'mars') return tr('mars_result', 'Марс');
+  if (type === 'koks') return tr('koks_result', 'Кокс');
+  return tr('normal_result', 'Обычная');
 }
 
 async function loadSupabaseGames(client, userId) {
@@ -707,7 +719,7 @@ function showAccountNotice(message, tone = '') {
 async function loadAccountProfile({ silent = false } = {}) {
   if (!registeredUser()) {
     accountState.profile = fallbackProfile();
-    showAccountNotice('История друзей и сообщений доступна после регистрации. Гостевая история хранится только в этом браузере.', 'warn');
+    showAccountNotice(tr('account_guest_notice', 'История друзей и сообщений доступна после регистрации. Гостевая история хранится только в этом браузере.'), 'warn');
     renderAccount();
     return;
   }
@@ -724,13 +736,13 @@ async function loadAccountProfile({ silent = false } = {}) {
       ...data,
       games: mergeGames(data.games || []),
     };
-    showAccountNotice(data.supabaseMode ? 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.' : '');
+    showAccountNotice(data.supabaseMode ? tr('account_supabase_notice', 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.') : '');
     renderAccount();
   } catch (err) {
     accountState.profile = fallbackProfile();
-    showAccountNotice(err.message || 'Не удалось загрузить профиль. Показаны локальные данные.', 'warn');
+    showAccountNotice(err.message || tr('account_profile_load_failed', 'Не удалось загрузить профиль. Показаны локальные данные.'), 'warn');
     renderAccount();
-    if (!silent) flash(err.message || 'Не удалось загрузить профиль');
+    if (!silent) flash(err.message || tr('account_profile_load_failed', 'Не удалось загрузить профиль. Показаны локальные данные.'));
   }
 }
 
@@ -751,11 +763,20 @@ function renderAccount() {
   renderFriends(profile.friends || []);
 }
 
+function repaintAccountLanguage() {
+  if (!registeredUser()) {
+    showAccountNotice(tr('account_guest_notice', 'История друзей и сообщений доступна после регистрации. Гостевая история хранится только в этом браузере.'), 'warn');
+  } else if (accountState.profile?.supabaseMode) {
+    showAccountNotice(tr('account_supabase_notice', 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.'));
+  }
+  renderAccount();
+}
+
 function renderGames(games) {
   const tbody = document.getElementById('match-history-list');
   if (!tbody) return;
   if (!games.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">История партий пока пуста.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">${tr('match_history_empty', 'История партий пока пуста.')}</td></tr>`;
     return;
   }
   tbody.innerHTML = games.slice(0, 50).map(game => {
@@ -764,7 +785,7 @@ function renderGames(games) {
     return `
       <tr>
         <td>${formatDate(game.ts || game.at)}</td>
-        <td>${escapeHtml(game.opponent || 'Соперник')}</td>
+        <td>${escapeHtml(game.opponent || tr('opponent', 'Соперник'))}</td>
         <td><span class="result-pill ${game.didWin ? 'win' : 'loss'}">${resultText(game)}</span>${score}</td>
         <td>${resultTypeText(game.resultType)}</td>
         <td class="mono">${escapeHtml(rating)}</td>
@@ -777,9 +798,9 @@ function renderFriends(friends) {
   const list = document.getElementById('friends-list-settings');
   if (!list) return;
   if (!friends.length) {
-    list.innerHTML = '<div class="account-empty">Друзей пока нет.</div>';
-    document.getElementById('message-thread-head').textContent = 'Друг не выбран';
-    document.getElementById('friend-message-thread').innerHTML = '<div class="account-empty">Выберите друга из списка слева.</div>';
+    list.innerHTML = `<div class="account-empty">${tr('friends_empty', 'Друзей пока нет.')}</div>`;
+    document.getElementById('message-thread-head').textContent = tr('friend_not_selected', 'Друг не выбран');
+    document.getElementById('friend-message-thread').innerHTML = `<div class="account-empty">${tr('friend_select_prompt', 'Выберите друга из списка слева.')}</div>`;
     toggleMessageForm(false);
     return;
   }
@@ -788,7 +809,7 @@ function renderFriends(friends) {
   }
   list.innerHTML = `
     <div class="friends-list-head">
-      <span>Ваши друзья</span>
+      <span>${tr('friends_list_title', 'Ваши друзья')}</span>
       <b>${friends.length}</b>
     </div>
     ${friends.map(friend => `
@@ -801,8 +822,8 @@ function renderFriends(friends) {
         </span>
         ${friend.unread ? `<b class="unread-badge">${friend.unread}</b>` : ''}
       </button>
-      <span class="friend-status">В друзьях</span>
-      <button class="dangerbtn outline tiny friend-remove-btn" type="button" data-remove-friend="${escapeHtml(friend.id)}" data-friend-name="${escapeHtml(friend.name || friend.nickname || 'игрока')}">Убрать из друзей</button>
+      <span class="friend-status">${tr('friend_status_current', 'В друзьях')}</span>
+      <button class="dangerbtn outline tiny friend-remove-btn" type="button" data-remove-friend="${escapeHtml(friend.id)}" data-friend-name="${escapeHtml(friend.name || friend.nickname || tr('friend_remove_fallback', 'игрока'))}">${tr('remove_friend', 'Убрать из друзей')}</button>
     </div>
     `).join('')}
   `;
@@ -811,9 +832,9 @@ function renderFriends(friends) {
 }
 
 function requestStatusText(status) {
-  if (status === 'accepted') return 'Принято';
-  if (status === 'declined') return 'Отклонено';
-  return 'Ожидает ответа';
+  if (status === 'accepted') return tr('request_accepted', 'Принято');
+  if (status === 'declined') return tr('request_declined', 'Отклонено');
+  return tr('request_pending', 'Ожидает ответа');
 }
 
 function renderRequestPlayer(request) {
@@ -821,7 +842,7 @@ function renderRequestPlayer(request) {
   return `
     <span class="friend-avatar">${escapeHtml((player.name || player.nickname || '?')[0]?.toUpperCase() || '?')}</span>
     <span>
-      <strong>${escapeHtml(player.name || player.nickname || 'Игрок')}</strong>
+      <strong>${escapeHtml(player.name || player.nickname || tr('player_fallback', 'Игрок'))}</strong>
       <small>${escapeHtml(player.rating || '—')} · ${escapeHtml(player.tier || 'Bronze')}</small>
     </span>
   `;
@@ -838,13 +859,13 @@ function renderFriendRequests(requests) {
   }
   const incomingHtml = incoming.length ? `
     <div class="friend-request-group">
-      <div class="friend-request-title">Входящие приглашения</div>
+      <div class="friend-request-title">${tr('incoming_requests', 'Входящие приглашения')}</div>
       ${incoming.map(request => `
         <div class="friend-request-row">
           <div class="friend-request-player">${renderRequestPlayer(request)}</div>
           <div class="friend-request-actions">
-            <button class="ghostbtn tiny" type="button" data-accept-request="${escapeHtml(request.id)}">Принять</button>
-            <button class="dangerbtn outline tiny" type="button" data-decline-request="${escapeHtml(request.id)}">Отклонить</button>
+            <button class="ghostbtn tiny" type="button" data-accept-request="${escapeHtml(request.id)}">${tr('accept', 'Принять')}</button>
+            <button class="dangerbtn outline tiny" type="button" data-decline-request="${escapeHtml(request.id)}">${tr('decline', 'Отклонить')}</button>
           </div>
         </div>
       `).join('')}
@@ -852,13 +873,13 @@ function renderFriendRequests(requests) {
   ` : '';
   const outgoingHtml = outgoing.length ? `
     <div class="friend-request-group">
-      <div class="friend-request-title">Отправленные приглашения</div>
+      <div class="friend-request-title">${tr('outgoing_requests', 'Отправленные приглашения')}</div>
       ${outgoing.map(request => `
         <div class="friend-request-row">
           <div class="friend-request-player">${renderRequestPlayer(request)}</div>
           <div class="friend-request-actions">
             <span class="request-status ${escapeHtml(request.status)}">${requestStatusText(request.status)}</span>
-            ${request.status === 'pending' ? `<button class="ghostbtn tiny" type="button" data-cancel-request="${escapeHtml(request.id)}">Отменить</button>` : ''}
+            ${request.status === 'pending' ? `<button class="ghostbtn tiny" type="button" data-cancel-request="${escapeHtml(request.id)}">${tr('cancel', 'Отменить')}</button>` : ''}
           </div>
         </div>
       `).join('')}
@@ -889,8 +910,8 @@ function bindFriendRows() {
   });
   document.querySelectorAll('[data-remove-friend]').forEach(button => {
     button.addEventListener('click', async () => {
-      const name = button.dataset.friendName || 'игрока';
-      const ok = confirm(`Убрать ${name} из друзей? Переписка сохранится, но писать можно будет только после новой дружбы.`);
+      const name = button.dataset.friendName || tr('friend_remove_fallback', 'игрока');
+      const ok = confirm(interpolate('remove_friend_confirm', { name }, 'Убрать {name} из друзей? Переписка сохранится, но писать можно будет только после новой дружбы.'));
       if (!ok) return;
       await removeFriend(button.dataset.removeFriend, name);
     });
@@ -908,7 +929,7 @@ async function loadMessages(friendId, { silent = false } = {}) {
   if (!registeredUser() || !friendId) return;
   const friend = (accountState.profile?.friends || []).find(item => item.id === friendId);
   if (!friend) return;
-  document.getElementById('message-thread-head').textContent = friend.name || friend.nickname || 'Друг';
+  document.getElementById('message-thread-head').textContent = friend.name || friend.nickname || tr('message_thread_fallback', 'Друг');
   toggleMessageForm(true);
   try {
     const data = supabaseAccountMode()
@@ -916,7 +937,7 @@ async function loadMessages(friendId, { silent = false } = {}) {
       : await accountApi(`/api/account/messages?${accountQuery()}&friendId=${encodeURIComponent(friendId)}`);
     renderMessages(data.messages || []);
   } catch (err) {
-    if (!silent) flash(err.message || 'Не удалось загрузить сообщения');
+    if (!silent) flash(err.message || tr('messages_load_failed', 'Не удалось загрузить сообщения'));
   }
 }
 
@@ -955,12 +976,12 @@ function renderMessages(messages) {
   const thread = document.getElementById('friend-message-thread');
   if (!thread) return;
   if (!messages.length) {
-    thread.innerHTML = '<div class="account-empty">Сообщений пока нет.</div>';
+    thread.innerHTML = `<div class="account-empty">${tr('messages_empty', 'Сообщений пока нет.')}</div>`;
     return;
   }
   thread.innerHTML = messages.map(message => `
     <div class="friend-message ${message.own ? 'own' : ''}">
-      <div class="friend-message-meta">${escapeHtml(message.own ? 'Вы' : message.fromName)} · ${formatDate(message.at)}</div>
+      <div class="friend-message-meta">${escapeHtml(message.own ? tr('you', 'Вы') : (message.fromName || tr('message_thread_fallback', 'Друг')))} · ${formatDate(message.at)}</div>
       <div class="friend-message-body">${escapeHtml(message.text)}</div>
     </div>
   `).join('');
@@ -978,7 +999,7 @@ async function saveAccountProfile() {
     if (email) user.email = email;
     NarduApp.setUser(user);
     NarduApp.paintUser();
-    flash('Никнейм сохранён локально');
+    flash(tr('nickname_saved_local', 'Никнейм сохранён локально'));
     return;
   }
   try {
@@ -992,9 +1013,9 @@ async function saveAccountProfile() {
     NarduApp.paintUser();
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     renderAccount();
-    flash('Аккаунт обновлён');
+    flash(tr('account_updated', 'Аккаунт обновлён'));
   } catch (err) {
-    flash(err.message || 'Не удалось сохранить аккаунт');
+    flash(err.message || tr('account_save_failed', 'Не удалось сохранить аккаунт'));
   }
 }
 
@@ -1003,7 +1024,7 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError) throw new Error(authError.message);
   const authUser = authData?.user;
-  if (!authUser?.id) throw new Error('Войдите в аккаунт заново.');
+  if (!authUser?.id) throw new Error(tr('account_login_again', 'Войдите в аккаунт заново.'));
   const { data, error } = await client
     .from('profiles')
     .update({
@@ -1015,7 +1036,7 @@ async function saveSupabaseAccountProfile({ nickname, email }) {
     .select('id,nickname,email,rating,tier,rating_eligible')
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) throw new Error('Профиль Supabase не найден.');
+  if (!data) throw new Error(tr('account_profile_not_found', 'Профиль Supabase не найден.'));
   const social = await loadSupabaseSocial(client, data.id);
   const games = await loadSupabaseGames(client, data.id);
   return {
@@ -1050,27 +1071,27 @@ async function changeAccountPassword() {
   const newPassword = document.getElementById('acc-new-password')?.value || '';
   const repeatPassword = document.getElementById('acc-repeat-password')?.value || '';
   if (!registeredUser()) {
-    flash('Смена пароля доступна после входа в зарегистрированный аккаунт');
+    flash(tr('password_registered_only', 'Смена пароля доступна после входа в зарегистрированный аккаунт'));
     return;
   }
   if (!supabaseAccountMode()) {
-    flash('Смена пароля на публичном сайте доступна для Supabase-аккаунта');
+    flash(tr('password_supabase_only', 'Смена пароля на публичном сайте доступна для Supabase-аккаунта'));
     return;
   }
   if (!currentPassword || !newPassword || !repeatPassword) {
-    flash('Заполните текущий пароль, новый пароль и повтор');
+    flash(tr('password_fill_all', 'Заполните текущий пароль, новый пароль и повтор'));
     return;
   }
   if (newPassword.length < 6) {
-    flash('Новый пароль должен быть не короче 6 символов');
+    flash(tr('password_too_short_new', 'Новый пароль должен быть не короче 6 символов'));
     return;
   }
   if (newPassword !== repeatPassword) {
-    flash('Новый пароль и повтор не совпадают');
+    flash(tr('password_mismatch_new', 'Новый пароль и повтор не совпадают'));
     return;
   }
   if (newPassword === currentPassword) {
-    flash('Новый пароль должен отличаться от текущего');
+    flash(tr('password_same', 'Новый пароль должен отличаться от текущего'));
     return;
   }
 
@@ -1081,18 +1102,18 @@ async function changeAccountPassword() {
     const { data: authData, error: authError } = await client.auth.getUser();
     if (authError) throw new Error(authError.message);
     const email = authData?.user?.email || currentUser().email || '';
-    if (!email) throw new Error('Email аккаунта не найден.');
+    if (!email) throw new Error(tr('account_email_not_found', 'Email аккаунта не найден.'));
 
     const { error: signInError } = await client.auth.signInWithPassword({ email, password: currentPassword });
-    if (signInError) throw new Error('Текущий пароль указан неверно.');
+    if (signInError) throw new Error(tr('current_password_wrong', 'Текущий пароль указан неверно.'));
 
     const { error: updateError } = await client.auth.updateUser({ password: newPassword });
-    if (updateError) throw new Error(updateError.message || 'Не удалось изменить пароль.');
+    if (updateError) throw new Error(updateError.message || tr('password_update_failed', 'Не удалось изменить пароль.'));
 
     clearPasswordFields();
-    flash('Пароль изменён');
+    flash(tr('password_changed', 'Пароль изменён'));
   } catch (err) {
-    flash(err.message || 'Не удалось изменить пароль');
+    flash(err.message || tr('password_update_failed', 'Не удалось изменить пароль.'));
   } finally {
     if (button) button.disabled = false;
   }
@@ -1118,13 +1139,13 @@ async function deleteSupabaseAccount() {
   const client = await supabaseAccountClient();
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError) throw new Error(authError.message);
-  if (!authData?.user?.id) throw new Error('Войдите в аккаунт заново.');
+  if (!authData?.user?.id) throw new Error(tr('account_login_again', 'Войдите в аккаунт заново.'));
   const { error } = await client.rpc('delete_current_user');
   if (error) {
     if (/function .*delete_current_user|Could not find the function/i.test(error.message || '')) {
-      throw new Error('Удаление аккаунта ещё не включено в Supabase. Выполните обновлённый supabase/schema.sql.');
+      throw new Error(tr('delete_account_schema_missing', 'Удаление аккаунта ещё не включено в Supabase. Выполните обновлённый supabase/schema.sql.'));
     }
-    throw new Error(error.message || 'Не удалось удалить аккаунт.');
+    throw new Error(error.message || tr('delete_account_failed', 'Не удалось удалить аккаунт.'));
   }
   await client.auth.signOut().catch(() => {});
 }
@@ -1146,7 +1167,7 @@ async function deleteAccountConfirmed() {
     localStorage.removeItem('narduh-user');
     location.href = 'login.html';
   } catch (err) {
-    flash(err.message || 'Не удалось удалить аккаунт');
+    flash(err.message || tr('delete_account_failed', 'Не удалось удалить аккаунт.'));
     closeDeleteAccountModal();
   } finally {
     if (button) button.disabled = false;
@@ -1165,7 +1186,7 @@ async function searchFriends(query) {
       : await accountApi(`/api/account/players?${accountQuery()}&q=${encodeURIComponent(query.trim())}`);
     box.innerHTML = (data.players || []).map(player => `
       <button type="button" ${player.relationship === 'friend' || player.relationship === 'outgoing' ? 'disabled' : `data-add-found-friend="${escapeHtml(player.nickname)}"`}>
-        ${escapeHtml(player.nickname)} <span>${escapeHtml(player.rating || '—')} · ${player.relationship === 'friend' ? 'уже в друзьях' : (player.relationship === 'outgoing' ? 'заявка отправлена' : (player.relationship === 'incoming' ? 'принять заявку' : ''))}</span>
+        ${escapeHtml(player.nickname)} <span>${escapeHtml(player.rating || '—')} · ${escapeHtml(relationText(player.relationship))}</span>
       </button>
     `).join('');
     box.querySelectorAll('[data-add-found-friend]').forEach(button => {
@@ -1174,6 +1195,13 @@ async function searchFriends(query) {
   } catch {
     box.innerHTML = '';
   }
+}
+
+function relationText(relationship) {
+  if (relationship === 'friend') return tr('relationship_friend', 'уже в друзьях');
+  if (relationship === 'outgoing') return tr('relationship_outgoing', 'заявка отправлена');
+  if (relationship === 'incoming') return tr('relationship_incoming', 'принять заявку');
+  return '';
 }
 
 async function searchSupabaseFriends(query) {
@@ -1214,7 +1242,7 @@ async function searchSupabaseFriends(query) {
 
 async function addFriend(rawValue) {
   if (!registeredUser()) {
-    flash('Друзья доступны только зарегистрированным игрокам');
+    flash(tr('friends_registered_only', 'Друзья доступны только зарегистрированным игрокам'));
     return;
   }
   const friend = String(rawValue || document.getElementById('friend-query').value || '').trim();
@@ -1231,9 +1259,9 @@ async function addFriend(rawValue) {
     document.getElementById('friend-query').value = '';
     document.getElementById('friend-search-results').innerHTML = '';
     renderAccount();
-    flash(data.message || (data.requestStatus === 'pending' ? 'Заявка отправлена' : 'Друг добавлен'));
+    flash(data.message || (data.requestStatus === 'pending' ? tr('friend_request_sent', 'Заявка отправлена') : tr('friend_added', 'Друг добавлен')));
   } catch (err) {
-    flash(err.message || 'Не удалось добавить друга');
+    flash(err.message || tr('friend_add_failed', 'Не удалось добавить друга'));
   }
 }
 
@@ -1248,7 +1276,7 @@ async function addSupabaseFriend(friend) {
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!found) throw new Error('Игрок не найден.');
+  if (!found) throw new Error(tr('player_not_found', 'Игрок не найден.'));
 
   const { data: existing, error: existingError } = await client
     .from('friend_requests')
@@ -1260,20 +1288,20 @@ async function addSupabaseFriend(friend) {
   if (existingError) throw new Error(existingError.message);
 
   if (existing?.status === 'accepted') {
-    return refreshSupabaseSocial(client, profile.id, { message: 'Игрок уже у вас в друзьях.' });
+    return refreshSupabaseSocial(client, profile.id, { message: tr('friend_already_added', 'Игрок уже у вас в друзьях.') });
   }
   if (existing?.status === 'pending' && existing.to_user_id === profile.id) {
     return respondSupabaseFriendRequest(existing.id, 'accept');
   }
   if (existing?.status === 'pending') {
-    return refreshSupabaseSocial(client, profile.id, { message: 'Заявка уже отправлена.', requestStatus: 'pending' });
+    return refreshSupabaseSocial(client, profile.id, { message: tr('friend_request_already_sent', 'Заявка уже отправлена.'), requestStatus: 'pending' });
   }
 
   const { error: insertError } = await client
     .from('friend_requests')
     .insert({ from_user_id: profile.id, to_user_id: found.id, status: 'pending' });
   if (insertError) throw new Error(insertError.message);
-  return refreshSupabaseSocial(client, profile.id, { message: 'Заявка отправлена.', requestStatus: 'pending' });
+  return refreshSupabaseSocial(client, profile.id, { message: tr('friend_request_sent', 'Заявка отправлена'), requestStatus: 'pending' });
 }
 
 async function respondFriendRequest(requestId, action) {
@@ -1287,9 +1315,9 @@ async function respondFriendRequest(requestId, action) {
       });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     renderAccount();
-    flash(data.message || (action === 'accept' ? 'Заявка принята' : 'Заявка отклонена'));
+    flash(data.message || (action === 'accept' ? tr('friend_request_accepted', 'Заявка принята') : tr('friend_request_declined', 'Заявка отклонена')));
   } catch (err) {
-    flash(err.message || 'Не удалось обработать заявку');
+    flash(err.message || tr('friend_request_process_failed', 'Не удалось обработать заявку'));
   }
 }
 
@@ -1303,7 +1331,7 @@ async function respondSupabaseFriendRequest(requestId, action) {
     .or(`from_user_id.eq.${profile.id},to_user_id.eq.${profile.id}`);
   if (error) throw new Error(error.message);
   return refreshSupabaseSocial(client, profile.id, {
-    message: status === 'accepted' ? 'Заявка принята.' : 'Заявка отклонена.',
+    message: status === 'accepted' ? tr('friend_request_accepted', 'Заявка принята') : tr('friend_request_declined', 'Заявка отклонена'),
   });
 }
 
@@ -1317,9 +1345,9 @@ async function cancelFriendRequest(requestId) {
       });
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     renderAccount();
-    flash(data.message || 'Заявка отменена');
+    flash(data.message || tr('friend_request_cancelled', 'Заявка отменена'));
   } catch (err) {
-    flash(err.message || 'Не удалось отменить заявку');
+    flash(err.message || tr('friend_request_cancel_failed', 'Не удалось отменить заявку'));
   }
 }
 
@@ -1331,10 +1359,10 @@ async function cancelSupabaseFriendRequest(requestId) {
     .eq('id', requestId)
     .eq('from_user_id', profile.id);
   if (error) throw new Error(error.message);
-  return refreshSupabaseSocial(client, profile.id, { message: 'Заявка отменена.' });
+  return refreshSupabaseSocial(client, profile.id, { message: tr('friend_request_cancelled', 'Заявка отменена') });
 }
 
-async function removeFriend(friendId, friendName = 'Друг') {
+async function removeFriend(friendId, friendName = tr('message_thread_fallback', 'Друг')) {
   if (!registeredUser() || !friendId) return;
   try {
     const data = supabaseAccountMode()
@@ -1345,9 +1373,9 @@ async function removeFriend(friendId, friendName = 'Друг') {
     accountState.profile = { ...data, games: mergeGames(data.games || []) };
     if (accountState.selectedFriendId === friendId) accountState.selectedFriendId = null;
     renderAccount();
-    flash(`${friendName} убран из друзей`);
+    flash(interpolate('friend_removed_named', { name: friendName }, '{name} убран из друзей'));
   } catch (err) {
-    flash(err.message || 'Не удалось убрать из друзей');
+    flash(err.message || tr('friend_remove_failed', 'Не удалось убрать из друзей'));
   }
 }
 
@@ -1359,7 +1387,7 @@ async function removeSupabaseFriend(friendId) {
     .or(`and(from_user_id.eq.${profile.id},to_user_id.eq.${friendId}),and(from_user_id.eq.${friendId},to_user_id.eq.${profile.id})`)
     .eq('status', 'accepted');
   if (error) throw new Error(error.message);
-  return refreshSupabaseSocial(client, profile.id, { message: 'Друг убран.' });
+  return refreshSupabaseSocial(client, profile.id, { message: tr('friend_removed', 'Друг убран.') });
 }
 
 async function sendFriendMessage() {
@@ -1380,7 +1408,7 @@ async function sendFriendMessage() {
     await loadMessages(friendId);
     await loadAccountProfile({ silent: true });
   } catch (err) {
-    flash(err.message || 'Не удалось отправить сообщение');
+    flash(err.message || tr('message_send_failed', 'Не удалось отправить сообщение'));
   }
 }
 
@@ -1540,6 +1568,8 @@ navLinks.forEach(a => a.addEventListener('click', () => {
 }));
 window.addEventListener('hashchange', () => setActiveSettingsNav());
 setActiveSettingsNav();
+
+window.addEventListener('nardu:langchange', repaintAccountLanguage);
 
 accountState.messageTimer = setInterval(() => {
   if (accountState.selectedFriendId) loadMessages(accountState.selectedFriendId, { silent: true });
