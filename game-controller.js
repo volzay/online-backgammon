@@ -2087,15 +2087,18 @@ window.NarduController = (function () {
   function maybeScheduleAutoEndTurn() {
     if (autoEndTimer) clearTimeout(autoEndTimer);
     autoEndTimer = null;
-    if (state.phase !== 'move' || state.winner || !isMyTurn()) return;
+    if (state.phase !== 'move' || state.winner) return;
+    const canFinalizeTurn = isMyTurn() || (mode === 'remote' && !isMyTurn());
+    if (!canFinalizeTurn) return;
     if (state.dice.length > 0 && NarduGame.hasAnyMoves(state)) return;
 
     autoEndTimer = schedule(() => {
       autoEndTimer = null;
-      if (state.phase !== 'move' || state.winner || !isMyTurn()) return;
+      const canFinalizeNow = isMyTurn() || (mode === 'remote' && !isMyTurn());
+      if (state.phase !== 'move' || state.winner || !canFinalizeNow) return;
       if (state.dice.length > 0 && NarduGame.hasAnyMoves(state)) return;
       endTurnUser();
-    }, 1200);
+    }, isMyTurn() ? 1200 : 1800);
   }
 
   function pushUndoSnapshot() {
