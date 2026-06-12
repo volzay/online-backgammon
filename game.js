@@ -682,6 +682,21 @@ window.NarduGame = (function () {
     return score;
   }
 
+  function longHeadCorridorScore(state, color) {
+    const head = headPoint(color, state);
+    const headCheckers = pointCount(state, head);
+    if (headCheckers <= 3) return 0;
+    return pathFor(color, state).slice(1, 9).reduce((score, point, index) => {
+      const data = state.points[point];
+      const weight = 10 - index;
+      if (!data) return score - weight * 5;
+      if (data.color !== color) return score - weight * 18;
+      const made = data.count >= 2;
+      const tooTall = Math.max(0, data.count - 4);
+      return score + weight * (made ? 18 : 7) - tooTall * weight * 2;
+    }, 0);
+  }
+
   function shortMadePointCount(state, color, rangeStart = 0, rangeEnd = 23) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color || data.count < 2) return total;
@@ -837,6 +852,8 @@ window.NarduGame = (function () {
     let enterHomeMoves = 0;
     let outsideMovePips = 0;
     let homeInternalMoves = 0;
+    let headCorridorExits = 0;
+    let headCorridorMoves = 0;
 
     sequence.forEach(move => {
       const fromHead = move.from === head;
@@ -853,6 +870,10 @@ window.NarduGame = (function () {
         outsideMovePips += Math.max(0, Math.min(18, toPos) - fromPos);
         if (toPos >= 18) enterHomeMoves += 1;
       }
+      if (fromPos >= 1 && fromPos <= 8) {
+        if (toPos > 8) headCorridorExits += 1 + Math.max(0, toPos - 8) / 4;
+        else headCorridorMoves += 1;
+      }
       if (fromPos >= 18 && toPos >= 18 && !move.bearOff) {
         homeInternalMoves += 1 + Math.max(0, toPos - fromPos) / 6;
       }
@@ -866,6 +887,8 @@ window.NarduGame = (function () {
       enterHomeMoves,
       outsideMovePips,
       homeInternalMoves,
+      headCorridorExits,
+      headCorridorMoves,
     };
   }
 
@@ -893,7 +916,7 @@ window.NarduGame = (function () {
     score += offGain * 220000;
     score += startReduction * 46000;
     score -= afterStart * 22000;
-    score += homeGain * 5200;
+    score += homeGain * (startReduction > 0 || offGain > 0 ? 4200 : -6800);
     score += safeFromKoks ? 70000 : 0;
     score -= pipsFor(next, color) * 35;
     return score;
@@ -926,7 +949,7 @@ window.NarduGame = (function () {
     score -= afterOutside * 19000;
     score += outsideProgress * 28000;
     score -= outsideHomePips(next, color) * 3600;
-    score += homeGain * 9500;
+    score += homeGain * (outsideReduction > 0 || offGain > 0 ? 8200 : -7200);
     score += pipsGain * 1700;
     score += riskReduction * 1800;
     score += homeReady(next, color) ? 90000 : 0;
@@ -975,6 +998,7 @@ window.NarduGame = (function () {
     const fenceBefore = opponentLongFenceThreat(state, color);
     const escapeOptionsBefore = longHeadEscapeOptions(state, color);
     const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
+    const corridorBefore = longHeadCorridorScore(state, color);
     let score = 0;
     sequence.forEach(move => {
       const target = move.bearOff ? null : next.points[move.to];
@@ -1021,10 +1045,13 @@ window.NarduGame = (function () {
     const fenceAfter = opponentLongFenceThreat(next, color);
     const escapeOptionsAfter = longHeadEscapeOptions(next, color);
     const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
+    const corridorAfter = longHeadCorridorScore(next, color);
+    const headLocked = headBefore > 5 && (state.off[color] || 0) === 0;
+    const criticalHeadLocked = headBefore > 8 && (state.off[color] || 0) === 0;
 
     score += outsideReduction * 780;
     score += outsidePipsGain * 42;
-    score += features.enterHomeMoves * (headBefore > 7 ? 80 : (headBefore > 4 ? 260 : 980));
+    score += features.enterHomeMoves * (headBefore > 7 ? -420 : (headBefore > 4 ? 60 : 980));
     score += features.outsideMovePips * 58;
     score += madeOutsideGain * 145;
     score += features.coveredHeadLandings * (headBefore > 7 ? 920 : 260);
@@ -1034,14 +1061,20 @@ window.NarduGame = (function () {
     score += (bridgeAfter - bridgeBefore) * (headBefore > 5 ? 1350 : 260);
     score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
     score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
+    score += (corridorAfter - corridorBefore) * (headBefore > 5 ? 1650 : 220);
     if (headBefore > 5) {
       score += bridgeAfter * 95;
       score += escapeOptionsAfter * 180;
       score += landingCoverageAfter * 42;
+      score += corridorAfter * 120;
     }
     score -= Math.max(0, 4 - escapeOptionsAfter) * Math.max(0, headBefore - 4) * 420;
     score -= Math.max(0, fenceAfter - fenceBefore) * (headBefore > 4 ? 240 : 90);
     score -= fenceAfter * Math.max(0, headBefore - 5) * 18;
+    if (headLocked) {
+      score -= features.headCorridorExits * (criticalHeadLocked ? 8200 : 3600);
+      score += features.headCorridorMoves * (criticalHeadLocked ? 950 : 420);
+    }
     if (canPlayHead && features.headMoves === 0 && headBefore > 3) {
       score -= 5200 + headUrgency * 1350 + startUrgency * 720 + gammonUrgency * 520;
     }
@@ -1050,6 +1083,12 @@ window.NarduGame = (function () {
     }
     if (headBefore > 5 && bridgeAfter <= bridgeBefore) {
       score -= features.enterHomeMoves * Math.max(1, headBefore - 5) * 720;
+    }
+    if (criticalHeadLocked && corridorAfter < corridorBefore) {
+      score -= (corridorBefore - corridorAfter) * 4200;
+    }
+    if (criticalHeadLocked && features.headMoves === 0 && features.headCorridorExits > 0) {
+      score -= 18000 + features.headCorridorExits * 9000;
     }
     score += startReduction * (koksUrgency > 0 ? 220 + koksUrgency * 68 : 55);
     if (outsideAfter > 0) {
