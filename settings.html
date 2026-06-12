@@ -637,6 +637,27 @@ function resultTypeText(type) {
   return tr('normal_result', 'Обычная');
 }
 
+function localizedOpponentName(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  const knownNames = {
+    'бот лёгкий': 'bot_easy',
+    'бот легкий': 'bot_easy',
+    'bot easy': 'bot_easy',
+    'easy bot': 'bot_easy',
+    'бот средний': 'bot_medium',
+    'bot medium': 'bot_medium',
+    'medium bot': 'bot_medium',
+    'бот сложный': 'bot_hard',
+    'bot hard': 'bot_hard',
+    'hard bot': 'bot_hard',
+    'соперник': 'opponent',
+    'opponent': 'opponent',
+    'player': 'opponent',
+  };
+  const key = knownNames[normalized];
+  return key ? tr(key, name || '') : (name || tr('opponent', 'Соперник'));
+}
+
 async function loadSupabaseGames(client, userId) {
   const { data, error } = await client
     .from('rating_events')
@@ -785,7 +806,7 @@ function renderGames(games) {
     return `
       <tr>
         <td>${formatDate(game.ts || game.at)}</td>
-        <td>${escapeHtml(game.opponent || tr('opponent', 'Соперник'))}</td>
+        <td>${escapeHtml(localizedOpponentName(game.opponent))}</td>
         <td><span class="result-pill ${game.didWin ? 'win' : 'loss'}">${resultText(game)}</span>${score}</td>
         <td>${resultTypeText(game.resultType)}</td>
         <td class="mono">${escapeHtml(rating)}</td>
