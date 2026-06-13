@@ -572,10 +572,17 @@
   justify-self: start;
 }
 
-.state-pill {
+.state-pill,
+.state-pill.online {
   border-color: oklch(0.74 0.15 155 / 0.30);
   color: var(--green);
   background: oklch(0.74 0.15 155 / 0.08);
+}
+
+.state-pill.offline {
+  border-color: oklch(0.62 0.04 250 / 0.32);
+  color: var(--ink-3);
+  background: oklch(0.40 0.02 250 / 0.18);
 }
 
 .state-pill.banned {

@@ -456,6 +456,34 @@ $$;
 revoke all on function public.admin_set_user_password(uuid, text) from public;
 grant execute on function public.admin_set_user_password(uuid, text) to authenticated;
 
+create or replace function public.admin_player_stats()
+returns table (
+  user_id uuid,
+  games_played integer,
+  games_won integer
+)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  return query
+  select
+    r.user_id,
+    count(*)::integer as games_played,
+    count(*) filter (where r.did_win)::integer as games_won
+  from public.rating_events r
+  group by r.user_id;
+end;
+$$;
+
+revoke all on function public.admin_player_stats() from public;
+grant execute on function public.admin_player_stats() to authenticated;
+
 create or replace function public.admin_delete_profile(target_profile_id uuid)
 returns void
 language plpgsql

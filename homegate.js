@@ -231,8 +231,18 @@ function winnerText(summary) {
   return summary.winnerName ? `${summary.winnerName} (${colorLabel(summary.winner)})` : colorLabel(summary.winner);
 }
 
+function isRecentActivity(value, maxAgeMs = 2 * 60 * 1000) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && Date.now() - time <= maxAgeMs;
+}
+
 function userStatusText(user) {
-  return user.banned ? "Бан" : "Активен";
+  return user.online ? "В сети" : "Не в сети";
+}
+
+function userStatusClass(user) {
+  return user.online ? "online" : "offline";
 }
 
 function passwordStateText(user) {
@@ -674,7 +684,7 @@ function roomsDashboardHtml() {
 }
 
 function playerRow(user) {
-  const statusClass = user.banned ? "banned" : "active";
+  const statusClass = userStatusClass(user);
   const canManageSupabaseUser = supabaseAdminActionsEnabled();
   const canManageServerUser = !state.readonlyAdmin;
   const canManageUser = canManageServerUser || canManageSupabaseUser;
@@ -700,8 +710,8 @@ function playerRow(user) {
         ${passwordAction}
       </div>
       <div>${fmtDate(user.createdAt)}</div>
-      <div class="metric-number">${user.activeRooms || 0}</div>
       <div class="metric-number">${user.gamesPlayed || 0}</div>
+      <div class="metric-number">${user.gamesWon || 0}</div>
       <div class="metric-number">${user.rating ?? "-"}</div>
       <div class="status-cell">
         <span class="state-pill ${statusClass}" tabindex="0">${userStatusText(user)}</span>
@@ -728,8 +738,8 @@ function playersDashboardHtml() {
             <div>IP</div>
             <div>Пароль</div>
             <div>Первый вход</div>
-            <div>Активные комнаты</div>
-            <div>Архив</div>
+            <div>Сыгранные партии</div>
+            <div>Победы</div>
             <div>Рейтинг</div>
             <div>Статус</div>
             <div>Действия</div>
@@ -825,10 +835,30 @@ async function refresh() {
         .order("updated_at", { ascending: false });
       if (usersError) throw usersError;
       const activeRoomCounts = new Map();
+      const onlineUserIds = new Set();
       state.active.forEach(room => {
         (room.players || []).forEach(player => {
           if (!player.id) return;
           activeRoomCounts.set(player.id, (activeRoomCounts.get(player.id) || 0) + 1);
+        });
+      });
+      (rooms || []).forEach(room => {
+        const presence = room.presence || {};
+        [
+          [room.host_user_id, presence.white],
+          [room.guest_user_id, presence.dark],
+        ].forEach(([userId, item]) => {
+          if (!userId) return;
+          if (isRecentActivity(item?.lastSeen) && !item?.disconnectedAt) onlineUserIds.add(userId);
+        });
+      });
+      const statByUser = new Map();
+      const { data: stats, error: statsError } = await client.rpc("admin_player_stats");
+      if (statsError && !/function .*admin_player_stats/i.test(statsError.message || "")) throw statsError;
+      (stats || []).forEach(item => {
+        statByUser.set(item.user_id, {
+          gamesPlayed: Number(item.games_played || 0),
+          gamesWon: Number(item.games_won || 0),
         });
       });
       state.users = (users || []).map(user => ({
@@ -839,8 +869,10 @@ async function refresh() {
         passwordState: "supabase",
         createdAt: user.created_at,
         activeRooms: activeRoomCounts.get(user.id) || 0,
-        gamesPlayed: 0,
+        gamesPlayed: statByUser.get(user.id)?.gamesPlayed || 0,
+        gamesWon: statByUser.get(user.id)?.gamesWon || 0,
         rating: user.rating,
+        online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at),
         banned: Boolean(user.banned_at),
         banReason: user.banned_reason || "",
         banHistory: [],
@@ -862,7 +894,10 @@ async function refresh() {
   state.retentionHours = sessionsData.retentionHours || state.retentionHours;
   try {
     const usersData = await api("/api/admin/users");
-    state.users = usersData.users || [];
+    state.users = (usersData.users || []).map(user => ({
+      ...user,
+      online: isRecentActivity(user.lastSeenAt) || Number(user.activeRooms || 0) > 0,
+    }));
     state.usersError = "";
   } catch (error) {
     state.users = [];
