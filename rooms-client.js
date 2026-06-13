@@ -141,10 +141,13 @@
 
     let { data: profile, error: profileError } = await client
       .from("profiles")
-      .select("id,nickname,email,rating,tier,rating_eligible")
+      .select("id,nickname,email,rating,tier,rating_eligible,banned_at,banned_reason")
       .eq("id", authUser.id)
       .maybeSingle();
     if (profileError) throw supabaseError(profileError, "Could not load profile.");
+    if (profile?.banned_at) {
+      throw roomError(profile.banned_reason || "Аккаунт заблокирован администратором.", 403);
+    }
 
     const localUser = window.NarduApp?.getUser?.() || {};
     const metadata = authUser.user_metadata || {};

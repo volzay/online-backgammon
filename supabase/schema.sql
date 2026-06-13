@@ -336,6 +336,187 @@ $$;
 revoke all on function public.delete_current_user() from public;
 grant execute on function public.delete_current_user() to authenticated;
 
+create or replace function public.admin_email_whitelist()
+returns text[]
+language sql
+immutable
+as $$
+  select array['volzay@yandex.ru', 'openthedoorcap@gmail.com']::text[]
+$$;
+
+revoke all on function public.admin_email_whitelist() from public;
+grant execute on function public.admin_email_whitelist() to authenticated;
+
+create or replace function public.is_admin_user()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = any(public.admin_email_whitelist())
+$$;
+
+revoke all on function public.is_admin_user() from public;
+grant execute on function public.is_admin_user() to authenticated;
+
+create or replace function public.admin_set_profile_ban(
+  target_profile_id uuid,
+  should_ban boolean,
+  ban_reason text default null
+)
+returns table (
+  id uuid,
+  banned_at timestamptz,
+  banned_reason text
+)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  affected_rows integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  if target_profile_id is null then
+    raise exception 'Игрок не найден.';
+  end if;
+
+  if should_ban and target_profile_id = auth.uid() then
+    raise exception 'Администратор не может заблокировать свой аккаунт.';
+  end if;
+
+  return query
+  update public.profiles p
+  set
+    banned_at = case when should_ban then now() else null end,
+    banned_reason = case when should_ban then nullif(trim(coalesce(ban_reason, '')), '') else null end,
+    updated_at = now()
+  where p.id = target_profile_id
+  returning p.id, p.banned_at, p.banned_reason;
+
+  get diagnostics affected_rows = row_count;
+  if affected_rows = 0 then
+    raise exception 'Игрок не найден.';
+  end if;
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (
+    auth.uid(),
+    case when should_ban then 'ban-user' else 'unban-user' end,
+    jsonb_build_object('targetUserId', target_profile_id, 'reason', nullif(trim(coalesce(ban_reason, '')), ''))
+  );
+end;
+$$;
+
+revoke all on function public.admin_set_profile_ban(uuid, boolean, text) from public;
+grant execute on function public.admin_set_profile_ban(uuid, boolean, text) to authenticated;
+
+create or replace function public.admin_set_user_password(target_profile_id uuid, new_password text)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_password text := coalesce(new_password, '');
+  affected_rows integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  if char_length(clean_password) < 6 then
+    raise exception 'Пароль должен быть не короче 6 символов.';
+  end if;
+
+  update auth.users u
+  set
+    encrypted_password = extensions.crypt(clean_password, extensions.gen_salt('bf')),
+    updated_at = now(),
+    recovery_token = '',
+    confirmation_token = '',
+    email_change = '',
+    email_change_token_new = ''
+  where u.id = target_profile_id;
+
+  get diagnostics affected_rows = row_count;
+  if affected_rows = 0 then
+    raise exception 'Игрок не найден.';
+  end if;
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (auth.uid(), 'set-user-password', jsonb_build_object('targetUserId', target_profile_id));
+end;
+$$;
+
+revoke all on function public.admin_set_user_password(uuid, text) from public;
+grant execute on function public.admin_set_user_password(uuid, text) to authenticated;
+
+create or replace function public.admin_delete_profile(target_profile_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  target_name text := '';
+  affected_rows integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  if target_profile_id is null then
+    raise exception 'Игрок не найден.';
+  end if;
+
+  if target_profile_id = auth.uid() then
+    raise exception 'Администратор не может удалить свой аккаунт.';
+  end if;
+
+  select p.nickname into target_name
+  from public.profiles p
+  where p.id = target_profile_id;
+
+  update public.rooms r
+  set
+    status = 'closed',
+    closed_reason = coalesce(r.closed_reason, 'Игрок удалён администратором.'),
+    archived_at = coalesce(r.archived_at, now()),
+    updated_at = now()
+  where (r.host_user_id = target_profile_id or r.guest_user_id = target_profile_id)
+    and r.status <> 'closed';
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (
+    auth.uid(),
+    'delete-user',
+    jsonb_build_object('targetUserId', target_profile_id, 'targetName', coalesce(target_name, ''))
+  );
+
+  delete from auth.users u
+  where u.id = target_profile_id;
+
+  get diagnostics affected_rows = row_count;
+  if affected_rows = 0 then
+    delete from public.profiles p
+    where p.id = target_profile_id;
+    get diagnostics affected_rows = row_count;
+  end if;
+
+  if affected_rows = 0 then
+    raise exception 'Игрок не найден.';
+  end if;
+end;
+$$;
+
+revoke all on function public.admin_delete_profile(uuid) from public;
+grant execute on function public.admin_delete_profile(uuid) to authenticated;
+
 create or replace function public.register_nickname_user(p_nickname text, p_password text)
 returns table (
   id uuid,

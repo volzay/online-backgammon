@@ -54,6 +54,10 @@ function isAllowedSupabaseAdminEmail(email) {
   return adminEmails().has(String(email || "").trim().toLowerCase());
 }
 
+function supabaseAdminActionsEnabled() {
+  return state.backend === "supabase" && Boolean(state.admin?.email || state.admin?.login);
+}
+
 function isInvalidSupabaseCredentials(error) {
   return /invalid login credentials/i.test(String(error?.message || ""));
 }
@@ -573,7 +577,7 @@ function detailHtml() {
 function loginView() {
   const supabaseMode = state.backend === "supabase" || supabaseAdminMode();
   const description = supabaseMode
-    ? "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и игроков."
+    ? "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и управление игроками."
     : "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.";
   const allowedEmails = adminEmailsText();
   const supabaseHelp = allowedEmails
@@ -593,7 +597,7 @@ function loginView() {
         <h1>Вход в панель</h1>
         <p>${description}</p>
         ${supabaseMode ? `<p class="admin-hint">${escapeHtml(supabaseHelp)}</p>` : ""}
-        ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает без серверного API: доступны просмотр Supabase-комнат и профилей, серверные действия отключены.</p>` : ""}
+        ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает через Supabase: комнаты доступны для просмотра, действия с игроками выполняются защищёнными RPC-функциями.</p>` : ""}
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
         <form data-form="admin-login">
           ${fields}
@@ -671,15 +675,18 @@ function roomsDashboardHtml() {
 
 function playerRow(user) {
   const statusClass = user.banned ? "banned" : "active";
-  const passwordAction = state.readonlyAdmin
-    ? `<span class="readonly-note">только просмотр</span>`
-    : `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">Сменить</button>`;
-  const userActions = state.readonlyAdmin
-    ? `<span class="readonly-note">Серверные действия отключены</span>`
-    : `${user.banned
+  const canManageSupabaseUser = supabaseAdminActionsEnabled();
+  const canManageServerUser = !state.readonlyAdmin;
+  const canManageUser = canManageServerUser || canManageSupabaseUser;
+  const passwordAction = canManageUser
+    ? `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">Сменить</button>`
+    : `<span class="readonly-note">только просмотр</span>`;
+  const userActions = canManageUser
+    ? `${user.banned
         ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">Разбанить</button>`
         : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">Забанить</button>`}
-        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">Удалить</button>`;
+        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">Удалить</button>`
+    : `<span class="readonly-note">Действия недоступны</span>`;
   return `
     <div class="player-row">
       <div class="player-main">
@@ -919,68 +926,115 @@ function userById(id) {
 }
 
 async function changeUserPassword(userId) {
-  if (state.readonlyAdmin) {
-    state.notice = "Смена пароля игрока требует серверной Supabase Edge Function.";
+  const user = userById(userId);
+  if (!user) return;
+  const password = window.prompt(`Новый пароль для ${user.name}`, "");
+  if (password === null) return;
+  const cleanPassword = password.trim();
+  if (cleanPassword.length < 6) {
+    state.notice = "Пароль должен быть не короче 6 символов.";
     renderPreservingScroll();
     return;
   }
-  const user = userById(userId);
-  if (!user) return;
-  const password = window.prompt(`Новый серверный пароль для ${user.name}`, "");
-  if (password === null) return;
-  if (password.trim().length < 4) {
-    state.notice = "Пароль должен быть не короче 4 символов.";
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_set_user_password", {
+      target_profile_id: userId,
+      new_password: cleanPassword,
+    });
+    if (error) throw error;
+    state.notice = `Пароль игрока ${user.name} изменён.`;
+    await refresh();
+    return;
+  }
+  if (state.readonlyAdmin) {
+    state.notice = "Смена пароля игрока недоступна в текущем режиме.";
     renderPreservingScroll();
     return;
   }
   await api(`/api/admin/users/${encodeURIComponent(userId)}/password`, {
     method: "POST",
-    body: { password },
+    body: { password: cleanPassword },
   });
   state.notice = `Пароль игрока ${user.name} изменён в админской базе.`;
   await refresh();
 }
 
 async function banPlayer(userId) {
-  if (state.readonlyAdmin) {
-    state.notice = "Бан игрока требует серверной Supabase Edge Function.";
-    renderPreservingScroll();
-    return;
-  }
   const user = userById(userId);
   if (!user) return;
   const reason = window.prompt(`Причина бана для ${user.name}`, "");
   if (reason === null) return;
+  const cleanReason = reason.trim();
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_set_profile_ban", {
+      target_profile_id: userId,
+      should_ban: true,
+      ban_reason: cleanReason,
+    });
+    if (error) throw error;
+    state.notice = `Игрок ${user.name} забанен.`;
+    await refresh();
+    return;
+  }
+  if (state.readonlyAdmin) {
+    state.notice = "Бан игрока недоступен в текущем режиме.";
+    renderPreservingScroll();
+    return;
+  }
   await api(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
     method: "POST",
-    body: { reason: reason.trim() },
+    body: { reason: cleanReason },
   });
   state.notice = `Игрок ${user.name} забанен.`;
   await refresh();
 }
 
 async function unbanPlayer(userId) {
+  const user = userById(userId);
+  if (!user) return;
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_set_profile_ban", {
+      target_profile_id: userId,
+      should_ban: false,
+      ban_reason: "",
+    });
+    if (error) throw error;
+    state.notice = `Игрок ${user.name} разбанен.`;
+    await refresh();
+    return;
+  }
   if (state.readonlyAdmin) {
-    state.notice = "Разбан игрока требует серверной Supabase Edge Function.";
+    state.notice = "Разбан игрока недоступен в текущем режиме.";
     renderPreservingScroll();
     return;
   }
-  const user = userById(userId);
-  if (!user) return;
   await api(`/api/admin/users/${encodeURIComponent(userId)}/unban`, { method: "POST" });
   state.notice = `Игрок ${user.name} разбанен.`;
   await refresh();
 }
 
 async function deletePlayer(userId) {
-  if (state.readonlyAdmin) {
-    state.notice = "Удаление игрока требует серверной Supabase Edge Function.";
-    renderPreservingScroll();
-    return;
-  }
   const user = userById(userId);
   if (!user) return;
   if (!window.confirm(`Удалить игрока ${user.name}? Активные комнаты игрока будут закрыты.`)) return;
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_delete_profile", {
+      target_profile_id: userId,
+    });
+    if (error) throw error;
+    state.notice = `Игрок ${user.name} удалён.`;
+    await refresh();
+    return;
+  }
+  if (state.readonlyAdmin) {
+    state.notice = "Удаление игрока недоступно в текущем режиме.";
+    renderPreservingScroll();
+    return;
+  }
   await api(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
   state.notice = `Игрок ${user.name} удалён.`;
   await refresh();
