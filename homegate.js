@@ -46,10 +46,10 @@ const adminDict = {
     sign_in: "Войти",
     room_monitor: "Экран монитора",
     room_detail: "Просмотр комнаты",
-    active_rooms: "Активные комнаты",
+    room_archive: "Архив комнат",
     archive: "Архив",
     no_watched_rooms: "Выберите комнаты кнопкой “На монитор”.",
-    no_active_rooms: "Активных комнат нет.",
+    no_active_rooms: "Архив комнат пуст.",
     no_archive: "Архив пока пуст.",
     players_seen: "Игроки, замеченные сервером",
     nickname: "Никнейм",
@@ -67,6 +67,9 @@ const adminDict = {
     ban: "Забанить",
     unban: "Разбанить",
     delete: "Удалить",
+    delete_room: "Удалить",
+    delete_room_confirm: "Удалить комнату {code} безвозвратно?",
+    room_deleted: "Комната {code} удалена.",
     open: "Открыть",
     watch: "На монитор",
     unwatch: "Убрать",
@@ -158,10 +161,10 @@ const adminDict = {
     sign_in: "Sign in",
     room_monitor: "Monitor screen",
     room_detail: "Room preview",
-    active_rooms: "Active rooms",
+    room_archive: "Room archive",
     archive: "Archive",
     no_watched_rooms: "Choose rooms with the “Monitor” button.",
-    no_active_rooms: "No active rooms.",
+    no_active_rooms: "Room archive is empty.",
     no_archive: "Archive is empty.",
     players_seen: "Players seen by the server",
     nickname: "Nickname",
@@ -179,6 +182,9 @@ const adminDict = {
     ban: "Ban",
     unban: "Unban",
     delete: "Delete",
+    delete_room: "Delete",
+    delete_room_confirm: "Delete room {code} permanently?",
+    room_deleted: "Room {code} deleted.",
     open: "Open",
     watch: "Monitor",
     unwatch: "Remove",
@@ -254,6 +260,12 @@ const adminDict = {
 
 function t(key) {
   return adminDict[state.lang]?.[key] || adminDict.ru[key] || key;
+}
+
+function tf(key, params = {}) {
+  return Object.entries(params).reduce((text, [name, value]) => (
+    text.replaceAll(`{${name}}`, String(value ?? ""))
+  ), t(key));
 }
 
 function applyAdminTheme(theme) {
@@ -670,6 +682,7 @@ function roomCard(room) {
   const key = roomKey(room);
   const selected = state.watch.includes(key);
   const canClose = room.source === "active" && !state.readonlyAdmin;
+  const canDelete = state.backend === "supabase" || !state.readonlyAdmin;
   return `
     <article class="room-card ${selected ? "selected" : ""}">
       <div class="room-head">
@@ -693,6 +706,7 @@ function roomCard(room) {
         <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">${selected ? t("unwatch") : t("watch")}</button>
         ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">${t("close_room")}</button>` : ""}
+        ${canDelete ? `<button class="btn ghost danger small" data-admin-delete-room="${escapeHtml(key)}">${t("delete_room")}</button>` : ""}
       </div>
     </article>`;
 }
@@ -708,6 +722,7 @@ function monitorCard(key) {
       </article>`;
   }
   const canClose = room.source === "active" && !state.readonlyAdmin;
+  const canDelete = state.backend === "supabase" || !state.readonlyAdmin;
   return `
     <article class="room-card monitor-card selected">
       <div class="room-head">
@@ -728,6 +743,7 @@ function monitorCard(key) {
         <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">${t("unwatch")}</button>
         ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">${t("close_room")}</button>` : ""}
+        ${canDelete ? `<button class="btn ghost danger small" data-admin-delete-room="${escapeHtml(key)}">${t("delete_room")}</button>` : ""}
       </div>
     </article>`;
 }
@@ -839,6 +855,7 @@ function detailHtml() {
   const { summary, session } = state.detail;
   const game = session.game || {};
   const detailKey = roomKey(summary);
+  const canDelete = state.backend === "supabase" || !state.readonlyAdmin;
   return `
     <div class="detail-room">
       <div class="detail-section">
@@ -851,6 +868,7 @@ function detailHtml() {
         <div class="detail-row"><span>${t("winner")}</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
         ${summary.adminCloseReason ? `<div class="detail-row"><span>${t("close_reason")}</span><strong>${escapeHtml(reasonText(summary.adminCloseReason))}</strong></div>` : ""}
         ${summary.source === "active" && !state.readonlyAdmin ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">${t("close_room")}</button>` : ""}
+        ${canDelete ? `<button class="btn ghost danger small detail-close" type="button" data-admin-delete-room="${escapeHtml(detailKey)}">${t("delete_room")}</button>` : ""}
       </div>
       <div class="detail-section">
         <div class="detail-section-head">
@@ -947,7 +965,7 @@ function roomsDashboardHtml() {
     <section class="admin-grid">
       <div class="admin-column">
         <div class="admin-panel">
-          <h2>${t("active_rooms")}</h2>
+          <h2>${t("room_archive")}</h2>
           <div class="room-list">${state.active.map(roomCard).join("") || `<p class="admin-empty">${t("no_active_rooms")}</p>`}</div>
         </div>
         <div class="admin-panel">
@@ -1244,6 +1262,32 @@ async function closeRoom(key) {
   if (response.archive?.id) await openRoom(`archive:${response.archive.id}`);
 }
 
+async function deleteRoomPermanently(key) {
+  const room = roomByKey(key);
+  if (!room) return;
+  if (!window.confirm(tf("delete_room_confirm", { code: room.code }))) return;
+  if (state.backend === "supabase") {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_delete_room", {
+      target_room_id: room.id,
+    });
+    if (error) throw error;
+  } else {
+    if (state.readonlyAdmin) {
+      state.notice = "Удаление комнаты недоступно в текущем режиме.";
+      renderPreservingScroll();
+      return;
+    }
+    const id = room.source === "archive" ? room.archiveId : room.id;
+    await api(`/api/admin/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+  state.watch = state.watch.filter(item => item !== key);
+  if (state.detailKey === key) clearRoomDetail();
+  saveWatch();
+  state.notice = tf("room_deleted", { code: room.code });
+  await refresh();
+}
+
 function userById(id) {
   return state.users.find(user => user.id === id) || null;
 }
@@ -1478,6 +1522,7 @@ document.addEventListener("click", async event => {
     }
     if (button.dataset.open) await openRoom(button.dataset.open);
     if (button.dataset.adminClose) await closeRoom(button.dataset.adminClose);
+    if (button.dataset.adminDeleteRoom) await deleteRoomPermanently(button.dataset.adminDeleteRoom);
     if (button.dataset.userPassword) await changeUserPassword(button.dataset.userPassword);
     if (button.dataset.userBan) await banPlayer(button.dataset.userBan);
     if (button.dataset.userUnban) await unbanPlayer(button.dataset.userUnban);

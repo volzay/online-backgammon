@@ -484,6 +484,48 @@ $$;
 revoke all on function public.admin_player_stats() from public;
 grant execute on function public.admin_player_stats() to authenticated;
 
+create or replace function public.admin_delete_room(target_room_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  target_code text := '';
+  affected_rows integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  if target_room_id is null then
+    raise exception 'Комната не найдена.';
+  end if;
+
+  select r.code into target_code
+  from public.rooms r
+  where r.id = target_room_id;
+
+  delete from public.rooms r
+  where r.id = target_room_id;
+
+  get diagnostics affected_rows = row_count;
+  if affected_rows = 0 then
+    raise exception 'Комната не найдена.';
+  end if;
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (
+    auth.uid(),
+    'delete-room',
+    jsonb_build_object('roomId', target_room_id, 'code', coalesce(target_code, ''))
+  );
+end;
+$$;
+
+revoke all on function public.admin_delete_room(uuid) from public;
+grant execute on function public.admin_delete_room(uuid) to authenticated;
+
 create or replace function public.admin_delete_profile(target_profile_id uuid)
 returns void
 language plpgsql

@@ -1293,6 +1293,21 @@ function findAdminRoom(value) {
   return archive ? { session: archive.session, room: null, archive } : null;
 }
 
+function deleteAdminRoom(value) {
+  const key = decodeURIComponent(String(value || ""));
+  const activeIndex = rooms.findIndex(room => room.id === key || room.code === key.toUpperCase());
+  if (activeIndex !== -1) {
+    const [room] = rooms.splice(activeIndex, 1);
+    return { code: room.code, sessionId: room.id, source: "active" };
+  }
+  const archiveIndex = adminState.archive.findIndex(item => item.id === key || item.sessionId === key || item.code === key.toUpperCase());
+  if (archiveIndex !== -1) {
+    const [archive] = adminState.archive.splice(archiveIndex, 1);
+    return { code: archive.code || archive.session?.code || key, sessionId: archive.sessionId || archive.session?.id || key, archiveId: archive.id, source: "archive" };
+  }
+  return null;
+}
+
 function adminUserSummary(user) {
   const activeRooms = rooms.filter(room => roomHasAdminUser(room, user));
   const archiveRooms = adminState.archive.filter(item => (item.session?.players || []).some(player => adminUserKey(player.name) === adminUserKey(user.name)));
@@ -1537,6 +1552,18 @@ async function handleAdminApi(req, res, url) {
   }
 
   const roomMatch = pathname.match(/^\/api\/admin\/sessions\/([^/]+)$/);
+  if (roomMatch && req.method === "DELETE") {
+    const deleted = deleteAdminRoom(roomMatch[1]);
+    if (!deleted) {
+      sendJson(res, 404, { error: "Комната не найдена." });
+      return;
+    }
+    addAdminAudit(req, "delete_room", { login: admin.login, code: deleted.code, sessionId: deleted.sessionId, archiveId: deleted.archiveId || null, source: deleted.source });
+    saveAdminState();
+    sendJson(res, 200, { ok: true, deleted });
+    return;
+  }
+
   if (roomMatch && req.method === "GET") {
     const found = findAdminRoom(roomMatch[1]);
     if (!found) {
