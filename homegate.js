@@ -1,4 +1,6 @@
 const app = document.querySelector("#admin-app");
+const THEME_KEY = "narduh-theme";
+const LANG_KEY = "narduh-lang";
 const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 
@@ -19,7 +21,124 @@ const state = {
   detailKey: "",
   watch: JSON.parse(localStorage.getItem(WATCH_KEY) || "[]"),
   notice: "",
+  theme: localStorage.getItem(THEME_KEY) || "night",
+  lang: localStorage.getItem(LANG_KEY) || "ru",
 };
+
+const adminDict = {
+  ru: {
+    title: "Админ · Нарды Онлайн",
+    day: "День",
+    night: "Ночь",
+    admin_panel: "Админ-панель",
+    monitoring: "Мониторинг комнат",
+    players: "Игроки",
+    rooms: "Комнаты",
+    change_password: "Сменить пароль",
+    refresh: "Обновить",
+    logout: "Выйти",
+    login_eyebrow: "Администрирование",
+    login_title: "Вход в панель",
+    login_supabase_desc: "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и управление игроками.",
+    login_server_desc: "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.",
+    admin_email: "Email администратора",
+    password: "Пароль",
+    sign_in: "Войти",
+    room_monitor: "Экран монитора",
+    room_detail: "Просмотр комнаты",
+    active_rooms: "Активные комнаты",
+    archive: "Архив",
+    no_watched_rooms: "Выберите комнаты кнопкой “На монитор”.",
+    no_active_rooms: "Активных комнат нет.",
+    no_archive: "Архив пока пуст.",
+    players_seen: "Игроки, замеченные сервером",
+    nickname: "Никнейм",
+    first_login: "Первый вход",
+    games_played: "Сыгранные партии",
+    wins: "Победы",
+    rating: "Рейтинг",
+    status: "Статус",
+    actions: "Действия",
+    online: "В сети",
+    offline: "Не в сети",
+    readonly: "только просмотр",
+    unavailable_actions: "Действия недоступны",
+    set_password: "Сменить",
+    ban: "Забанить",
+    unban: "Разбанить",
+    delete: "Удалить",
+    open: "Открыть",
+    watch: "На монитор",
+    unwatch: "Убрать",
+  },
+  en: {
+    title: "Admin · Online Backgammon",
+    day: "Day",
+    night: "Night",
+    admin_panel: "Admin panel",
+    monitoring: "Room monitoring",
+    players: "Players",
+    rooms: "Rooms",
+    change_password: "Change password",
+    refresh: "Refresh",
+    logout: "Log out",
+    login_eyebrow: "Administration",
+    login_title: "Panel login",
+    login_supabase_desc: "Sign in with the Supabase admin account to monitor rooms and manage players.",
+    login_server_desc: "Enter the admin password to monitor rooms and manage players.",
+    admin_email: "Admin email",
+    password: "Password",
+    sign_in: "Sign in",
+    room_monitor: "Monitor screen",
+    room_detail: "Room preview",
+    active_rooms: "Active rooms",
+    archive: "Archive",
+    no_watched_rooms: "Choose rooms with the “Monitor” button.",
+    no_active_rooms: "No active rooms.",
+    no_archive: "Archive is empty.",
+    players_seen: "Players seen by the server",
+    nickname: "Nickname",
+    first_login: "First login",
+    games_played: "Games played",
+    wins: "Wins",
+    rating: "Rating",
+    status: "Status",
+    actions: "Actions",
+    online: "Online",
+    offline: "Offline",
+    readonly: "view only",
+    unavailable_actions: "Actions unavailable",
+    set_password: "Change",
+    ban: "Ban",
+    unban: "Unban",
+    delete: "Delete",
+    open: "Open",
+    watch: "Monitor",
+    unwatch: "Remove",
+  },
+};
+
+function t(key) {
+  return adminDict[state.lang]?.[key] || adminDict.ru[key] || key;
+}
+
+function applyAdminTheme(theme) {
+  const nextTheme = theme === "day" ? "day" : "night";
+  state.theme = nextTheme;
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  localStorage.setItem(THEME_KEY, nextTheme);
+}
+
+function applyAdminLang(lang) {
+  const nextLang = lang === "en" ? "en" : "ru";
+  state.lang = nextLang;
+  document.documentElement.lang = nextLang;
+  document.title = t("title");
+  localStorage.setItem(LANG_KEY, nextLang);
+}
+
+applyAdminTheme(state.theme);
+applyAdminLang(state.lang);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -129,6 +248,20 @@ function passwordToggleHtml() {
     <button class="password-toggle" type="button" data-action="toggle-password" aria-label="Показать пароль" aria-pressed="false" title="Показать пароль">
       <span class="password-toggle-eye" aria-hidden="true"></span>
     </button>`;
+}
+
+function adminPreferenceControls() {
+  return `
+    <div class="admin-prefs" aria-label="Настройки интерфейса">
+      <div class="theme-switch admin-pref-switch" role="tablist" aria-label="Тема">
+        <button type="button" data-admin-theme="day" class="${state.theme === "day" ? "active" : ""}">${t("day")}</button>
+        <button type="button" data-admin-theme="night" class="${state.theme === "night" ? "active" : ""}">${t("night")}</button>
+      </div>
+      <div class="theme-switch lang-switch admin-pref-switch" role="tablist" aria-label="Language">
+        <button type="button" data-admin-lang="ru" class="${state.lang === "ru" ? "active" : ""}">RU</button>
+        <button type="button" data-admin-lang="en" class="${state.lang === "en" ? "active" : ""}">EN</button>
+      </div>
+    </div>`;
 }
 
 async function copyToClipboard(text) {
@@ -243,7 +376,7 @@ function isRecentActivity(value, maxAgeMs = 3 * 60 * 1000) {
 }
 
 function userStatusText(user) {
-  return user.online ? "В сети" : "Не в сети";
+  return user.online ? t("online") : t("offline");
 }
 
 function userStatusClass(user) {
@@ -413,8 +546,8 @@ function roomCard(room) {
       </div>
       ${room.adminCloseReason ? `<p class="room-close-reason">Причина закрытия: ${escapeHtml(room.adminCloseReason)}</p>` : ""}
       <div class="room-actions">
-        <button class="btn ghost small" data-open="${escapeHtml(key)}">Открыть</button>
-        <button class="btn ghost small" data-watch="${escapeHtml(key)}">${selected ? "Убрать" : "На монитор"}</button>
+        <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
+        <button class="btn ghost small" data-watch="${escapeHtml(key)}">${selected ? t("unwatch") : t("watch")}</button>
         ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">Закрыть</button>` : ""}
       </div>
     </article>`;
@@ -427,7 +560,7 @@ function monitorCard(key) {
       <article class="room-card monitor-card">
         <div class="room-head"><span class="room-code-admin">Недоступна</span></div>
         <p class="admin-empty">Комната исчезла из активного списка и архива.</p>
-        <button class="btn ghost small" data-watch="${escapeHtml(key)}">Убрать</button>
+        <button class="btn ghost small" data-watch="${escapeHtml(key)}">${t("unwatch")}</button>
       </article>`;
   }
   const canClose = room.source === "active" && !state.readonlyAdmin;
@@ -448,8 +581,8 @@ function monitorCard(key) {
         <span class="monitor-number">${borneOffText(room)}</span>
       </div>
       <div class="room-actions">
-        <button class="btn ghost small" data-open="${escapeHtml(key)}">Открыть</button>
-        <button class="btn ghost small" data-watch="${escapeHtml(key)}">Убрать</button>
+        <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
+        <button class="btn ghost small" data-watch="${escapeHtml(key)}">${t("unwatch")}</button>
         ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">Закрыть</button>` : ""}
       </div>
     </article>`;
@@ -592,31 +725,34 @@ function detailHtml() {
 function loginView() {
   const supabaseMode = state.backend === "supabase" || supabaseAdminMode();
   const description = supabaseMode
-    ? "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и управление игроками."
-    : "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.";
+    ? t("login_supabase_desc")
+    : t("login_server_desc");
   const allowedEmails = adminEmailsText();
   const supabaseHelp = allowedEmails
     ? `Email администратора: ${allowedEmails}. Введите пароль игрового Auth-пользователя проекта; пароль от dashboard.supabase.com здесь не подходит.`
     : "Email администратора задаётся в runtime-config.js. Нужен пароль Auth-пользователя проекта, а не пароль от dashboard.supabase.com.";
   const fields = supabaseMode
     ? `
-          <div class="field"><label>Email администратора</label><input name="email" type="email" autocomplete="username" value="${escapeHtml(allowedEmails.split(",")[0] || "")}" autofocus /></div>
-          <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
+          <div class="field"><label>${t("admin_email")}</label><input name="email" type="email" autocomplete="username" value="${escapeHtml(allowedEmails.split(",")[0] || "")}" autofocus /></div>
+          <div class="field"><label>${t("password")}</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
     : `
           <input name="login" type="hidden" value="admin" />
-          <div class="field"><label>Пароль</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" autofocus />${passwordToggleHtml()}</div></div>`;
+          <div class="field"><label>${t("password")}</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" autofocus />${passwordToggleHtml()}</div></div>`;
   return `
     <div class="admin-shell">
       <section class="admin-panel admin-login">
-        <div class="eyebrow">Администрирование</div>
-        <h1>Вход в панель</h1>
+        <div class="admin-login-top">
+          <div class="eyebrow">${t("login_eyebrow")}</div>
+          ${adminPreferenceControls()}
+        </div>
+        <h1>${t("login_title")}</h1>
         <p>${description}</p>
         ${supabaseMode ? `<p class="admin-hint">${escapeHtml(supabaseHelp)}</p>` : ""}
         ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает через Supabase: комнаты доступны для просмотра, действия с игроками выполняются защищёнными RPC-функциями.</p>` : ""}
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
         <form data-form="admin-login">
           ${fields}
-          <button class="btn full">Войти</button>
+          <button class="btn full">${t("sign_in")}</button>
         </form>
         ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
       </section>
@@ -626,8 +762,8 @@ function loginView() {
 function adminTabsHtml() {
   return `
     <nav class="admin-tabs" aria-label="Разделы админ-панели">
-      <button class="${state.adminTab === "rooms" ? "active" : ""}" type="button" data-admin-tab="rooms">Комнаты</button>
-      <button class="${state.adminTab === "players" ? "active" : ""}" type="button" data-admin-tab="players">Игроки</button>
+      <button class="${state.adminTab === "rooms" ? "active" : ""}" type="button" data-admin-tab="rooms">${t("rooms")}</button>
+      <button class="${state.adminTab === "players" ? "active" : ""}" type="button" data-admin-tab="players">${t("players")}</button>
     </nav>`;
 }
 
@@ -659,29 +795,29 @@ function adminPasswordPanelHtml() {
 }
 
 function roomsDashboardHtml() {
-  const watched = state.watch.map(monitorCard).join("") || `<p class="admin-empty">Выберите комнаты кнопкой “На монитор”.</p>`;
+  const watched = state.watch.map(monitorCard).join("") || `<p class="admin-empty">${t("no_watched_rooms")}</p>`;
   const archiveEmpty = state.backend === "supabase"
     ? "Архив закрытых комнат на GitHub Pages недоступен без server-side admin function."
-    : "Архив пока пуст.";
+    : t("no_archive");
   return `
     <section class="admin-grid">
       <div class="admin-column">
         <div class="admin-panel">
-          <h2>Активные комнаты</h2>
-          <div class="room-list">${state.active.map(roomCard).join("") || `<p class="admin-empty">Активных комнат нет.</p>`}</div>
+          <h2>${t("active_rooms")}</h2>
+          <div class="room-list">${state.active.map(roomCard).join("") || `<p class="admin-empty">${t("no_active_rooms")}</p>`}</div>
         </div>
         <div class="admin-panel">
-          <h2>Архив ${archiveRetentionText()}</h2>
+          <h2>${t("archive")} ${archiveRetentionText()}</h2>
           <div class="room-list">${state.archive.map(roomCard).join("") || `<p class="admin-empty">${archiveEmpty}</p>`}</div>
         </div>
       </div>
       <div class="admin-column">
         <div class="admin-panel">
-          <h2>Экран монитора</h2>
+          <h2>${t("room_monitor")}</h2>
           <div class="monitor-grid">${watched}</div>
         </div>
         <div class="admin-panel">
-          <h2>Просмотр комнаты</h2>
+          <h2>${t("room_detail")}</h2>
           ${detailHtml()}
         </div>
       </div>
@@ -694,14 +830,14 @@ function playerRow(user) {
   const canManageServerUser = !state.readonlyAdmin;
   const canManageUser = canManageServerUser || canManageSupabaseUser;
   const passwordAction = canManageUser
-    ? `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">Сменить</button>`
-    : `<span class="readonly-note">только просмотр</span>`;
+    ? `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">${t("set_password")}</button>`
+    : `<span class="readonly-note">${t("readonly")}</span>`;
   const userActions = canManageUser
     ? `${user.banned
-        ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">Разбанить</button>`
-        : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">Забанить</button>`}
-        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">Удалить</button>`
-    : `<span class="readonly-note">Действия недоступны</span>`;
+        ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">${t("unban")}</button>`
+        : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">${t("ban")}</button>`}
+        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>`
+    : `<span class="readonly-note">${t("unavailable_actions")}</span>`;
   return `
     <div class="player-row">
       <div class="player-main">
@@ -732,22 +868,22 @@ function playersDashboardHtml() {
   return `
     <section class="admin-panel players-panel">
       <div class="detail-section-head">
-        <h2>Игроки, замеченные сервером</h2>
+        <h2>${t("players_seen")}</h2>
         <span class="admin-count">${state.users.length}</span>
       </div>
       <div class="players-table-wrap">
         <div class="players-table">
           <div class="player-row players-head">
-            <div>Никнейм</div>
+            <div>${t("nickname")}</div>
             <div>Email</div>
             <div>IP</div>
-            <div>Пароль</div>
-            <div>Первый вход</div>
-            <div>Сыгранные партии</div>
-            <div>Победы</div>
-            <div>Рейтинг</div>
-            <div>Статус</div>
-            <div>Действия</div>
+            <div>${t("password")}</div>
+            <div>${t("first_login")}</div>
+            <div>${t("games_played")}</div>
+            <div>${t("wins")}</div>
+            <div>${t("rating")}</div>
+            <div>${t("status")}</div>
+            <div>${t("actions")}</div>
           </div>
           ${state.usersError ? `<p class="admin-empty">Список игроков недоступен: ${escapeHtml(state.usersError)}.</p>` : state.users.map(playerRow).join("") || `<p class="admin-empty">Игроков пока нет.</p>`}
         </div>
@@ -761,13 +897,14 @@ function dashboardView() {
     <div class="admin-shell">
       <header class="admin-top">
         <div>
-          <div class="eyebrow">Админ-панель · ${adminModeLabel}</div>
-          <h1>${state.adminTab === "players" ? "Игроки" : "Мониторинг комнат"}</h1>
+          <div class="eyebrow">${t("admin_panel")} · ${adminModeLabel}</div>
+          <h1>${state.adminTab === "players" ? t("players") : t("monitoring")}</h1>
         </div>
         <div class="admin-actions">
-          ${state.readonlyAdmin ? "" : `<button class="btn ghost small" data-action="toggle-admin-password">Сменить пароль</button>`}
-          <button class="btn ghost small" data-action="refresh">Обновить</button>
-          <button class="btn ghost small" data-action="logout">Выйти</button>
+          ${adminPreferenceControls()}
+          ${state.readonlyAdmin ? "" : `<button class="btn ghost small" data-action="toggle-admin-password">${t("change_password")}</button>`}
+          <button class="btn ghost small" data-action="refresh">${t("refresh")}</button>
+          <button class="btn ghost small" data-action="logout">${t("logout")}</button>
         </div>
       </header>
       ${adminTabsHtml()}
@@ -1145,6 +1282,16 @@ document.addEventListener("click", async event => {
       button.setAttribute("aria-label", visible ? "Скрыть пароль" : "Показать пароль");
       button.setAttribute("title", visible ? "Скрыть пароль" : "Показать пароль");
       input.focus();
+      return;
+    }
+    if (button.dataset.adminTheme) {
+      applyAdminTheme(button.dataset.adminTheme);
+      renderPreservingScroll();
+      return;
+    }
+    if (button.dataset.adminLang) {
+      applyAdminLang(button.dataset.adminLang);
+      renderPreservingScroll();
       return;
     }
     if (button.dataset.action === "toggle-admin-password") {

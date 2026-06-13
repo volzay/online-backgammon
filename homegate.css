@@ -60,6 +60,31 @@
   justify-content: flex-end;
 }
 
+.admin-prefs,
+.admin-login-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-prefs {
+  justify-content: flex-end;
+}
+
+.admin-login-top {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.admin-pref-switch {
+  min-height: 34px;
+}
+
+.admin-pref-switch button {
+  min-width: 48px;
+}
+
 .admin-tabs {
   margin: 0 0 18px;
 }
@@ -664,6 +689,15 @@
 
   .admin-actions {
     justify-content: flex-start;
+  }
+
+  .admin-prefs {
+    justify-content: flex-start;
+  }
+
+  .admin-login-top {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .admin-grid,
