@@ -183,6 +183,11 @@ function saveWatch() {
   localStorage.setItem(WATCH_KEY, JSON.stringify(state.watch));
 }
 
+function clearRoomDetail() {
+  state.detail = null;
+  state.detailKey = "";
+}
+
 function statusLabel(status) {
   return {
     waiting: "Ожидает",
@@ -883,6 +888,7 @@ async function refresh() {
       state.usersError = error.message;
     }
     saveWatch();
+    if (state.detailKey && !roomByKey(state.detailKey)) clearRoomDetail();
     render();
     restoreScrollSnapshot(snapshot);
     return;
@@ -904,6 +910,7 @@ async function refresh() {
     state.usersError = error.message;
   }
   saveWatch();
+  if (state.detailKey && !roomByKey(state.detailKey)) clearRoomDetail();
   render();
   restoreScrollSnapshot(snapshot);
 }
@@ -1172,7 +1179,9 @@ document.addEventListener("click", async event => {
     }
     if (button.dataset.watch) {
       const key = button.dataset.watch;
-      state.watch = state.watch.includes(key) ? state.watch.filter(item => item !== key) : [...state.watch, key];
+      const wasWatched = state.watch.includes(key);
+      state.watch = wasWatched ? state.watch.filter(item => item !== key) : [...state.watch, key];
+      if (wasWatched && state.detailKey === key) clearRoomDetail();
       saveWatch();
       renderPreservingScroll();
     }
