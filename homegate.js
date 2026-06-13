@@ -70,6 +70,73 @@ const adminDict = {
     open: "Открыть",
     watch: "На монитор",
     unwatch: "Убрать",
+    source: "Источник",
+    active_source: "Активная",
+    room_unavailable: "Недоступна",
+    room_missing: "Комната исчезла из активного списка и архива.",
+    room_code: "Комната",
+    variant: "Вид нард",
+    long_variant: "Длинные нарды",
+    short_variant: "Короткие нарды",
+    waiting: "Ожидает",
+    joined: "Игра",
+    playing: "Игра",
+    paused: "Пауза",
+    finished: "Завершена",
+    abandoned: "Покинута",
+    closed: "Закрыта",
+    over: "Завершена",
+    white: "белые",
+    dark: "тёмные",
+    no_players: "Нет игроков",
+    borne_off: "Снято",
+    doubles: "Дубли",
+    updated: "Обновлена",
+    last_roll: "Последний бросок",
+    winner: "Победитель",
+    close_reason: "Причина закрытия",
+    close_room: "Закрыть",
+    match_log: "Ход партии",
+    copy_game: "Скопировать партию",
+    copy_hash: "Скопировать хэш",
+    copy_full_hash: "Скопировать полный SHA-256",
+    copy_row: "Строку",
+    chat: "Чат",
+    no_history: "Истории пока нет.",
+    no_chat: "Сообщений пока нет.",
+    open_room_prompt: "Откройте комнату, чтобы увидеть историю, чат и состояние партии.",
+    admin_closed: "Комната закрыта админом",
+    network_loss: "Потеря связи",
+    resigned: "сдались",
+    left_game: "покинули игру",
+    opening_roll: "Стартовый бросок",
+    opening_move: "первый ход",
+    roll_action: "бросок",
+    pass_action: "нет доступного хода",
+    die: "кубик",
+    time: "Время",
+    rerolls: "Перебросов",
+    game: "Партия",
+    type: "Тип",
+    created: "Создана",
+    rolls: "Броски",
+    messages_empty: "Сообщений нет.",
+    password_set_by_admin: "Задан админом",
+    local_profile: "Локальный профиль",
+    no_password: "Нет пароля",
+    host: "Хост",
+    ban_history_appears: "История появится после следующего изменения статуса.",
+    no_ban_history: "Истории бана нет.",
+    ban_reason: "Причина бана",
+    current_password: "Текущий пароль",
+    new_password: "Новый пароль",
+    repeat_password: "Повторите новый пароль",
+    save_password: "Сохранить пароль",
+    close: "Закрыть",
+    closed_archive_unavailable: "Архив закрытых комнат на GitHub Pages недоступен без server-side admin function.",
+    users_unavailable: "Список игроков недоступен",
+    no_players_yet: "Игроков пока нет.",
+    readonly_admin_mode: "GitHub Pages · Supabase мониторинг",
   },
   en: {
     title: "Admin · Online Backgammon",
@@ -115,6 +182,73 @@ const adminDict = {
     open: "Open",
     watch: "Monitor",
     unwatch: "Remove",
+    source: "Source",
+    active_source: "Active",
+    room_unavailable: "Unavailable",
+    room_missing: "The room disappeared from active rooms and archive.",
+    room_code: "Room",
+    variant: "Backgammon type",
+    long_variant: "Long backgammon",
+    short_variant: "Short backgammon",
+    waiting: "Waiting",
+    joined: "Game",
+    playing: "Game",
+    paused: "Paused",
+    finished: "Finished",
+    abandoned: "Abandoned",
+    closed: "Closed",
+    over: "Finished",
+    white: "white",
+    dark: "dark",
+    no_players: "No players",
+    borne_off: "Borne off",
+    doubles: "Doubles",
+    updated: "Updated",
+    last_roll: "Last roll",
+    winner: "Winner",
+    close_reason: "Close reason",
+    close_room: "Close room",
+    match_log: "Match log",
+    copy_game: "Copy game",
+    copy_hash: "Copy hash",
+    copy_full_hash: "Copy full SHA-256",
+    copy_row: "Row",
+    chat: "Chat",
+    no_history: "No history yet.",
+    no_chat: "No messages yet.",
+    open_room_prompt: "Open a room to see history, chat, and game state.",
+    admin_closed: "Room closed by admin",
+    network_loss: "Connection lost",
+    resigned: "resigned",
+    left_game: "left the game",
+    opening_roll: "Opening roll",
+    opening_move: "opening move",
+    roll_action: "roll",
+    pass_action: "no legal move",
+    die: "die",
+    time: "Time",
+    rerolls: "Rerolls",
+    game: "Game",
+    type: "Type",
+    created: "Created",
+    rolls: "Rolls",
+    messages_empty: "No messages.",
+    password_set_by_admin: "Set by admin",
+    local_profile: "Local profile",
+    no_password: "No password",
+    host: "Host",
+    ban_history_appears: "History will appear after the next status change.",
+    no_ban_history: "No ban history.",
+    ban_reason: "Ban reason",
+    current_password: "Current password",
+    new_password: "New password",
+    repeat_password: "Repeat new password",
+    save_password: "Save password",
+    close: "Close",
+    closed_archive_unavailable: "Closed-room archive on GitHub Pages needs a server-side admin function.",
+    users_unavailable: "Player list unavailable",
+    no_players_yet: "No players yet.",
+    readonly_admin_mode: "GitHub Pages · Supabase monitoring",
   },
 };
 
@@ -284,14 +418,14 @@ function fmtTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+  return date.toLocaleString(state.lang === "en" ? "en-US" : "ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 }
 
 function fmtDate(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return date.toLocaleDateString(state.lang === "en" ? "en-US" : "ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
 function roomKey(room) {
@@ -304,7 +438,7 @@ function allRooms() {
 
 function archiveRetentionText() {
   if (state.backend === "supabase") return "Supabase";
-  return `${state.retentionHours} часов`;
+  return state.lang === "en" ? `${state.retentionHours} hours` : `${state.retentionHours} часов`;
 }
 
 function roomByKey(key) {
@@ -323,19 +457,19 @@ function clearRoomDetail() {
 
 function statusLabel(status) {
   return {
-    waiting: "Ожидает",
-    joined: "Игра",
-    playing: "Игра",
-    paused: "Пауза",
-    finished: "Завершена",
-    abandoned: "Покинута",
-    closed: "Закрыта",
-    over: "Завершена",
+    waiting: t("waiting"),
+    joined: t("joined"),
+    playing: t("playing"),
+    paused: t("paused"),
+    finished: t("finished"),
+    abandoned: t("abandoned"),
+    closed: t("closed"),
+    over: t("over"),
   }[status] || status || "-";
 }
 
 function variantLabel(variant) {
-  return variant === "short" ? "Короткие нарды" : "Длинные нарды";
+  return variant === "short" ? t("short_variant") : t("long_variant");
 }
 
 function variantBadgeHtml(room) {
@@ -344,14 +478,24 @@ function variantBadgeHtml(room) {
 }
 
 function colorLabel(color) {
-  if (color === "white") return "белые";
-  if (color === "dark") return "тёмные";
+  if (color === "white") return t("white");
+  if (color === "dark") return t("dark");
   return color || "";
 }
 
 function playerLine(room) {
   const players = room.players || [];
-  return players.map(player => `${player.name} (${colorLabel(player.color)})`).join(" · ") || "Нет игроков";
+  return players.map(player => `${player.name} (${colorLabel(player.color)})`).join(" · ") || t("no_players");
+}
+
+function reasonText(reason) {
+  const value = String(reason || "");
+  return {
+    finished: t("finished"),
+    admin_closed: t("admin_closed"),
+    abandoned: t("abandoned"),
+    closed: t("closed"),
+  }[value] || value;
 }
 
 function borneOffText(room) {
@@ -385,9 +529,9 @@ function userStatusClass(user) {
 
 function passwordStateText(user) {
   if (user.passwordState === "supabase") return "Supabase Auth";
-  if (user.passwordState === "set") return "Задан админом";
-  if (user.passwordState === "client") return "Локальный профиль";
-  return "Нет пароля";
+  if (user.passwordState === "set") return t("password_set_by_admin");
+  if (user.passwordState === "client") return t("local_profile");
+  return t("no_password");
 }
 
 function rollStats(game) {
@@ -451,7 +595,7 @@ function supabaseRoomSummary(room) {
     archiveId: null,
     source: "active",
     code: room.code,
-    name: `${room.host_name || "Хост"}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
+    name: `${room.host_name || t("host")}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
     variant: room.variant,
     status: game.phase === "over" || game.winner ? "over" : room.status,
     privacy: room.access === "closed" ? "password" : "open",
@@ -498,7 +642,7 @@ function supabaseRoomDetail(room) {
 }
 
 function banHistoryText(item) {
-  const action = item.action === "unban" ? "Разбан" : "Бан";
+  const action = item.action === "unban" ? t("unban") : t("ban");
   const by = item.by ? ` · ${escapeHtml(item.by)}` : "";
   const reason = item.reason ? `<span class="ban-reason-text">${escapeHtml(item.reason)}</span>` : "";
   return `
@@ -513,10 +657,10 @@ function banPopoverHtml(user) {
   const currentReason = user.banReason ? `<p>${escapeHtml(user.banReason)}</p>` : "";
   const historyHtml = history.length
     ? `<ul>${history.map(banHistoryText).join("")}</ul>`
-    : `<p class="ban-empty">${user.banReason ? "История появится после следующего изменения статуса." : "Истории бана нет."}</p>`;
+    : `<p class="ban-empty">${user.banReason ? t("ban_history_appears") : t("no_ban_history")}</p>`;
   return `
     <span class="ban-popover" role="tooltip">
-      <strong>Причина бана</strong>
+      <strong>${t("ban_reason")}</strong>
       ${currentReason}
       ${historyHtml}
     </span>`;
@@ -533,22 +677,22 @@ function roomCard(room) {
         <span class="room-head-badges">${variantBadgeHtml(room)}<span class="room-status">${statusLabel(room.status)}</span></span>
       </div>
       <div class="room-meta-grid">
-        <span>Источник</span>
-        <span>${room.source === "archive" ? "Архив" : "Активная"}</span>
-        <span>Игроки</span>
+        <span>${t("source")}</span>
+        <span>${room.source === "archive" ? t("archive") : t("active_source")}</span>
+        <span>${t("players")}</span>
         <span>${escapeHtml(playerLine(room))}</span>
-        <span>Снято</span>
+        <span>${t("borne_off")}</span>
         <span>${borneOffText(room)}</span>
-        <span>Дубли</span>
+        <span>${t("doubles")}</span>
         <span>${doubleText(room)}</span>
-        <span>Обновлена</span>
+        <span>${t("updated")}</span>
         <span>${fmtTime(room.updatedAt || room.archivedAt)}</span>
       </div>
-      ${room.adminCloseReason ? `<p class="room-close-reason">Причина закрытия: ${escapeHtml(room.adminCloseReason)}</p>` : ""}
+      ${room.adminCloseReason ? `<p class="room-close-reason">${t("close_reason")}: ${escapeHtml(reasonText(room.adminCloseReason))}</p>` : ""}
       <div class="room-actions">
         <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">${selected ? t("unwatch") : t("watch")}</button>
-        ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">Закрыть</button>` : ""}
+        ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">${t("close_room")}</button>` : ""}
       </div>
     </article>`;
 }
@@ -558,8 +702,8 @@ function monitorCard(key) {
   if (!room) {
     return `
       <article class="room-card monitor-card">
-        <div class="room-head"><span class="room-code-admin">Недоступна</span></div>
-        <p class="admin-empty">Комната исчезла из активного списка и архива.</p>
+        <div class="room-head"><span class="room-code-admin">${t("room_unavailable")}</span></div>
+        <p class="admin-empty">${t("room_missing")}</p>
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">${t("unwatch")}</button>
       </article>`;
   }
@@ -571,19 +715,19 @@ function monitorCard(key) {
         <span class="room-head-badges">${variantBadgeHtml(room)}<span class="room-status">${statusLabel(room.status)}</span></span>
       </div>
       <div class="room-meta-grid">
-        <span>Игроки</span>
+        <span>${t("players")}</span>
         <span>${escapeHtml(playerLine(room))}</span>
-        <span>Последний бросок</span>
+        <span>${t("last_roll")}</span>
         <span>${room.lastRoll ? `${room.lastRoll.roll} · ${colorLabel(room.lastRoll.color)}` : "-"}</span>
-        <span>Дубли</span>
+        <span>${t("doubles")}</span>
         <span>${doubleText(room)}</span>
-        <span>Снято</span>
+        <span>${t("borne_off")}</span>
         <span class="monitor-number">${borneOffText(room)}</span>
       </div>
       <div class="room-actions">
         <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
         <button class="btn ghost small" data-watch="${escapeHtml(key)}">${t("unwatch")}</button>
-        ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">Закрыть</button>` : ""}
+        ${canClose ? `<button class="btn ghost danger small" data-admin-close="${escapeHtml(key)}">${t("close_room")}</button>` : ""}
       </div>
     </article>`;
 }
@@ -594,21 +738,21 @@ function shortHash(value) {
 }
 
 function historyText(item) {
-  if (item.adminClosed) return `Комната закрыта админом: ${item.reason || "-"}`;
-  if (item.networkLoss) return `Потеря связи: ${colorLabel(item.color)}`;
-  if (item.resign) return `${colorLabel(item.color)} сдались`;
-  if (item.leave) return `${colorLabel(item.color)} покинули игру`;
-  if (item.opening) return `Стартовый бросок`;
-  if (item.openingMove) return `${colorLabel(item.color)}: первый ход ${item.roll}`;
-  if (item.roll) return `${colorLabel(item.color)}: бросок ${item.roll}`;
-  if (item.pass) return `${colorLabel(item.color)}: нет доступного хода`;
-  return `${colorLabel(item.color)}: ${item.from} -> ${item.to}${item.die ? ` · кубик ${item.die}` : ""}`;
+  if (item.adminClosed) return `${t("admin_closed")}: ${item.reason || "-"}`;
+  if (item.networkLoss) return `${t("network_loss")}: ${colorLabel(item.color)}`;
+  if (item.resign) return `${colorLabel(item.color)} ${t("resigned")}`;
+  if (item.leave) return `${colorLabel(item.color)} ${t("left_game")}`;
+  if (item.opening) return t("opening_roll");
+  if (item.openingMove) return `${colorLabel(item.color)}: ${t("opening_move")} ${item.roll}`;
+  if (item.roll) return `${colorLabel(item.color)}: ${t("roll_action")} ${item.roll}`;
+  if (item.pass) return `${colorLabel(item.color)}: ${t("pass_action")}`;
+  return `${colorLabel(item.color)}: ${item.from} -> ${item.to}${item.die ? ` · ${t("die")} ${item.die}` : ""}`;
 }
 
 function historyCopyText(item, index) {
-  const lines = [`#${index} ${historyText(item)}`, `Время: ${item.at || "-"}`];
+  const lines = [`#${index} ${historyText(item)}`, `${t("time")}: ${item.at || "-"}`];
   if (item.sha256) lines.push(`SHA-256: ${item.sha256}`);
-  if (item.rerolls) lines.push(`Перебросов: ${item.rerolls}`);
+  if (item.rerolls) lines.push(`${t("rerolls")}: ${item.rerolls}`);
   return lines.join("\n");
 }
 
@@ -618,7 +762,7 @@ function historyAdminItem(item, index) {
     <div class="history-proof">
       <span>SHA-256</span>
       <code title="${escapeHtml(hash)}">${escapeHtml(shortHash(hash))}</code>
-      <button class="mini-copy hash-copy" type="button" data-copy-hash="${escapeHtml(hash)}" title="Скопировать полный SHA-256">Скопировать хэш</button>
+      <button class="mini-copy hash-copy" type="button" data-copy-hash="${escapeHtml(hash)}" title="${t("copy_full_hash")}">${t("copy_hash")}</button>
     </div>` : "";
   return `
     <li class="history-row">
@@ -628,13 +772,13 @@ function historyAdminItem(item, index) {
         <div class="history-time">${fmtTime(item.at)}</div>
         ${proof}
       </div>
-      <button class="mini-copy" type="button" data-copy="${escapeHtml(historyCopyText(item, index))}">Строку</button>
+      <button class="mini-copy" type="button" data-copy="${escapeHtml(historyCopyText(item, index))}">${t("copy_row")}</button>
     </li>`;
 }
 
 function historyListHtml(history) {
   const chronological = [...(history || [])].reverse();
-  return chronological.map((item, index) => historyAdminItem(item, index + 1)).join("") || `<li class="history-row empty">Истории пока нет.</li>`;
+  return chronological.map((item, index) => historyAdminItem(item, index + 1)).join("") || `<li class="history-row empty">${t("no_history")}</li>`;
 }
 
 function gameProtocolText(detail = state.detail) {
@@ -642,33 +786,33 @@ function gameProtocolText(detail = state.detail) {
   const { summary, session } = detail;
   const game = session.game || {};
   const lines = [
-    `Партия ${summary.code}`,
-    `Комната: ${summary.name || "-"}`,
-    `Тип: ${variantLabel(summary.variant)}`,
-    `Статус: ${statusLabel(summary.status)}`,
-    `Игроки: ${playerLine(summary)}`,
-    `Создана: ${summary.createdAt || "-"}`,
-    `Обновлена: ${summary.updatedAt || "-"}`,
-    `Победитель: ${winnerText(summary)}`,
-    `Снято: белые ${summary.borneOff?.white || 0}, тёмные ${summary.borneOff?.dark || 0}`,
-    `Броски: ${summary.rolls || 0}`,
-    `Дубли: ${doubleText(summary)}`,
+    `${t("game")} ${summary.code}`,
+    `${t("room_code")}: ${summary.name || "-"}`,
+    `${t("type")}: ${variantLabel(summary.variant)}`,
+    `${t("status")}: ${statusLabel(summary.status)}`,
+    `${t("players")}: ${playerLine(summary)}`,
+    `${t("created")}: ${summary.createdAt || "-"}`,
+    `${t("updated")}: ${summary.updatedAt || "-"}`,
+    `${t("winner")}: ${winnerText(summary)}`,
+    `${t("borne_off")}: ${t("white")} ${summary.borneOff?.white || 0}, ${t("dark")} ${summary.borneOff?.dark || 0}`,
+    `${t("rolls")}: ${summary.rolls || 0}`,
+    `${t("doubles")}: ${doubleText(summary)}`,
     "",
-    "ХОД ПАРТИИ",
+    t("match_log").toUpperCase(),
   ];
   [...(game.history || [])].reverse().forEach((item, index) => {
     lines.push(historyCopyText(item, index + 1));
     lines.push("");
   });
-  lines.push("ЧАТ");
+  lines.push(t("chat").toUpperCase());
   if (game.chat?.length) {
     [...game.chat].reverse().forEach((item, index) => {
-      lines.push(`#${index + 1} ${item.author || "Игрок"} · ${item.at || "-"}`);
+      lines.push(`#${index + 1} ${item.author || t("players")} · ${item.at || "-"}`);
       lines.push(String(item.text || ""));
       lines.push("");
     });
   } else {
-    lines.push("Сообщений нет.");
+    lines.push(t("messages_empty"));
   }
   return lines.join("\n").trim();
 }
@@ -691,33 +835,33 @@ function restoreScrollSnapshot(snapshot) {
 }
 
 function detailHtml() {
-  if (!state.detail) return `<p class="admin-empty">Откройте комнату, чтобы увидеть историю, чат и состояние партии.</p>`;
+  if (!state.detail) return `<p class="admin-empty">${t("open_room_prompt")}</p>`;
   const { summary, session } = state.detail;
   const game = session.game || {};
   const detailKey = roomKey(summary);
   return `
     <div class="detail-room">
       <div class="detail-section">
-        <div class="detail-row"><span>Комната</span><strong>${escapeHtml(summary.code)}</strong></div>
-        <div class="detail-row"><span>Вид нард</span><strong>${variantBadgeHtml(summary)}</strong></div>
-        <div class="detail-row"><span>Статус</span><strong>${statusLabel(summary.status)}</strong></div>
-        <div class="detail-row"><span>Игроки</span><strong>${escapeHtml(playerLine(summary))}</strong></div>
-        <div class="detail-row"><span>Дубли</span><strong>${doubleText(summary)}</strong></div>
-        <div class="detail-row"><span>Снято</span><strong>${borneOffText(summary)}</strong></div>
-        <div class="detail-row"><span>Победитель</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
-        ${summary.adminCloseReason ? `<div class="detail-row"><span>Причина закрытия</span><strong>${escapeHtml(summary.adminCloseReason)}</strong></div>` : ""}
-        ${summary.source === "active" && !state.readonlyAdmin ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">Закрыть комнату</button>` : ""}
+        <div class="detail-row"><span>${t("room_code")}</span><strong>${escapeHtml(summary.code)}</strong></div>
+        <div class="detail-row"><span>${t("variant")}</span><strong>${variantBadgeHtml(summary)}</strong></div>
+        <div class="detail-row"><span>${t("status")}</span><strong>${statusLabel(summary.status)}</strong></div>
+        <div class="detail-row"><span>${t("players")}</span><strong>${escapeHtml(playerLine(summary))}</strong></div>
+        <div class="detail-row"><span>${t("doubles")}</span><strong>${doubleText(summary)}</strong></div>
+        <div class="detail-row"><span>${t("borne_off")}</span><strong>${borneOffText(summary)}</strong></div>
+        <div class="detail-row"><span>${t("winner")}</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
+        ${summary.adminCloseReason ? `<div class="detail-row"><span>${t("close_reason")}</span><strong>${escapeHtml(reasonText(summary.adminCloseReason))}</strong></div>` : ""}
+        ${summary.source === "active" && !state.readonlyAdmin ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">${t("close_room")}</button>` : ""}
       </div>
       <div class="detail-section">
         <div class="detail-section-head">
-          <h3>Ход партии</h3>
-          <button class="btn ghost small" type="button" data-action="copy-game">Скопировать партию</button>
+          <h3>${t("match_log")}</h3>
+          <button class="btn ghost small" type="button" data-action="copy-game">${t("copy_game")}</button>
         </div>
         <ul class="history-admin">${historyListHtml(game.history)}</ul>
       </div>
       <div class="detail-section">
-        <h3>Чат</h3>
-        <ul class="chat-admin">${(game.chat || []).slice(0, 50).map(item => `<li>${escapeHtml(item.author || "Игрок")} · ${fmtTime(item.at)}<br>${escapeHtml(item.text)}</li>`).join("") || "<li>Сообщений пока нет.</li>"}</ul>
+        <h3>${t("chat")}</h3>
+        <ul class="chat-admin">${(game.chat || []).slice(0, 50).map(item => `<li>${escapeHtml(item.author || t("players"))} · ${fmtTime(item.at)}<br>${escapeHtml(item.text)}</li>`).join("") || `<li>${t("no_chat")}</li>`}</ul>
       </div>
     </div>`;
 }
@@ -773,23 +917,23 @@ function adminPasswordPanelHtml() {
   return `
     <section class="admin-panel admin-password-panel">
       <div class="detail-section-head">
-        <h2>Смена пароля администратора</h2>
-        <button class="btn ghost small" type="button" data-action="toggle-admin-password">Закрыть</button>
+        <h2>${t("change_password")}</h2>
+        <button class="btn ghost small" type="button" data-action="toggle-admin-password">${t("close")}</button>
       </div>
       <form class="admin-password-form" data-form="admin-password">
         <div class="field">
-          <label>Текущий пароль</label>
+          <label>${t("current_password")}</label>
           <div class="password-field"><input name="currentPassword" type="password" required autocomplete="current-password" />${passwordToggleHtml()}</div>
         </div>
         <div class="field">
-          <label>Новый пароль</label>
+          <label>${t("new_password")}</label>
           <div class="password-field"><input name="newPassword" type="password" required minlength="4" autocomplete="new-password" />${passwordToggleHtml()}</div>
         </div>
         <div class="field">
-          <label>Повторите новый пароль</label>
+          <label>${t("repeat_password")}</label>
           <div class="password-field"><input name="repeatPassword" type="password" required minlength="4" autocomplete="new-password" />${passwordToggleHtml()}</div>
         </div>
-        <button class="btn small" type="submit">Сохранить пароль</button>
+        <button class="btn small" type="submit">${t("save_password")}</button>
       </form>
     </section>`;
 }
@@ -797,7 +941,7 @@ function adminPasswordPanelHtml() {
 function roomsDashboardHtml() {
   const watched = state.watch.map(monitorCard).join("") || `<p class="admin-empty">${t("no_watched_rooms")}</p>`;
   const archiveEmpty = state.backend === "supabase"
-    ? "Архив закрытых комнат на GitHub Pages недоступен без server-side admin function."
+    ? t("closed_archive_unavailable")
     : t("no_archive");
   return `
     <section class="admin-grid">
@@ -885,14 +1029,14 @@ function playersDashboardHtml() {
             <div>${t("status")}</div>
             <div>${t("actions")}</div>
           </div>
-          ${state.usersError ? `<p class="admin-empty">Список игроков недоступен: ${escapeHtml(state.usersError)}.</p>` : state.users.map(playerRow).join("") || `<p class="admin-empty">Игроков пока нет.</p>`}
+          ${state.usersError ? `<p class="admin-empty">${t("users_unavailable")}: ${escapeHtml(state.usersError)}.</p>` : state.users.map(playerRow).join("") || `<p class="admin-empty">${t("no_players_yet")}</p>`}
         </div>
       </div>
     </section>`;
 }
 
 function dashboardView() {
-  const adminModeLabel = state.readonlyAdmin ? "GitHub Pages · Supabase мониторинг" : `архив ${archiveRetentionText()}`;
+  const adminModeLabel = state.readonlyAdmin ? t("readonly_admin_mode") : `${t("archive")} ${archiveRetentionText()}`;
   return `
     <div class="admin-shell">
       <header class="admin-top">
