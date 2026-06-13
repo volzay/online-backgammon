@@ -2,7 +2,9 @@
   const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const PRESENCE_STALE_MS = 30000;
   const NETWORK_GRACE_MS = 120000;
+  const PROFILE_HEARTBEAT_MS = 30000;
   const roomIdCache = new Map();
+  const profileHeartbeatAt = new Map();
 
   function configured() {
     return Boolean(window.NarduSupabase?.configured?.());
@@ -82,6 +84,22 @@
     return Number.isFinite(rating) && rating > 0 ? rating : null;
   }
 
+  async function touchProfileHeartbeat(client, userId) {
+    if (!userId) return;
+    const now = Date.now();
+    const lastTouch = profileHeartbeatAt.get(userId) || 0;
+    if (now - lastTouch < PROFILE_HEARTBEAT_MS) return;
+    profileHeartbeatAt.set(userId, now);
+    const { error } = await client
+      .from("profiles")
+      .update({ last_seen_at: new Date(now).toISOString() })
+      .eq("id", userId);
+    if (error) {
+      profileHeartbeatAt.delete(userId);
+      console.warn("Could not update profile heartbeat", error.message || error);
+    }
+  }
+
   function localRoomProfile(authProfile = {}) {
     const user = window.NarduApp?.getUser?.() || {};
     if (user.guest) {
@@ -152,6 +170,7 @@
     const localUser = window.NarduApp?.getUser?.() || {};
     const metadata = authUser.user_metadata || {};
     const nickname = profile?.nickname || await createMissingProfile(client, authUser, localUser, metadata);
+    await touchProfileHeartbeat(client, authUser.id);
     const rating = normalizeRating(profile?.rating ?? localUser.rating);
     return {
       client,

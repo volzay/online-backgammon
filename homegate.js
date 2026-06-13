@@ -231,7 +231,7 @@ function winnerText(summary) {
   return summary.winnerName ? `${summary.winnerName} (${colorLabel(summary.winner)})` : colorLabel(summary.winner);
 }
 
-function isRecentActivity(value, maxAgeMs = 2 * 60 * 1000) {
+function isRecentActivity(value, maxAgeMs = 3 * 60 * 1000) {
   if (!value) return false;
   const time = new Date(value).getTime();
   return Number.isFinite(time) && Date.now() - time <= maxAgeMs;
