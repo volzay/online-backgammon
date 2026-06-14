@@ -755,6 +755,10 @@ function publicFriendMessage(message, viewerId) {
     toUserId: message.toUserId,
     toName: message.toName,
     text: message.text,
+    kind: message.kind || "text",
+    audioData: message.audioData || "",
+    mimeType: message.mimeType || "",
+    duration: Number(message.duration || 0),
     at: message.at,
     own: message.fromUserId === viewerId,
     readAt: message.readAt || null,
@@ -1970,8 +1974,9 @@ async function handleApi(req, res, url) {
           sendJson(res, 403, { error: "Сначала добавьте игрока в друзья." });
           return;
         }
-        const text = normalizeChatText(body.text);
-        if (!text) {
+        const kind = body.kind === "voice" ? "voice" : (body.kind === "emoji" ? "emoji" : "text");
+        const text = kind === "voice" ? "Голосовое сообщение" : normalizeChatText(body.text);
+        if (!text && kind !== "voice") {
           sendJson(res, 400, { error: "Сообщение не может быть пустым." });
           return;
         }
@@ -1983,6 +1988,10 @@ async function handleApi(req, res, url) {
           toUserId: friendUser.id,
           toName: friendUser.nickname,
           text,
+          kind,
+          audioData: kind === "voice" ? String(body.audioData || "") : "",
+          mimeType: kind === "voice" ? String(body.mimeType || "").slice(0, 80) : "",
+          duration: kind === "voice" ? Math.max(0, Math.min(180000, Number(body.duration || 0))) : 0,
           at: now(),
           readAt: null,
         };

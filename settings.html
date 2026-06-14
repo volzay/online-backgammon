@@ -302,8 +302,29 @@
                 <div class="account-empty" data-i18n="friend_select_prompt">Выберите друга из списка слева.</div>
               </div>
               <form class="friend-message-form" id="friend-message-form">
+                <button class="message-icon-btn" id="friend-mic-btn" type="button" aria-label="Записать голосовое сообщение" title="Записать голосовое сообщение" data-i18n-aria="record_voice" data-i18n-title="record_voice" disabled>
+                  <svg class="mic-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  <svg class="stop-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                </button>
+                <button class="message-icon-btn" id="friend-emoji-btn" type="button" aria-label="Эмодзи" title="Эмодзи" data-i18n-aria="emoji" data-i18n-title="emoji" disabled>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                </button>
                 <input class="text-input" id="friend-message-input" type="text" placeholder="Сообщение другу…" data-i18n-ph="friend_message_placeholder" autocomplete="off" disabled />
+                <span class="friend-rec-indicator" id="friend-rec-indicator">
+                  <span class="friend-rec-dot"></span>
+                  <span class="friend-rec-time" id="friend-rec-time">0:00</span>
+                </span>
                 <button class="ghostbtn" type="submit" data-i18n="send" disabled>Отправить</button>
+                <div class="friend-emoji-popover" id="friend-emoji-popover" hidden>
+                  <button type="button" data-friend-emoji="👍">👍</button>
+                  <button type="button" data-friend-emoji="👏">👏</button>
+                  <button type="button" data-friend-emoji="🤝">🤝</button>
+                  <button type="button" data-friend-emoji="🎲">🎲</button>
+                  <button type="button" data-friend-emoji="🙂">🙂</button>
+                  <button type="button" data-friend-emoji="🔥">🔥</button>
+                  <button type="button" data-friend-emoji="😅">😅</button>
+                  <button type="button" data-friend-emoji="🏆">🏆</button>
+                </div>
               </form>
             </div>
           </div>
@@ -941,9 +962,13 @@ function bindFriendRows() {
 
 function toggleMessageForm(enabled) {
   const input = document.getElementById('friend-message-input');
-  const button = document.querySelector('#friend-message-form button');
+  const submit = document.querySelector('#friend-message-form button[type="submit"]');
+  const mic = document.getElementById('friend-mic-btn');
+  const emoji = document.getElementById('friend-emoji-btn');
   input.disabled = !enabled;
-  button.disabled = !enabled;
+  if (submit) submit.disabled = !enabled;
+  if (mic) mic.disabled = !enabled;
+  if (emoji) emoji.disabled = !enabled;
 }
 
 async function loadMessages(friendId, { silent = false } = {}) {
@@ -967,7 +992,7 @@ async function loadSupabaseMessages(friendId) {
   const threadId = friendThreadId(profile.id, friendId);
   const { data, error } = await client
     .from('friend_messages')
-    .select('id,thread_id,from_user_id,to_user_id,text,read_at,created_at')
+    .select('*')
     .eq('thread_id', threadId)
     .order('created_at', { ascending: true })
     .limit(100);
@@ -986,6 +1011,10 @@ async function loadSupabaseMessages(friendId) {
       id: message.id,
       fromName: message.from_user_id === profile.id ? profile.nickname : (accountState.profile?.friends || []).find(friend => friend.id === message.from_user_id)?.nickname,
       text: message.text,
+      kind: message.kind || 'text',
+      audioData: message.audio_data || '',
+      mimeType: message.mime_type || '',
+      duration: Number(message.duration || 0),
       at: message.created_at,
       own: message.from_user_id === profile.id,
       readAt: message.read_at,
@@ -1000,13 +1029,97 @@ function renderMessages(messages) {
     thread.innerHTML = `<div class="account-empty">${tr('messages_empty', 'Сообщений пока нет.')}</div>`;
     return;
   }
-  thread.innerHTML = messages.map(message => `
-    <div class="friend-message ${message.own ? 'own' : ''}">
-      <div class="friend-message-meta">${escapeHtml(message.own ? tr('you', 'Вы') : (message.fromName || tr('message_thread_fallback', 'Друг')))} · ${formatDate(message.at)}</div>
-      <div class="friend-message-body">${escapeHtml(message.text)}</div>
-    </div>
-  `).join('');
+  thread.innerHTML = '';
+  messages.forEach(message => thread.appendChild(buildFriendMessageNode(message)));
   thread.scrollTop = thread.scrollHeight;
+}
+
+function buildFriendMessageNode(message) {
+  const item = document.createElement('div');
+  item.className = `friend-message ${message.own ? 'own' : ''} ${message.kind === 'emoji' ? 'emoji' : ''} ${message.kind === 'voice' ? 'voice' : ''}`;
+
+  const meta = document.createElement('div');
+  meta.className = 'friend-message-meta';
+  meta.textContent = `${message.own ? tr('you', 'Вы') : (message.fromName || tr('message_thread_fallback', 'Друг'))} · ${formatDate(message.at)}`;
+
+  const body = document.createElement('div');
+  body.className = 'friend-message-body';
+  if (message.kind === 'voice') {
+    body.appendChild(buildFriendVoiceBubble(message));
+  } else {
+    body.textContent = message.text || '';
+  }
+
+  item.append(meta, body);
+  return item;
+}
+
+function formatRecordingTime(ms) {
+  const seconds = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function friendVoiceBars(seed = 0) {
+  const bars = document.createElement('div');
+  bars.className = 'friend-wave';
+  for (let index = 0; index < 14; index += 1) {
+    const bar = document.createElement('span');
+    const height = 4 + Math.round(Math.abs(Math.sin(index * 1.7 + seed / 300)) * 18);
+    bar.style.height = `${height}px`;
+    bars.appendChild(bar);
+  }
+  return bars;
+}
+
+function buildFriendVoiceBubble(message) {
+  const bubble = document.createElement('div');
+  bubble.className = 'friend-voice-bubble';
+  if (!message.audioData) {
+    bubble.textContent = tr('audio_unavailable', 'Аудио недоступно');
+    return bubble;
+  }
+
+  const play = document.createElement('button');
+  play.className = 'play';
+  play.type = 'button';
+  play.setAttribute('aria-label', tr('play_voice', 'Воспроизвести голосовое сообщение'));
+  const playIcon = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+  const pauseIcon = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>';
+  play.innerHTML = playIcon;
+
+  const audio = document.createElement('audio');
+  audio.preload = 'metadata';
+  audio.src = message.audioData;
+
+  const duration = document.createElement('div');
+  duration.className = 'dur';
+  duration.textContent = formatRecordingTime(message.duration || 0);
+
+  play.addEventListener('click', async () => {
+    document.querySelectorAll('.friend-message.voice audio').forEach(item => {
+      if (item !== audio) item.pause();
+    });
+    if (audio.paused) {
+      await audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
+  });
+  audio.addEventListener('play', () => {
+    bubble.classList.add('playing');
+    play.innerHTML = pauseIcon;
+  });
+  audio.addEventListener('pause', () => {
+    bubble.classList.remove('playing');
+    play.innerHTML = playIcon;
+  });
+  audio.addEventListener('ended', () => {
+    bubble.classList.remove('playing');
+    play.innerHTML = playIcon;
+  });
+
+  bubble.append(play, friendVoiceBars(Number(message.duration || 0)), duration, audio);
+  return bubble;
 }
 
 async function saveAccountProfile() {
@@ -1411,21 +1524,22 @@ async function removeSupabaseFriend(friendId) {
   return refreshSupabaseSocial(client, profile.id, { message: tr('friend_removed', 'Друг убран.') });
 }
 
-async function sendFriendMessage() {
+async function sendFriendMessage(payload = null) {
   const input = document.getElementById('friend-message-input');
-  const text = input.value.trim();
+  const message = payload || { text: input.value.trim(), kind: 'text' };
+  const text = String(message.text || '').trim();
   const friendId = accountState.selectedFriendId;
-  if (!text || !friendId) return;
+  if ((!text && message.kind !== 'voice') || !friendId) return;
   try {
     if (supabaseAccountMode()) {
-      await sendSupabaseFriendMessage(friendId, text);
+      await sendSupabaseFriendMessage(friendId, { ...message, text });
     } else {
       await accountApi('/api/account/messages', {
         method: 'POST',
-        body: JSON.stringify({ userId: currentUser().id, friendId, text }),
+        body: JSON.stringify({ userId: currentUser().id, friendId, text, kind: message.kind || 'text' }),
       });
     }
-    input.value = '';
+    if (!payload) input.value = '';
     await loadMessages(friendId);
     await loadAccountProfile({ silent: true });
   } catch (err) {
@@ -1433,18 +1547,202 @@ async function sendFriendMessage() {
   }
 }
 
-async function sendSupabaseFriendMessage(friendId, text) {
+async function sendSupabaseFriendMessage(friendId, payload = {}) {
   const { client, profile } = await supabaseAccountContext();
   const threadId = friendThreadId(profile.id, friendId);
+  const kind = payload.kind === 'voice' ? 'voice' : (payload.kind === 'emoji' ? 'emoji' : 'text');
+  const text = kind === 'voice'
+    ? tr('voice_message', 'Голосовое сообщение')
+    : String(payload.text || '').trim().slice(0, 1200);
+  const row = {
+    thread_id: threadId,
+    from_user_id: profile.id,
+    to_user_id: friendId,
+    text,
+  };
+  if (kind === 'voice') {
+    row.kind = kind;
+    row.audio_data = String(payload.audioData || '');
+    row.mime_type = String(payload.mimeType || '').slice(0, 80);
+    row.duration = Math.max(0, Math.min(180000, Number(payload.duration || 0)));
+  }
   const { error } = await client
     .from('friend_messages')
-    .insert({
-      thread_id: threadId,
-      from_user_id: profile.id,
-      to_user_id: friendId,
-      text: String(text || '').trim().slice(0, 1200),
-    });
+    .insert(row);
+  if (error && /column .*kind|column .*audio_data|column .*mime_type|column .*duration/i.test(error.message || '')) {
+    throw new Error(tr('friend_voice_schema_missing', 'Голосовые сообщения ещё не включены в Supabase. Выполните обновлённый supabase/schema.sql.'));
+  }
   if (error) throw new Error(error.message);
+}
+
+const friendMessageInput = document.getElementById('friend-message-input');
+const friendMessageForm = document.getElementById('friend-message-form');
+const friendMicButton = document.getElementById('friend-mic-btn');
+const friendEmojiButton = document.getElementById('friend-emoji-btn');
+const friendEmojiPopover = document.getElementById('friend-emoji-popover');
+const friendRecTime = document.getElementById('friend-rec-time');
+let friendRecording = false;
+let friendRecStarting = false;
+let friendRecStart = 0;
+let friendRecTimer = null;
+let friendMediaRecorder = null;
+let friendRecStream = null;
+let friendRecChunks = [];
+let friendSendRecordingOnStop = true;
+let friendMicPointerId = null;
+let friendSuppressMicClickUntil = 0;
+let friendPendingStopAfterStart = null;
+const friendMobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
+
+function bestFriendAudioMimeType() {
+  if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  return [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ].find(type => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function paintFriendRecording(active) {
+  friendRecording = active;
+  friendMessageForm?.classList.toggle('recording', active);
+  friendMicButton?.classList.toggle('recording', active);
+  if (friendMessageInput) {
+    friendMessageInput.placeholder = active
+      ? tr('recording', 'Запись…')
+      : tr('friend_message_placeholder', 'Сообщение другу…');
+    friendMessageInput.disabled = active;
+  }
+  if (friendEmojiButton) friendEmojiButton.disabled = active || !accountState.selectedFriendId;
+  const submit = document.querySelector('#friend-message-form button[type="submit"]');
+  if (submit) submit.disabled = active || !accountState.selectedFriendId;
+}
+
+async function startFriendRecording() {
+  if (friendRecording || friendRecStarting || !accountState.selectedFriendId) return;
+  friendRecStarting = true;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    if (friendMessageInput) friendMessageInput.placeholder = tr('voice_unsupported', 'Браузер не поддерживает запись голоса');
+    friendRecStarting = false;
+    return;
+  }
+  try {
+    friendRecStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    friendRecChunks = [];
+    friendSendRecordingOnStop = true;
+    const mimeType = bestFriendAudioMimeType();
+    friendMediaRecorder = new MediaRecorder(friendRecStream, mimeType ? { mimeType } : undefined);
+    friendMediaRecorder.addEventListener('dataavailable', event => {
+      if (event.data?.size) friendRecChunks.push(event.data);
+    });
+    friendMediaRecorder.addEventListener('stop', async () => {
+      const duration = Date.now() - friendRecStart;
+      const chunks = friendRecChunks.slice();
+      const stream = friendRecStream;
+      const recorderMime = friendMediaRecorder?.mimeType || chunks[0]?.type || 'audio/webm';
+      const shouldSend = friendSendRecordingOnStop;
+
+      friendRecording = false;
+      paintFriendRecording(false);
+      clearInterval(friendRecTimer);
+      friendRecTimer = null;
+      friendMediaRecorder = null;
+      friendRecStream = null;
+      friendRecChunks = [];
+      stream?.getTracks().forEach(track => track.stop());
+
+      if (!shouldSend || duration <= 300 || !chunks.length) return;
+      const blob = new Blob(chunks, { type: recorderMime });
+      await sendFriendVoiceBlob(blob, duration);
+    });
+
+    friendRecStart = Date.now();
+    paintFriendRecording(true);
+    if (friendRecTime) friendRecTime.textContent = '0:00';
+    friendRecTimer = setInterval(() => {
+      if (friendRecTime) friendRecTime.textContent = formatRecordingTime(Date.now() - friendRecStart);
+    }, 200);
+    friendMediaRecorder.start();
+    if (friendPendingStopAfterStart !== null) {
+      const shouldSend = friendPendingStopAfterStart;
+      friendPendingStopAfterStart = null;
+      stopFriendRecording(shouldSend);
+    }
+  } catch {
+    friendRecording = false;
+    paintFriendRecording(false);
+    friendRecStream?.getTracks().forEach(track => track.stop());
+    friendRecStream = null;
+    if (friendMessageInput) friendMessageInput.placeholder = tr('mic_denied', 'Доступ к микрофону не получен');
+  } finally {
+    friendRecStarting = false;
+  }
+}
+
+function stopFriendRecording(send = true) {
+  if (!friendRecording) return;
+  friendSendRecordingOnStop = send;
+  if (friendMediaRecorder && friendMediaRecorder.state !== 'inactive') friendMediaRecorder.stop();
+}
+
+async function sendFriendVoiceBlob(blob, duration) {
+  if (!supabaseAccountMode()) {
+    flash(tr('voice_supabase_only', 'Голосовые сообщения доступны на публичном сайте через Supabase.'));
+    return;
+  }
+  if (blob.size > 900 * 1024) {
+    if (friendMessageInput) friendMessageInput.placeholder = tr('voice_too_long', 'Голосовое сообщение слишком длинное');
+    return;
+  }
+  const audioData = await blobToDataUrl(blob);
+  await sendFriendMessage({
+    kind: 'voice',
+    text: tr('voice_message', 'Голосовое сообщение'),
+    audioData,
+    mimeType: blob.type || 'audio/webm',
+    duration,
+  });
+}
+
+function stopFriendMicPointer(send) {
+  friendMicPointerId = null;
+  if (friendRecording) stopFriendRecording(send);
+  else if (friendRecStarting) {
+    friendSendRecordingOnStop = send;
+    friendPendingStopAfterStart = send;
+  }
+}
+
+function insertFriendEmoji(emoji) {
+  if (!emoji || !friendMessageInput || friendMessageInput.disabled) return;
+  const start = friendMessageInput.selectionStart ?? friendMessageInput.value.length;
+  const end = friendMessageInput.selectionEnd ?? start;
+  const prefix = friendMessageInput.value.slice(0, start);
+  const suffix = friendMessageInput.value.slice(end);
+  const needsGapBefore = prefix && !/\s$/.test(prefix) ? ' ' : '';
+  const needsGapAfter = suffix && !/^\s/.test(suffix) ? ' ' : '';
+  const insert = `${needsGapBefore}${emoji}${needsGapAfter}`;
+  friendMessageInput.value = `${prefix}${insert}${suffix}`;
+  const caret = prefix.length + insert.length;
+  if (friendEmojiPopover) friendEmojiPopover.hidden = true;
+  friendMessageInput.focus();
+  friendMessageInput.setSelectionRange(caret, caret);
 }
 
 function downloadHistory() {
@@ -1481,6 +1779,53 @@ document.getElementById('friend-query').addEventListener('input', event => {
 document.getElementById('friend-message-form').addEventListener('submit', (event) => {
   event.preventDefault();
   sendFriendMessage();
+});
+friendEmojiButton?.addEventListener('click', () => {
+  if (!friendEmojiPopover || friendEmojiButton.disabled) return;
+  friendEmojiPopover.hidden = !friendEmojiPopover.hidden;
+});
+friendEmojiPopover?.querySelectorAll('[data-friend-emoji]').forEach(button => {
+  button.addEventListener('click', () => insertFriendEmoji(button.dataset.friendEmoji));
+});
+document.addEventListener('click', event => {
+  if (!friendEmojiPopover || friendEmojiPopover.hidden) return;
+  if (event.target.closest('#friend-emoji-btn, #friend-emoji-popover')) return;
+  friendEmojiPopover.hidden = true;
+});
+if (friendMobileHoldToTalk && friendMicButton) {
+  friendMicButton.style.touchAction = 'none';
+  friendMicButton.addEventListener('pointerdown', async event => {
+    if (event.button !== undefined && event.button !== 0) return;
+    if (friendMicButton.disabled || friendMicPointerId !== null) return;
+    event.preventDefault();
+    friendMicPointerId = event.pointerId;
+    friendPendingStopAfterStart = null;
+    friendSuppressMicClickUntil = Date.now() + 700;
+    try { friendMicButton.setPointerCapture?.(event.pointerId); } catch (err) {}
+    await startFriendRecording();
+  });
+  friendMicButton.addEventListener('pointerup', event => {
+    if (event.pointerId !== friendMicPointerId) return;
+    event.preventDefault();
+    friendSuppressMicClickUntil = Date.now() + 700;
+    stopFriendMicPointer(true);
+  });
+  friendMicButton.addEventListener('pointercancel', event => {
+    if (event.pointerId !== friendMicPointerId) return;
+    event.preventDefault();
+    friendSuppressMicClickUntil = Date.now() + 700;
+    stopFriendMicPointer(false);
+  });
+  friendMicButton.addEventListener('contextmenu', event => event.preventDefault());
+}
+friendMicButton?.addEventListener('click', async event => {
+  if (Date.now() < friendSuppressMicClickUntil) {
+    event.preventDefault();
+    return;
+  }
+  if (friendMicButton.disabled) return;
+  if (friendRecording) stopFriendRecording(true);
+  else await startFriendRecording();
 });
 document.querySelector('[data-i18n="download_json"]')?.addEventListener('click', downloadHistory);
 

@@ -94,9 +94,32 @@ create table if not exists public.friend_messages (
   from_user_id uuid not null references public.profiles(id) on delete cascade,
   to_user_id uuid not null references public.profiles(id) on delete cascade,
   text text not null check (char_length(text) <= 1200),
+  kind text not null default 'text' check (kind in ('text', 'emoji', 'voice')),
+  audio_data text,
+  mime_type text,
+  duration integer not null default 0,
   read_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.friend_messages
+  add column if not exists kind text not null default 'text',
+  add column if not exists audio_data text,
+  add column if not exists mime_type text,
+  add column if not exists duration integer not null default 0;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'friend_messages_kind_check'
+      and conrelid = 'public.friend_messages'::regclass
+  ) then
+    alter table public.friend_messages
+      add constraint friend_messages_kind_check check (kind in ('text', 'emoji', 'voice'));
+  end if;
+end;
+$$;
 
 create index if not exists friend_messages_thread_created_idx
 on public.friend_messages (thread_id, created_at);

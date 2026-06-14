@@ -3089,10 +3089,16 @@ body.board-focus .bear-pip {
   grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
   gap: 16px;
 }
-.friend-add,
-.friend-message-form {
+.friend-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.friend-message-form {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px 38px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
 }
@@ -3100,6 +3106,77 @@ body.board-focus .bear-pip {
 .friend-message-form .text-input {
   width: 100%;
 }
+.message-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  color: var(--ink-2);
+  background: var(--panel-2);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+.message-icon-btn:hover { background: var(--panel); }
+.message-icon-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.message-icon-btn .stop-ico { display: none; }
+.message-icon-btn.recording {
+  color: oklch(0.72 0.18 30);
+  border-color: oklch(0.72 0.18 30 / 0.5);
+  background: oklch(0.72 0.18 30 / 0.12);
+}
+.message-icon-btn.recording .mic-ico { display: none; }
+.message-icon-btn.recording .stop-ico { display: block; }
+.friend-message-form.recording #friend-message-input { padding-right: 78px; }
+.friend-rec-indicator {
+  position: absolute;
+  right: 104px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 6px;
+  color: oklch(0.72 0.18 30);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.friend-message-form.recording .friend-rec-indicator { display: inline-flex; }
+.friend-rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 6px oklch(0.72 0.18 30 / 0.12);
+}
+.friend-emoji-popover {
+  position: absolute;
+  left: 46px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(4, 34px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 16px 40px oklch(0 0 0 / 0.32);
+}
+.friend-emoji-popover[hidden] { display: none; }
+.friend-emoji-popover button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: var(--panel-2);
+  cursor: pointer;
+  font-size: 18px;
+}
+.friend-emoji-popover button:hover { background: var(--accent-soft); }
 .friend-search-results {
   display: flex;
   flex-wrap: wrap;
@@ -3353,6 +3430,52 @@ body.board-focus .bear-pip {
 .friend-message.own .friend-message-body {
   background: var(--accent-soft);
   color: var(--ink);
+}
+.friend-message.emoji .friend-message-body {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.friend-message.voice .friend-message-body {
+  padding: 7px;
+}
+.friend-voice-bubble {
+  min-width: min(230px, 58vw);
+  display: grid;
+  grid-template-columns: 30px minmax(80px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.friend-voice-bubble .play {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  color: oklch(0.17 0.04 50);
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.friend-voice-bubble .dur {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+}
+.friend-wave {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.friend-wave span {
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--accent) 70%, var(--ink-3));
+  opacity: 0.75;
+}
+.friend-voice-bubble.playing .friend-wave span {
+  opacity: 1;
+  background: var(--accent);
 }
 .mono {
   font-family: "JetBrains Mono", monospace;
@@ -3615,9 +3738,11 @@ body.board-focus .bear-pip {
   .account-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .account-grid { grid-template-columns: 1fr; }
   .account-block-head { align-items: flex-start; flex-direction: column; }
-  .friend-add,
-  .friend-message-form {
+  .friend-add {
     grid-template-columns: 1fr;
+  }
+  .friend-message-form {
+    grid-template-columns: 38px 38px minmax(0, 1fr) auto;
   }
   .friend-request-row {
     grid-template-columns: 1fr;
