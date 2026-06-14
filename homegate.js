@@ -4,6 +4,8 @@ const LANG_KEY = "narduh-lang";
 const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
+const SUPABASE_ROOM_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
+const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_SELECT},room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
 
 const state = {
   admin: null,
@@ -108,6 +110,8 @@ const adminDict = {
     chat: "Чат",
     no_history: "Истории пока нет.",
     no_chat: "Сообщений пока нет.",
+    voice_message: "Голосовое сообщение",
+    audio_attached: "аудио",
     open_room_prompt: "Откройте комнату, чтобы увидеть историю, чат и состояние партии.",
     admin_closed: "Комната закрыта админом",
     network_loss: "Потеря связи",
@@ -223,6 +227,8 @@ const adminDict = {
     chat: "Chat",
     no_history: "No history yet.",
     no_chat: "No messages yet.",
+    voice_message: "Voice message",
+    audio_attached: "audio",
     open_room_prompt: "Open a room to see history, chat, and game state.",
     admin_closed: "Room closed by admin",
     network_loss: "Connection lost",
@@ -597,8 +603,23 @@ function latestSupabaseRoomEventAt(room) {
   return dates.sort().at(-1) || room.updated_at || room.created_at;
 }
 
+function supabaseRoomMessages(room) {
+  return (room.room_messages || room.chat_messages || []).map(message => ({
+    id: message.id,
+    author: message.sender_name || t("players"),
+    color: message.color,
+    text: message.kind === "voice" ? t("voice_message") : (message.text || ""),
+    kind: message.kind || "text",
+    audioData: message.audio_data || "",
+    mimeType: message.mime_type || "",
+    duration: Number(message.duration || 0),
+    at: message.created_at,
+  })).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+}
+
 function supabaseRoomSummary(room) {
   const game = room.game_state || {};
+  const chatMessages = supabaseRoomMessages(room);
   const players = supabasePlayersForRoom(room);
   const stats = rollStats(game);
   const winnerColor = game.winner || null;
@@ -623,7 +644,7 @@ function supabaseRoomSummary(room) {
     resultType: game.resultType || null,
     borneOff: game.borneOff || game.off || { white: 0, dark: 0 },
     historyCount: game.history?.length || 0,
-    chatCount: game.chat?.length || 0,
+    chatCount: chatMessages.length || game.chat?.length || 0,
     ...stats,
   };
 }
@@ -632,7 +653,8 @@ function supabaseRoomDetail(room) {
   const summary = supabaseRoomSummary(room);
   const game = { ...(room.game_state || {}) };
   game.history = Array.isArray(game.history) ? game.history : [];
-  game.chat = Array.isArray(game.chat) ? game.chat : [];
+  const chatMessages = supabaseRoomMessages(room);
+  game.chat = chatMessages.length ? chatMessages : (Array.isArray(game.chat) ? game.chat : []);
   game.off ||= { white: 0, dark: 0 };
   game.borneOff = game.borneOff || game.off;
   return {
@@ -798,6 +820,30 @@ function historyListHtml(history) {
   return chronological.map((item, index) => historyAdminItem(item, index + 1)).join("") || `<li class="history-row empty">${t("no_history")}</li>`;
 }
 
+function adminChatText(item = {}) {
+  if (item.kind === "voice") {
+    const suffix = item.audioData ? ` · ${t("audio_attached")}` : "";
+    return `${t("voice_message")}${suffix}`;
+  }
+  return item.text || "";
+}
+
+function adminChatItemHtml(item = {}) {
+  const classes = ["admin-chat-row"];
+  if (item.kind === "voice") classes.push("voice");
+  if (item.kind === "emoji") classes.push("emoji");
+  return `
+    <li class="${classes.join(" ")}">
+      <div class="admin-chat-meta">${escapeHtml(item.author || t("players"))} · ${fmtTime(item.at)}</div>
+      <div class="admin-chat-text">${escapeHtml(adminChatText(item))}</div>
+    </li>`;
+}
+
+function adminChatListHtml(chat) {
+  const messages = Array.isArray(chat) ? chat.slice(0, 50) : [];
+  return messages.map(adminChatItemHtml).join("") || `<li>${t("no_chat")}</li>`;
+}
+
 function gameProtocolText(detail = state.detail) {
   if (!detail) return "";
   const { summary, session } = detail;
@@ -825,7 +871,7 @@ function gameProtocolText(detail = state.detail) {
   if (game.chat?.length) {
     [...game.chat].reverse().forEach((item, index) => {
       lines.push(`#${index + 1} ${item.author || t("players")} · ${item.at || "-"}`);
-      lines.push(String(item.text || ""));
+      lines.push(adminChatText(item));
       lines.push("");
     });
   } else {
@@ -880,7 +926,7 @@ function detailHtml() {
       </div>
       <div class="detail-section">
         <h3>${t("chat")}</h3>
-        <ul class="chat-admin">${(game.chat || []).slice(0, 50).map(item => `<li>${escapeHtml(item.author || t("players"))} · ${fmtTime(item.at)}<br>${escapeHtml(item.text)}</li>`).join("") || `<li>${t("no_chat")}</li>`}</ul>
+        <ul class="chat-admin">${adminChatListHtml(game.chat)}</ul>
       </div>
     </div>`;
 }
@@ -1129,7 +1175,7 @@ async function refresh() {
     if (pruneError && !/function .*admin_prune_room_archive|Could not find the function/i.test(pruneError.message || "")) throw pruneError;
     const { data: rooms, error: roomsError } = await client
       .from("rooms")
-      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason")
+      .select(SUPABASE_ROOM_SELECT)
       .neq("status", "closed")
       .order("updated_at", { ascending: false });
     if (roomsError) throw roomsError;
@@ -1193,6 +1239,17 @@ async function refresh() {
     }
     saveWatch();
     if (state.detailKey && !roomByKey(state.detailKey)) clearRoomDetail();
+    else if (state.detailKey) {
+      const detailRoom = roomByKey(state.detailKey);
+      if (detailRoom) {
+        const { data: detailData, error: detailError } = await client
+          .from("rooms")
+          .select(SUPABASE_ROOM_DETAIL_SELECT)
+          .eq("id", detailRoom.id)
+          .maybeSingle();
+        if (!detailError && detailData) state.detail = supabaseRoomDetail(detailData);
+      }
+    }
     render();
     restoreScrollSnapshot(snapshot);
     return;
@@ -1226,7 +1283,7 @@ async function openRoom(key) {
     const client = await supabaseClient();
     const { data, error } = await client
       .from("rooms")
-      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason")
+      .select(SUPABASE_ROOM_DETAIL_SELECT)
       .eq("id", room.id)
       .maybeSingle();
     if (error) throw error;

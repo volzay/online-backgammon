@@ -529,6 +529,27 @@
   font-size: 13px;
 }
 
+.admin-chat-meta {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.admin-chat-text {
+  margin-top: 4px;
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+
+.admin-chat-row.voice .admin-chat-text {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.admin-chat-row.emoji .admin-chat-text {
+  font-size: 22px;
+  line-height: 1.15;
+}
+
 .players-panel {
   overflow: hidden;
 }

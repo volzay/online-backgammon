@@ -209,6 +209,30 @@ alter table public.room_messages enable row level security;
 alter table public.rating_events enable row level security;
 alter table public.admin_audit enable row level security;
 
+create or replace function public.admin_email_whitelist()
+returns text[]
+language sql
+immutable
+as $$
+  select array['volzay@yandex.ru', 'openthedoorcap@gmail.com']::text[]
+$$;
+
+revoke all on function public.admin_email_whitelist() from public;
+grant execute on function public.admin_email_whitelist() to authenticated;
+
+create or replace function public.is_admin_user()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = any(public.admin_email_whitelist())
+$$;
+
+revoke all on function public.is_admin_user() from public;
+grant execute on function public.is_admin_user() to authenticated;
+
 drop policy if exists "profiles are visible to authenticated users" on public.profiles;
 create policy "profiles are visible to authenticated users"
 on public.profiles for select
@@ -312,6 +336,12 @@ using (
       and (r.host_user_id = auth.uid() or r.guest_user_id = auth.uid())
   )
 );
+
+drop policy if exists "admins can read room chat" on public.room_messages;
+create policy "admins can read room chat"
+on public.room_messages for select
+to authenticated
+using (public.is_admin_user());
 
 drop policy if exists "room players can write room chat" on public.room_messages;
 create policy "room players can write room chat"
