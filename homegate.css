@@ -545,6 +545,14 @@
   font-weight: 700;
 }
 
+.admin-chat-audio {
+  width: min(100%, 320px);
+  height: 34px;
+  margin-top: 8px;
+  display: block;
+  color-scheme: dark;
+}
+
 .admin-chat-row.emoji .admin-chat-text {
   font-size: 22px;
   line-height: 1.15;

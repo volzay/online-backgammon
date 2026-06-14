@@ -832,10 +832,14 @@ function adminChatItemHtml(item = {}) {
   const classes = ["admin-chat-row"];
   if (item.kind === "voice") classes.push("voice");
   if (item.kind === "emoji") classes.push("emoji");
+  const voicePlayer = item.kind === "voice" && item.audioData
+    ? `<audio class="admin-chat-audio" controls preload="metadata" src="${escapeHtml(item.audioData)}"></audio>`
+    : "";
   return `
     <li class="${classes.join(" ")}">
       <div class="admin-chat-meta">${escapeHtml(item.author || t("players"))} · ${fmtTime(item.at)}</div>
       <div class="admin-chat-text">${escapeHtml(adminChatText(item))}</div>
+      ${voicePlayer}
     </li>`;
 }
 

@@ -1593,6 +1593,7 @@ let friendMicPointerId = null;
 let friendSuppressMicClickUntil = 0;
 let friendPendingStopAfterStart = null;
 const friendMobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
+const FRIEND_VOICE_MAX_BYTES = 4 * 1024 * 1024;
 
 function bestFriendAudioMimeType() {
   if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') return '';
@@ -1678,7 +1679,7 @@ async function startFriendRecording() {
     friendRecTimer = setInterval(() => {
       if (friendRecTime) friendRecTime.textContent = formatRecordingTime(Date.now() - friendRecStart);
     }, 200);
-    friendMediaRecorder.start();
+    friendMediaRecorder.start(1000);
     if (friendPendingStopAfterStart !== null) {
       const shouldSend = friendPendingStopAfterStart;
       friendPendingStopAfterStart = null;
@@ -1698,6 +1699,7 @@ async function startFriendRecording() {
 function stopFriendRecording(send = true) {
   if (!friendRecording) return;
   friendSendRecordingOnStop = send;
+  try { friendMediaRecorder?.requestData?.(); } catch (err) {}
   if (friendMediaRecorder && friendMediaRecorder.state !== 'inactive') friendMediaRecorder.stop();
 }
 
@@ -1706,7 +1708,7 @@ async function sendFriendVoiceBlob(blob, duration) {
     flash(tr('voice_supabase_only', 'Голосовые сообщения доступны на публичном сайте через Supabase.'));
     return;
   }
-  if (blob.size > 900 * 1024) {
+  if (blob.size > FRIEND_VOICE_MAX_BYTES) {
     if (friendMessageInput) friendMessageInput.placeholder = tr('voice_too_long', 'Голосовое сообщение слишком длинное');
     return;
   }

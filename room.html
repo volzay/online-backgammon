@@ -964,6 +964,7 @@ let micPointerId = null;
 let suppressMicClickUntil = 0;
 let pendingMicStopAfterStart = null;
 const mobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
+const VOICE_MAX_BYTES = 4 * 1024 * 1024;
 
 function fmtRec(ms) {
   const s = Math.floor(ms / 1000);
@@ -1051,7 +1052,7 @@ async function startRec() {
     paintRecording(true);
     recTime.textContent = '0:00';
     recTimer = setInterval(() => { recTime.textContent = fmtRec(Date.now() - recStart); }, 200);
-    mediaRecorder.start();
+    mediaRecorder.start(1000);
     if (pendingMicStopAfterStart !== null) {
       const shouldSend = pendingMicStopAfterStart;
       pendingMicStopAfterStart = null;
@@ -1071,13 +1072,14 @@ async function startRec() {
 function stopRec(send = true) {
   if (!recording) return;
   sendRecordingOnStop = send;
+  try { mediaRecorder?.requestData?.(); } catch (err) {}
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }
 }
 
 async function sendVoiceBlob(blob, duration) {
-  if (blob.size > 900 * 1024) {
+  if (blob.size > VOICE_MAX_BYTES) {
     inputEl.placeholder = t('voice_too_long');
     return;
   }
