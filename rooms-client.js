@@ -148,6 +148,17 @@
     return room;
   }
 
+  function isBotAnalysisRow(row) {
+    const gameState = row?.game_state;
+    const analysis = gameState && typeof gameState === "object" ? gameState.analysis : null;
+    return Boolean(
+      analysis?.mode === "bot" ||
+      analysis?.opponent === "bot" ||
+      gameState?.mode === "bot" ||
+      gameState?.opponent === "bot"
+    );
+  }
+
   async function currentAuthContext() {
     const client = await supabase();
     const { data: authData, error: authError } = await client.auth.getUser();
@@ -242,9 +253,9 @@
       .or(`host_user_id.eq.${userId},guest_user_id.eq.${userId}`)
       .in("status", ["waiting", "joined"])
       .order("updated_at", { ascending: false })
-      .limit(1);
+      .limit(50);
     if (error) throw supabaseError(error, "Could not check active room.");
-    return data?.[0] || null;
+    return (data || []).find(row => !isBotAnalysisRow(row)) || null;
   }
 
   async function listRooms() {
@@ -252,15 +263,16 @@
     const { client } = await currentAuthContext();
     const { data, error } = await client
       .from("rooms")
-      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,created_at,joined_at,updated_at")
+      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,created_at,joined_at,updated_at")
       .in("status", ["waiting", "joined"])
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw supabaseError(error, "Could not load rooms.");
-    (data || []).forEach(row => {
+    const visibleRows = (data || []).filter(row => !isBotAnalysisRow(row));
+    visibleRows.forEach(row => {
       if (row.id) roomIdCache.set(normalizeCode(row.code), row.id);
     });
-    return { rooms: (data || []).map(row => publicRoom(row)) };
+    return { rooms: visibleRows.map(row => publicRoom(row)) };
   }
 
   async function createRoom(payload = {}) {
@@ -317,6 +329,80 @@
       if (error.code !== "23505") break;
     }
     throw supabaseError(lastError, "Could not create room.");
+  }
+
+  async function ensureBotAnalysisRoom(payload = {}) {
+    if (!configured()) return { skipped: true };
+    const normalizedCode = normalizeCode(payload.code);
+    if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
+
+    const { client, authUser, profile } = await currentAuthContext();
+    const roomProfile = localRoomProfile(profile);
+    const variant = payload.variant === "short" ? "short" : "long";
+    const botName = String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
+    const botRating = normalizeRating(payload.botRating);
+    const state = payload.state && typeof payload.state === "object"
+      ? JSON.parse(JSON.stringify(payload.state))
+      : {};
+    state.mode = "bot";
+    state.variant = variant;
+    state.roomCode = normalizedCode;
+    state.analysis = {
+      ...(state.analysis || {}),
+      mode: "bot",
+      opponent: "bot",
+      difficulty: String(payload.difficulty || state.botDifficulty || "").slice(0, 20),
+      botName,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const { data: existing, error: existingError } = await client
+      .from("rooms")
+      .select("id,code,status,host_user_id,game_state,game_version")
+      .eq("code", normalizedCode)
+      .neq("status", "closed")
+      .maybeSingle();
+    if (existingError) throw supabaseError(existingError, "Could not load bot analysis room.");
+    if (existing?.id) {
+      if (existing.host_user_id && existing.host_user_id !== authUser.id) {
+        throw roomError("Код партии уже занят другой комнатой.", 409);
+      }
+      roomIdCache.set(normalizedCode, existing.id);
+      if (!isBotAnalysisRow(existing)) throw roomError("Код партии уже занят онлайн-комнатой.", 409);
+      return { ok: true, version: Number(existing.game_version || 0) };
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await client
+      .from("rooms")
+      .insert({
+        code: normalizedCode,
+        variant,
+        access: "open",
+        status: "joined",
+        host_user_id: authUser.id,
+        host_name: roomProfile.name,
+        host_rating: roomProfile.registered ? roomProfile.rating : null,
+        host_registered: roomProfile.registered,
+        guest_name: botName,
+        guest_rating: botRating,
+        guest_registered: false,
+        joined_at: now,
+        presence: {
+          [payload.playerColor === "dark" ? "dark" : "white"]: {
+            name: roomProfile.name,
+            lastSeen: Date.now(),
+          },
+        },
+        left_players: {},
+        game_state: state,
+        game_version: 0,
+      })
+      .select("id,game_version")
+      .maybeSingle();
+    if (error) throw supabaseError(error, "Could not create bot analysis room.");
+    if (data?.id) roomIdCache.set(normalizedCode, data.id);
+    return { ok: true, version: Number(data?.game_version || 0) };
   }
 
   async function getRoom(code) {
@@ -739,6 +825,7 @@
     normalizeCode,
     listRooms,
     createRoom,
+    ensureBotAnalysisRoom,
     getRoom,
     joinRoom,
     deleteRoom,

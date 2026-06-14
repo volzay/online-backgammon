@@ -32,6 +32,11 @@ window.NarduController = (function () {
   let remotePublishQueue = Promise.resolve();
   let remotePollTimer = null;
   let isApplyingRemote = false;
+  let botAnalysisReady = false;
+  let botAnalysisDisabled = false;
+  let botAnalysisVersion = 0;
+  let botAnalysisEnsurePromise = null;
+  let botAnalysisPublishQueue = Promise.resolve();
   let remoteAnimatedRollTokens = new Set();
   let remoteMoveSoundKeys = new Set();
   let remoteMoveSoundReady = false;
@@ -340,6 +345,11 @@ window.NarduController = (function () {
     state.roomCode = roomCode;
     remoteCode = state.roomCode;
     remoteVersion = 0;
+    botAnalysisReady = false;
+    botAnalysisDisabled = false;
+    botAnalysisVersion = 0;
+    botAnalysisEnsurePromise = null;
+    botAnalysisPublishQueue = Promise.resolve();
     remoteAnimatedRollTokens = new Set();
     remoteMoveSoundKeys = new Set();
     remoteMoveSoundReady = false;
@@ -371,6 +381,7 @@ window.NarduController = (function () {
     if (applyLocalBearOffDemo(url)) return;
     if (waitingForOpponent) return;
     if (!opts.skipRemoteSync) startRemoteSync();
+    if (mode === 'bot') queueBotAnalysisPublish(900);
     if (opts.skipAutoStart) return;
     ensureAutoProgress(mode === 'remote' ? 1300 : 650);
   }
@@ -469,7 +480,99 @@ window.NarduController = (function () {
     }));
   }
 
+  function botAnalysisPayload() {
+    const payload = remoteStatePayload();
+    payload.mode = 'bot';
+    payload.variant = variant;
+    payload.roomCode = remoteCode;
+    payload.botDifficulty = botDifficulty;
+    payload.opponent = 'bot';
+    payload.analysis = {
+      ...(payload.analysis || {}),
+      mode: 'bot',
+      opponent: 'bot',
+      difficulty: botDifficulty,
+      botName: opponentName,
+      playerColor,
+      updatedAt: new Date().toISOString(),
+    };
+    return payload;
+  }
+
+  function canPublishBotAnalysis() {
+    return mode === 'bot' &&
+      Boolean(remoteCode) &&
+      !botAnalysisDisabled &&
+      window.NarduRooms?.configured?.();
+  }
+
+  async function ensureBotAnalysisRoomReady(initialPayload = null) {
+    if (!canPublishBotAnalysis()) return false;
+    if (botAnalysisReady) return true;
+    if (botAnalysisEnsurePromise) return botAnalysisEnsurePromise;
+    botAnalysisEnsurePromise = (async () => {
+      try {
+        const data = await window.NarduRooms.ensureBotAnalysisRoom({
+          code: remoteCode,
+          variant,
+          botName: opponentName,
+          botRating: opponentRating,
+          difficulty: botDifficulty,
+          playerColor,
+          state: initialPayload || botAnalysisPayload(),
+        });
+        if (data?.skipped) return false;
+        botAnalysisReady = true;
+        botAnalysisVersion = Number.isFinite(data?.version) ? data.version : Number(data?.version || 0);
+        return true;
+      } catch (error) {
+        botAnalysisDisabled = true;
+        console.warn('Could not enable bot analysis sync', error?.message || error);
+        return false;
+      } finally {
+        botAnalysisEnsurePromise = null;
+      }
+    })();
+    return botAnalysisEnsurePromise;
+  }
+
+  function queueBotAnalysisPublish(delay = 0) {
+    if (!canPublishBotAnalysis()) return;
+    window.setTimeout(() => publishBotAnalysisState(), Math.max(0, Number(delay) || 0));
+  }
+
+  async function publishBotAnalysisState() {
+    if (!canPublishBotAnalysis() || state.phase === 'waiting' || isApplyingRemote) return;
+    syncTurnClock();
+    const payload = botAnalysisPayload();
+    botAnalysisPublishQueue = botAnalysisPublishQueue
+      .catch(() => {})
+      .then(async () => {
+        const ready = await ensureBotAnalysisRoomReady(payload);
+        if (!ready) return;
+        try {
+          const data = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
+          if (Number.isFinite(data?.version)) botAnalysisVersion = data.version;
+        } catch (error) {
+          if (error?.status !== 409) {
+            console.warn('Could not save bot analysis state', error?.message || error);
+            return;
+          }
+          try {
+            const current = await window.NarduRooms.getGameState(remoteCode);
+            if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
+            const saved = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
+            if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
+          } catch (retryError) {
+            console.warn('Could not recover bot analysis sync', retryError?.message || retryError);
+          }
+        }
+      });
+    return botAnalysisPublishQueue;
+  }
+
   async function publishRemoteState() {
+    if (mode === 'bot') return publishBotAnalysisState();
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
     const payload = remoteStatePayload();
