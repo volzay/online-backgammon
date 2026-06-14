@@ -3,13 +3,14 @@ const THEME_KEY = "narduh-theme";
 const LANG_KEY = "narduh-lang";
 const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
+const ROOM_ARCHIVE_RETENTION_HOURS = 96;
 
 const state = {
   admin: null,
   backend: "server",
   readonlyAdmin: false,
   configured: true,
-  retentionHours: 60,
+  retentionHours: ROOM_ARCHIVE_RETENTION_HOURS,
   adminTab: localStorage.getItem(TAB_KEY) || "rooms",
   adminPasswordOpen: false,
   active: [],
@@ -1122,6 +1123,10 @@ async function refresh() {
   const snapshot = scrollSnapshot();
   if (state.backend === "supabase") {
     const client = await supabaseClient();
+    const { error: pruneError } = await client.rpc("admin_prune_room_archive", {
+      max_age_hours: ROOM_ARCHIVE_RETENTION_HOURS,
+    });
+    if (pruneError && !/function .*admin_prune_room_archive|Could not find the function/i.test(pruneError.message || "")) throw pruneError;
     const { data: rooms, error: roomsError } = await client
       .from("rooms")
       .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason")
@@ -1131,7 +1136,7 @@ async function refresh() {
     state.active = (rooms || []).map(supabaseRoomSummary);
     state.archive = [];
     state.audit = [];
-    state.retentionHours = 0;
+    state.retentionHours = ROOM_ARCHIVE_RETENTION_HOURS;
     try {
       const { data: users, error: usersError } = await client
         .from("profiles")

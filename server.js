@@ -16,10 +16,10 @@ const DEFAULT_ADMIN_LOGIN = process.env.ADMIN_LOGIN || "admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "adM)in27-05!26";
 const ADMIN_COOKIE_NAME = "nardy_admin";
 const ADMIN_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
-const configuredArchiveHours = Number(process.env.ADMIN_ARCHIVE_HOURS || 60);
+const configuredArchiveHours = Number(process.env.ADMIN_ARCHIVE_HOURS || 96);
 const ADMIN_ARCHIVE_HOURS = Number.isFinite(configuredArchiveHours) && configuredArchiveHours > 0
   ? configuredArchiveHours
-  : 60;
+  : 96;
 const ADMIN_ARCHIVE_TTL_MS = ADMIN_ARCHIVE_HOURS * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_RATING = 1000;
