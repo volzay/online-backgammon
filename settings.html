@@ -358,9 +358,14 @@
         <div class="s-row">
           <div>
             <div class="s-lbl" data-i18n="match_history">История партий</div>
-            <div class="s-hint" data-i18n="match_history_hint">Скачать архив ходов и кубиков</div>
+            <div class="s-hint" data-i18n="match_history_hint">Партии за последние 96 часов</div>
           </div>
-          <button class="ghostbtn" data-i18n="download_json">Скачать .json</button>
+          <div class="privacy-history-export">
+            <select class="text-input" id="privacy-history-select" aria-label="Партии за 96 часов" data-i18n-aria="match_history_recent">
+              <option data-i18n="match_history_empty">История партий пока пуста.</option>
+            </select>
+            <button class="ghostbtn" id="privacy-copy-game" type="button" data-i18n="copy">Копировать</button>
+          </div>
         </div>
       </section>
 
@@ -801,6 +806,7 @@ function renderAccount() {
   document.getElementById('account-losses').textContent = String(losses);
   document.getElementById('account-special-wins').textContent = String(games.filter(game => game.resultType === 'mars' || game.resultType === 'koks').length);
   renderGames(games);
+  renderPrivacyHistoryExport(games);
   renderFriendRequests(profile.friendRequests || { incoming: [], outgoing: [] });
   renderFriends(profile.friends || []);
 }
@@ -834,6 +840,85 @@ function renderGames(games) {
       </tr>
     `;
   }).join('');
+}
+
+function recentPrivacyGames(games = []) {
+  const cutoff = Date.now() - 96 * 60 * 60 * 1000;
+  return games.filter(game => {
+    const ts = Number(game.ts || Date.parse(game.at || ''));
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+}
+
+function gameExportTitle(game = {}) {
+  const date = formatDate(game.ts || game.at);
+  const opponent = localizedOpponentName(game.opponent) || tr('opponent', 'Соперник');
+  const result = resultText(game);
+  const score = game.score ? ` ${Number(game.score.white || 0)}-${Number(game.score.dark || 0)}` : '';
+  return `${date} · ${opponent} · ${result}${score}`;
+}
+
+function renderPrivacyHistoryExport(games = []) {
+  const select = document.getElementById('privacy-history-select');
+  const button = document.getElementById('privacy-copy-game');
+  if (!select || !button) return;
+  const recent = recentPrivacyGames(games);
+  if (!recent.length) {
+    select.innerHTML = `<option value="">${tr('match_history_recent_empty', 'За последние 96 часов партий нет.')}</option>`;
+    select.disabled = true;
+    button.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  button.disabled = false;
+  select.innerHTML = recent.map((game, index) => `
+    <option value="${index}">${escapeHtml(gameExportTitle(game))}</option>
+  `).join('');
+}
+
+function gameExportText(game = {}) {
+  const score = game.score
+    ? `${Number(game.score.white || 0)}-${Number(game.score.dark || 0)}`
+    : '-';
+  const rating = game.ratingAfter
+    ? `${game.ratingAfter} (${game.delta >= 0 ? '+' : ''}${game.delta || 0})`
+    : '-';
+  return [
+    `${tr('game', 'Партия')}: ${game.resultKey || '-'}`,
+    `${tr('date', 'Дата')}: ${game.at || (game.ts ? new Date(Number(game.ts)).toISOString() : '-')}`,
+    `${tr('opponent', 'Соперник')}: ${localizedOpponentName(game.opponent) || '-'}`,
+    `${tr('result', 'Результат')}: ${resultText(game)}`,
+    `${tr('type', 'Тип')}: ${resultTypeText(game.resultType)}`,
+    `${tr('score', 'Счёт')}: ${score}`,
+    `${tr('rating', 'Рейтинг')}: ${rating}`,
+    `${tr('mode', 'Режим')}: ${game.mode || '-'}`,
+    `${tr('winner', 'Победитель')}: ${game.winner || '-'}`,
+  ].join('\n');
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand('copy');
+  area.remove();
+}
+
+async function copySelectedPrivacyGame() {
+  const select = document.getElementById('privacy-history-select');
+  const games = recentPrivacyGames(accountState.profile?.games || []);
+  const game = games[Number(select?.value || 0)];
+  if (!game) return;
+  await copyTextToClipboard(gameExportText(game));
+  flash(tr('game_copied', 'Партия скопирована.'));
 }
 
 function renderFriends(friends) {
@@ -1747,17 +1832,6 @@ function insertFriendEmoji(emoji) {
   friendMessageInput.setSelectionRange(caret, caret);
 }
 
-function downloadHistory() {
-  const profile = accountState.profile || fallbackProfile();
-  const blob = new Blob([JSON.stringify(profile.games || [], null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'nardy-match-history.json';
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 document.getElementById('save-password').addEventListener('click', changeAccountPassword);
 document.getElementById('delete-account-open').addEventListener('click', openDeleteAccountModal);
 document.getElementById('delete-account-confirm').addEventListener('click', deleteAccountConfirmed);
@@ -1829,7 +1903,9 @@ friendMicButton?.addEventListener('click', async event => {
   if (friendRecording) stopFriendRecording(true);
   else await startFriendRecording();
 });
-document.querySelector('[data-i18n="download_json"]')?.addEventListener('click', downloadHistory);
+document.getElementById('privacy-copy-game')?.addEventListener('click', () => {
+  copySelectedPrivacyGame().catch(err => flash(err.message || tr('copy_failed', 'Не удалось скопировать.')));
+});
 
 const SETTINGS_KEYS = {
   animationSpeed: 'narduh-animation-speed',
