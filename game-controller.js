@@ -2475,6 +2475,7 @@ window.NarduController = (function () {
         resultType: state.resultType || '',
         winner: state.winner,
         score: { ...state.score },
+        history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
         finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
       });
       lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;

@@ -69,24 +69,31 @@ window.NarduRating = (function () {
     if (profileError) throw profileError;
 
     if (entry?.resultKey) {
-      const { error: eventError } = await client
+      const eventPayload = {
+        user_id: user.id,
+        result_key: String(entry.resultKey || '').slice(0, 120),
+        opponent: String(entry.opponent || '').slice(0, 32),
+        opponent_rating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : null,
+        did_win: Boolean(entry.didWin),
+        mode: String(entry.mode || '').slice(0, 20),
+        result_type: ['mars', 'koks'].includes(entry.resultType) ? entry.resultType : '',
+        winner: entry.winner === 'dark' ? 'dark' : (entry.winner === 'white' ? 'white' : ''),
+        score: entry.score && typeof entry.score === 'object' ? {
+          white: Number(entry.score.white) || 0,
+          dark: Number(entry.score.dark) || 0,
+        } : null,
+        history: Array.isArray(entry.history) ? entry.history.slice(0, 500) : [],
+        delta: Number(entry.delta || 0),
+        rating_after: rating,
+      };
+      let { error: eventError } = await client
         .from('rating_events')
-        .insert({
-          user_id: user.id,
-          result_key: String(entry.resultKey || '').slice(0, 120),
-          opponent: String(entry.opponent || '').slice(0, 32),
-          opponent_rating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : null,
-          did_win: Boolean(entry.didWin),
-          mode: String(entry.mode || '').slice(0, 20),
-          result_type: ['mars', 'koks'].includes(entry.resultType) ? entry.resultType : '',
-          winner: entry.winner === 'dark' ? 'dark' : (entry.winner === 'white' ? 'white' : ''),
-          score: entry.score && typeof entry.score === 'object' ? {
-            white: Number(entry.score.white) || 0,
-            dark: Number(entry.score.dark) || 0,
-          } : null,
-          delta: Number(entry.delta || 0),
-          rating_after: rating,
-        });
+        .insert(eventPayload);
+      if (eventError && /history/i.test(eventError.message || '')) {
+        const { history, ...legacyPayload } = eventPayload;
+        const retry = await client.from('rating_events').insert(legacyPayload);
+        eventError = retry.error;
+      }
       if (eventError && eventError.code !== '23505') throw eventError;
     }
 
@@ -165,6 +172,7 @@ window.NarduRating = (function () {
       resultType: details.resultType || '',
       winner: details.winner || '',
       score: details.score || null,
+      history: Array.isArray(details.history) ? details.history.map(item => ({ ...item })) : [],
       finishedAt: details.finishedAt || new Date().toISOString(),
       delta,
       ratingAfter: user.rating,

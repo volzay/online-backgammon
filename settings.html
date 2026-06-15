@@ -261,10 +261,11 @@
                   <th data-i18n="result">Результат</th>
                   <th data-i18n="type">Тип</th>
                   <th data-i18n="rating">Рейтинг</th>
+                  <th data-i18n="copy">Копировать</th>
                 </tr>
               </thead>
               <tbody id="match-history-list">
-                <tr><td colspan="5" class="empty-cell" data-i18n="match_history_empty">История партий пока пуста.</td></tr>
+                <tr><td colspan="6" class="empty-cell" data-i18n="match_history_empty">История партий пока пуста.</td></tr>
               </tbody>
             </table>
           </div>
@@ -355,18 +356,6 @@
           <label class="switch"><input type="checkbox" id="show-rating-toggle" checked><span class="sw"></span></label>
         </div>
 
-        <div class="s-row">
-          <div>
-            <div class="s-lbl" data-i18n="match_history">История партий</div>
-            <div class="s-hint" data-i18n="match_history_hint">Партии за последние 96 часов</div>
-          </div>
-          <div class="privacy-history-export">
-            <select class="text-input" id="privacy-history-select" aria-label="Партии за 96 часов" data-i18n-aria="match_history_recent">
-              <option data-i18n="match_history_empty">История партий пока пуста.</option>
-            </select>
-            <button class="ghostbtn" id="privacy-copy-game" type="button" data-i18n="copy">Копировать</button>
-          </div>
-        </div>
       </section>
 
     </main>
@@ -685,12 +674,22 @@ function localizedOpponentName(name) {
 }
 
 async function loadSupabaseGames(client, userId) {
-  const { data, error } = await client
+  let { data, error } = await client
     .from('rating_events')
-    .select('result_key,opponent,opponent_rating,did_win,mode,result_type,winner,score,delta,rating_after,created_at')
+    .select('result_key,opponent,opponent_rating,did_win,mode,result_type,winner,score,delta,rating_after,history,created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
+  if (error && /history/i.test(error.message || '')) {
+    const fallback = await client
+      .from('rating_events')
+      .select('result_key,opponent,opponent_rating,did_win,mode,result_type,winner,score,delta,rating_after,created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    data = fallback.data;
+    error = fallback.error;
+  }
   if (error) throw new Error(error.message);
   return mergeGames((data || []).map(row => ({
     resultKey: row.result_key,
@@ -705,6 +704,7 @@ async function loadSupabaseGames(client, userId) {
     score: row.score || null,
     delta: Number(row.delta || 0),
     ratingAfter: row.rating_after,
+    history: Array.isArray(row.history) ? row.history : [],
   })));
 }
 
@@ -732,6 +732,7 @@ function localGames() {
     score: item.score || null,
     delta: Number(item.delta || 0),
     ratingAfter: item.ratingAfter ?? currentUser().rating,
+    history: Array.isArray(item.history) ? item.history : [],
   }));
 }
 
@@ -806,7 +807,6 @@ function renderAccount() {
   document.getElementById('account-losses').textContent = String(losses);
   document.getElementById('account-special-wins').textContent = String(games.filter(game => game.resultType === 'mars' || game.resultType === 'koks').length);
   renderGames(games);
-  renderPrivacyHistoryExport(games);
   renderFriendRequests(profile.friendRequests || { incoming: [], outgoing: [] });
   renderFriends(profile.friends || []);
 }
@@ -824,56 +824,24 @@ function renderGames(games) {
   const tbody = document.getElementById('match-history-list');
   if (!tbody) return;
   if (!games.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">${tr('match_history_empty', 'История партий пока пуста.')}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-cell">${tr('match_history_empty', 'История партий пока пуста.')}</td></tr>`;
     return;
   }
-  tbody.innerHTML = games.slice(0, 50).map(game => {
+  tbody.innerHTML = games.slice(0, 50).map((game, index) => {
     const score = game.score ? ` · ${Number(game.score.white || 0)}-${Number(game.score.dark || 0)}` : '';
     const rating = game.ratingAfter ? `${game.ratingAfter} (${game.delta >= 0 ? '+' : ''}${game.delta || 0})` : '—';
+    const key = escapeHtml(game.resultKey || '');
     return `
-      <tr>
+      <tr data-game-key="${key}">
         <td>${formatDate(game.ts || game.at)}</td>
         <td>${escapeHtml(localizedOpponentName(game.opponent))}</td>
         <td><span class="result-pill ${game.didWin ? 'win' : 'loss'}">${resultText(game)}</span>${score}</td>
         <td>${resultTypeText(game.resultType)}</td>
         <td class="mono">${escapeHtml(rating)}</td>
+        <td><button class="ghostbtn tiny" type="button" data-copy-account-game="${index}">${tr('copy', 'Копировать')}</button></td>
       </tr>
     `;
   }).join('');
-}
-
-function recentPrivacyGames(games = []) {
-  const cutoff = Date.now() - 96 * 60 * 60 * 1000;
-  return games.filter(game => {
-    const ts = Number(game.ts || Date.parse(game.at || ''));
-    return Number.isFinite(ts) && ts >= cutoff;
-  });
-}
-
-function gameExportTitle(game = {}) {
-  const date = formatDate(game.ts || game.at);
-  const opponent = localizedOpponentName(game.opponent) || tr('opponent', 'Соперник');
-  const result = resultText(game);
-  const score = game.score ? ` ${Number(game.score.white || 0)}-${Number(game.score.dark || 0)}` : '';
-  return `${date} · ${opponent} · ${result}${score}`;
-}
-
-function renderPrivacyHistoryExport(games = []) {
-  const select = document.getElementById('privacy-history-select');
-  const button = document.getElementById('privacy-copy-game');
-  if (!select || !button) return;
-  const recent = recentPrivacyGames(games);
-  if (!recent.length) {
-    select.innerHTML = `<option value="">${tr('match_history_recent_empty', 'За последние 96 часов партий нет.')}</option>`;
-    select.disabled = true;
-    button.disabled = true;
-    return;
-  }
-  select.disabled = false;
-  button.disabled = false;
-  select.innerHTML = recent.map((game, index) => `
-    <option value="${index}">${escapeHtml(gameExportTitle(game))}</option>
-  `).join('');
 }
 
 function gameExportText(game = {}) {
@@ -883,7 +851,7 @@ function gameExportText(game = {}) {
   const rating = game.ratingAfter
     ? `${game.ratingAfter} (${game.delta >= 0 ? '+' : ''}${game.delta || 0})`
     : '-';
-  return [
+  const lines = [
     `${tr('game', 'Партия')}: ${game.resultKey || '-'}`,
     `${tr('date', 'Дата')}: ${game.at || (game.ts ? new Date(Number(game.ts)).toISOString() : '-')}`,
     `${tr('opponent', 'Соперник')}: ${localizedOpponentName(game.opponent) || '-'}`,
@@ -893,7 +861,46 @@ function gameExportText(game = {}) {
     `${tr('rating', 'Рейтинг')}: ${rating}`,
     `${tr('mode', 'Режим')}: ${game.mode || '-'}`,
     `${tr('winner', 'Победитель')}: ${game.winner || '-'}`,
-  ].join('\n');
+    '',
+    tr('match_log', 'Ход партии').toUpperCase(),
+  ];
+  const history = Array.isArray(game.history) ? [...game.history].reverse() : [];
+  if (!history.length) {
+    lines.push(tr('no_history', 'Истории пока нет.'));
+    return lines.join('\n');
+  }
+  history.forEach((item, index) => {
+    lines.push(historyCopyText(item, index + 1));
+    lines.push('');
+  });
+  return lines.join('\n').trim();
+}
+
+function colorLabel(color) {
+  if (color === 'white') return tr('white', 'Белые');
+  if (color === 'dark') return tr('dark', 'Тёмные');
+  return color || tr('players', 'Игроки');
+}
+
+function historyText(item = {}) {
+  if (item.adminClosed) return `${tr('admin_closed', 'Закрыто администратором')}: ${item.reason || '-'}`;
+  if (item.networkLoss) return `${tr('network_loss', 'Соединение потеряно')}: ${colorLabel(item.color)}`;
+  if (item.resign) return `${colorLabel(item.color)} ${tr('resigned', 'сдались')}`;
+  if (item.leave) return `${colorLabel(item.color)} ${tr('left_game', 'покинули игру')}`;
+  if (item.opening) return tr('opening_roll', 'Стартовый бросок');
+  if (item.openingMove) return `${colorLabel(item.color)}: ${tr('opening_move', 'первый ход')} ${item.roll || '-'}`;
+  if (item.roll) return `${colorLabel(item.color)}: ${tr('roll_action', 'бросок')} ${item.roll}`;
+  if (item.pass) return `${colorLabel(item.color)}: ${tr('pass_action', 'пропуск хода')}`;
+  const to = item.to === 'bearoff' ? tr('bearoff', 'снято') : item.to;
+  return `${colorLabel(item.color)}: ${item.from ?? '-'} -> ${to ?? '-'}${item.die ? ` · ${tr('die', 'кубик')} ${item.die}` : ''}`;
+}
+
+function historyCopyText(item, index) {
+  const lines = [`#${index} ${historyText(item)}`, `${tr('time', 'Время')}: ${item.at || '-'}`];
+  if (item.sha256) lines.push(`SHA-256: ${item.sha256}`);
+  if (item.proof?.commit) lines.push(`SHA-256: ${item.proof.commit}`);
+  if (item.rerolls) lines.push(`${tr('rerolls', 'Перебросы')}: ${item.rerolls}`);
+  return lines.join('\n');
 }
 
 async function copyTextToClipboard(text) {
@@ -912,10 +919,9 @@ async function copyTextToClipboard(text) {
   area.remove();
 }
 
-async function copySelectedPrivacyGame() {
-  const select = document.getElementById('privacy-history-select');
-  const games = recentPrivacyGames(accountState.profile?.games || []);
-  const game = games[Number(select?.value || 0)];
+async function copyAccountGame(index) {
+  const games = (accountState.profile?.games || []).slice(0, 50);
+  const game = games[Number(index)];
   if (!game) return;
   await copyTextToClipboard(gameExportText(game));
   flash(tr('game_copied', 'Партия скопирована.'));
@@ -1844,6 +1850,12 @@ document.addEventListener('keydown', event => {
   }
 });
 document.getElementById('refresh-account').addEventListener('click', () => loadAccountProfile());
+document.getElementById('match-history-list')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-copy-account-game]');
+  if (!button) return;
+  copyAccountGame(button.dataset.copyAccountGame)
+    .catch(err => flash(err.message || tr('copy_failed', 'Не удалось скопировать.')));
+});
 document.getElementById('friend-add-form').addEventListener('submit', (event) => {
   event.preventDefault();
   addFriend();
@@ -1903,10 +1915,6 @@ friendMicButton?.addEventListener('click', async event => {
   if (friendRecording) stopFriendRecording(true);
   else await startFriendRecording();
 });
-document.getElementById('privacy-copy-game')?.addEventListener('click', () => {
-  copySelectedPrivacyGame().catch(err => flash(err.message || tr('copy_failed', 'Не удалось скопировать.')));
-});
-
 const SETTINGS_KEYS = {
   animationSpeed: 'narduh-animation-speed',
   moveHints: 'narduh-move-hints',

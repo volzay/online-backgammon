@@ -186,11 +186,15 @@ create table if not exists public.rating_events (
   result_type text,
   winner text,
   score jsonb,
+  history jsonb not null default '[]'::jsonb,
   delta integer not null default 0,
   rating_after integer not null,
   created_at timestamptz not null default now(),
   unique (user_id, result_key)
 );
+
+alter table public.rating_events
+add column if not exists history jsonb not null default '[]'::jsonb;
 
 create table if not exists public.admin_audit (
   id uuid primary key default gen_random_uuid(),

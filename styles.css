@@ -3200,16 +3200,6 @@ body.board-focus .bear-pip {
   font-size: 18px;
 }
 .friend-emoji-popover button:hover { background: var(--accent-soft); }
-.privacy-history-export {
-  min-width: min(100%, 420px);
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-}
-.privacy-history-export select {
-  width: 100%;
-}
 .friend-search-results {
   display: flex;
   flex-wrap: wrap;
@@ -3776,10 +3766,6 @@ body.board-focus .bear-pip {
   }
   .friend-message-form {
     grid-template-columns: 38px 38px minmax(0, 1fr) auto;
-  }
-  .privacy-history-export {
-    grid-template-columns: 1fr;
-    min-width: 0;
   }
   .friend-request-row {
     grid-template-columns: 1fr;

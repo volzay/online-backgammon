@@ -615,6 +615,7 @@ function publicAccountProfile(user) {
       mode: entry.mode || "",
       resultType: entry.resultType || "",
       score: entry.score || null,
+      history: Array.isArray(entry.history) ? entry.history.slice(0, 500) : [],
       delta: Number(entry.delta || 0),
       ratingAfter: Number(entry.ratingAfter || user.rating),
       tierAfter: entry.tierAfter || user.tier,
@@ -1745,6 +1746,7 @@ async function handleApi(req, res, url) {
                 dark: Number(body.score.dark) || 0,
               }
             : null,
+          history: Array.isArray(body.history) ? body.history.slice(0, 500) : [],
           delta: Number(body.delta || 0),
           ratingAfter: user.rating,
           tierAfter: user.tier,
