@@ -691,7 +691,7 @@ async function loadSupabaseGames(client, userId) {
     error = fallback.error;
   }
   if (error) throw new Error(error.message);
-  return mergeGames((data || []).map(row => ({
+  const games = mergeGames((data || []).map(row => ({
     resultKey: row.result_key,
     ts: Date.parse(row.created_at || '') || Date.now(),
     at: row.created_at || '',
@@ -706,6 +706,77 @@ async function loadSupabaseGames(client, userId) {
     ratingAfter: row.rating_after,
     history: Array.isArray(row.history) ? row.history : [],
   })));
+  const roomHistories = await loadSupabaseRoomHistories(client, userId);
+  return attachRoomHistoriesToGames(games, roomHistories);
+}
+
+async function loadSupabaseRoomHistories(client, userId) {
+  const cutoffIso = new Date(Date.now() - 96 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await client
+    .from('rooms')
+    .select('code,host_user_id,guest_user_id,host_name,guest_name,game_state,created_at,updated_at,archived_at')
+    .or(`host_user_id.eq.${userId},guest_user_id.eq.${userId}`)
+    .gte('updated_at', cutoffIso)
+    .order('updated_at', { ascending: false })
+    .limit(100);
+  if (error) return [];
+  return (data || [])
+    .map(row => roomHistoryFromRow(row, userId))
+    .filter(item => item.history.length);
+}
+
+function roomHistoryFromRow(row = {}, userId = '') {
+  const game = row.game_state && typeof row.game_state === 'object' ? row.game_state : {};
+  const resultType = game.resultType || 'normal';
+  const finishedAt = game.finishedAt || '';
+  const opponent = row.host_user_id === userId
+    ? row.guest_name
+    : row.host_name;
+  return {
+    code: row.code || game.roomCode || '',
+    resultKey: `${finishedAt}:${game.winner || ''}:${resultType}`,
+    finishedAt: Number(finishedAt) || Date.parse(game.finishedAt || '') || Date.parse(row.updated_at || row.archived_at || row.created_at || '') || 0,
+    winner: game.winner || '',
+    resultType,
+    score: game.score || null,
+    opponent: game.analysis?.botName || game.analysis?.opponentName || game.opponentName || opponent || row.guest_name || row.host_name || '',
+    history: Array.isArray(game.history) ? game.history : [],
+  };
+}
+
+function attachRoomHistoriesToGames(games = [], roomHistories = []) {
+  if (!roomHistories.length) return games;
+  const byKey = new Map();
+  roomHistories.forEach(item => {
+    if (item.resultKey && item.resultKey !== '::normal') byKey.set(item.resultKey, item);
+  });
+  return games.map(game => {
+    if (Array.isArray(game.history) && game.history.length) return game;
+    const exact = byKey.get(game.resultKey);
+    const fallback = exact || bestRoomHistoryMatch(game, roomHistories);
+    return fallback?.history?.length ? { ...game, history: fallback.history, roomCode: fallback.code || game.roomCode } : game;
+  });
+}
+
+function bestRoomHistoryMatch(game = {}, roomHistories = []) {
+  const gameTs = Number(game.ts || Date.parse(game.at || '')) || 0;
+  const gameOpponent = String(game.opponent || '').trim().toLowerCase();
+  let best = null;
+  let bestScore = Infinity;
+  roomHistories.forEach(item => {
+    const itemTs = Number(item.finishedAt || 0);
+    if (!itemTs || !gameTs) return;
+    const delta = Math.abs(itemTs - gameTs);
+    if (delta > 10 * 60 * 1000) return;
+    const itemOpponent = String(item.opponent || '').trim().toLowerCase();
+    const opponentPenalty = itemOpponent && gameOpponent && itemOpponent !== gameOpponent ? 90 * 1000 : 0;
+    const score = delta + opponentPenalty;
+    if (score < bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  });
+  return best;
 }
 
 function statsForGames(games = []) {
@@ -851,6 +922,7 @@ function gameExportText(game = {}) {
   const rating = game.ratingAfter
     ? `${game.ratingAfter} (${game.delta >= 0 ? '+' : ''}${game.delta || 0})`
     : '-';
+  const winner = game.winner ? colorLabel(game.winner) : '-';
   const lines = [
     `${tr('game', 'Партия')}: ${game.resultKey || '-'}`,
     `${tr('date', 'Дата')}: ${game.at || (game.ts ? new Date(Number(game.ts)).toISOString() : '-')}`,
@@ -860,10 +932,11 @@ function gameExportText(game = {}) {
     `${tr('score', 'Счёт')}: ${score}`,
     `${tr('rating', 'Рейтинг')}: ${rating}`,
     `${tr('mode', 'Режим')}: ${game.mode || '-'}`,
-    `${tr('winner', 'Победитель')}: ${game.winner || '-'}`,
+    `${tr('winner', 'Победитель')}: ${winner}`,
+    game.roomCode ? `${tr('room_code', 'Комната')}: ${game.roomCode}` : '',
     '',
     tr('match_log', 'Ход партии').toUpperCase(),
-  ];
+  ].filter(line => line !== '');
   const history = Array.isArray(game.history) ? [...game.history].reverse() : [];
   if (!history.length) {
     lines.push(tr('no_history', 'Истории пока нет.'));
@@ -891,7 +964,7 @@ function historyText(item = {}) {
   if (item.openingMove) return `${colorLabel(item.color)}: ${tr('opening_move', 'первый ход')} ${item.roll || '-'}`;
   if (item.roll) return `${colorLabel(item.color)}: ${tr('roll_action', 'бросок')} ${item.roll}`;
   if (item.pass) return `${colorLabel(item.color)}: ${tr('pass_action', 'пропуск хода')}`;
-  const to = item.to === 'bearoff' ? tr('bearoff', 'снято') : item.to;
+  const to = item.to === 'bearoff' || item.to === 0 || item.to === 'снято' ? tr('bearoff', 'снято') : item.to;
   return `${colorLabel(item.color)}: ${item.from ?? '-'} -> ${to ?? '-'}${item.die ? ` · ${tr('die', 'кубик')} ${item.die}` : ''}`;
 }
 
