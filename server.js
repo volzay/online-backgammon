@@ -1771,6 +1771,10 @@ async function handleApi(req, res, url) {
       ensureAccountData(user);
 
       if (method === "GET" && parts.length === 3 && parts[2] === "profile") {
+        user.lastSeenAt = now();
+        saveAuthState();
+        touchAdminUser({ name: user.nickname, email: user.email, rating: user.rating, tier: user.tier, registered: true, ip: clientIp(req), source: "account" });
+        saveAdminState();
         sendJson(res, 200, publicAccountProfile(user), { "Cache-Control": "no-store" });
         return;
       }

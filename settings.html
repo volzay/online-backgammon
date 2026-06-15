@@ -420,6 +420,31 @@ async function accountApi(path, options = {}) {
   return data;
 }
 
+let accountPresenceTouchAt = 0;
+
+async function touchAccountPresence({ force = false } = {}) {
+  if (!registeredUser()) return;
+  const now = Date.now();
+  if (!force && now - accountPresenceTouchAt < 30000) return;
+  accountPresenceTouchAt = now;
+  try {
+    if (supabaseAccountMode()) {
+      const client = await supabaseAccountClient();
+      const { data: authData, error: authError } = await client.auth.getUser();
+      const userId = authData?.user?.id;
+      if (authError || !userId) return;
+      await client
+        .from('profiles')
+        .update({ last_seen_at: new Date(now).toISOString() })
+        .eq('id', userId);
+      return;
+    }
+    await accountApi(`/api/account/profile?${accountQuery()}`);
+  } catch (err) {
+    accountPresenceTouchAt = 0;
+  }
+}
+
 function supabaseAccountMode() {
   return Boolean(window.NarduSupabase?.configured?.());
 }
@@ -478,6 +503,7 @@ async function supabaseAccountProfile() {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!profile) profile = await createSupabaseAccountProfile(client, authUser);
+  touchAccountPresence().catch(() => {});
 
   const user = {
     id: profile.id,
@@ -2100,9 +2126,16 @@ accountState.messageTimer = setInterval(() => {
   if (accountState.selectedFriendId) loadMessages(accountState.selectedFriendId, { silent: true });
 }, 4000);
 accountState.profileTimer = setInterval(() => loadAccountProfile({ silent: true }), 7000);
+accountState.presenceTimer = setInterval(() => touchAccountPresence(), 30000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') touchAccountPresence({ force: true }).catch(() => {});
+});
+window.addEventListener('focus', () => touchAccountPresence({ force: true }).catch(() => {}));
+touchAccountPresence({ force: true }).catch(() => {});
 window.addEventListener('beforeunload', () => {
   clearInterval(accountState.messageTimer);
   clearInterval(accountState.profileTimer);
+  clearInterval(accountState.presenceTimer);
 });
 loadAccountProfile({ silent: true });
 
