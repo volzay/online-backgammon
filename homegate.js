@@ -937,16 +937,9 @@ function detailHtml() {
 
 function loginView() {
   const supabaseMode = state.backend === "supabase" || supabaseAdminMode();
-  const description = supabaseMode
-    ? t("login_supabase_desc")
-    : t("login_server_desc");
-  const allowedEmails = adminEmailsText();
-  const supabaseHelp = allowedEmails
-    ? `Email администратора: ${allowedEmails}. Введите пароль игрового Auth-пользователя проекта; пароль от dashboard.supabase.com здесь не подходит.`
-    : "Email администратора задаётся в runtime-config.js. Нужен пароль Auth-пользователя проекта, а не пароль от dashboard.supabase.com.";
   const fields = supabaseMode
     ? `
-          <div class="field"><label>${t("admin_email")}</label><input name="email" type="email" autocomplete="username" value="${escapeHtml(allowedEmails.split(",")[0] || "")}" autofocus /></div>
+          <div class="field"><label>${t("admin_email")}</label><input name="admin-login-email" type="email" autocomplete="off" autocapitalize="none" spellcheck="false" value="" autofocus /></div>
           <div class="field"><label>${t("password")}</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
     : `
           <input name="login" type="hidden" value="admin" />
@@ -959,11 +952,8 @@ function loginView() {
           ${adminPreferenceControls()}
         </div>
         <h1>${t("login_title")}</h1>
-        <p>${description}</p>
-        ${supabaseMode ? `<p class="admin-hint">${escapeHtml(supabaseHelp)}</p>` : ""}
-        ${supabaseMode ? `<p class="admin-warning">GitHub Pages работает через Supabase: комнаты доступны для просмотра, действия с игроками выполняются защищёнными RPC-функциями.</p>` : ""}
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
-        <form data-form="admin-login">
+        <form data-form="admin-login" autocomplete="off">
           ${fields}
           <button class="btn full">${t("sign_in")}</button>
         </form>
@@ -1482,7 +1472,7 @@ document.addEventListener("submit", async event => {
     if (form.dataset.form === "admin-login") {
       if (supabaseAdminMode()) {
         const client = await supabaseClient();
-        const email = String(data.email || "").trim();
+        const email = String(data["admin-login-email"] || data.email || "").trim();
         const password = String(data.password || "");
         if (!email || !password) throw new Error("Введите email и пароль администратора.");
         const user = await signInOrCreateSupabaseAdmin(client, email, password);
