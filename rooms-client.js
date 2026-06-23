@@ -120,6 +120,14 @@
     };
   }
 
+  function activeSpectatorCount(spectators = {}) {
+    const now = Date.now();
+    return Object.values(spectators || {}).filter(item => {
+      const lastSeen = Date.parse(item?.lastSeen || "");
+      return Number.isFinite(lastSeen) && now - lastSeen <= 45000;
+    }).length;
+  }
+
   function publicRoom(row, extras = {}) {
     if (!row) return null;
     const hostRating = row.host_registered ? normalizeRating(row.host_rating) : null;
@@ -141,6 +149,8 @@
       variant: row.variant === "short" ? "short" : "long",
       access: row.access === "closed" ? "closed" : "open",
       status: row.status || "waiting",
+      allowSpectators: Boolean(row.allow_spectators ?? row.allowSpectators),
+      spectators: activeSpectatorCount(row.spectators),
       createdAt: row.created_at || row.createdAt || "",
       joinedAt: row.joined_at || row.joinedAt || "",
     };
@@ -230,7 +240,7 @@
 
   async function getRoomRow(code, { includePassword = false, maybeClosed = false } = {}) {
     const client = await supabase();
-    const columns = includePassword ? "*" : "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,created_at,joined_at,updated_at";
+    const columns = includePassword ? "*" : "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,created_at,joined_at,updated_at";
     let query = client
       .from("rooms")
       .select(columns)
@@ -263,7 +273,7 @@
     const { client } = await currentAuthContext();
     const { data, error } = await client
       .from("rooms")
-      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,created_at,joined_at,updated_at")
+      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,game_state,created_at,joined_at,updated_at")
       .in("status", ["waiting", "joined"])
       .order("created_at", { ascending: false })
       .limit(50);
@@ -312,6 +322,8 @@
       host_registered: roomProfile.registered,
       presence: { white: null, dark: null },
       left_players: {},
+      allow_spectators: payload.allowSpectators === true,
+      spectators: {},
     };
 
     let lastError = null;
@@ -742,6 +754,52 @@
     return { ok: true, removed: shouldClose, room: publicRoom(updated || room) };
   }
 
+  async function watchRoom(code, payload = {}) {
+    const normalizedCode = normalizeCode(code);
+    if (!configured()) {
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/spectators`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
+    const { client, authUser, profile } = await currentAuthContext();
+    const spectatorId = String(payload.spectatorId || authUser.id || "").slice(0, 80);
+    const spectatorName = String(payload.name || profile.nickname || "Spectator").slice(0, 32);
+    const { data, error } = await client.rpc("touch_room_spectator", {
+      p_code: normalizedCode,
+      p_spectator_id: spectatorId,
+      p_spectator_name: spectatorName,
+      p_leave: false,
+    });
+    if (error) throw supabaseError(error, "Could not watch room.");
+    const stateData = await getGameState(normalizedCode);
+    return {
+      ok: true,
+      spectators: Number(data || 0),
+      state: stateData.state || null,
+      version: Number(stateData.version || 0),
+    };
+  }
+
+  async function leaveSpectator(code, payload = {}) {
+    const normalizedCode = normalizeCode(code);
+    if (!configured()) {
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/spectators`, {
+        method: "DELETE",
+        body: JSON.stringify(payload),
+      });
+    }
+    const { client, authUser } = await currentAuthContext();
+    const { data, error } = await client.rpc("touch_room_spectator", {
+      p_code: normalizedCode,
+      p_spectator_id: String(payload.spectatorId || authUser.id || "").slice(0, 80),
+      p_spectator_name: String(payload.name || "Spectator").slice(0, 32),
+      p_leave: true,
+    });
+    if (error) throw supabaseError(error, "Could not leave spectator mode.");
+    return { ok: true, spectators: Number(data || 0) };
+  }
+
   async function roomIdForCode(code) {
     const normalizedCode = normalizeCode(code);
     if (roomIdCache.has(normalizedCode)) return roomIdCache.get(normalizedCode);
@@ -833,6 +891,8 @@
     putGameState,
     updatePresence,
     leaveRoom,
+    watchRoom,
+    leaveSpectator,
     listChatMessages,
     sendChatMessage,
   };

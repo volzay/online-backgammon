@@ -11,6 +11,8 @@ window.NarduController = (function () {
   let state;
   let mode = 'bot';
   let playerColor = 'white';
+  let spectatorMode = false;
+  let viewColor = 'white';
   let opponentName = 'Easy bot';
   let opponentRating = 900;
   let botDifficulty = 'easy';
@@ -307,7 +309,7 @@ window.NarduController = (function () {
       fullHints: [],
       mode,
       playerColor,
-      viewColor: mode === 'remote' ? playerColor : 'white',
+      viewColor,
       roomCode: url.searchParams.get('room') || url.searchParams.get('game') || '',
       turnClock: normalizedTurnClock(saved.turnClock || base.turnClock),
       matchScore: normalizedMatchScore(saved.matchScore || base.matchScore),
@@ -318,12 +320,16 @@ window.NarduController = (function () {
   function init(opts = {}) {
     const url = new URL(location.href);
     mode = opts.mode || url.searchParams.get('mode') || 'bot';
+    spectatorMode = Boolean(opts.spectator || url.searchParams.get('role') === 'spectator' || url.searchParams.get('spectator') === '1');
     const waitingForOpponent = opts.waiting || url.searchParams.get('waiting') === '1';
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
     botDifficulty = normalizeBotDifficulty(opts.difficulty || url.searchParams.get('difficulty') || botDifficulty);
     variant = normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
     playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
+    viewColor = spectatorMode
+      ? (opts.viewColor || url.searchParams.get('view') || 'white')
+      : (mode === 'remote' ? playerColor : 'white');
 
     if (statTimer) clearInterval(statTimer);
     statTimer = null;
@@ -340,8 +346,9 @@ window.NarduController = (function () {
     state.variant = state.variant || variant;
     state.mode = mode;
     state.playerColor = playerColor;
+    state.spectator = spectatorMode;
     state.botDifficulty = botDifficulty;
-    state.viewColor = mode === 'remote' ? playerColor : 'white';
+    state.viewColor = viewColor;
     state.roomCode = roomCode;
     remoteCode = state.roomCode;
     remoteVersion = 0;
@@ -727,7 +734,7 @@ window.NarduController = (function () {
       fullHints: [],
       mode,
       playerColor,
-      viewColor: mode === 'remote' ? playerColor : 'white',
+      viewColor,
       roomCode: remoteCode,
       startedAt: nextState.startedAt || previousStartedAt || Date.now(),
       finishedAt: nextState.finishedAt || previousFinishedAt || null,
@@ -758,7 +765,7 @@ window.NarduController = (function () {
         fullHints: [],
         mode,
         playerColor,
-        viewColor: mode === 'remote' ? playerColor : 'white',
+        viewColor,
         roomCode: remoteCode,
       };
       animateRemoteIncomingMoves(incomingMoveAnimations, remoteState);
@@ -1345,6 +1352,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
+    if (spectatorMode) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }

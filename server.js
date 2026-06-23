@@ -306,6 +306,7 @@ function requireAdmin(req) {
 
 function publicRoom(room, includePassword = false) {
   if (!room) return null;
+  const spectatorCount = activeSpectatorCount(room);
   const safe = {
     id: room.id,
     code: room.code,
@@ -323,11 +324,22 @@ function publicRoom(room, includePassword = false) {
     variant: room.variant,
     access: room.access,
     status: room.status,
+    allowSpectators: Boolean(room.allowSpectators),
+    spectators: spectatorCount,
     createdAt: room.createdAt,
     joinedAt: room.joinedAt || "",
   };
   if (includePassword) safe.password = room.password || "";
   return safe;
+}
+
+function activeSpectatorCount(room) {
+  const nowMs = Date.now();
+  room.spectators ||= {};
+  Object.entries(room.spectators).forEach(([id, item]) => {
+    if (!item?.lastSeen || nowMs - Number(item.lastSeen) > 45000) delete room.spectators[id];
+  });
+  return Object.keys(room.spectators).length;
 }
 
 function publicChatMessage(message) {
@@ -2066,6 +2078,8 @@ async function handleApi(req, res, url) {
         access,
         password,
         status: "waiting",
+        allowSpectators: body.allowSpectators === true,
+        spectators: {},
         createdAt: new Date().toISOString(),
         chat: [],
         chatVersion: 0,
@@ -2235,6 +2249,37 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, {
         ok: true,
         presence: publicPresence(room, color),
+        state: room.gameState || null,
+        version: room.gameVersion || 0,
+      });
+      return;
+    }
+
+    if ((method === "POST" || method === "DELETE") && parts.length === 4 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "spectators") {
+      const room = rooms.find(item => item.code === parts[2].toUpperCase());
+      if (!room) {
+        sendJson(res, 404, { error: "Комната не найдена." });
+        return;
+      }
+      if (!room.allowSpectators || room.status !== "joined") {
+        sendJson(res, 403, { error: "Просмотр этой комнаты недоступен." });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const spectatorId = String(body.spectatorId || body.userId || clientIp(req)).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 80) || "spectator";
+      room.spectators ||= {};
+      if (method === "DELETE") {
+        delete room.spectators[spectatorId];
+      } else {
+        room.spectators[spectatorId] = {
+          name: String(body.name || "Spectator").slice(0, 32),
+          lastSeen: Date.now(),
+        };
+      }
+      const spectators = activeSpectatorCount(room);
+      sendJson(res, 200, {
+        ok: true,
+        spectators,
         state: room.gameState || null,
         version: room.gameVersion || 0,
       });

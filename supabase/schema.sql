@@ -143,12 +143,20 @@ create table if not exists public.rooms (
   game_version integer not null default 0,
   presence jsonb not null default '{}'::jsonb,
   left_players jsonb not null default '{}'::jsonb,
+  allow_spectators boolean not null default false,
+  spectators jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   joined_at timestamptz,
   updated_at timestamptz not null default now(),
   archived_at timestamptz,
   closed_reason text
 );
+
+alter table public.rooms
+add column if not exists allow_spectators boolean not null default false;
+
+alter table public.rooms
+add column if not exists spectators jsonb not null default '{}'::jsonb;
 
 drop trigger if exists rooms_set_updated_at on public.rooms;
 create trigger rooms_set_updated_at
@@ -684,6 +692,72 @@ $$;
 
 revoke all on function public.admin_delete_profile(uuid) from public;
 grant execute on function public.admin_delete_profile(uuid) to authenticated;
+
+create or replace function public.touch_room_spectator(
+  p_code text,
+  p_spectator_id text,
+  p_spectator_name text,
+  p_leave boolean default false
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_code text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Z0-9-]', '', 'g'));
+  safe_key text := regexp_replace(coalesce(nullif(p_spectator_id, ''), auth.uid()::text, gen_random_uuid()::text), '[^A-Za-z0-9_-]', '_', 'g');
+  clean_name text := left(coalesce(nullif(trim(p_spectator_name), ''), 'Spectator'), 32);
+  current_spectators jsonb := '{}'::jsonb;
+  active_spectators jsonb := '{}'::jsonb;
+  next_spectators jsonb := '{}'::jsonb;
+  cutoff_at timestamptz := now() - interval '45 seconds';
+  room_allow boolean := false;
+  room_status text := '';
+  next_count integer := 0;
+begin
+  select coalesce(r.spectators, '{}'::jsonb), r.allow_spectators, r.status
+    into current_spectators, room_allow, room_status
+  from public.rooms r
+  where r.code = clean_code
+  for update;
+
+  if not found then
+    raise exception 'Комната не найдена.';
+  end if;
+
+  if not room_allow or room_status <> 'joined' then
+    raise exception 'Просмотр этой комнаты недоступен.';
+  end if;
+
+  select coalesce(jsonb_object_agg(key, value), '{}'::jsonb)
+    into active_spectators
+  from jsonb_each(current_spectators)
+  where coalesce((value->>'lastSeen')::timestamptz, 'epoch'::timestamptz) >= cutoff_at;
+
+  if p_leave then
+    next_spectators := active_spectators - safe_key;
+  else
+    next_spectators := jsonb_set(
+      active_spectators,
+      array[safe_key],
+      jsonb_build_object('name', clean_name, 'lastSeen', now()),
+      true
+    );
+  end if;
+
+  select count(*)::integer into next_count from jsonb_each(next_spectators);
+
+  update public.rooms r
+  set spectators = next_spectators
+  where r.code = clean_code;
+
+  return next_count;
+end;
+$$;
+
+revoke all on function public.touch_room_spectator(text, text, text, boolean) from public;
+grant execute on function public.touch_room_spectator(text, text, text, boolean) to authenticated;
 
 create or replace function public.register_nickname_user(p_nickname text, p_password text)
 returns table (

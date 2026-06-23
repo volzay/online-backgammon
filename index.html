@@ -170,6 +170,14 @@
         <p data-i18n="closed_game_password_hint">Этот пароль сообщите сопернику для входа в закрытую игру.</p>
       </div>
 
+      <div class="create-field" data-spectator-settings>
+        <label data-i18n="spectator_access">Зрители</label>
+        <div class="choice-grid two">
+          <button class="choice-btn" type="button" data-create-option="allowSpectators" data-value="yes" aria-pressed="false" data-i18n="spectators_allowed">Разрешить</button>
+          <button class="choice-btn active" type="button" data-create-option="allowSpectators" data-value="no" aria-pressed="true" data-i18n="spectators_denied">Запретить</button>
+        </div>
+      </div>
+
       <div class="create-summary">
         <span id="create-game-summary">Игрок · Длинные нарды · Открытая</span>
       </div>
@@ -223,6 +231,15 @@
         </div>
       </div>
 
+      <div class="table-head" aria-hidden="true">
+        <span data-i18n="player">Игрок</span>
+        <span data-i18n="game_variant">Вид нард</span>
+        <span data-i18n="access">Доступ</span>
+        <span data-i18n="password">Пароль</span>
+        <span data-i18n="time_control">Время</span>
+        <span data-i18n="spectators">Зрители</span>
+        <span data-i18n="action">Действие</span>
+      </div>
       <div class="tables-list" id="tables-list">
         <!-- rendered by JS -->
       </div>
@@ -425,7 +442,8 @@
         timer: room.status === 'joined' ? 'live' : '∞',
         access: room.access || 'open',
         stakes: labelFor(accessLabelKeys, room.access || 'open', 'access_open'),
-        watchers: 0,
+        watchers: Number(room.spectators || 0),
+        allowSpectators: room.allowSpectators === true,
         roomCode: room.code,
         localRoom: true,
         playing: room.status === 'joined',
@@ -485,12 +503,32 @@
     return readPlayerRooms().find(room => room.code === normalizedCode) || null;
   }
 
+  function openSpectatorRoom(room) {
+    if (!room?.code || room.allowSpectators !== true || room.status !== 'joined') return false;
+    const params = new URLSearchParams({
+      mode: 'remote',
+      room: room.code,
+      role: 'spectator',
+      spectator: '1',
+      color: 'white',
+      view: 'white',
+      opp: `${room.hostName || tt('player')} ${tt('vs') || 'vs'} ${room.guestName || tt('room_opponent')}`,
+      oppR: '0',
+      variant: room.variant || 'long',
+      opponent: 'player',
+      access: room.access || 'open',
+    });
+    location.href = 'room.html?' + params.toString();
+    return true;
+  }
+
   function row(t) {
     const initial = (t.host[0] || '?').toUpperCase();
     const access = t.access || 'open';
     const status = t.status || 'waiting';
     const canReturn = t.roomCode && status === 'joined' && isRoomParticipant(t);
     const canJoin = t.roomCode ? (status === 'waiting' || canReturn) : true;
+    const canWatch = t.roomCode && status === 'joined' && t.allowSpectators === true && !canReturn;
     const actionLabel = status === 'joined' ? (canReturn ? tt('return_to_room') : tt('in_game')) : tt('join');
     const hostLabel = escapeHtml(t.hostKey ? tt(t.hostKey) : t.host);
     const modeLabel = t.mode || labelFor(variantLabelKeys, t.variant || 'long', 'long_backgammon');
@@ -506,12 +544,15 @@
             <div class="t-meta">${meta}</div>
           </div>
         </div>
-        <div class="t-cell"><span class="t-pill">${escapeHtml(modeLabel)}</span></div>
-        <div class="t-cell session-access-cell">${accessCell(t, access)}</div>
-        <div class="t-cell session-password-cell">${passwordCell({ ...t, access })}</div>
-        <div class="t-cell"><span class="t-pill mono">${t.timer}</span></div>
-        <div class="t-cell mono muted">${t.watchers ? '👁 ' + t.watchers : ''}</div>
-        <div class="t-cell"><button class="joinbtn" ${canJoin ? `data-join="${escapeHtml(t.host)}"` : 'disabled'}>${actionLabel}</button></div>
+        <div class="t-cell" data-label="${escapeHtml(tt('game_variant'))}"><span class="t-pill">${escapeHtml(modeLabel)}</span></div>
+        <div class="t-cell session-access-cell" data-label="${escapeHtml(tt('access'))}">${accessCell(t, access)}</div>
+        <div class="t-cell session-password-cell" data-label="${escapeHtml(tt('password'))}">${passwordCell({ ...t, access })}</div>
+        <div class="t-cell session-time-cell" data-label="${escapeHtml(tt('time_control'))}"><span class="t-pill mono">${escapeHtml(t.timer)}</span></div>
+        <div class="t-cell session-watchers-cell mono muted" data-label="${escapeHtml(tt('spectators'))}"><span class="watchers-pill" title="${escapeHtml(tt('spectators'))}">👁 ${Number(t.watchers || 0)}</span></div>
+        <div class="t-cell session-actions-cell" data-label="${escapeHtml(tt('action'))}">
+          ${canWatch ? `<button class="joinbtn secondary" data-watch-room="${escapeHtml(t.roomCode)}">${escapeHtml(tt('watch'))}</button>` : ''}
+          <button class="joinbtn" ${canJoin ? `data-join="${escapeHtml(t.host)}"` : 'disabled'}>${actionLabel}</button>
+        </div>
       </div>
     `;
   }
@@ -541,10 +582,18 @@
   document.querySelector('.tables-foot .ghostbtn')?.addEventListener('click', refreshPlayerRooms);
 
   document.getElementById('tables-list').addEventListener('click', async (e) => {
+    const watchBtn = e.target.closest('[data-watch-room]');
     const btn = e.target.closest('[data-join]');
     const row = e.target.closest('.table-row');
     if (!row) return;
     if (e.target.closest('[data-room-password-input]')) return;
+    if (watchBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const room = playerRoomByCode(watchBtn.dataset.watchRoom);
+      if (room) openSpectatorRoom(room);
+      return;
+    }
     if (row.dataset.status === 'joined') {
       const room = playerRoomByCode(row.dataset.roomCode);
       if (room && isRoomParticipant(room)) goToExistingPlayerRoom(room);
@@ -594,6 +643,7 @@
     difficulty: 'easy',
     variant: 'long',
     access: 'open',
+    allowSpectators: 'no',
   };
   const quickState = {
     variant: 'long',
@@ -622,10 +672,12 @@
     const showBotSettings = createState.opponent === 'bot';
     const showAccessSettings = createState.opponent !== 'bot';
     const showPassword = showAccessSettings && createState.access === 'closed';
+    const spectatorSettings = document.querySelector('[data-spectator-settings]');
 
     botSettings.hidden = !showBotSettings;
     accessSettings.hidden = !showAccessSettings;
     passwordSettings.hidden = !showPassword;
+    spectatorSettings.hidden = !showAccessSettings;
     createPassword.disabled = !showPassword;
     createPassword.required = showPassword;
 
@@ -634,6 +686,7 @@
       createState.opponent === 'bot' ? labelFor(difficultyLabelKeys, createState.difficulty) : null,
       labelFor(variantLabelKeys, createState.variant),
       showAccessSettings ? labelFor(accessLabelKeys, createState.access) : null,
+      showAccessSettings ? tt(createState.allowSpectators === 'yes' ? 'spectators_allowed' : 'spectators_denied') : null,
     ].filter(Boolean);
     createSummary.textContent = parts.join(' · ');
   }
@@ -724,6 +777,7 @@
         hostRatingEligible: userRatingEligible(),
         variant: createState.variant,
         access: createState.access,
+        allowSpectators: createState.allowSpectators === 'yes',
         password: createState.access === 'closed' ? password : '',
       });
       room = data.room;

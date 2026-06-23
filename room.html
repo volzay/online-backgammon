@@ -669,6 +669,10 @@ function earlyRoomText(key) {
       ru: 'Гость',
       en: 'Guest',
     },
+    spectator: {
+      ru: 'Зритель',
+      en: 'Spectator',
+    },
   };
   return copy[key]?.[lang] || key;
 }
@@ -711,6 +715,7 @@ const emojiBtn = document.getElementById('emoji-btn');
 const emojiPopover = document.getElementById('emoji-popover');
 const chatUrl = new URL(location.href);
 const chatRoomCode = chatUrl.searchParams.get('room') || '';
+const chatSpectator = chatUrl.searchParams.get('role') === 'spectator' || chatUrl.searchParams.get('spectator') === '1';
 const chatPlayerColor = chatUrl.searchParams.get('color') || (chatUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
 const chatRemote = chatUrl.searchParams.get('mode') === 'remote' && chatRoomCode;
 const CHAT_CLIENT_KEY = 'narduh-chat-client-id';
@@ -874,6 +879,7 @@ async function pollChat() {
 }
 
 async function sendChatPayload(payload, { clearInput = false } = {}) {
+  if (chatSpectator) return;
   if (!payload?.text && payload?.kind !== 'voice') return;
   const message = {
     senderId: chatClientId,
@@ -965,6 +971,16 @@ let suppressMicClickUntil = 0;
 let pendingMicStopAfterStart = null;
 const mobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
 const VOICE_MAX_BYTES = 4 * 1024 * 1024;
+
+if (chatSpectator) {
+  input.disabled = true;
+  sendBtn.disabled = true;
+  emojiBtn.disabled = true;
+  mic.disabled = true;
+  input.placeholder = localStorage.getItem('narduh-lang') === 'en'
+    ? 'Spectator mode: chat is read-only'
+    : 'Режим зрителя: чат только для чтения';
+}
 
 function fmtRec(ms) {
   const s = Math.floor(ms / 1000);
@@ -1147,11 +1163,22 @@ const roomUrl = new URL(location.href);
 const roomCode = roomUrl.searchParams.get('room') || '';
 const localGameCode = roomCode ? '' : ensureLocalGameCode();
 const displayRoomCode = roomCode || localGameCode;
+const isSpectatorRoom = roomUrl.searchParams.get('role') === 'spectator' || roomUrl.searchParams.get('spectator') === '1';
 const isWaitingHost = roomUrl.searchParams.get('waiting') === '1' && roomUrl.searchParams.get('host') === '1' && roomCode;
-const localPlayerColor = roomUrl.searchParams.get('color') || (roomUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
+const localPlayerColor = isSpectatorRoom
+  ? (roomUrl.searchParams.get('view') || 'white')
+  : (roomUrl.searchParams.get('color') || (roomUrl.searchParams.get('guest') === '1' ? 'dark' : 'white'));
+const SPECTATOR_KEY = 'narduh-spectator-id';
+let spectatorId = sessionStorage.getItem(SPECTATOR_KEY);
+if (!spectatorId) {
+  spectatorId = `spectator-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  sessionStorage.setItem(SPECTATOR_KEY, spectatorId);
+}
 let waitingPoll = null;
 let waitingPollBusy = false;
 let presenceTimer = null;
+let spectatorTimer = null;
+let spectatorBusy = false;
 let presenceBusy = false;
 let networkCountdownTimer = null;
 let networkDeadlineAt = 0;
@@ -1232,7 +1259,7 @@ async function removeCurrentWaitingRoom() {
   }
 }
 function isActiveRemoteRoom() {
-  return roomCode && roomUrl.searchParams.get('mode') === 'remote' && !isWaitingHost;
+  return roomCode && roomUrl.searchParams.get('mode') === 'remote' && !isWaitingHost && !isSpectatorRoom;
 }
 
 function reloadRoom() {
@@ -1348,6 +1375,37 @@ function startPresenceProtocol() {
   window.addEventListener('online', sendPresenceHeartbeat);
 }
 
+async function sendSpectatorHeartbeat() {
+  if (!isSpectatorRoom || !roomCode || spectatorBusy) return;
+  spectatorBusy = true;
+  try {
+    const data = await NarduRooms.watchRoom(roomCode, {
+      spectatorId,
+      name: NarduApp.getUser()?.name || earlyRoomText('spectator'),
+    });
+    if (data.state && Number.isFinite(data.version)) {
+      window.NarduController?.receiveRemoteState?.(data.state, data.version);
+    }
+  } catch {
+    showNetworkPanel({
+      title: t('room_unavailable_title'),
+      text: t('room_unavailable_text'),
+    });
+  } finally {
+    spectatorBusy = false;
+  }
+}
+
+function startSpectatorProtocol() {
+  if (!isSpectatorRoom || !roomCode) return;
+  sendSpectatorHeartbeat();
+  spectatorTimer = setInterval(sendSpectatorHeartbeat, 5000);
+  window.addEventListener('online', sendSpectatorHeartbeat);
+  window.addEventListener('pagehide', () => {
+    NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
+  });
+}
+
 async function reportActiveRemoteLeave() {
   if (!isActiveRemoteRoom()) return false;
   const gameState = window.NarduController?.getState?.();
@@ -1371,6 +1429,12 @@ async function reportActiveRemoteLeave() {
 }
 async function leaveToLobby() {
   if (presenceTimer) clearInterval(presenceTimer);
+  if (spectatorTimer) clearInterval(spectatorTimer);
+  if (isSpectatorRoom) {
+    await NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
+    location.href = 'index.html';
+    return;
+  }
   const remoteLeaveReported = await reportActiveRemoteLeave();
   if (!remoteLeaveReported) await removeCurrentWaitingRoom();
   location.href = 'index.html';
@@ -1443,10 +1507,13 @@ NarduController.init({
   roomCode: displayRoomCode,
   variant: roomUrl.searchParams.get('variant') || undefined,
   playerColor: localPlayerColor,
+  viewColor: localPlayerColor,
+  spectator: isSpectatorRoom,
 });
 paintWaitingRoom();
 watchWaitingRoom();
 startPresenceProtocol();
+startSpectatorProtocol();
 
 /* ─── i18n ─── */
 const I18N = {
@@ -1491,6 +1558,8 @@ const I18N = {
     network_loss_text: "Ждём восстановления соединения соперника. Позиция партии сохранена.",
     network_forced_end: "Соединение потеряно, игра принудительно завершена",
     server_unreachable_text: "Нет связи с сервером. Позиция партии сохраняется на сервере; после восстановления можно перезагрузить комнату.",
+    room_unavailable_title: "Просмотр недоступен",
+    room_unavailable_text: "Комната закрыта для зрителей или партия уже завершена.",
     remaining: "Осталось",
     seconds: "секунд",
     reload_room: "Перезагрузить комнату",
@@ -1551,6 +1620,7 @@ const I18N = {
     mic_denied: "Доступ к микрофону не получен",
     voice_too_long: "Голосовое сообщение слишком длинное",
     voice_message: "Голосовое сообщение",
+    spectator_chat_readonly: "Режим зрителя: чат только для чтения",
   },
   en: {
     title_room: "Backgammon — Room",
@@ -1593,6 +1663,8 @@ const I18N = {
     network_loss_text: "Waiting for the opponent to reconnect. The game position is saved.",
     network_forced_end: "Connection lost, the game was ended automatically",
     server_unreachable_text: "Cannot reach the server. The game position is saved on the server; reload the room after the connection is restored.",
+    room_unavailable_title: "Watching unavailable",
+    room_unavailable_text: "This room is closed to spectators or the game has already ended.",
     remaining: "Remaining",
     seconds: "seconds",
     reload_room: "Reload room",
@@ -1653,6 +1725,7 @@ const I18N = {
     mic_denied: "Microphone access was not granted",
     voice_too_long: "Voice message is too long",
     voice_message: "Voice message",
+    spectator_chat_readonly: "Spectator mode: chat is read-only",
   },
 };
 let LANG = localStorage.getItem('narduh-lang') || 'ru';
