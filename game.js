@@ -645,6 +645,28 @@ window.NarduGame = (function () {
     }, 0);
   }
 
+  function longWideControlScore(state, color) {
+    let run = 0;
+    return pathFor(color, state).slice(1, 13).reduce((score, point, index) => {
+      const data = state.points[point];
+      const weight = 13 - index;
+      if (data?.color !== color) {
+        run = 0;
+        return score;
+      }
+
+      run += 1;
+      const made = data.count >= 2;
+      const stackExcess = Math.max(0, data.count - 3);
+      const singleSupport = data.count === 1 ? 7 : 0;
+      return score
+        + weight * (made ? 30 : 12)
+        + singleSupport * weight
+        + run * run * 18
+        - stackExcess * stackExcess * weight * 18;
+    }, 0);
+  }
+
   function opponentLongFenceThreat(state, color) {
     const opponent = opponentOf(color);
     const path = pathFor(color, state);
@@ -1339,6 +1361,7 @@ window.NarduGame = (function () {
     const marsRiskBefore = marsRiskScore(state, color);
     const koksRiskBefore = koksRiskScore(state, color);
     const bridgeBefore = longHeadBridgeScore(state, color);
+    const wideBefore = longWideControlScore(state, color);
     const fenceBefore = opponentLongFenceThreat(state, color);
     const trapBefore = longTrapRiskScore(state, color);
     const footholdBefore = longFootholdScore(state, color);
@@ -1358,7 +1381,10 @@ window.NarduGame = (function () {
       if (move.bearOff) score += 190 + move.die * 3;
       else {
         if (!target) score += move.from === headPoint(color, state) && headBefore > 6 ? -18 : 10;
-        else if (target.color === color) score += target.count <= 1 ? 92 : -Math.min(22, (target.count - 1) * 5);
+        else if (target.color === color) {
+          if (target.count <= 1) score += 122;
+          else score -= Math.min(140, (target.count - 1) * (target.count - 1) * 18);
+        }
         if (move.from === headPoint(color, state)) score += 18 + Math.min(36, headBefore * 2);
         else if (fromPos >= 0 && fromPos <= 5) score += 14;
         if (toPos >= 18) score += 16;
@@ -1391,6 +1417,7 @@ window.NarduGame = (function () {
     const startUrgency = Math.max(0, startBefore - 5);
     const gammonUrgency = Math.max(marsRiskBefore * 0.08, koksRiskBefore * 0.055, koksUrgency * 0.12);
     const bridgeAfter = longHeadBridgeScore(next, color);
+    const wideAfter = longWideControlScore(next, color);
     const fenceAfter = opponentLongFenceThreat(next, color);
     const trapAfter = longTrapRiskScore(next, color);
     const trapIncrease = trapAfter - trapBefore;
@@ -1430,6 +1457,7 @@ window.NarduGame = (function () {
     if (lateHeadDutyActive) score += features.headMoves * (22000 + headBefore * 5200);
     score += headReduction * (headBefore > 8 ? 1450 : (lateHeadDutyActive ? 24000 : 420));
     score += (bridgeAfter - bridgeBefore) * (headBefore > 5 ? 1350 : 260);
+    score += (wideAfter - wideBefore) * (headBefore > 4 ? 760 : 240);
     score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
     score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
     score += (corridorAfter - corridorBefore) * (headBefore > 5 ? 1650 : 220);
