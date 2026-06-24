@@ -70,6 +70,10 @@ window.NarduBot = (function () {
 
   function chooseSequence(state, difficulty = 'easy') {
     if (difficulty === 'easy') return chooseEasySequence(state);
+    if (difficulty === 'hard' && window.NarduStrongBot?.plan) {
+      const strong = window.NarduStrongBot.plan(state);
+      if (strong?.length) return strong;
+    }
     return NarduGame.chooseBotSequence?.(state, state.turn, { difficulty }) || [];
   }
 
