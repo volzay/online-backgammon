@@ -413,11 +413,110 @@ window.NarduStrongBot = (function () {
     return pressure;
   }
 
-  function emergencyActive(state, color) {
-    return emergencyPressure(state, color) >= 120;
+  function marsRacePressure(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const ownOff = state.off?.[color] || 0;
+    const ownOutside = outsideHomeCount(state, color);
+    if (ownOff > 0 || ownOutside <= 0) return 0;
+
+    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
+    const opponentOff = state.off?.[opponent] || 0;
+    const opponentHome = homeCount(state, opponent);
+    const opponentPips = NarduGame.pipsFor(state, opponent);
+    const ownPips = NarduGame.pipsFor(state, color);
+
+    let pressure = 0;
+    pressure += Math.max(0, 8 - opponentHead) * 55;
+    pressure += Math.max(0, opponentHome - 5) * 28;
+    pressure += opponentOff * 150;
+    pressure += Math.max(0, 145 - opponentPips) * 2.8;
+    if (NarduGame.homeReady(state, opponent)) pressure += 300;
+    if (ownOutside <= 2) pressure += 210;
+    if (ownPips > opponentPips + 35) pressure += 120;
+    return pressure;
   }
 
-  function survivalScore(before, next, color) {
+  function emergencyActive(state, color) {
+    return emergencyPressure(state, color) + marsRacePressure(state, color) >= 120;
+  }
+
+  function sequenceProgressStats(before, color, sequence) {
+    const preview = cloneState(before);
+    const outsideBefore = outsideHomeCount(before, color);
+    const outsidePipsBefore = outsideHomePips(before, color);
+    const outsidePositions = Object.entries(before.points || {})
+      .filter(([, data]) => data.color === color)
+      .map(([point]) => NarduGame.pathPos(color, Number(point), before))
+      .filter(pos => pos >= 0 && pos < 18);
+    const deepestBefore = outsidePositions.length ? Math.min(...outsidePositions) : 24;
+    let outsideMoves = 0;
+    let homeShuffleMoves = 0;
+    let deepestMoves = 0;
+    let laggardGain = 0;
+
+    sequence.forEach(move => {
+      const fromPos = NarduGame.pathPos(color, Number(move.from), preview);
+      const to = move.bearOff ? 0 : NarduGame.moveTo(color, move.from, move.die, preview);
+      const toPos = to === 0 ? 24 : NarduGame.pathPos(color, Number(to), preview);
+      if (fromPos >= 0 && fromPos < 18) {
+        outsideMoves += 1;
+        if (fromPos <= deepestBefore + 2) deepestMoves += 1;
+        laggardGain += Math.max(0, 18 - fromPos) * Math.max(0, toPos - fromPos);
+      }
+      if (fromPos >= 18 && toPos >= 18 && outsideHomeCount(preview, color) > 0) homeShuffleMoves += 1;
+      NarduGame.applyMove(preview, move.from, move.die, { autoEnd: false });
+    });
+    const afterPositions = Object.entries(preview.points || {})
+      .filter(([, data]) => data.color === color)
+      .map(([point]) => NarduGame.pathPos(color, Number(point), preview))
+      .filter(pos => pos >= 0 && pos < 18);
+
+    return {
+      outsideBefore,
+      outsideAfter: outsideHomeCount(preview, color),
+      outsidePipsGain: outsidePipsBefore - outsideHomePips(preview, color),
+      outsideMoves,
+      homeShuffleMoves,
+      deepestBefore,
+      deepestAfter: afterPositions.length ? Math.min(...afterPositions) : 24,
+      deepestMoves,
+      laggardGain,
+    };
+  }
+
+  function raceRescueScore(before, next, color, sequence = []) {
+    const pressure = marsRacePressure(before, color);
+    if (pressure <= 0) return 0;
+
+    const stats = sequenceProgressStats(before, color, sequence);
+    const opponent = NarduGame.opponentOf(color);
+    const opponentOff = before.off?.[opponent] || 0;
+    const outsideReduction = stats.outsideBefore - stats.outsideAfter;
+    const offGain = (next.off?.[color] || 0) - (before.off?.[color] || 0);
+    let score = 0;
+    score += outsideReduction * (820000 + pressure * 5200 + opponentOff * 1200000);
+    score += stats.outsidePipsGain * (78000 + pressure * 950);
+    score += stats.laggardGain * (94000 + pressure * 620);
+    score += offGain * (12000000 + pressure * 26000);
+    if (stats.outsideBefore > 0 && stats.outsideAfter === 0) score += 9000000 + pressure * 36000;
+    if (stats.outsideBefore <= 2 && opponentOff >= 6) {
+      score += outsideReduction * (5200000 + opponentOff * 650000);
+      if (outsideReduction <= 0) score -= 2600000 + pressure * 13000 + opponentOff * 420000;
+    }
+    if (!NarduGame.homeReady(before, color) && NarduGame.homeReady(next, color)) score += 6500000 + pressure * 24000;
+    if (stats.outsideMoves === 0 && stats.outsideBefore > 0) score -= 1600000 + pressure * 9000;
+    if (stats.deepestBefore <= 8 && stats.deepestMoves === 0) score -= 2600000 + pressure * 11000;
+    if (stats.deepestAfter <= stats.deepestBefore && stats.deepestBefore <= 8) score -= 1200000 + pressure * 5200;
+    if (stats.homeShuffleMoves > 0 && stats.outsideBefore > 0) {
+      score -= stats.homeShuffleMoves * (1150000 + pressure * 8200);
+    }
+    if ((next.off?.[color] || 0) === 0 && (next.off?.[NarduGame.opponentOf(color)] || 0) > 0) {
+      score -= 5000000 + pressure * 18000;
+    }
+    return score;
+  }
+
+  function survivalScore(before, next, color, sequence = []) {
     const opponent = NarduGame.opponentOf(color);
     const beforeOff = before.off?.[color] || 0;
     const nextOff = next.off?.[color] || 0;
@@ -445,6 +544,7 @@ window.NarduStrongBot = (function () {
     if (!nextOff && opponentOff > 0) score -= 7000000 + opponentOff * 4100000;
     if (NarduGame.homeReady(next, opponent) && !nextOff) score -= 9000000;
     score -= opponentFenceThreat(next, color) * 12000;
+    score += raceRescueScore(before, next, color, sequence);
     score += evaluateState(next, color) * 0.08;
     return score;
   }
@@ -537,7 +637,8 @@ window.NarduStrongBot = (function () {
     return evaluateState(next, color)
       + keyHeadLandingGain(state, next, color) * profile.preserveHeadLandings
       - keyHeadLandingBreakPenalty(state, next, color) * profile.preserveHeadLandings
-      + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings;
+      + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings
+      + raceRescueScore(state, next, color, sequence);
   }
 
   function opponentReplyRisk(state, color) {
@@ -582,7 +683,10 @@ window.NarduStrongBot = (function () {
     if (base.length) ranked.push({ sequence: base, score: quickScore(state, color, base) });
     if (emergency) {
       return ranked
-        .map(item => ({ sequence: item.sequence, score: survivalScore(state, applySequence(state, item.sequence), color) }))
+        .map(item => {
+          const next = applySequence(state, item.sequence);
+          return { sequence: item.sequence, score: survivalScore(state, next, color, item.sequence) };
+        })
         .sort((a, b) => b.score - a.score)[0]
         .sequence
         .map(move => ({ from: move.from, die: move.die }));
