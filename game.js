@@ -747,6 +747,20 @@ window.NarduGame = (function () {
     }, 0);
   }
 
+  function longFootholdMadeCount(state, color) {
+    return pathFor(color, state).slice(5, 12).reduce((total, point) => {
+      const data = state.points[point];
+      return total + (data?.color === color && data.count >= 2 ? 1 : 0);
+    }, 0);
+  }
+
+  function longFootholdSingleCount(state, color) {
+    return pathFor(color, state).slice(5, 12).reduce((total, point) => {
+      const data = state.points[point];
+      return total + (data?.color === color && data.count === 1 ? 1 : 0);
+    }, 0);
+  }
+
   function shortMadePointCount(state, color, rangeStart = 0, rangeEnd = 23) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color || data.count < 2) return total;
@@ -1113,6 +1127,8 @@ window.NarduGame = (function () {
     const trapBefore = longTrapRiskScore(state, color);
     const footholdBefore = longFootholdScore(state, color);
     const rushBefore = longPrematureRushScore(state, color);
+    const footholdMadeBefore = longFootholdMadeCount(state, color);
+    const footholdSinglesBefore = longFootholdSingleCount(state, color);
     const escapeOptionsBefore = longHeadEscapeOptions(state, color);
     const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
     const corridorBefore = longHeadCorridorScore(state, color);
@@ -1166,6 +1182,9 @@ window.NarduGame = (function () {
     const footholdGain = footholdAfter - footholdBefore;
     const rushAfter = longPrematureRushScore(next, color);
     const rushIncrease = rushAfter - rushBefore;
+    const footholdMadeGain = longFootholdMadeCount(next, color) - footholdMadeBefore;
+    const footholdSingleGain = longFootholdSingleCount(next, color) - footholdSinglesBefore;
+    const footholdSinglesAfter = longFootholdSingleCount(next, color);
     const escapeOptionsAfter = longHeadEscapeOptions(next, color);
     const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
     const corridorAfter = longHeadCorridorScore(next, color);
@@ -1202,7 +1221,12 @@ window.NarduGame = (function () {
     score -= Math.max(0, trapIncrease) * 9800;
     score -= trapAfter * (headBefore > 4 || outsideAfter > 0 ? 340 : 60);
     score += footholdGain * (headBefore > 4 && (state.off[color] || 0) === 0 ? 2600 : 420);
-    score += features.footholdBuildMoves * (headBefore > 4 ? 16000 : 3200);
+    score += features.footholdBuildMoves * (headBefore > 4 ? 52000 : 7200);
+    score += footholdMadeGain * (headBefore > 4 ? 64000 : 12000);
+    if (headBefore > 4 && (state.off[color] || 0) === 0) {
+      score -= Math.max(0, footholdSingleGain) * 9000;
+      score -= footholdSinglesAfter * 1800;
+    }
     if (headBefore > 4 && (state.off[color] || 0) === 0) {
       score -= Math.max(0, rushIncrease) * 21000;
       score -= features.prematureRushMoves * (18000 + Math.max(0, 44 - footholdAfter) * 620);
