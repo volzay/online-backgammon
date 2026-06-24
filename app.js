@@ -916,6 +916,46 @@
 
   let lastGuestPresenceAt = 0;
   let lastProfilePresenceAt = 0;
+  function presenceHash(value) {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+  async function upsertGuestPresenceRow(user, id) {
+    if (!user || !window.NarduSupabase?.configured?.()) return false;
+    const client = await window.NarduSupabase.client();
+    const nowIso = new Date().toISOString();
+    const guestRow = {
+      id: String(id || user.id || guestId()).slice(0, 80),
+      name: String(user.name || user.nickname || guestName()).slice(0, 32),
+      last_seen_at: nowIso,
+      updated_at: nowIso,
+    };
+    const { error: insertError } = await client
+      .from('guest_presence')
+      .insert(guestRow);
+    if (insertError) {
+      if (insertError.code !== '23505') throw insertError;
+      const { error: updateError } = await client
+        .from('guest_presence')
+        .update({
+          name: guestRow.name,
+          last_seen_at: guestRow.last_seen_at,
+          updated_at: guestRow.updated_at,
+        })
+        .eq('id', guestRow.id);
+      if (updateError) throw updateError;
+    }
+    return true;
+  }
+  async function touchLocalPresenceAlias(user) {
+    const key = presenceHash(user?.id || user?.email || user?.nickname || user?.name || 'local');
+    return upsertGuestPresenceRow(user, `guest:local:${key}`);
+  }
   async function touchGuestPresence({ force = false } = {}) {
     const user = getUser();
     if (!user?.guest || !window.NarduSupabase?.configured?.()) return;
@@ -923,29 +963,7 @@
     if (!force && nowMs - lastGuestPresenceAt < GUEST_PRESENCE_MS) return;
     lastGuestPresenceAt = nowMs;
     try {
-      const client = await window.NarduSupabase.client();
-      const nowIso = new Date(nowMs).toISOString();
-      const guestRow = {
-        id: String(user.id || guestId()).slice(0, 80),
-        name: String(user.name || user.nickname || guestName()).slice(0, 32),
-        last_seen_at: nowIso,
-        updated_at: nowIso,
-      };
-      const { error: insertError } = await client
-        .from('guest_presence')
-        .insert(guestRow);
-      if (insertError) {
-        if (insertError.code !== '23505') throw insertError;
-        const { error: updateError } = await client
-          .from('guest_presence')
-          .update({
-            name: guestRow.name,
-            last_seen_at: guestRow.last_seen_at,
-            updated_at: guestRow.updated_at,
-          })
-          .eq('id', guestRow.id);
-        if (updateError) throw updateError;
-      }
+      await upsertGuestPresenceRow(user, user.id || guestId());
     } catch (error) {
       console.warn('Could not update guest presence', error.message || error);
     }
@@ -959,11 +977,18 @@
     try {
       const client = await window.NarduSupabase.client();
       const { data, error: authError } = await client.auth.getUser();
-      if (authError || !data?.user?.id) return;
-      await client
+      if (authError || !data?.user?.id) {
+        await touchLocalPresenceAlias(user);
+        return;
+      }
+      const { error: updateError } = await client
         .from('profiles')
         .update({ last_seen_at: new Date(nowMs).toISOString() })
         .eq('id', data.user.id);
+      if (updateError) {
+        await touchLocalPresenceAlias(user);
+        throw updateError;
+      }
     } catch (error) {
       console.warn('Could not update profile presence', error.message || error);
     }

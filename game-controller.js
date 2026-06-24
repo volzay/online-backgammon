@@ -2475,6 +2475,10 @@ window.NarduController = (function () {
       state.gameOverPublishedAt = new Date().toISOString();
       publishRemoteState();
     }
+    if (mode === 'bot' && !state.gameOverPublishedAt) {
+      state.gameOverPublishedAt = new Date().toISOString();
+      publishBotAnalysisState();
+    }
 
     const didWin = state.winner === playerColor;
     const resultKey = gameResultKey();

@@ -100,9 +100,10 @@
     }
   }
 
-  function localRoomProfile(authProfile = {}) {
+  function localRoomProfile(authProfile = {}, options = {}) {
     const user = window.NarduApp?.getUser?.() || {};
-    if (user.guest) {
+    const forceUnregistered = options.registered === false;
+    if (user.guest || forceUnregistered) {
       return {
         name: String(user.name || user.nickname || "Guest").slice(0, 32),
         rating: null,
@@ -260,7 +261,7 @@
     return window.NarduApp?.getUser?.()?.guest === true;
   }
 
-  async function roomClientContext() {
+  async function roomClientContext(options = {}) {
     if (localUserIsGuest()) {
       const client = await supabase();
       await client.auth.signOut().catch(() => {});
@@ -271,7 +272,20 @@
         guest: true,
       };
     }
-    return { ...(await currentAuthContext()), guest: false };
+    try {
+      return { ...(await currentAuthContext()), guest: false };
+    } catch (error) {
+      if (!options.allowLocalFallback || Number(error?.status) !== 401) throw error;
+      const client = await supabase();
+      window.NarduApp?.touchPresence?.({ force: true });
+      return {
+        client,
+        authUser: null,
+        profile: {},
+        guest: true,
+        authFallback: true,
+      };
+    }
   }
 
   async function findActiveRoomFor(client, userId) {
@@ -366,8 +380,8 @@
     const normalizedCode = normalizeCode(payload.code);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
-    const { client, authUser, profile } = await roomClientContext();
-    const roomProfile = localRoomProfile(profile);
+    const { client, authUser, profile } = await roomClientContext({ allowLocalFallback: true });
+    const roomProfile = localRoomProfile(profile, { registered: Boolean(authUser?.id) });
     const variant = payload.variant === "short" ? "short" : "long";
     const botName = String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
     const botRating = normalizeRating(payload.botRating);

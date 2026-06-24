@@ -540,6 +540,10 @@ function isRecentActivity(value, maxAgeMs = 3 * 60 * 1000) {
   return Number.isFinite(time) && Date.now() - time <= maxAgeMs;
 }
 
+function playerNameKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function userStatusText(user) {
   return user.online ? t("online") : t("offline");
 }
@@ -1223,9 +1227,19 @@ async function refresh() {
           gamesWon: Number(item.games_won || 0),
         });
       });
-      const profileUsers = (users || []).map(user => ({
+      const guestOnlineByName = new Map();
+      (guests || []).forEach(guest => {
+        const key = playerNameKey(guest.name);
+        if (key && isRecentActivity(guest.last_seen_at)) guestOnlineByName.set(key, true);
+      });
+      const profileNameKeys = new Set();
+      const profileUsers = (users || []).map(user => {
+        const name = user.nickname || user.email || user.id;
+        const nameKey = playerNameKey(name);
+        if (nameKey) profileNameKeys.add(nameKey);
+        return ({
         id: user.id,
-        name: user.nickname || user.email || user.id,
+        name,
         email: user.email || "",
         ip: "-",
         passwordState: "supabase",
@@ -1234,12 +1248,15 @@ async function refresh() {
         gamesPlayed: statByUser.get(user.id)?.gamesPlayed || 0,
         gamesWon: statByUser.get(user.id)?.gamesWon || 0,
         rating: user.rating,
-        online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at) || Number(activeRoomCounts.get(user.id) || 0) > 0,
+        online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at) || guestOnlineByName.has(nameKey) || Number(activeRoomCounts.get(user.id) || 0) > 0,
         banned: Boolean(user.banned_at),
         banReason: user.banned_reason || "",
         banHistory: [],
-      }));
-      const guestUsers = (guests || []).map(guest => ({
+      });
+      });
+      const guestUsers = (guests || [])
+        .filter(guest => !profileNameKeys.has(playerNameKey(guest.name)))
+        .map(guest => ({
         id: guest.id,
         name: guest.name || guest.id,
         email: "",
