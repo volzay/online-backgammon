@@ -767,6 +767,30 @@ window.NarduGame = (function () {
     return score;
   }
 
+  function longHeadChannelScore(state, color) {
+    const head = headPoint(color, state);
+    const headCheckers = pointCount(state, head);
+    if (headCheckers <= 2) return 0;
+
+    let score = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const point = moveTo(color, head, die, state);
+      if (!point) continue;
+      const data = state.points[point];
+      const weight = 8 - die;
+      if (data?.color === color) {
+        const made = data.count >= 2;
+        const stackExcess = Math.max(0, data.count - 3);
+        score += weight * (made ? 70 : 34) - stackExcess * weight * 12;
+      } else if (pointOpenFor(state, color, point)) {
+        score += weight * 6;
+      } else {
+        score -= weight * 58;
+      }
+    }
+    return score;
+  }
+
   function longHeadCorridorScore(state, color) {
     const head = headPoint(color, state);
     const headCheckers = pointCount(state, head);
@@ -1391,6 +1415,7 @@ window.NarduGame = (function () {
     const footholdSinglesBefore = longFootholdSingleCount(state, color);
     const escapeOptionsBefore = longHeadEscapeOptions(state, color);
     const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
+    const channelBefore = longHeadChannelScore(state, color);
     const corridorBefore = longHeadCorridorScore(state, color);
     let score = 0;
     sequence.forEach(move => {
@@ -1452,6 +1477,7 @@ window.NarduGame = (function () {
     const footholdSinglesAfter = longFootholdSingleCount(next, color);
     const escapeOptionsAfter = longHeadEscapeOptions(next, color);
     const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
+    const channelAfter = longHeadChannelScore(next, color);
     const corridorAfter = longHeadCorridorScore(next, color);
     const headLocked = headBefore > 5 && (state.off[color] || 0) === 0;
     const criticalHeadLocked = headBefore > 8 && (state.off[color] || 0) === 0;
@@ -1483,6 +1509,7 @@ window.NarduGame = (function () {
     score += (attackAfter - attackBefore) * (headBefore > 8 ? 280 : 920);
     score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
     score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
+    score += (channelAfter - channelBefore) * (headBefore > 5 ? 1450 : 360);
     score += (corridorAfter - corridorBefore) * (headBefore > 5 ? 1650 : 220);
     score += (trapBefore - trapAfter) * 2600;
     score -= Math.max(0, trapIncrease) * 9800;
