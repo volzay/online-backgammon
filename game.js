@@ -1048,6 +1048,12 @@ window.NarduGame = (function () {
     const corridorAfter = longHeadCorridorScore(next, color);
     const headLocked = headBefore > 5 && (state.off[color] || 0) === 0;
     const criticalHeadLocked = headBefore > 8 && (state.off[color] || 0) === 0;
+    const headDutyActive = canPlayHead && headBefore > 4 && (state.off[color] || 0) === 0;
+    const headDutyUrgency = Math.max(0, headBefore - 4) * 6200
+      + Math.max(0, finishPressure - 105) * 360
+      + marsRiskBefore * 420
+      + koksRiskBefore * 260
+      + Math.max(0, fenceBefore - 18) * 520;
 
     score += outsideReduction * 780;
     score += outsidePipsGain * 42;
@@ -1077,6 +1083,18 @@ window.NarduGame = (function () {
     }
     if (canPlayHead && features.headMoves === 0 && headBefore > 3) {
       score -= 5200 + headUrgency * 1350 + startUrgency * 720 + gammonUrgency * 520;
+    }
+    if (headDutyActive) {
+      if (features.headMoves === 0) {
+        score -= 42000 + headDutyUrgency;
+        score -= features.enterHomeMoves * 17500;
+        score -= features.homeInternalMoves * 22000;
+        if (outsideReduction <= 0) score -= 18000 + Math.max(0, headBefore - 6) * 9000;
+      } else {
+        score += features.headMoves * (18000 + Math.max(0, headBefore - 6) * 4200);
+        score += headReduction * (22000 + Math.max(0, headBefore - 7) * 5200);
+        score += features.coveredHeadLandings * 5200;
+      }
     }
     if (features.headMoves === 0 && headBefore > 6) {
       score -= features.enterHomeMoves * Math.max(0, headBefore - 6) * 980;
