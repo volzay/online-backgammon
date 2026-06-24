@@ -309,8 +309,8 @@
 
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
-<script src="app.js?v=presence-guest-20260624"></script>
-<script src="rooms-client.js?v=presence-guest-20260624"></script>
+<script src="app.js?v=waiting-room-fix-20260624"></script>
+<script src="rooms-client.js?v=waiting-room-fix-20260624"></script>
 <script>
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
@@ -552,10 +552,10 @@
     const initial = (t.host[0] || '?').toUpperCase();
     const access = t.access || 'open';
     const status = t.status || 'waiting';
-    const canReturn = t.roomCode && status === 'joined' && isRoomParticipant(t);
+    const canReturn = t.roomCode && isRoomParticipant(t) && (status === 'joined' || status === 'waiting');
     const canJoin = t.roomCode ? (status === 'waiting' || canReturn) : true;
     const canWatch = t.roomCode && status === 'joined' && t.allowSpectators === true && !canReturn;
-    const actionLabel = status === 'joined' ? (canReturn ? tt('return_to_room') : tt('in_game')) : tt('join');
+    const actionLabel = canReturn ? tt('return_to_room') : (status === 'joined' ? tt('in_game') : tt('join'));
     const hostLabel = escapeHtml(t.hostKey ? tt(t.hostKey) : t.host);
     const modeLabel = t.mode || labelFor(variantLabelKeys, t.variant || 'long', 'long_backgammon');
     const meta = t.status === 'joined'
@@ -620,10 +620,13 @@
       if (room) openSpectatorRoom(room);
       return;
     }
-    if (row.dataset.status === 'joined') {
+    if (row.dataset.status === 'joined' || row.dataset.status === 'waiting') {
       const room = playerRoomByCode(row.dataset.roomCode);
-      if (room && isRoomParticipant(room)) goToExistingPlayerRoom(room);
-      return;
+      if (room && isRoomParticipant(room)) {
+        goToExistingPlayerRoom(room);
+        return;
+      }
+      if (row.dataset.status === 'joined') return;
     }
     if (row.dataset.roomCode) {
       const passwordInput = row.querySelector('[data-room-password-input]');

@@ -2209,6 +2209,10 @@ async function handleApi(req, res, url) {
         sendJson(res, 409, { error: "Эта комната уже занята." });
         return;
       }
+      if (normalizePlayerName(room.hostName) === normalizePlayerName(guestName)) {
+        sendJson(res, 200, { room: publicRoom(room) });
+        return;
+      }
 
       if (room.access === "closed" && room.password !== String(body.password || "").trim()) {
         sendJson(res, 403, { error: "Неверный пароль закрытой комнаты." });

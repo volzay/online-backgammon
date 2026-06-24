@@ -461,6 +461,9 @@
       throw roomError("Эта комната уже занята.", 409);
     }
     if (authUser?.id && room.host_user_id === authUser.id) return { room: publicRoom(room) };
+    if (String(room.host_name || "").trim().toLowerCase() === String(roomProfile.name || "").trim().toLowerCase()) {
+      return { room: publicRoom(room) };
+    }
     if (room.access === "closed") {
       const providedHash = await sha256Hex(String(payload.password || "").trim());
       if (providedHash !== room.password_hash) throw roomError("Неверный пароль закрытой комнаты.", 403);
@@ -500,7 +503,7 @@
     if (!configured()) {
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}`, { method: "DELETE" });
     }
-    const { client } = await currentAuthContext();
+    const { client } = await roomClientContext();
     const { error } = await client
       .from("rooms")
       .update({

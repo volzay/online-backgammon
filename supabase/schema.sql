@@ -389,7 +389,7 @@ using (
   and (host_user_id is null or guest_user_id is null)
 )
 with check (
-  status in ('waiting', 'joined', 'over')
+  status in ('waiting', 'joined', 'over', 'closed')
   and (host_user_id is null or guest_user_id is null)
 );
 
