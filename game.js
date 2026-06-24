@@ -649,6 +649,32 @@ window.NarduGame = (function () {
     return threat;
   }
 
+  function longTrapRiskScore(state, color) {
+    const opponent = opponentOf(color);
+    const path = pathFor(color, state);
+    let run = 0;
+    let runStart = 0;
+    let risk = 0;
+    path.forEach((point, index) => {
+      if (state.points[point]?.color === opponent) {
+        if (run === 0) runStart = index;
+        run += 1;
+        if (run >= 3) {
+          const ownBehind = path.slice(0, runStart)
+            .reduce((total, p) => total + (state.points[p]?.color === color ? state.points[p].count : 0), 0);
+          if (ownBehind > 0) {
+            const inStartTrap = runStart <= 8 ? 1.45 : 1;
+            const wall = run >= 6 ? 10 : run >= 5 ? 4.8 : run >= 4 ? 2.2 : 1;
+            risk += ownBehind * run * run * wall * inStartTrap;
+          }
+        }
+      } else {
+        run = 0;
+      }
+    });
+    return risk;
+  }
+
   function longHeadEscapeOptions(state, color) {
     const head = headPoint(color, state);
     if (pointCount(state, head) <= 0) return 0;
@@ -996,6 +1022,7 @@ window.NarduGame = (function () {
     const koksRiskBefore = koksRiskScore(state, color);
     const bridgeBefore = longHeadBridgeScore(state, color);
     const fenceBefore = opponentLongFenceThreat(state, color);
+    const trapBefore = longTrapRiskScore(state, color);
     const escapeOptionsBefore = longHeadEscapeOptions(state, color);
     const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
     const corridorBefore = longHeadCorridorScore(state, color);
@@ -1043,6 +1070,8 @@ window.NarduGame = (function () {
     const gammonUrgency = Math.max(marsRiskBefore * 0.08, koksRiskBefore * 0.055, koksUrgency * 0.12);
     const bridgeAfter = longHeadBridgeScore(next, color);
     const fenceAfter = opponentLongFenceThreat(next, color);
+    const trapAfter = longTrapRiskScore(next, color);
+    const trapIncrease = trapAfter - trapBefore;
     const escapeOptionsAfter = longHeadEscapeOptions(next, color);
     const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
     const corridorAfter = longHeadCorridorScore(next, color);
@@ -1068,6 +1097,9 @@ window.NarduGame = (function () {
     score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
     score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
     score += (corridorAfter - corridorBefore) * (headBefore > 5 ? 1650 : 220);
+    score += (trapBefore - trapAfter) * 2600;
+    score -= Math.max(0, trapIncrease) * 9800;
+    score -= trapAfter * (headBefore > 4 || outsideAfter > 0 ? 340 : 60);
     if (headBefore > 5) {
       score += bridgeAfter * 95;
       score += escapeOptionsAfter * 180;
@@ -1113,6 +1145,10 @@ window.NarduGame = (function () {
       const homeShufflePenalty = marsRiskBefore > 0 || koksRiskBefore > 0 ? 15500 : 2600;
       score -= features.homeInternalMoves * homeShufflePenalty;
       score -= outsideHomePips(next, color) * (marsRiskBefore > 0 ? 560 : 24);
+      if (trapBefore > 0 || trapAfter > 0) {
+        score -= features.enterHomeMoves * (9000 + trapAfter * 180);
+        score -= features.homeInternalMoves * (11000 + trapAfter * 220);
+      }
     }
     if (outsideBefore > 0 && outsideReduction <= 0 && features.homeInternalMoves > 0) {
       score -= 8500 + features.homeInternalMoves * 3800;
