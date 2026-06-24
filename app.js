@@ -887,7 +887,7 @@
     u = normalizeStoredUser(u) || createGuestUser();
     assignProfileRating(u);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
-    touchGuestPresence({ force: true });
+    touchPresence({ force: true });
   }
   function logout() {
     if (window.NarduSupabase?.configured?.()) {
@@ -915,6 +915,7 @@
   }
 
   let lastGuestPresenceAt = 0;
+  let lastProfilePresenceAt = 0;
   async function touchGuestPresence({ force = false } = {}) {
     const user = getUser();
     if (!user?.guest || !window.NarduSupabase?.configured?.()) return;
@@ -935,6 +936,29 @@
     } catch (error) {
       console.warn('Could not update guest presence', error.message || error);
     }
+  }
+  async function touchProfilePresence({ force = false } = {}) {
+    const user = getUser();
+    if (!user || user.guest || !window.NarduSupabase?.configured?.()) return;
+    const nowMs = Date.now();
+    if (!force && nowMs - lastProfilePresenceAt < GUEST_PRESENCE_MS) return;
+    lastProfilePresenceAt = nowMs;
+    try {
+      const client = await window.NarduSupabase.client();
+      const { data, error: authError } = await client.auth.getUser();
+      if (authError || !data?.user?.id) return;
+      await client
+        .from('profiles')
+        .update({ last_seen_at: new Date(nowMs).toISOString() })
+        .eq('id', data.user.id);
+    } catch (error) {
+      console.warn('Could not update profile presence', error.message || error);
+    }
+  }
+  function touchPresence(options = {}) {
+    const user = getUser();
+    if (user?.guest) return touchGuestPresence(options);
+    return touchProfilePresence(options);
   }
 
   /* ── SOUND TOGGLE (visual only) ── */
@@ -1009,8 +1033,8 @@
     applyBoardStyle(currentBoardStyle());
     applyLang(currentLang());
     paintUser();
-    touchGuestPresence({ force: true });
-    setInterval(() => touchGuestPresence(), GUEST_PRESENCE_MS);
+    touchPresence({ force: true });
+    setInterval(() => touchPresence(), GUEST_PRESENCE_MS);
     paintSound();
     wirePasswordToggles();
   }
@@ -1023,7 +1047,7 @@
     getUser, setUser, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
-    createGuestUser, touchGuestPresence,
+    createGuestUser, touchGuestPresence, touchProfilePresence, touchPresence,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
   };
