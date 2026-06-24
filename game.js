@@ -1171,8 +1171,14 @@ window.NarduGame = (function () {
     const corridorAfter = longHeadCorridorScore(next, color);
     const headLocked = headBefore > 5 && (state.off[color] || 0) === 0;
     const criticalHeadLocked = headBefore > 8 && (state.off[color] || 0) === 0;
-    const headDutyActive = canPlayHead && headBefore > 4 && (state.off[color] || 0) === 0;
-    const headDutyUrgency = Math.max(0, headBefore - 4) * 6200
+    const lateHeadDutyActive = canPlayHead
+      && headBefore > 1
+      && (state.off[color] || 0) === 0
+      && (finishPressure > 80 || outsideBefore > 0 || marsRiskBefore > 0 || koksRiskBefore > 0);
+    const headDutyActive = canPlayHead
+      && (state.off[color] || 0) === 0
+      && (headBefore > 4 || lateHeadDutyActive);
+    const headDutyUrgency = Math.max(0, headBefore - 1) * (lateHeadDutyActive ? 9400 : 6200)
       + Math.max(0, finishPressure - 105) * 360
       + marsRiskBefore * 420
       + koksRiskBefore * 260
@@ -1186,7 +1192,8 @@ window.NarduGame = (function () {
     score += features.coveredHeadLandings * (headBefore > 7 ? 920 : 260);
     score -= features.emptyHeadLandings * (headBefore > 7 ? 380 : 90);
     score += features.headMoves * (900 + headUrgency * 420 + startUrgency * 260 + gammonUrgency * 140);
-    score += headReduction * (headBefore > 8 ? 1450 : 420);
+    if (lateHeadDutyActive) score += features.headMoves * (22000 + headBefore * 5200);
+    score += headReduction * (headBefore > 8 ? 1450 : (lateHeadDutyActive ? 24000 : 420));
     score += (bridgeAfter - bridgeBefore) * (headBefore > 5 ? 1350 : 260);
     score += (escapeOptionsAfter - escapeOptionsBefore) * (headBefore > 5 ? 1150 : 360);
     score += (landingCoverageAfter - landingCoverageBefore) * (headBefore > 5 ? 720 : 180);
@@ -1214,8 +1221,9 @@ window.NarduGame = (function () {
       score -= features.headCorridorExits * (criticalHeadLocked ? 8200 : 3600);
       score += features.headCorridorMoves * (criticalHeadLocked ? 950 : 420);
     }
-    if (canPlayHead && features.headMoves === 0 && headBefore > 3) {
+    if (canPlayHead && features.headMoves === 0 && (headBefore > 3 || lateHeadDutyActive)) {
       score -= 5200 + headUrgency * 1350 + startUrgency * 720 + gammonUrgency * 520;
+      if (lateHeadDutyActive) score -= 36000 + headDutyUrgency;
     }
     if (headDutyActive) {
       if (features.headMoves === 0) {
