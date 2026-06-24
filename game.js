@@ -923,6 +923,16 @@ window.NarduGame = (function () {
     return legalNextMoves(state, color).some(move => move.from === head);
   }
 
+  function hasLegalOutsideProgress(state, color) {
+    return legalNextMoves(state, color).some(move => {
+      const fromPos = pathPos(color, move.from, state);
+      if (fromPos < 0 || fromPos >= 18) return false;
+      if (move.bearOff) return true;
+      const toPos = pathPos(color, move.to, state);
+      return toPos > fromPos;
+    });
+  }
+
   function hardKoksEmergencyActive(state, color) {
     return (state.off[color] || 0) === 0
       && finishPressureScore(state, opponentOf(color)) >= 135;
@@ -981,6 +991,50 @@ window.NarduGame = (function () {
     score += homeReady(next, color) ? 90000 : 0;
     if (homeReady(next, color)) score -= farthestFromOff(next, color) * 4200;
     return score * urgency;
+  }
+
+  function hardMarsSurvivalScore(state, next, color, features = {}) {
+    if ((state.off[color] || 0) > 0) return 0;
+    const opponent = opponentOf(color);
+    const opponentPressure = finishPressureScore(state, opponent);
+    const opponentOff = state.off[opponent] || 0;
+    const urgency = Math.max(
+      0,
+      opponentPressure - 92,
+      opponentOff * 38,
+      marsRiskScore(state, color) * 1.8,
+      homeReady(state, opponent) ? 130 : 0,
+    );
+    if (urgency <= 0) return 0;
+
+    const beforeOutside = outsideHomeCount(state, color);
+    const afterOutside = outsideHomeCount(next, color);
+    const outsideReduction = beforeOutside - afterOutside;
+    const outsideProgress = outsideHomePips(state, color) - outsideHomePips(next, color);
+    const offGain = (next.off[color] || 0) - (state.off[color] || 0);
+    const canProgressOutside = hasLegalOutsideProgress(state, color);
+    const readyBefore = homeReady(state, color);
+    const readyAfter = homeReady(next, color);
+
+    let score = 0;
+    score += offGain * (520000 + urgency * 1800);
+    if (readyBefore) {
+      if (offGain <= 0) score -= 180000 + urgency * 1450;
+      score -= (features.homeInternalMoves || 0) * (52000 + urgency * 220);
+      score -= farthestFromOff(next, color) * (5200 + urgency * 18);
+      return score;
+    }
+
+    score += outsideReduction * (98000 + urgency * 720);
+    score += outsideProgress * (10500 + urgency * 95);
+    score -= afterOutside * (26000 + urgency * 160);
+    if (readyAfter) score += 240000 + urgency * 1200;
+    if (canProgressOutside && outsideProgress <= 0) score -= 125000 + urgency * 900;
+    if (beforeOutside > 0 && outsideReduction <= 0) {
+      score -= (features.enterHomeMoves || 0) * (28000 + urgency * 180);
+      score -= (features.homeInternalMoves || 0) * (52000 + urgency * 260);
+    }
+    return score;
   }
 
   function scoreMediumSequence(state, color, sequence) {
@@ -1154,6 +1208,7 @@ window.NarduGame = (function () {
       score -= 8500 + features.homeInternalMoves * 3800;
     }
     score += hardMarsEmergencyScore(state, next, color);
+    score += hardMarsSurvivalScore(state, next, color, features);
     score += hardKoksEmergencyScore(state, next, color);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
     score -= koksRiskScore(next, color) * 0.9;
