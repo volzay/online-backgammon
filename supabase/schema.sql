@@ -767,6 +767,48 @@ $$;
 revoke all on function public.admin_delete_profile(uuid) from public;
 grant execute on function public.admin_delete_profile(uuid) to authenticated;
 
+create or replace function public.admin_delete_guest(target_guest_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_name text := '';
+  affected_rows integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+
+  if target_guest_id is null or target_guest_id not like 'guest:%' then
+    raise exception 'Гость не найден.';
+  end if;
+
+  select gp.name into target_name
+  from public.guest_presence gp
+  where gp.id = target_guest_id;
+
+  delete from public.guest_presence gp
+  where gp.id = target_guest_id;
+
+  get diagnostics affected_rows = row_count;
+  if affected_rows = 0 then
+    raise exception 'Гость не найден.';
+  end if;
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (
+    auth.uid(),
+    'delete-guest',
+    jsonb_build_object('targetGuestId', target_guest_id, 'targetName', coalesce(target_name, ''))
+  );
+end;
+$$;
+
+revoke all on function public.admin_delete_guest(text) from public;
+grant execute on function public.admin_delete_guest(text) to authenticated;
+
 create or replace function public.touch_room_spectator(
   p_code text,
   p_spectator_id text,

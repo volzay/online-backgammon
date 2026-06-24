@@ -1036,6 +1036,7 @@ function playerRow(user) {
   const canManageSupabaseUser = supabaseAdminActionsEnabled();
   const canManageServerUser = !state.readonlyAdmin;
   const canManageUser = !isGuestProfile && (canManageServerUser || canManageSupabaseUser);
+  const canDeleteGuest = isGuestProfile && state.backend === "supabase";
   const passwordAction = canManageUser
     ? `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">${t("set_password")}</button>`
     : `<span class="readonly-note">${t("readonly")}</span>`;
@@ -1044,6 +1045,8 @@ function playerRow(user) {
         ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">${t("unban")}</button>`
         : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">${t("ban")}</button>`}
         <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>`
+    : canDeleteGuest
+      ? `<button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>`
     : `<span class="readonly-note">${t("unavailable_actions")}</span>`;
   return `
     <div class="player-row">
@@ -1473,9 +1476,22 @@ async function unbanPlayer(userId) {
 async function deletePlayer(userId) {
   const user = userById(userId);
   if (!user) return;
-  if (!window.confirm(`Удалить игрока ${user.name}? Активные комнаты игрока будут закрыты.`)) return;
+  const isGuestProfile = user.passwordState === "guest" || user.guest;
+  const prompt = isGuestProfile
+    ? `Удалить гостя ${user.name} из админ-панели?`
+    : `Удалить игрока ${user.name}? Активные комнаты игрока будут закрыты.`;
+  if (!window.confirm(prompt)) return;
   if (state.backend === "supabase") {
     const client = await supabaseClient();
+    if (isGuestProfile) {
+      const { error } = await client.rpc("admin_delete_guest", {
+        target_guest_id: userId,
+      });
+      if (error) throw error;
+      state.notice = `Гость ${user.name} удалён.`;
+      await refresh();
+      return;
+    }
     const { error } = await client.rpc("admin_delete_profile", {
       target_profile_id: userId,
     });
