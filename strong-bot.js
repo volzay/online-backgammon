@@ -7,9 +7,56 @@ window.NarduStrongBot = (function () {
   const CANDIDATE_LIMIT = 18;
   const DEEP_SEQUENCE_LIMIT = 180;
   const REPLY_LIMIT = 4;
+  const PROFILE_KEY = 'narduh-strong-bot-profile-v1';
+  const DEFAULT_PROFILE = {
+    version: 1,
+    games: 0,
+    losses: 0,
+    headBlock: 1,
+    routeControl: 1,
+    avoidRush: 1,
+    avoidTowers: 1,
+  };
   const REPLY_ROLLS = [
     [6, 6], [6, 5], [5, 5], [4, 4], [3, 3], [2, 2],
   ];
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function storage() {
+    try {
+      return typeof window !== 'undefined' ? window.localStorage : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function learningProfile() {
+    const store = storage();
+    if (!store) return { ...DEFAULT_PROFILE };
+    try {
+      const parsed = JSON.parse(store.getItem(PROFILE_KEY) || 'null');
+      return {
+        ...DEFAULT_PROFILE,
+        ...(parsed && typeof parsed === 'object' ? parsed : {}),
+        version: DEFAULT_PROFILE.version,
+      };
+    } catch (error) {
+      return { ...DEFAULT_PROFILE };
+    }
+  }
+
+  function saveLearningProfile(profile) {
+    const store = storage();
+    if (!store) return;
+    try {
+      store.setItem(PROFILE_KEY, JSON.stringify(profile));
+    } catch (error) {
+      // Learning is optional; gameplay must not depend on storage availability.
+    }
+  }
 
   function cloneState(state) {
     return JSON.parse(JSON.stringify(state));
@@ -89,6 +136,25 @@ window.NarduStrongBot = (function () {
     }, 0);
   }
 
+  function routeControlScore(state, color, pathColor, start, end) {
+    let run = 0;
+    return NarduGame.pathFor(pathColor, state).slice(start, end + 1).reduce((score, point, index) => {
+      const data = state.points?.[point];
+      const weight = end - start + 2 - index;
+      if (data?.color !== color) {
+        run = 0;
+        return score;
+      }
+      run += 1;
+      const made = data.count >= 2;
+      const tower = Math.max(0, data.count - 3);
+      return score
+        + weight * (made ? 42 : 16)
+        + run * run * 18
+        - tower * tower * weight * 10;
+    }, 0);
+  }
+
   function opponentFenceThreat(state, color) {
     const opponent = NarduGame.opponentOf(color);
     const path = NarduGame.pathFor(color, state);
@@ -124,6 +190,78 @@ window.NarduStrongBot = (function () {
       else score -= weight * 70;
     }
     return score;
+  }
+
+  function opponentHeadBlockScore(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const head = NarduGame.headPoint(opponent, state);
+    const headCheckers = countAt(state, head);
+    if (headCheckers <= 2) return 0;
+    let score = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const point = NarduGame.moveTo(opponent, head, die, state);
+      if (!point) continue;
+      const data = state.points?.[point];
+      const weight = 8 - die;
+      if (data?.color === color) score += weight * (data.count >= 2 ? 180 : 72);
+      else if (!data) score -= weight * 42;
+      else score -= weight * 18;
+    }
+    return score * Math.min(4, 1 + headCheckers / 6);
+  }
+
+  function opponentHeadFreedomScore(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const head = NarduGame.headPoint(opponent, state);
+    const headCheckers = countAt(state, head);
+    if (headCheckers <= 2) return 0;
+    let freedom = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const point = NarduGame.moveTo(opponent, head, die, state);
+      if (!point) continue;
+      const data = state.points?.[point];
+      const weight = 8 - die;
+      if (!data || data.color === opponent) freedom += weight * (data?.count >= 2 ? 18 : 30);
+      else if (data.count === 1) freedom += weight * 8;
+    }
+    return freedom * Math.min(5, 1 + headCheckers / 5);
+  }
+
+  function opponentRouteControlScore(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
+    const opponentPressure = opponentReadiness(state, color);
+    return routeControlScore(state, color, opponent, 1, 13)
+      * Math.min(4.5, 1 + opponentHead / 7 + opponentPressure / 900);
+  }
+
+  function homeTowerPenalty(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
+    const opponentOff = state.off?.[opponent] || 0;
+    const ownOff = state.off?.[color] || 0;
+    const pressure = 1 + opponentHead / 8 + opponentOff / 5 + (!ownOff && opponentOff ? 1.4 : 0);
+    return Object.entries(state.points || {}).reduce((total, [point, data]) => {
+      if (data.color !== color) return total;
+      const pos = NarduGame.pathPos(color, Number(point), state);
+      if (pos < 18) return total;
+      const excess = Math.max(0, data.count - 3);
+      const tower = Math.max(0, data.count - 5);
+      return total + (excess * excess * 42 + tower * tower * 180) * pressure;
+    }, 0);
+  }
+
+  function prematureRacePenalty(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
+    const ownHead = countAt(state, NarduGame.headPoint(color, state));
+    const routeControl = opponentRouteControlScore(state, color);
+    const attack = forwardAttackScore(state, color);
+    const home = countInRange(state, color, 18, 23);
+    if (home < 4) return 0;
+    const missingControl = Math.max(0, 180 - routeControl - attack * 0.35);
+    const headDebt = Math.max(0, ownHead - 4) + Math.max(0, opponentHead - 4) * 0.8;
+    return home * missingControl * (1 + headDebt / 5);
   }
 
   function forwardAttackScore(state, color) {
@@ -198,6 +336,7 @@ window.NarduStrongBot = (function () {
 
   function evaluateState(state, color) {
     const opponent = NarduGame.opponentOf(color);
+    const profile = learningProfile();
     const ownPips = NarduGame.pipsFor(state, color);
     const opponentPips = NarduGame.pipsFor(state, opponent);
     const head = countAt(state, NarduGame.headPoint(color, state));
@@ -222,6 +361,9 @@ window.NarduStrongBot = (function () {
     score += opponentHead * 210;
     score += headChannelScore(state, color) * 22;
     score -= headChannelScore(state, opponent) * 11;
+    score += opponentHeadBlockScore(state, color) * 24 * profile.headBlock;
+    score -= opponentHeadFreedomScore(state, color) * 30 * profile.headBlock;
+    score += opponentRouteControlScore(state, color) * 14 * profile.routeControl;
     score += defensiveBridgeScore(state, color) * (head > 6 ? 12 : 5);
     score += forwardAttackScore(state, color) * (head > 8 ? 5 : 17);
     score -= opponentFenceThreat(state, color) * 46;
@@ -233,6 +375,8 @@ window.NarduStrongBot = (function () {
     score -= stackPenalty(state, color) * 420;
     score += stackPenalty(state, opponent) * 70;
     score -= opponentReadiness(state, color) * 18;
+    score -= homeTowerPenalty(state, color) * 8.5 * profile.avoidTowers;
+    score -= prematureRacePenalty(state, color) * 0.45 * profile.avoidRush;
     if (!ownOff && opponentOff > 0) score -= 9000 + opponentOff * 2800;
     if (!ownOff && (opponentOff > 0 || oppHome >= 12 || opponentPips < 75)) {
       score -= 52000
@@ -338,10 +482,39 @@ window.NarduStrongBot = (function () {
       .map(move => ({ from: move.from, die: move.die }));
   }
 
+  function learnFromGame(state, botColor) {
+    if (!state?.winner || !botColor) return null;
+    const opponent = NarduGame.opponentOf(botColor);
+    const botWon = state.winner === botColor;
+    const profile = learningProfile();
+    const lossPressure = botWon ? -0.012 : 0.04;
+    const resultBoost = state.resultType === 'koks' ? 2.8 : state.resultType === 'mars' ? 2.1 : 1;
+    const opponentOff = state.off?.[opponent] || 0;
+    const botOff = state.off?.[botColor] || 0;
+    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
+    const botHead = countAt(state, NarduGame.headPoint(botColor, state));
+    const tower = homeTowerPenalty(state, botColor);
+    const route = opponentRouteControlScore(state, botColor);
+    const freedom = opponentHeadFreedomScore(state, botColor);
+    const danger = Math.max(1, resultBoost + opponentOff / 8 + Math.max(0, opponentOff - botOff) / 6);
+
+    profile.games = (Number(profile.games) || 0) + 1;
+    if (!botWon) profile.losses = (Number(profile.losses) || 0) + 1;
+    profile.headBlock = clamp(profile.headBlock + lossPressure * danger * (1 + freedom / 800 + opponentHead / 12), 0.9, 1.85);
+    profile.routeControl = clamp(profile.routeControl + lossPressure * danger * (route < 180 ? 1.25 : 0.45), 0.9, 1.8);
+    profile.avoidRush = clamp(profile.avoidRush + lossPressure * danger * (botHead > 3 || opponentOff > botOff ? 1.2 : 0.55), 0.9, 1.75);
+    profile.avoidTowers = clamp(profile.avoidTowers + lossPressure * danger * (tower > 0 ? 1.35 : 0.55), 0.9, 1.7);
+    profile.updatedAt = new Date().toISOString();
+    saveLearningProfile(profile);
+    return profile;
+  }
+
   return {
     plan,
     evaluateState,
     emergencyActive,
     survivalScore,
+    learnFromGame,
+    learningProfile,
   };
 })();

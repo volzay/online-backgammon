@@ -2479,6 +2479,9 @@ window.NarduController = (function () {
       state.gameOverPublishedAt = new Date().toISOString();
       publishBotAnalysisState();
     }
+    if (mode === 'bot' && botDifficulty === 'hard' && window.NarduStrongBot?.learnFromGame) {
+      window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor));
+    }
 
     const didWin = state.winner === playerColor;
     const resultKey = gameResultKey();
