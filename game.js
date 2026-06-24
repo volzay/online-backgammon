@@ -1174,6 +1174,47 @@ window.NarduGame = (function () {
     return score;
   }
 
+  function hardLongEndgameRaceScore(state, next, color, features = {}) {
+    if (isShort(state) || (state.off[color] || 0) > 0) return 0;
+
+    const opponent = opponentOf(color);
+    const beforeOutside = outsideHomeCount(state, color);
+    if (beforeOutside <= 0) return 0;
+
+    const ownPips = pipsFor(state, color);
+    const opponentPips = pipsFor(state, opponent);
+    const ownHome = homeCheckersForScore(state, color);
+    const active = ownHome >= 6
+      || ownPips <= 330
+      || opponentPips <= 330
+      || finishPressureScore(state, opponent) >= 80;
+    if (!active) return 0;
+
+    const afterOutside = outsideHomeCount(next, color);
+    const outsideReduction = beforeOutside - afterOutside;
+    const outsideProgress = outsideHomePips(state, color) - outsideHomePips(next, color);
+    const homeGain = homeCheckersForScore(next, color) - ownHome;
+    const readyAfter = homeReady(next, color);
+    const pipsGain = ownPips - pipsFor(next, color);
+    const pressure = Math.min(5, 1 + Math.max(0, 330 - Math.min(ownPips, opponentPips)) / 75);
+
+    let score = 0;
+    score += outsideProgress * (115000 + pressure * 9000);
+    score += outsideReduction * (720000 + pressure * 42000);
+    score += homeGain * (130000 + pressure * 9000);
+    score += pipsGain * 26000;
+    if (readyAfter) score += 1400000 + pressure * 110000;
+
+    score -= afterOutside * (260000 + pressure * 18000);
+    score -= outsideHomePips(next, color) * (24000 + pressure * 1400);
+    if ((features.homeInternalMoves || 0) > 0) {
+      score -= (features.homeInternalMoves || 0) * (980000 + pressure * 52000);
+      if (outsideReduction <= 0) score -= 820000 + pressure * 70000;
+    }
+    if (outsideProgress <= 0) score -= 920000 + pressure * 74000;
+    return score;
+  }
+
   const HARD_LONG_LOOKAHEAD_ROLLS = [
     { roll: [6, 6], weight: 1 }, { roll: [6, 5], weight: 2 }, { roll: [6, 4], weight: 2 },
     { roll: [6, 3], weight: 2 }, { roll: [6, 2], weight: 2 }, { roll: [6, 1], weight: 2 },
@@ -1467,6 +1508,7 @@ window.NarduGame = (function () {
     score += hardMarsEmergencyScore(state, next, color);
     score += hardMarsSurvivalScore(state, next, color, features);
     score += hardLongRaceRescueScore(state, next, color, features);
+    score += hardLongEndgameRaceScore(state, next, color, features);
     score += hardKoksEmergencyScore(state, next, color);
     if (options.lookahead !== false) score += hardLongLookaheadScore(state, color, next);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
