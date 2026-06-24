@@ -545,6 +545,12 @@ window.NarduGame = (function () {
       .map(move => ({ ...move }));
   }
 
+  function applySequencePreview(state, color, sequence) {
+    const next = cloneState(state);
+    sequence.forEach(move => commitMove(next, color, move));
+    return next;
+  }
+
   function normalizeBotDifficulty(value) {
     return value === 'hard' ? 'hard' : 'medium';
   }
@@ -1085,6 +1091,81 @@ window.NarduGame = (function () {
     return score;
   }
 
+  const HARD_LONG_LOOKAHEAD_ROLLS = [
+    [6, 6], [5, 5], [4, 4], [3, 3],
+    [6, 5], [6, 4], [5, 4], [5, 3],
+    [4, 3], [3, 2], [2, 1],
+  ];
+
+  function turnPreviewState(state, color, roll) {
+    const preview = cloneState(state);
+    const dice = roll[0] === roll[1]
+      ? [roll[0], roll[0], roll[0], roll[0]]
+      : [...roll];
+    preview.turn = color;
+    preview.phase = 'move';
+    preview.dice = dice;
+    preview.rolled = [...dice];
+    preview.turnMoves = [];
+    preview.headPlayedThisTurn = { ...(preview.headPlayedThisTurn || {}), [color]: false };
+    return preview;
+  }
+
+  function hardLongDangerScore(state, color) {
+    const opponent = opponentOf(color);
+    const head = pointCount(state, headPoint(color, state));
+    const outside = outsideHomeCount(state, color);
+    const outsidePips = outsideHomePips(state, color);
+    const off = state.off[color] || 0;
+    const opponentOff = state.off[opponent] || 0;
+    const opponentPressure = finishPressureScore(state, opponent);
+    const ownPressure = finishPressureScore(state, color);
+    const trap = longTrapRiskScore(state, color);
+    const koks = koksRiskScore(state, color);
+    const mars = marsRiskScore(state, color);
+    const notHomePenalty = off === 0
+      ? Math.max(0, opponentPressure - ownPressure * 0.35 - 55) * 420
+      : 0;
+    return (
+      mars * 920
+      + koks * 780
+      + trap * 360
+      + head * (off === 0 ? 8200 : 900)
+      + outside * (off === 0 ? 14500 : 2400)
+      + outsidePips * (off === 0 ? 1150 : 120)
+      + opponentOff * (off === 0 ? 16500 : 1400)
+      + notHomePenalty
+      - off * 180000
+      - Math.max(0, homeCheckersForScore(state, color) - homeCheckersForScore(state, opponent)) * 1800
+    );
+  }
+
+  function bestReplyDangerScore(state, color, opponent, roll) {
+    const replyState = turnPreviewState(state, opponent, roll);
+    const replies = bestMoveSequences(replyState, opponent).filter(sequence => sequence.length);
+    if (!replies.length) return hardLongDangerScore(replyState, color);
+
+    let worstDanger = -Infinity;
+    const capped = replies.slice(0, 48);
+    capped.forEach(sequence => {
+      const afterReply = applySequencePreview(replyState, opponent, sequence);
+      const replyScore = scoreSequence(replyState, opponent, sequence, 'medium');
+      const danger = hardLongDangerScore(afterReply, color) + Math.max(0, replyScore) * 0.18;
+      if (danger > worstDanger) worstDanger = danger;
+    });
+    return worstDanger;
+  }
+
+  function hardLongLookaheadScore(state, color, next) {
+    if (isShort(state)) return 0;
+    const opponent = opponentOf(color);
+    const immediate = hardLongDangerScore(next, color);
+    const samples = HARD_LONG_LOOKAHEAD_ROLLS.map(roll => bestReplyDangerScore(next, color, opponent, roll));
+    const worst = Math.max(...samples);
+    const average = samples.reduce((total, value) => total + value, 0) / Math.max(1, samples.length);
+    return -(immediate * 0.65 + worst * 0.55 + average * 0.28);
+  }
+
   function scoreMediumSequence(state, color, sequence) {
     const next = cloneState(state);
     let score = 0;
@@ -1292,6 +1373,7 @@ window.NarduGame = (function () {
     score += hardMarsEmergencyScore(state, next, color);
     score += hardMarsSurvivalScore(state, next, color, features);
     score += hardKoksEmergencyScore(state, next, color);
+    score += hardLongLookaheadScore(state, color, next);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
     score -= koksRiskScore(next, color) * 0.9;
     if (homeReady(next, color)) score += (next.off[color] || 0) * 55;
