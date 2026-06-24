@@ -66,6 +66,19 @@ create trigger profiles_set_updated_at
 before update on public.profiles
 for each row execute function public.set_updated_at();
 
+create table if not exists public.guest_presence (
+  id text primary key,
+  name text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);
+
+drop trigger if exists guest_presence_set_updated_at on public.guest_presence;
+create trigger guest_presence_set_updated_at
+before update on public.guest_presence
+for each row execute function public.set_updated_at();
+
 create table if not exists public.friend_requests (
   id uuid primary key default gen_random_uuid(),
   from_user_id uuid not null references public.profiles(id) on delete cascade,
@@ -213,6 +226,7 @@ create table if not exists public.admin_audit (
 );
 
 alter table public.profiles enable row level security;
+alter table public.guest_presence enable row level security;
 alter table public.friend_requests enable row level security;
 alter table public.friendships enable row level security;
 alter table public.friend_messages enable row level security;
@@ -263,6 +277,34 @@ create policy "users can insert own profile"
 on public.profiles for insert
 to authenticated
 with check (id = auth.uid());
+
+drop policy if exists "authenticated users can see guest presence" on public.guest_presence;
+create policy "authenticated users can see guest presence"
+on public.guest_presence for select
+to authenticated
+using (true);
+
+drop policy if exists "clients can create guest presence" on public.guest_presence;
+create policy "clients can create guest presence"
+on public.guest_presence for insert
+to anon, authenticated
+with check (
+  id like 'guest:%'
+  and length(name) between 3 and 32
+);
+
+drop policy if exists "clients can update guest presence" on public.guest_presence;
+create policy "clients can update guest presence"
+on public.guest_presence for update
+to anon, authenticated
+using (id like 'guest:%')
+with check (
+  id like 'guest:%'
+  and length(name) between 3 and 32
+);
+
+grant select on public.guest_presence to authenticated;
+grant insert, update on public.guest_presence to anon, authenticated;
 
 drop policy if exists "users can see own friend requests" on public.friend_requests;
 create policy "users can see own friend requests"

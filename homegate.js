@@ -67,6 +67,7 @@ const adminDict = {
     readonly: "только просмотр",
     unavailable_actions: "Действия недоступны",
     set_password: "Сменить",
+    guest_profile: "Гость",
     ban: "Забанить",
     unban: "Разбанить",
     delete: "Удалить",
@@ -184,6 +185,7 @@ const adminDict = {
     readonly: "view only",
     unavailable_actions: "Actions unavailable",
     set_password: "Change",
+    guest_profile: "Guest",
     ban: "Ban",
     unban: "Unban",
     delete: "Delete",
@@ -547,6 +549,7 @@ function userStatusClass(user) {
 }
 
 function passwordStateText(user) {
+  if (user.passwordState === "guest") return t("guest_profile");
   if (user.passwordState === "supabase") return "Supabase Auth";
   if (user.passwordState === "set") return t("password_set_by_admin");
   if (user.passwordState === "client") return t("local_profile");
@@ -1029,9 +1032,10 @@ function roomsDashboardHtml() {
 
 function playerRow(user) {
   const statusClass = userStatusClass(user);
+  const isGuestProfile = user.passwordState === "guest" || user.guest;
   const canManageSupabaseUser = supabaseAdminActionsEnabled();
   const canManageServerUser = !state.readonlyAdmin;
-  const canManageUser = canManageServerUser || canManageSupabaseUser;
+  const canManageUser = !isGuestProfile && (canManageServerUser || canManageSupabaseUser);
   const passwordAction = canManageUser
     ? `<button class="mini-copy" type="button" data-user-password="${escapeHtml(user.id)}">${t("set_password")}</button>`
     : `<span class="readonly-note">${t("readonly")}</span>`;
@@ -1183,6 +1187,12 @@ async function refresh() {
         .select("id,nickname,email,rating,tier,rating_eligible,banned_at,banned_reason,created_at,last_seen_at,updated_at")
         .order("updated_at", { ascending: false });
       if (usersError) throw usersError;
+      const { data: guests, error: guestsError } = await client
+        .from("guest_presence")
+        .select("id,name,created_at,last_seen_at,updated_at")
+        .gte("last_seen_at", new Date(Date.now() - ROOM_ARCHIVE_RETENTION_HOURS * 60 * 60 * 1000).toISOString())
+        .order("last_seen_at", { ascending: false });
+      if (guestsError && !/relation .*guest_presence|Could not find the table/i.test(guestsError.message || "")) throw guestsError;
       const activeRoomCounts = new Map();
       const onlineUserIds = new Set();
       state.active.forEach(room => {
@@ -1210,7 +1220,7 @@ async function refresh() {
           gamesWon: Number(item.games_won || 0),
         });
       });
-      state.users = (users || []).map(user => ({
+      const profileUsers = (users || []).map(user => ({
         id: user.id,
         name: user.nickname || user.email || user.id,
         email: user.email || "",
@@ -1226,6 +1236,27 @@ async function refresh() {
         banReason: user.banned_reason || "",
         banHistory: [],
       }));
+      const guestUsers = (guests || []).map(guest => ({
+        id: guest.id,
+        name: guest.name || guest.id,
+        email: "",
+        ip: "-",
+        passwordState: "guest",
+        createdAt: guest.created_at,
+        activeRooms: 0,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        rating: null,
+        online: isRecentActivity(guest.last_seen_at),
+        banned: false,
+        banReason: "",
+        banHistory: [],
+        guest: true,
+      }));
+      state.users = [...guestUsers, ...profileUsers].sort((a, b) => {
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      });
       state.usersError = "";
     } catch (error) {
       state.users = [];

@@ -9,13 +9,39 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <script>
-  /* tiny auth gate — runs before render so unauth'd users bounce to login */
+  /* tiny auth gate — runs before render so direct lobby visits get a valid guest */
   (function(){
+    var key = 'narduh-user';
+    function guestName() {
+      return 'Guest' + (1000 + Math.floor(Math.random() * 9000));
+    }
+    function guestId() {
+      if (window.crypto && window.crypto.randomUUID) return 'guest:' + window.crypto.randomUUID();
+      return 'guest:' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    }
+    function makeGuest() {
+      var name = guestName();
+      return {
+        id: guestId(),
+        name: name,
+        nickname: name,
+        rating: null,
+        tier: '',
+        ratingEligible: false,
+        guest: true,
+        createdAt: new Date().toISOString()
+      };
+    }
     try {
-      if (!localStorage.getItem('narduh-user')) {
-        location.replace('login.html' + location.search + location.hash);
+      var raw = localStorage.getItem(key);
+      var user = raw ? JSON.parse(raw) : null;
+      var name = String((user && (user.name || user.nickname)) || '').trim();
+      if (!name || name === '—' || name === '-') {
+        localStorage.setItem(key, JSON.stringify(makeGuest()));
       }
-    } catch(e) {}
+    } catch(e) {
+      try { localStorage.setItem(key, JSON.stringify(makeGuest())); } catch(_) {}
+    }
   })();
 </script>
 </head>

@@ -8,6 +8,7 @@
   const ACCENT_KEY = 'narduh-accent';
   const BOARD_STYLE_KEY = 'narduh-board-style';
   const DEFAULT_RATING = 1000;
+  const GUEST_PRESENCE_MS = 30000;
   const ACCENTS = {
     amber: { accent: 'oklch(0.78 0.13 78)', soft: 'oklch(0.78 0.13 78 / 0.16)' },
     green: { accent: 'oklch(0.74 0.15 155)', soft: 'oklch(0.74 0.15 155 / 0.16)' },
@@ -812,8 +813,39 @@
   }
 
   /* ── AUTH ── */
+  function guestName() {
+    return `Guest${1000 + Math.floor(Math.random() * 9000)}`;
+  }
+  function guestId() {
+    if (window.crypto?.randomUUID) return `guest:${window.crypto.randomUUID()}`;
+    return `guest:${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  }
+  function createGuestUser() {
+    const name = guestName();
+    return {
+      id: guestId(),
+      name,
+      nickname: name,
+      rating: null,
+      tier: '',
+      ratingEligible: false,
+      guest: true,
+      createdAt: new Date().toISOString(),
+    };
+  }
+  function normalizeStoredUser(user) {
+    if (!user || typeof user !== 'object') return null;
+    const name = String(user.name || user.nickname || '').trim();
+    if (!name || name === '—' || name === '-') return null;
+    return {
+      ...user,
+      id: String(user.id || (user.guest ? guestId() : '')).trim(),
+      name,
+      nickname: String(user.nickname || name).trim(),
+    };
+  }
   function getUser() {
-    try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
+    try { return normalizeStoredUser(JSON.parse(localStorage.getItem(USER_KEY) || 'null')); }
     catch { return null; }
   }
   function ratingTierFor(rating) {
@@ -852,8 +884,10 @@
     return shouldShowRatingToOthers() && isRatedUser(user) ? Number(user.rating ?? DEFAULT_RATING) : null;
   }
   function setUser(u) {
+    u = normalizeStoredUser(u) || createGuestUser();
     assignProfileRating(u);
     localStorage.setItem(USER_KEY, JSON.stringify(u));
+    touchGuestPresence({ force: true });
   }
   function logout() {
     if (window.NarduSupabase?.configured?.()) {
@@ -865,7 +899,7 @@
     location.href = 'login.html';
   }
   function requireAuth() {
-    if (!getUser()) location.href = 'login.html';
+    if (!getUser()) setUser(createGuestUser());
   }
   function requireGuest() {
     if (getUser()) location.href = 'index.html';
@@ -878,6 +912,29 @@
     document.querySelectorAll('[data-user-initial]').forEach(el => el.textContent = (u?.name || '?')[0].toUpperCase());
     document.querySelectorAll('[data-user-rating]').forEach(el => el.textContent = formatRating(u));
     document.querySelectorAll('[data-user-tier]').forEach(el => el.textContent = isRatedUser(u) ? tierLabel(u.tier) : t('unrated'));
+  }
+
+  let lastGuestPresenceAt = 0;
+  async function touchGuestPresence({ force = false } = {}) {
+    const user = getUser();
+    if (!user?.guest || !window.NarduSupabase?.configured?.()) return;
+    const nowMs = Date.now();
+    if (!force && nowMs - lastGuestPresenceAt < GUEST_PRESENCE_MS) return;
+    lastGuestPresenceAt = nowMs;
+    try {
+      const client = await window.NarduSupabase.client();
+      const nowIso = new Date(nowMs).toISOString();
+      await client
+        .from('guest_presence')
+        .upsert({
+          id: String(user.id || guestId()).slice(0, 80),
+          name: String(user.name || user.nickname || guestName()).slice(0, 32),
+          last_seen_at: nowIso,
+          updated_at: nowIso,
+        }, { onConflict: 'id' });
+    } catch (error) {
+      console.warn('Could not update guest presence', error.message || error);
+    }
   }
 
   /* ── SOUND TOGGLE (visual only) ── */
@@ -952,6 +1009,8 @@
     applyBoardStyle(currentBoardStyle());
     applyLang(currentLang());
     paintUser();
+    touchGuestPresence({ force: true });
+    setInterval(() => touchGuestPresence(), GUEST_PRESENCE_MS);
     paintSound();
     wirePasswordToggles();
   }
@@ -964,6 +1023,7 @@
     getUser, setUser, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
+    createGuestUser, touchGuestPresence,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
   };
