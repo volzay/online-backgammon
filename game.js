@@ -1091,10 +1091,88 @@ window.NarduGame = (function () {
     return score;
   }
 
+  function hardLongRaceRescueScore(state, next, color, features = {}) {
+    if (isShort(state) || (state.off[color] || 0) > 0) return 0;
+
+    const opponent = opponentOf(color);
+    const opponentPressure = finishPressureScore(state, opponent);
+    const opponentOff = state.off[opponent] || 0;
+    const marsBefore = marsRiskScore(state, color);
+    const koksBefore = koksRiskScore(state, color);
+    const active = opponentOff > 0
+      || homeReady(state, opponent)
+      || opponentPressure >= 135
+      || marsBefore > 0
+      || koksBefore > 0;
+    if (!active) return 0;
+
+    const beforeOutside = outsideHomeCount(state, color);
+    const afterOutside = outsideHomeCount(next, color);
+    const outsideReduction = beforeOutside - afterOutside;
+    const beforeOutsidePips = outsideHomePips(state, color);
+    const afterOutsidePips = outsideHomePips(next, color);
+    const outsideProgress = beforeOutsidePips - afterOutsidePips;
+    const homeGain = homeCheckersForScore(next, color) - homeCheckersForScore(state, color);
+    const offGain = (next.off[color] || 0) - (state.off[color] || 0);
+    const readyBefore = homeReady(state, color);
+    const readyAfter = homeReady(next, color);
+    const dangerBefore = hardLongDangerScore(state, color);
+    const dangerAfter = hardLongDangerScore(next, color);
+    const urgency = Math.min(
+      9,
+      1
+        + opponentOff * 0.9
+        + Math.max(0, opponentPressure - 120) / 24
+        + marsBefore / 45
+        + koksBefore / 65,
+    );
+
+    let score = 0;
+    score += offGain * (3200000 + urgency * 90000);
+    score += (dangerBefore - dangerAfter) * 18;
+    score -= dangerAfter * 2.8;
+
+    if (readyBefore) {
+      if (offGain <= 0) score -= 1900000 + urgency * 120000;
+      score -= (features.homeInternalMoves || 0) * (780000 + urgency * 26000);
+      score -= farthestFromOff(next, color) * (46000 + urgency * 1800);
+      return score;
+    }
+
+    if (readyAfter) score += 2400000 + urgency * 160000;
+    score += outsideReduction * (680000 + urgency * 28000);
+    score += outsideProgress * (95000 + urgency * 3600);
+    score += homeGain * (130000 + urgency * 5200);
+    score -= afterOutside * (420000 + urgency * 18000);
+    score -= afterOutsidePips * (52000 + urgency * 1900);
+
+    if (beforeOutside > 0 && outsideReduction <= 0) {
+      score -= 1150000 + urgency * 90000;
+      score -= (features.enterHomeMoves || 0) * (420000 + urgency * 18000);
+      score -= (features.homeInternalMoves || 0) * (920000 + urgency * 34000);
+    }
+    if (beforeOutside > 0 && outsideProgress <= 0) {
+      score -= 620000 + urgency * 42000;
+    }
+    if (!readyAfter && (features.homeInternalMoves || 0) > 0) {
+      score -= (features.homeInternalMoves || 0) * (520000 + urgency * 22000);
+    }
+    if (!readyAfter && (features.enterHomeMoves || 0) > 0 && outsideReduction <= 0) {
+      score -= (features.enterHomeMoves || 0) * (260000 + urgency * 12000);
+    }
+    return score;
+  }
+
   const HARD_LONG_LOOKAHEAD_ROLLS = [
-    [6, 6], [5, 5], [4, 4], [3, 3],
-    [6, 5], [6, 4], [5, 4], [5, 3],
-    [4, 3], [3, 2], [2, 1],
+    { roll: [6, 6], weight: 1 }, { roll: [6, 5], weight: 2 }, { roll: [6, 4], weight: 2 },
+    { roll: [6, 3], weight: 2 }, { roll: [6, 2], weight: 2 }, { roll: [6, 1], weight: 2 },
+    { roll: [5, 5], weight: 1 }, { roll: [5, 4], weight: 2 }, { roll: [5, 3], weight: 2 },
+    { roll: [5, 2], weight: 2 }, { roll: [5, 1], weight: 2 },
+    { roll: [4, 4], weight: 1 }, { roll: [4, 3], weight: 2 }, { roll: [4, 2], weight: 2 },
+    { roll: [4, 1], weight: 2 },
+    { roll: [3, 3], weight: 1 }, { roll: [3, 2], weight: 2 }, { roll: [3, 1], weight: 2 },
+    { roll: [2, 2], weight: 1 }, { roll: [2, 1], weight: 2 },
+    { roll: [1, 1], weight: 1 },
   ];
 
   function turnPreviewState(state, color, roll) {
@@ -1160,10 +1238,15 @@ window.NarduGame = (function () {
     if (isShort(state)) return 0;
     const opponent = opponentOf(color);
     const immediate = hardLongDangerScore(next, color);
-    const samples = HARD_LONG_LOOKAHEAD_ROLLS.map(roll => bestReplyDangerScore(next, color, opponent, roll));
-    const worst = Math.max(...samples);
-    const average = samples.reduce((total, value) => total + value, 0) / Math.max(1, samples.length);
-    return -(immediate * 0.65 + worst * 0.55 + average * 0.28);
+    const samples = HARD_LONG_LOOKAHEAD_ROLLS.map(({ roll, weight }) => ({
+      danger: bestReplyDangerScore(next, color, opponent, roll),
+      weight,
+    }));
+    const worst = Math.max(...samples.map(sample => sample.danger));
+    const totalWeight = samples.reduce((total, sample) => total + sample.weight, 0);
+    const average = samples.reduce((total, sample) => total + sample.danger * sample.weight, 0)
+      / Math.max(1, totalWeight);
+    return -(immediate * 0.65 + worst * 0.5 + average * 0.36);
   }
 
   function scoreMediumSequence(state, color, sequence) {
@@ -1372,6 +1455,7 @@ window.NarduGame = (function () {
     }
     score += hardMarsEmergencyScore(state, next, color);
     score += hardMarsSurvivalScore(state, next, color, features);
+    score += hardLongRaceRescueScore(state, next, color, features);
     score += hardKoksEmergencyScore(state, next, color);
     score += hardLongLookaheadScore(state, color, next);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
