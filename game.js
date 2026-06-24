@@ -723,6 +723,30 @@ window.NarduGame = (function () {
     }, 0);
   }
 
+  function longFootholdScore(state, color) {
+    return pathFor(color, state).slice(5, 12).reduce((score, point, index) => {
+      const data = state.points[point];
+      const weight = 8 - index;
+      if (!data) return score - weight * 3.5;
+      if (data.color !== color) return score - weight * 14;
+      if (data.count >= 2) {
+        const stackPenalty = Math.max(0, data.count - 3) * weight * 1.8;
+        return score + weight * 24 - stackPenalty;
+      }
+      return score + weight * 7;
+    }, 0);
+  }
+
+  function longPrematureRushScore(state, color) {
+    return Object.entries(state.points).reduce((score, [point, data]) => {
+      if (data.color !== color) return score;
+      const pos = pathPos(color, Number(point), state);
+      if (pos < 12 || pos >= 18) return score;
+      const singlePenalty = data.count === 1 ? 2.6 : 1;
+      return score + data.count * (pos - 10) * singlePenalty;
+    }, 0);
+  }
+
   function shortMadePointCount(state, color, rangeStart = 0, rangeEnd = 23) {
     return Object.entries(state.points).reduce((total, [point, data]) => {
       if (data.color !== color || data.count < 2) return total;
@@ -880,6 +904,8 @@ window.NarduGame = (function () {
     let homeInternalMoves = 0;
     let headCorridorExits = 0;
     let headCorridorMoves = 0;
+    let prematureRushMoves = 0;
+    let footholdBuildMoves = 0;
 
     sequence.forEach(move => {
       const fromHead = move.from === head;
@@ -900,6 +926,12 @@ window.NarduGame = (function () {
         if (toPos > 8) headCorridorExits += 1 + Math.max(0, toPos - 8) / 4;
         else headCorridorMoves += 1;
       }
+      if (fromPos >= 5 && fromPos <= 11 && toPos >= 12 && toPos < 18) {
+        prematureRushMoves += 1 + Math.max(0, toPos - 12) / 3;
+      }
+      if (toPos >= 5 && toPos <= 11 && target?.color === color && target.count === 1) {
+        footholdBuildMoves += 1;
+      }
       if (fromPos >= 18 && toPos >= 18 && !move.bearOff) {
         homeInternalMoves += 1 + Math.max(0, toPos - fromPos) / 6;
       }
@@ -915,6 +947,8 @@ window.NarduGame = (function () {
       homeInternalMoves,
       headCorridorExits,
       headCorridorMoves,
+      prematureRushMoves,
+      footholdBuildMoves,
     };
   }
 
@@ -1077,6 +1111,8 @@ window.NarduGame = (function () {
     const bridgeBefore = longHeadBridgeScore(state, color);
     const fenceBefore = opponentLongFenceThreat(state, color);
     const trapBefore = longTrapRiskScore(state, color);
+    const footholdBefore = longFootholdScore(state, color);
+    const rushBefore = longPrematureRushScore(state, color);
     const escapeOptionsBefore = longHeadEscapeOptions(state, color);
     const landingCoverageBefore = longHeadLandingCoverageScore(state, color);
     const corridorBefore = longHeadCorridorScore(state, color);
@@ -1126,6 +1162,10 @@ window.NarduGame = (function () {
     const fenceAfter = opponentLongFenceThreat(next, color);
     const trapAfter = longTrapRiskScore(next, color);
     const trapIncrease = trapAfter - trapBefore;
+    const footholdAfter = longFootholdScore(next, color);
+    const footholdGain = footholdAfter - footholdBefore;
+    const rushAfter = longPrematureRushScore(next, color);
+    const rushIncrease = rushAfter - rushBefore;
     const escapeOptionsAfter = longHeadEscapeOptions(next, color);
     const landingCoverageAfter = longHeadLandingCoverageScore(next, color);
     const corridorAfter = longHeadCorridorScore(next, color);
@@ -1154,6 +1194,13 @@ window.NarduGame = (function () {
     score += (trapBefore - trapAfter) * 2600;
     score -= Math.max(0, trapIncrease) * 9800;
     score -= trapAfter * (headBefore > 4 || outsideAfter > 0 ? 340 : 60);
+    score += footholdGain * (headBefore > 4 && (state.off[color] || 0) === 0 ? 2600 : 420);
+    score += features.footholdBuildMoves * (headBefore > 4 ? 16000 : 3200);
+    if (headBefore > 4 && (state.off[color] || 0) === 0) {
+      score -= Math.max(0, rushIncrease) * 21000;
+      score -= features.prematureRushMoves * (18000 + Math.max(0, 44 - footholdAfter) * 620);
+      score -= rushAfter * Math.max(0, 52 - footholdAfter) * 260;
+    }
     if (headBefore > 5) {
       score += bridgeAfter * 95;
       score += escapeOptionsAfter * 180;
@@ -1187,6 +1234,9 @@ window.NarduGame = (function () {
     }
     if (headBefore > 5 && bridgeAfter <= bridgeBefore) {
       score -= features.enterHomeMoves * Math.max(1, headBefore - 5) * 720;
+    }
+    if (headBefore > 5 && footholdAfter < footholdBefore + 8) {
+      score -= features.enterHomeMoves * Math.max(1, headBefore - 5) * 5200;
     }
     if (criticalHeadLocked && corridorAfter < corridorBefore) {
       score -= (corridorBefore - corridorAfter) * 4200;
