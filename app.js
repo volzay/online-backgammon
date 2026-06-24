@@ -925,14 +925,27 @@
     try {
       const client = await window.NarduSupabase.client();
       const nowIso = new Date(nowMs).toISOString();
-      await client
+      const guestRow = {
+        id: String(user.id || guestId()).slice(0, 80),
+        name: String(user.name || user.nickname || guestName()).slice(0, 32),
+        last_seen_at: nowIso,
+        updated_at: nowIso,
+      };
+      const { error: insertError } = await client
         .from('guest_presence')
-        .upsert({
-          id: String(user.id || guestId()).slice(0, 80),
-          name: String(user.name || user.nickname || guestName()).slice(0, 32),
-          last_seen_at: nowIso,
-          updated_at: nowIso,
-        }, { onConflict: 'id' });
+        .insert(guestRow);
+      if (insertError) {
+        if (insertError.code !== '23505') throw insertError;
+        const { error: updateError } = await client
+          .from('guest_presence')
+          .update({
+            name: guestRow.name,
+            last_seen_at: guestRow.last_seen_at,
+            updated_at: guestRow.updated_at,
+          })
+          .eq('id', guestRow.id);
+        if (updateError) throw updateError;
+      }
     } catch (error) {
       console.warn('Could not update guest presence', error.message || error);
     }

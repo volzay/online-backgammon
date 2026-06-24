@@ -349,11 +349,29 @@ on public.rooms for select
 to authenticated
 using (status <> 'closed');
 
+drop policy if exists "anonymous users can see non-closed rooms" on public.rooms;
+create policy "anonymous users can see non-closed rooms"
+on public.rooms for select
+to anon
+using (status <> 'closed');
+
 drop policy if exists "authenticated users can create rooms" on public.rooms;
 create policy "authenticated users can create rooms"
 on public.rooms for insert
 to authenticated
 with check (coalesce(host_user_id, auth.uid()) = auth.uid());
+
+drop policy if exists "anonymous guests can create rooms" on public.rooms;
+create policy "anonymous guests can create rooms"
+on public.rooms for insert
+to anon
+with check (
+  host_user_id is null
+  and guest_user_id is null
+  and host_registered = false
+  and status in ('waiting', 'joined')
+  and length(coalesce(host_name, '')) between 3 and 32
+);
 
 drop policy if exists "room players can update rooms" on public.rooms;
 create policy "room players can update rooms"
@@ -362,6 +380,19 @@ to authenticated
 using (host_user_id = auth.uid() or guest_user_id = auth.uid())
 with check (host_user_id = auth.uid() or guest_user_id = auth.uid());
 
+drop policy if exists "anonymous guests can update guest rooms" on public.rooms;
+create policy "anonymous guests can update guest rooms"
+on public.rooms for update
+to anon
+using (
+  status in ('waiting', 'joined')
+  and (host_user_id is null or guest_user_id is null)
+)
+with check (
+  status in ('waiting', 'joined', 'over')
+  and (host_user_id is null or guest_user_id is null)
+);
+
 drop policy if exists "authenticated users can join waiting rooms" on public.rooms;
 create policy "authenticated users can join waiting rooms"
 on public.rooms for update
@@ -369,15 +400,16 @@ to authenticated
 using (
   status = 'waiting'
   and guest_user_id is null
-  and host_user_id is not null
-  and host_user_id <> auth.uid()
+  and (host_user_id is null or host_user_id <> auth.uid())
 )
 with check (
   status = 'joined'
   and guest_user_id = auth.uid()
-  and host_user_id is not null
-  and host_user_id <> auth.uid()
+  and (host_user_id is null or host_user_id <> auth.uid())
 );
+
+grant select on public.rooms to anon, authenticated;
+grant insert, update on public.rooms to anon, authenticated;
 
 drop policy if exists "room players can read room chat" on public.room_messages;
 create policy "room players can read room chat"

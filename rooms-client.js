@@ -256,6 +256,24 @@
     return Boolean(row && userId && (row.host_user_id === userId || row.guest_user_id === userId));
   }
 
+  function localUserIsGuest() {
+    return window.NarduApp?.getUser?.()?.guest === true;
+  }
+
+  async function roomClientContext() {
+    if (localUserIsGuest()) {
+      const client = await supabase();
+      await client.auth.signOut().catch(() => {});
+      return {
+        client,
+        authUser: null,
+        profile: {},
+        guest: true,
+      };
+    }
+    return { ...(await currentAuthContext()), guest: false };
+  }
+
   async function findActiveRoomFor(client, userId) {
     const { data, error } = await client
       .from("rooms")
@@ -270,7 +288,7 @@
 
   async function listRooms() {
     if (!configured()) return apiJson("/api/rooms");
-    const { client } = await currentAuthContext();
+    const client = await supabase();
     const { data, error } = await client
       .from("rooms")
       .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,game_state,created_at,joined_at,updated_at")
@@ -293,10 +311,10 @@
       });
     }
 
-    const { client, authUser, profile } = await currentAuthContext();
+    const { client, authUser, profile, guest } = await roomClientContext();
     const roomProfile = localRoomProfile(profile);
-    const activeRoom = await findActiveRoomFor(client, authUser.id);
-    if (activeRoom) {
+    const activeRoom = authUser?.id ? await findActiveRoomFor(client, authUser.id) : null;
+    if (!guest && activeRoom) {
       throw roomError(
         "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
         409,
@@ -316,7 +334,7 @@
       access,
       password_hash: passwordHash,
       status: "waiting",
-      host_user_id: authUser.id,
+      host_user_id: authUser?.id || null,
       host_name: roomProfile.name,
       host_rating: roomProfile.registered ? roomProfile.rating : null,
       host_registered: roomProfile.registered,
@@ -348,7 +366,7 @@
     const normalizedCode = normalizeCode(payload.code);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
-    const { client, authUser, profile } = await currentAuthContext();
+    const { client, authUser, profile } = await roomClientContext();
     const roomProfile = localRoomProfile(profile);
     const variant = payload.variant === "short" ? "short" : "long";
     const botName = String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
@@ -376,7 +394,7 @@
       .maybeSingle();
     if (existingError) throw supabaseError(existingError, "Could not load bot analysis room.");
     if (existing?.id) {
-      if (existing.host_user_id && existing.host_user_id !== authUser.id) {
+      if (existing.host_user_id && existing.host_user_id !== authUser?.id) {
         throw roomError("Код партии уже занят другой комнатой.", 409);
       }
       roomIdCache.set(normalizedCode, existing.id);
@@ -392,7 +410,7 @@
         variant,
         access: "open",
         status: "joined",
-        host_user_id: authUser.id,
+        host_user_id: authUser?.id || null,
         host_name: roomProfile.name,
         host_rating: roomProfile.registered ? roomProfile.rating : null,
         host_registered: roomProfile.registered,
@@ -433,16 +451,16 @@
       });
     }
 
-    const { client, authUser, profile } = await currentAuthContext();
+    const { client, authUser, profile, guest } = await roomClientContext();
     const roomProfile = localRoomProfile(profile);
     const room = await getRoomRow(normalizedCode, { includePassword: true });
     if (!room) throw roomError("Комната с таким кодом не найдена.", 404);
 
     if (room.status !== "waiting") {
-      if (isParticipant(room, authUser.id)) return { room: publicRoom(room) };
+      if (authUser?.id && isParticipant(room, authUser.id)) return { room: publicRoom(room) };
       throw roomError("Эта комната уже занята.", 409);
     }
-    if (room.host_user_id === authUser.id) return { room: publicRoom(room) };
+    if (authUser?.id && room.host_user_id === authUser.id) return { room: publicRoom(room) };
     if (room.access === "closed") {
       const providedHash = await sha256Hex(String(payload.password || "").trim());
       if (providedHash !== room.password_hash) throw roomError("Неверный пароль закрытой комнаты.", 403);
@@ -453,7 +471,7 @@
       .from("rooms")
       .update({
         status: "joined",
-        guest_user_id: authUser.id,
+        guest_user_id: authUser?.id || null,
         guest_name: roomProfile.name,
         guest_rating: roomProfile.registered ? roomProfile.rating : null,
         guest_registered: roomProfile.registered,
@@ -470,7 +488,7 @@
     if (error) throw supabaseError(error, "Could not join room.");
     if (!data) {
       const latest = await getRoomRow(normalizedCode, { includePassword: true });
-      if (isParticipant(latest, authUser.id)) return { room: publicRoom(latest) };
+      if (authUser?.id && isParticipant(latest, authUser.id)) return { room: publicRoom(latest) };
       throw roomError("Эта комната уже занята.", 409);
     }
     roomIdCache.set(normalizedCode, data.id);

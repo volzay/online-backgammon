@@ -1231,7 +1231,7 @@ async function refresh() {
         gamesPlayed: statByUser.get(user.id)?.gamesPlayed || 0,
         gamesWon: statByUser.get(user.id)?.gamesWon || 0,
         rating: user.rating,
-        online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at),
+        online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at) || Number(activeRoomCounts.get(user.id) || 0) > 0,
         banned: Boolean(user.banned_at),
         banReason: user.banned_reason || "",
         banHistory: [],
