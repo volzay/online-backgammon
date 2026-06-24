@@ -9,6 +9,8 @@ window.NarduGame = (function () {
   const LONG_DARK_PATH = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
   const SHORT_WHITE_PATH = LONG_WHITE_PATH;
   const SHORT_DARK_PATH = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+  const HARD_LONG_DEEP_CANDIDATE_LIMIT = 16;
+  const HARD_LONG_REPLY_CANDIDATE_LIMIT = 24;
 
   function normalizeVariant(value) {
     return value === 'short' ? 'short' : 'long';
@@ -538,7 +540,16 @@ window.NarduGame = (function () {
     const difficulty = normalizeBotDifficulty(options.difficulty);
     const sequences = bestMoveSequences(state, color).filter(sequence => sequence.length);
     if (!sequences.length) return [];
-    return sequences
+    const hardLong = difficulty === 'hard' && !isShort(state);
+    const preliminary = hardLong && sequences.length > HARD_LONG_DEEP_CANDIDATE_LIMIT
+      ? sequences
+        .map(sequence => ({ sequence, score: scoreSequence(state, color, sequence, difficulty, { lookahead: false }) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, HARD_LONG_DEEP_CANDIDATE_LIMIT)
+        .map(item => item.sequence)
+      : sequences;
+
+    return preliminary
       .map(sequence => ({ sequence, score: scoreSequence(state, color, sequence, difficulty) }))
       .sort((a, b) => b.score - a.score)[0]
       .sequence
@@ -1224,7 +1235,7 @@ window.NarduGame = (function () {
     if (!replies.length) return hardLongDangerScore(replyState, color);
 
     let worstDanger = -Infinity;
-    const capped = replies.slice(0, 48);
+    const capped = replies.slice(0, HARD_LONG_REPLY_CANDIDATE_LIMIT);
     capped.forEach(sequence => {
       const afterReply = applySequencePreview(replyState, opponent, sequence);
       const replyScore = scoreSequence(replyState, opponent, sequence, 'medium');
@@ -1271,7 +1282,7 @@ window.NarduGame = (function () {
     return score;
   }
 
-  function scoreSequence(state, color, sequence, difficulty = 'medium') {
+  function scoreSequence(state, color, sequence, difficulty = 'medium', options = {}) {
     if (isShort(state)) return scoreShortSequence(state, color, sequence, difficulty);
 
     const hard = difficulty === 'hard';
@@ -1457,7 +1468,7 @@ window.NarduGame = (function () {
     score += hardMarsSurvivalScore(state, next, color, features);
     score += hardLongRaceRescueScore(state, next, color, features);
     score += hardKoksEmergencyScore(state, next, color);
-    score += hardLongLookaheadScore(state, color, next);
+    if (options.lookahead !== false) score += hardLongLookaheadScore(state, color, next);
     score += (koksRiskScore(state, color) - koksRiskScore(next, color)) * 0.85;
     score -= koksRiskScore(next, color) * 0.9;
     if (homeReady(next, color)) score += (next.off[color] || 0) * 55;
