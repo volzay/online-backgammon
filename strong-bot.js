@@ -7,7 +7,7 @@ window.NarduStrongBot = (function () {
   const CANDIDATE_LIMIT = 18;
   const DEEP_SEQUENCE_LIMIT = 180;
   const REPLY_LIMIT = 4;
-  const PROFILE_KEY = 'narduh-strong-bot-profile-v1';
+  const PROFILE_KEY = 'narduh-strong-bot-profile-v2';
   const DEFAULT_PROFILE = {
     version: 1,
     games: 0,
@@ -260,6 +260,49 @@ window.NarduStrongBot = (function () {
     return gain;
   }
 
+  function uniqueDice(state) {
+    return [...new Set((state.dice || state.rolled || []).map(Number).filter(Boolean))];
+  }
+
+  function legalHeadDice(state, color) {
+    const head = NarduGame.headPoint(color, state);
+    return uniqueDice(state).filter(die => NarduGame.isValidMove(state, head, die));
+  }
+
+  function sequenceHeadDice(state, color, sequence) {
+    const head = NarduGame.headPoint(color, state);
+    return sequence.filter(move => Number(move.from) === head).map(move => Number(move.die));
+  }
+
+  function headDisciplineScore(before, next, color, sequence) {
+    const head = NarduGame.headPoint(color, before);
+    const headCheckers = countAt(before, head);
+    if (headCheckers <= 3) return 0;
+
+    const legal = legalHeadDice(before, color);
+    if (!legal.length) return 0;
+    const oddLegal = legal.filter(die => die === 1 || die === 3 || die === 5);
+    const played = sequenceHeadDice(before, color, sequence);
+    const playedOdd = played.some(die => die === 1 || die === 3 || die === 5);
+    const playedAny = played.length > 0;
+    const pressure = 1 + Math.max(0, headCheckers - 4) / 4 + outsideHomeCount(before, color) / 15;
+
+    let score = 0;
+    if (oddLegal.length) {
+      if (playedOdd) score += 420000 * pressure;
+      else score -= 640000 * pressure;
+    } else if (playedAny) {
+      score += 210000 * pressure;
+    } else if (headCheckers > 6) {
+      score -= 360000 * pressure;
+    }
+
+    const brokeKey = keyHeadLandingBreakPenalty(before, next, color) > 0;
+    if (brokeKey && !playedOdd && oddLegal.length) score -= 420000 * pressure;
+    if (playedAny) score += (headCheckers - countAt(next, head)) * 160000 * pressure;
+    return score;
+  }
+
   function opponentHeadBlockScore(state, color) {
     const opponent = NarduGame.opponentOf(color);
     const head = NarduGame.headPoint(opponent, state);
@@ -493,7 +536,8 @@ window.NarduStrongBot = (function () {
     const profile = learningProfile();
     return evaluateState(next, color)
       + keyHeadLandingGain(state, next, color) * profile.preserveHeadLandings
-      - keyHeadLandingBreakPenalty(state, next, color) * profile.preserveHeadLandings;
+      - keyHeadLandingBreakPenalty(state, next, color) * profile.preserveHeadLandings
+      + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings;
   }
 
   function opponentReplyRisk(state, color) {
