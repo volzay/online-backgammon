@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const buildLongBotEngine = require("./build-long-bot-engine");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -25,6 +26,7 @@ const STATIC_FILES = [
   "rooms-client.js",
   "game.js",
   "game-controller.js",
+  "long-bot-engine.js",
   "strong-bot.js",
   "bot.js",
   "board-engine.js",
@@ -70,6 +72,7 @@ function writeRuntimeConfig() {
   fs.writeFileSync(path.join(DIST, "runtime-config.js"), body);
 }
 
+buildLongBotEngine();
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 STATIC_FILES.forEach(copyFile);

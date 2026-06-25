@@ -1219,6 +1219,18 @@ window.NarduStrongBot = (function () {
   }
 
   function plan(state) {
+    if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
+      try {
+        const enginePlan = window.NarduLongBotEngine.plan(state, {
+          maxCandidates: PREFILTER_SEQUENCE_LIMIT,
+          timeLimitMs: PLAN_TIME_LIMIT_MS,
+        });
+        if (enginePlan?.length) return enginePlan;
+      } catch (error) {
+        console.warn('Long bot engine failed, falling back to strong bot', error?.message || error);
+      }
+    }
+
     const startedAt = Date.now();
     const overBudget = () => Date.now() - startedAt > PLAN_TIME_LIMIT_MS;
     const color = state.turn;
