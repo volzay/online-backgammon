@@ -6,6 +6,7 @@
 window.NarduStrongBot = (function () {
   const CANDIDATE_LIMIT = 18;
   const DEEP_SEQUENCE_LIMIT = 180;
+  const PREFILTER_SEQUENCE_LIMIT = 48;
   const REPLY_LIMIT = 4;
   const PLAN_TIME_LIMIT_MS = 900;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v2';
@@ -784,6 +785,161 @@ window.NarduStrongBot = (function () {
     };
   }
 
+  function bearingOffRaceScore(before, next, color, sequence = []) {
+    if (!NarduGame.homeReady(before, color)) return 0;
+    const offGain = (next.off?.[color] || 0) - (before.off?.[color] || 0);
+    const pipGain = NarduGame.pipsFor(before, color) - NarduGame.pipsFor(next, color);
+    const opponent = NarduGame.opponentOf(color);
+    const opponentOff = before.off?.[opponent] || 0;
+    const opponentReady = NarduGame.homeReady(before, opponent);
+    const pressure = 1 + opponentOff / 3 + (opponentReady ? 2.4 : 0);
+    let homeShuffleMoves = 0;
+    let nonBearHomePips = 0;
+
+    sequence.forEach(move => {
+      const fromPos = NarduGame.pathPos(color, Number(move.from), before);
+      if (move.bearOff) return;
+      const to = NarduGame.moveTo(color, move.from, move.die, before);
+      const toPos = to === 0 ? 24 : NarduGame.pathPos(color, Number(to), before);
+      if (fromPos >= 18 && toPos >= 18) {
+        homeShuffleMoves += 1;
+        nonBearHomePips += Math.max(1, toPos - fromPos);
+      }
+    });
+
+    return offGain * (180000000 + pressure * 26000000)
+      + pipGain * (4200000 + pressure * 420000)
+      - NarduGame.pipsFor(next, color) * (620000 + pressure * 90000)
+      - homeShuffleMoves * (26000000 + pressure * 7000000)
+      - nonBearHomePips * (1100000 + pressure * 220000)
+      - homeTowerPenalty(next, color) * 22000;
+  }
+
+  function chooseBearingOffSequence(state, color, sequences) {
+    const maxOffMoves = Math.max(0, ...sequences.map(sequence => (
+      sequence.reduce((total, move) => total + (move.bearOff ? 1 : 0), 0)
+    )));
+    const candidates = sequences
+      .filter(sequence => sequence.reduce((total, move) => total + (move.bearOff ? 1 : 0), 0) === maxOffMoves)
+      .sort((a, b) => roughBearingPips(state, color, b) - roughBearingPips(state, color, a))
+      .slice(0, PREFILTER_SEQUENCE_LIMIT);
+
+    return candidates
+      .map(sequence => {
+        const next = applySequence(state, sequence);
+        return {
+          sequence,
+          offGain: (next.off?.[color] || 0) - (state.off?.[color] || 0),
+          pipsAfter: NarduGame.pipsFor(next, color),
+          score: bearingOffRaceScore(state, next, color, sequence),
+        };
+      })
+      .sort((a, b) => (
+        b.offGain - a.offGain
+        || b.score - a.score
+        || a.pipsAfter - b.pipsAfter
+      ))[0]?.sequence || [];
+  }
+
+  function roughBearingPips(state, color, sequence) {
+    return sequence.reduce((total, move) => {
+      if (move.bearOff) return total + Math.max(1, 24 - NarduGame.pathPos(color, Number(move.from), state)) + 8;
+      return total + Number(move.die || 0);
+    }, 0);
+  }
+
+  function lateEscapeScore(before, next, color, sequence = []) {
+    const opponent = NarduGame.opponentOf(color);
+    const stats = sequenceProgressStats(before, color, sequence);
+    if (stats.outsideBefore <= 0) return 0;
+
+    const opponentOff = before.off?.[opponent] || 0;
+    const opponentReady = NarduGame.homeReady(before, opponent);
+    const lateRace = stats.outsideBefore <= 5 || opponentOff > 0 || opponentReady;
+    if (!lateRace) return 0;
+
+    const outsideReduction = stats.outsideBefore - stats.outsideAfter;
+    const pressure = 1
+      + Math.max(0, 6 - stats.outsideBefore) * 0.6
+      + opponentOff * 0.95
+      + (opponentReady ? 3.2 : 0);
+
+    let score = 0;
+    score += outsideReduction * (18000000 + pressure * 4200000);
+    score += stats.outsidePipsGain * (620000 + pressure * 135000);
+    score += stats.laggardGain * (720000 + pressure * 130000);
+    score += stats.deepestMoves * (5200000 + pressure * 1200000);
+    if (stats.outsideBefore > 0 && stats.outsideAfter === 0) score += 36000000 + pressure * 9000000;
+    if (stats.outsideMoves <= 0) score -= 22000000 + pressure * 5200000;
+    if (stats.deepestBefore <= 8 && stats.deepestMoves <= 0) score -= 26000000 + pressure * 5200000;
+    if (stats.homeShuffleMoves > 0) score -= stats.homeShuffleMoves * (14000000 + pressure * 3600000);
+    if (stats.enterHomeMoves > 0 && stats.outsideAfter > 0) score -= stats.enterHomeMoves * (9000000 + pressure * 2200000);
+    score -= Math.max(0, homeTowerPenalty(next, color) - homeTowerPenalty(before, color)) * (52000 + pressure * 12000);
+    return score;
+  }
+
+  function outsideMobilityScore(state, color) {
+    const path = NarduGame.pathFor(color, state);
+    const opponent = NarduGame.opponentOf(color);
+    let score = 0;
+
+    Object.entries(state.points || {}).forEach(([point, data]) => {
+      if (data.color !== color) return;
+      const pos = NarduGame.pathPos(color, Number(point), state);
+      if (pos < 0 || pos >= 18) return;
+      let options = 0;
+      let progress = 0;
+      for (let die = 1; die <= 6; die += 1) {
+        const to = path[pos + die];
+        if (!to) continue;
+        const target = state.points?.[to];
+        if (target?.color === opponent) continue;
+        options += 1;
+        progress += die;
+      }
+      const pressure = 1 + Math.max(0, 10 - pos) / 4;
+      const count = data.count || 0;
+      score += count * options * options * 420 * pressure;
+      score += count * progress * 95 * pressure;
+      if (options <= 0) score -= count * (28000 + Math.max(0, 12 - pos) * 4200);
+      else if (options === 1) score -= count * (7600 + Math.max(0, 10 - pos) * 1600);
+    });
+
+    return score;
+  }
+
+  function outsideMobilityStrategyScore(before, next, color, sequence = []) {
+    const outsideBefore = outsideHomeCount(before, color);
+    if (outsideBefore <= 0) return 0;
+    const outsideAfter = outsideHomeCount(next, color);
+    const opponent = NarduGame.opponentOf(color);
+    const opponentOff = before.off?.[opponent] || 0;
+    const opponentHome = homeCount(before, opponent);
+    const pressure = 1
+      + Math.max(0, 7 - outsideBefore) * 0.75
+      + opponentOff * 0.8
+      + Math.max(0, opponentHome - 8) * 0.28;
+    const beforeMobility = outsideMobilityScore(before, color);
+    const afterMobility = outsideMobilityScore(next, color);
+    const stats = sequenceProgressStats(before, color, sequence);
+
+    let score = (afterMobility - beforeMobility) * (850 + pressure * 180);
+    score += (outsideBefore - outsideAfter) * (7200000 + pressure * 2100000);
+    if (outsideAfter > 0 && afterMobility < beforeMobility) {
+      score -= (beforeMobility - afterMobility) * (1200 + pressure * 260);
+    }
+    if (outsideAfter > 0 && afterMobility < 12000) {
+      score -= (12000 - afterMobility) * (900 + pressure * 240);
+    }
+    if (stats.homeShuffleMoves > 0 && outsideAfter > 0) {
+      score -= stats.homeShuffleMoves * (6200000 + pressure * 1600000);
+    }
+    if (stats.enterHomeMoves > 0 && outsideAfter > 0 && afterMobility < beforeMobility + 8000) {
+      score -= stats.enterHomeMoves * (5200000 + pressure * 1200000);
+    }
+    return score;
+  }
+
   function developmentStrategyScore(before, next, color, sequence = []) {
     const debt = developmentDebt(before, color);
     if (debt <= 0) return 0;
@@ -840,6 +996,7 @@ window.NarduStrongBot = (function () {
       + stats.attackBuildMoves * 14000
       + stats.outsidePipsGain * 180
       + stats.laggardGain * 90
+      + (stats.outsideBefore <= 5 ? stats.outsideMoves * 9000 + stats.deepestMoves * 14000 : 0)
       + headMoves * (4200 + Math.max(0, countAt(state, head) - 5) * 700)
       - stats.enterHomeMoves * (22000 + Math.max(0, countAt(state, head) - 5) * 2600)
       - stats.homeShuffleMoves * 16000;
@@ -914,6 +1071,9 @@ window.NarduStrongBot = (function () {
     if (NarduGame.homeReady(next, opponent) && !nextOff) score -= 9000000;
     score -= opponentFenceThreat(next, color) * 12000;
     score += raceRescueScore(before, next, color, sequence);
+    score += lateEscapeScore(before, next, color, sequence);
+    score += outsideMobilityStrategyScore(before, next, color, sequence);
+    score += bearingOffRaceScore(before, next, color, sequence);
     score += developmentStrategyScore(before, next, color, sequence) * 1.35;
     if (developmentStats) {
       score += developmentStats.developmentMoves * (9000000 + pressure * 38000);
@@ -1027,7 +1187,10 @@ window.NarduStrongBot = (function () {
       + headFootholdStrategyScore(state, next, color, sequence) * profile.headEscape
       + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings
       + developmentStrategyScore(state, next, color, sequence) * profile.avoidRush
-      + raceRescueScore(state, next, color, sequence);
+      + raceRescueScore(state, next, color, sequence)
+      + lateEscapeScore(state, next, color, sequence)
+      + outsideMobilityStrategyScore(state, next, color, sequence)
+      + bearingOffRaceScore(state, next, color, sequence);
   }
 
   function opponentReplyRisk(state, color) {
@@ -1061,15 +1224,20 @@ window.NarduStrongBot = (function () {
     const color = state.turn;
     const sequences = NarduGame.bestMoveSequences(state, color).filter(sequence => sequence.length);
     if (!sequences.length) return [];
+    if (NarduGame.homeReady(state, color)) {
+      return chooseBearingOffSequence(state, color, sequences)
+        .map(move => ({ from: move.from, die: move.die }));
+    }
 
-    const wideTree = sequences.length > DEEP_SEQUENCE_LIMIT;
     const emergency = emergencyActive(state, color);
     const base = NarduGame.chooseBotSequence?.(state, color, { difficulty: 'hard' }) || [];
-    const pool = wideTree && !emergency
+    const poolLimit = emergency ? PREFILTER_SEQUENCE_LIMIT : Math.min(DEEP_SEQUENCE_LIMIT, PREFILTER_SEQUENCE_LIMIT);
+    const wideTree = sequences.length > poolLimit;
+    const pool = wideTree
       ? sequences
         .map(sequence => ({ sequence, priority: sequenceDevelopmentPriority(state, color, sequence) }))
         .sort((a, b) => b.priority - a.priority)
-        .slice(0, DEEP_SEQUENCE_LIMIT)
+        .slice(0, poolLimit)
         .map(item => item.sequence)
       : sequences;
     const candidateCap = emergency ? Math.max(CANDIDATE_LIMIT * 4, 72) : CANDIDATE_LIMIT;
