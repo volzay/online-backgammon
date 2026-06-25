@@ -25,6 +25,7 @@ const STATIC_FILES = [
   "rooms-client.js",
   "game.js",
   "game-controller.js",
+  "strong-bot.js",
   "bot.js",
   "board-engine.js",
   "dice-engine.js",
