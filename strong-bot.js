@@ -401,6 +401,105 @@ window.NarduStrongBot = (function () {
     return score;
   }
 
+  function headBlockadeRuns(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const path = NarduGame.pathFor(color, state);
+    const runs = [];
+    let start = 0;
+    let length = 0;
+    path.slice(1, 12).forEach((point, offset) => {
+      const index = offset + 1;
+      if (state.points?.[point]?.color === opponent) {
+        if (!length) start = index;
+        length += 1;
+        return;
+      }
+      if (length >= 3 && start <= 7) runs.push({ start, end: index - 1, length });
+      length = 0;
+    });
+    if (length >= 3 && start <= 7) runs.push({ start, end: start + length - 1, length });
+    return runs;
+  }
+
+  function headFootholdPressure(state, color, run) {
+    const opponent = NarduGame.opponentOf(color);
+    const head = countAt(state, NarduGame.headPoint(color, state));
+    const outside = outsideHomeCount(state, color);
+    const opponentHome = homeCount(state, opponent);
+    return 1
+      + head / 3.5
+      + outside / 18
+      + Math.max(0, run.length - 3) * 0.8
+      + Math.max(0, opponentHome - 5) / 10;
+  }
+
+  function headFootholdScore(state, color) {
+    const head = countAt(state, NarduGame.headPoint(color, state));
+    if (head <= 0) return 0;
+    const path = NarduGame.pathFor(color, state);
+    const runs = headBlockadeRuns(state, color);
+    if (!runs.length) return 0;
+    let score = 0;
+    runs.forEach(run => {
+      const pressure = headFootholdPressure(state, color, run);
+      let immediateOwn = 0;
+      [1, 2, 3].forEach(offset => {
+        const index = run.end + offset;
+        if (index >= path.length || index > 15) return;
+        const point = path[index];
+        const data = state.points?.[point];
+        const weight = offset === 1 ? 3.2 : offset === 2 ? 1.6 : 0.8;
+        if (data?.color === color) {
+          if (offset === 1) immediateOwn = data.count || 0;
+          const made = data.count >= 2;
+          score += weight * (made ? 2600000 : 820000) * pressure;
+          score += Math.min(4, data.count || 0) * weight * 180000 * pressure;
+          if (data.count > 4) score -= Math.pow(data.count - 4, 2) * weight * 180000;
+        } else if (!data) {
+          score -= weight * 720000 * pressure;
+        } else {
+          score -= weight * (data.count >= 2 ? 2400000 : 1550000) * pressure;
+        }
+      });
+      if (!immediateOwn) score -= (5200000 + head * 620000 + run.length * 850000) * pressure;
+      else if (immediateOwn === 1) score -= (900000 + run.length * 260000) * pressure;
+    });
+    return score;
+  }
+
+  function headFootholdStrategyScore(before, next, color, sequence = []) {
+    const head = countAt(before, NarduGame.headPoint(color, before));
+    if (head <= 0) return 0;
+    const path = NarduGame.pathFor(color, before);
+    const runs = headBlockadeRuns(before, color);
+    if (!runs.length) return 0;
+    let score = headFootholdScore(next, color) - headFootholdScore(before, color);
+
+    runs.forEach(run => {
+      const pressure = headFootholdPressure(before, color, run);
+      [1, 2].forEach(offset => {
+        const index = run.end + offset;
+        if (index >= path.length || index > 15) return;
+        const point = path[index];
+        const beforeCount = before.points?.[point]?.color === color ? before.points[point].count || 0 : 0;
+        const nextCount = next.points?.[point]?.color === color ? next.points[point].count || 0 : 0;
+        const usedFromFoothold = sequence.filter(move => Number(move.from) === Number(point)).length;
+        const weight = offset === 1 ? 3.2 : 1.6;
+        if (nextCount > beforeCount) {
+          score += (beforeCount === 0 ? 3200000 : 1700000) * weight * pressure;
+          if (beforeCount < 2 && nextCount >= 2) score += 4200000 * weight * pressure;
+        }
+        if (usedFromFoothold && beforeCount > 0) {
+          score -= usedFromFoothold * (2200000 + head * 420000 + run.length * 360000) * weight * pressure;
+          if (nextCount < beforeCount) score -= (2600000 + head * 520000) * weight * pressure;
+          if (nextCount <= 0) score -= (6200000 + head * 820000 + run.length * 900000) * weight * pressure;
+          if (beforeCount >= 2 && nextCount < 2) score -= (5200000 + head * 620000) * weight * pressure;
+        }
+      });
+    });
+    return score;
+  }
+
   function uniqueDice(state) {
     return [...new Set((state.dice || state.rolled || []).map(Number).filter(Boolean))];
   }
@@ -686,6 +785,7 @@ window.NarduStrongBot = (function () {
     score -= keyHeadLandingBreakPenalty(before, next, color) * 2.4;
     score -= headSixSourcePenalty(before, next, color, sequence) * 2.8;
     score += headExitStrategyScore(before, next, color, sequence) * 2.2;
+    score += headFootholdStrategyScore(before, next, color, sequence) * 2.6;
     score += (headSixReserveScore(next, color) - headSixReserveScore(before, color)) * 1.6;
     if (!nextOff && opponentOff > 0) score -= 7000000 + opponentOff * 4100000;
     if (NarduGame.homeReady(next, opponent) && !nextOff) score -= 9000000;
@@ -725,6 +825,7 @@ window.NarduStrongBot = (function () {
     score += headLandingAnchorScore(state, color) * 34 * profile.preserveHeadLandings;
     score += headSixReserveScore(state, color) * profile.preserveHeadLandings;
     score += headExitSecurityScore(state, color) * profile.headEscape;
+    score += headFootholdScore(state, color) * profile.headEscape;
     score -= headLandingAnchorScore(state, opponent) * 10;
     score += opponentHeadBlockScore(state, color) * 24 * profile.headBlock;
     score -= opponentHeadFreedomScore(state, color) * 42 * profile.headBlock;
@@ -787,6 +888,7 @@ window.NarduStrongBot = (function () {
       - keyHeadLandingBreakPenalty(state, next, color) * profile.preserveHeadLandings
       - headSixSourcePenalty(state, next, color, sequence) * profile.preserveHeadLandings
       + headExitStrategyScore(state, next, color, sequence) * profile.headEscape
+      + headFootholdStrategyScore(state, next, color, sequence) * profile.headEscape
       + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings
       + raceRescueScore(state, next, color, sequence);
   }
