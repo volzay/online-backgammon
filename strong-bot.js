@@ -7,6 +7,7 @@ window.NarduStrongBot = (function () {
   const CANDIDATE_LIMIT = 18;
   const DEEP_SEQUENCE_LIMIT = 180;
   const REPLY_LIMIT = 4;
+  const PLAN_TIME_LIMIT_MS = 900;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v2';
   const DEFAULT_PROFILE = {
     version: 1,
@@ -919,6 +920,8 @@ window.NarduStrongBot = (function () {
   }
 
   function plan(state) {
+    const startedAt = Date.now();
+    const overBudget = () => Date.now() - startedAt > PLAN_TIME_LIMIT_MS;
     const color = state.turn;
     const sequences = NarduGame.bestMoveSequences(state, color).filter(sequence => sequence.length);
     if (!sequences.length) return [];
@@ -933,6 +936,12 @@ window.NarduStrongBot = (function () {
       .sort((a, b) => b.score - a.score)
       .slice(0, candidateCap);
     if (base.length) ranked.push({ sequence: base, score: quickScore(state, color, base) });
+    if (overBudget()) {
+      return ranked
+        .sort((a, b) => b.score - a.score)[0]
+        .sequence
+        .map(move => ({ from: move.from, die: move.die }));
+    }
     if (emergency) {
       return ranked
         .map(item => {
@@ -950,13 +959,15 @@ window.NarduStrongBot = (function () {
         .map(move => ({ from: move.from, die: move.die }));
     }
 
-    return ranked
-      .map(item => {
-        const next = applySequence(state, item.sequence);
-        const replyRisk = opponentReplyRisk(next, color);
-        return { sequence: item.sequence, score: item.score - replyRisk };
-      })
-      .sort((a, b) => b.score - a.score)[0]
+    let best = ranked[0];
+    for (const item of ranked) {
+      if (overBudget()) break;
+      const next = applySequence(state, item.sequence);
+      const replyRisk = opponentReplyRisk(next, color);
+      const score = item.score - replyRisk;
+      if (!best || score > best.score) best = { sequence: item.sequence, score };
+    }
+    return best
       .sequence
       .map(move => ({ from: move.from, die: move.die }));
   }

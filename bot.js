@@ -71,8 +71,12 @@ window.NarduBot = (function () {
   function chooseSequence(state, difficulty = 'easy') {
     if (difficulty === 'easy') return chooseEasySequence(state);
     if (difficulty === 'hard' && window.NarduStrongBot?.plan) {
-      const strong = window.NarduStrongBot.plan(state);
-      if (strong?.length) return strong;
+      try {
+        const strong = window.NarduStrongBot.plan(state);
+        if (strong?.length) return strong;
+      } catch (error) {
+        console.warn('Strong bot failed, falling back to game heuristic', error?.message || error);
+      }
     }
     return NarduGame.chooseBotSequence?.(state, state.turn, { difficulty }) || [];
   }

@@ -47,6 +47,9 @@ window.NarduController = (function () {
   let gameOverSoundKey = null;
   let rematchRestartToken = null;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
+  const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
+  const ROOM_RELOAD_MAX_AGE_MS = 10 * 60 * 1000;
+  const ROOM_PERSIST_MAX_AGE_MS = 96 * 60 * 60 * 1000;
   const OPENING_RESULT_PAUSE_MS = 2600;
   const MOVE_SOUND_SETTLE_MS = 210;
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
@@ -241,15 +244,19 @@ window.NarduController = (function () {
     return `${location.pathname}${location.search}`;
   }
 
+  function roomPersistentSnapshotKey(signature = roomReloadSignature()) {
+    return `${ROOM_PERSIST_SNAPSHOT_PREFIX}${signature}`;
+  }
+
   function cloneStateForRestore(source) {
     return JSON.parse(JSON.stringify(source || {}));
   }
 
-  function prepareRoomReload() {
+  function buildRoomSnapshot() {
     if (!state || state.phase === 'waiting') return false;
     try {
       syncTurnClock();
-      const snapshot = {
+      return {
         v: 1,
         at: Date.now(),
         signature: roomReloadSignature(),
@@ -263,27 +270,65 @@ window.NarduController = (function () {
           fullHints: [],
         }),
       };
-      sessionStorage.setItem(ROOM_RELOAD_SNAPSHOT_KEY, JSON.stringify(snapshot));
-      return true;
     } catch {
-      return false;
+      return null;
     }
   }
 
-  function consumeRoomReloadSnapshot(expected = {}) {
-    let snapshot = null;
+  function writeRoomSnapshot({ session = false, persistent = true } = {}) {
+    const snapshot = buildRoomSnapshot();
+    if (!snapshot) return false;
+    const json = JSON.stringify(snapshot);
     try {
-      snapshot = JSON.parse(sessionStorage.getItem(ROOM_RELOAD_SNAPSHOT_KEY) || 'null');
+      if (session) sessionStorage.setItem(ROOM_RELOAD_SNAPSHOT_KEY, json);
     } catch {}
+    try {
+      if (persistent) localStorage.setItem(roomPersistentSnapshotKey(snapshot.signature), json);
+    } catch {}
+    return true;
+  }
+
+  function prepareRoomReload() {
+    return writeRoomSnapshot({ session: true, persistent: true });
+  }
+
+  function persistRoomSnapshot() {
+    return writeRoomSnapshot({ session: false, persistent: true });
+  }
+
+  function readRoomSnapshot(storage, key) {
+    try {
+      return JSON.parse(storage.getItem(key) || 'null');
+    } catch {
+      return null;
+    }
+  }
+
+  function snapshotMatches(snapshot, expected = {}, maxAge = ROOM_RELOAD_MAX_AGE_MS) {
+    if (!snapshot?.state || snapshot.signature !== roomReloadSignature()) return false;
+    if (Date.now() - (Number(snapshot.at) || 0) > maxAge) return false;
+    if (snapshot.mode && expected.mode && snapshot.mode !== expected.mode) return false;
+    if (snapshot.playerColor && expected.playerColor && snapshot.playerColor !== expected.playerColor) return false;
+    if ((snapshot.roomCode || '') !== (expected.roomCode || '')) return false;
+    return true;
+  }
+
+  function consumeRoomReloadSnapshot(expected = {}) {
+    const persistentKey = roomPersistentSnapshotKey();
+    const sessionSnapshot = readRoomSnapshot(sessionStorage, ROOM_RELOAD_SNAPSHOT_KEY);
     try {
       sessionStorage.removeItem(ROOM_RELOAD_SNAPSHOT_KEY);
     } catch {}
-    if (!snapshot?.state || snapshot.signature !== roomReloadSignature()) return null;
-    if (Date.now() - (Number(snapshot.at) || 0) > 10 * 60 * 1000) return null;
-    if (snapshot.mode && expected.mode && snapshot.mode !== expected.mode) return null;
-    if (snapshot.playerColor && expected.playerColor && snapshot.playerColor !== expected.playerColor) return null;
-    if ((snapshot.roomCode || '') !== (expected.roomCode || '')) return null;
-    return snapshot.state;
+    if (snapshotMatches(sessionSnapshot, expected, ROOM_RELOAD_MAX_AGE_MS)) return sessionSnapshot.state;
+
+    const persistentSnapshot = readRoomSnapshot(localStorage, persistentKey);
+    if (snapshotMatches(persistentSnapshot, expected, ROOM_PERSIST_MAX_AGE_MS)) return persistentSnapshot.state;
+    if (persistentSnapshot) {
+      try {
+        localStorage.removeItem(persistentKey);
+      } catch {}
+    }
+    return null;
   }
 
   function normalizeRestoredState(restored, url) {
@@ -316,6 +361,20 @@ window.NarduController = (function () {
     };
   }
 
+  function attachRuntimeStateFields(roomCode) {
+    state.hints = [];
+    state.fullHints = [];
+    state.selected = null;
+    state.variant = state.variant || variant;
+    state.mode = mode;
+    state.playerColor = playerColor;
+    state.spectator = spectatorMode;
+    state.botDifficulty = botDifficulty;
+    state.viewColor = viewColor;
+    state.roomCode = roomCode;
+    remoteCode = state.roomCode;
+  }
+
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
     const url = new URL(location.href);
@@ -340,17 +399,7 @@ window.NarduController = (function () {
     if (opts.matchScore && !restoredState) {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
-    state.hints = [];
-    state.fullHints = [];
-    state.selected = null;
-    state.variant = state.variant || variant;
-    state.mode = mode;
-    state.playerColor = playerColor;
-    state.spectator = spectatorMode;
-    state.botDifficulty = botDifficulty;
-    state.viewColor = viewColor;
-    state.roomCode = roomCode;
-    remoteCode = state.roomCode;
+    attachRuntimeStateFields(roomCode);
     remoteVersion = 0;
     botAnalysisReady = false;
     botAnalysisDisabled = false;
@@ -388,7 +437,26 @@ window.NarduController = (function () {
     if (applyLocalBearOffDemo(url)) return;
     if (waitingForOpponent) return;
     if (!opts.skipRemoteSync) startRemoteSync();
-    if (mode === 'bot') queueBotAnalysisPublish(900);
+    if (mode === 'bot' && !restoredState && canPublishBotAnalysis()) {
+      restoreBotAnalysisState(url, roomCode).then(restored => {
+        if (restored) {
+          state = restored;
+          attachRuntimeStateFields(roomCode);
+          pending = null;
+          undoStack = [];
+          render();
+          persistRoomSnapshot();
+        }
+      }).finally(() => {
+        queueBotAnalysisPublish(restoredState ? 200 : 900);
+        if (!opts.skipAutoStart) ensureAutoProgress(650);
+      });
+      return;
+    }
+    if (mode === 'bot') {
+      persistRoomSnapshot();
+      queueBotAnalysisPublish(900);
+    }
     if (opts.skipAutoStart) return;
     ensureAutoProgress(mode === 'remote' ? 1300 : 650);
   }
@@ -513,6 +581,34 @@ window.NarduController = (function () {
       window.NarduRooms?.configured?.();
   }
 
+  function isBotAnalysisState(source) {
+    if (!source) return false;
+    return source.mode === 'bot' ||
+      source.opponent === 'bot' ||
+      source.analysis?.mode === 'bot' ||
+      source.analysis?.opponent === 'bot' ||
+      Boolean(source.botDifficulty);
+  }
+
+  async function restoreBotAnalysisState(url, roomCode) {
+    if (!canPublishBotAnalysis()) return null;
+    try {
+      const data = await window.NarduRooms.getGameState(remoteCode);
+      if (!data?.state || !isBotAnalysisState(data.state)) return null;
+      if (Number.isFinite(data.version)) botAnalysisVersion = data.version;
+      botAnalysisReady = true;
+      return normalizeRestoredState({
+        ...data.state,
+        roomCode: roomCode || data.state.roomCode || remoteCode,
+      }, url);
+    } catch (error) {
+      if (error?.status !== 404) {
+        console.warn('Could not restore bot room state', error?.message || error);
+      }
+      return null;
+    }
+  }
+
   async function ensureBotAnalysisRoomReady(initialPayload = null) {
     if (!canPublishBotAnalysis()) return false;
     if (botAnalysisReady) return true;
@@ -551,6 +647,7 @@ window.NarduController = (function () {
   async function publishBotAnalysisState() {
     if (!canPublishBotAnalysis() || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
+    persistRoomSnapshot();
     const payload = botAnalysisPayload();
     botAnalysisPublishQueue = botAnalysisPublishQueue
       .catch(() => {})
@@ -582,6 +679,7 @@ window.NarduController = (function () {
     if (mode === 'bot') return publishBotAnalysisState();
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
+    persistRoomSnapshot();
     const payload = remoteStatePayload();
     remotePublishQueue = remotePublishQueue
       .catch(() => {})
@@ -871,6 +969,9 @@ window.NarduController = (function () {
           return;
         }
         schedule(step, 60);
+      }).catch(error => {
+        console.warn('Incoming checker animation failed', error?.message || error);
+        finish();
       });
     }
 
@@ -940,6 +1041,11 @@ window.NarduController = (function () {
       }
       render();
       scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
+    }).catch(error => {
+      console.warn('Incoming opening roll animation failed', error?.message || error);
+      isRolling = false;
+      render();
+      if (state.rollToken === token) scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
     });
   }
 
@@ -966,6 +1072,11 @@ window.NarduController = (function () {
         render();
         return;
       }
+      render();
+      ensureAutoProgress(650);
+    }).catch(error => {
+      console.warn('Incoming dice animation failed', error?.message || error);
+      isRolling = false;
       render();
       ensureAutoProgress(650);
     });
@@ -1558,6 +1669,29 @@ window.NarduController = (function () {
     }, ms);
   }
 
+  function finishOpeningRollAnimation(error = null) {
+    if (error) console.warn('Opening roll animation failed', error?.message || error);
+    isRolling = false;
+    render();
+    scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
+  }
+
+  function finishTurnRollAnimation(rollingTurn, error = null) {
+    if (error) console.warn('Dice animation failed', error?.message || error);
+    isRolling = false;
+    render();
+    if (state.winner) { onGameOver(); return; }
+    if (state.phase === 'roll') {
+      scheduleAutoRoll(650);
+      return;
+    }
+    if (state.turn === rollingTurn && mode === 'bot' && !isMyTurn()) {
+      schedule(playBotTurn, 700);
+    } else {
+      maybeScheduleAutoEndTurn();
+    }
+  }
+
   function ensureAutoProgress(ms = 650) {
     if (!state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isRolling || isAnimating || isChainingMove) return;
@@ -1624,11 +1758,9 @@ window.NarduController = (function () {
         duration: 2600,
       }),
       trayRollAnimation(),
-    ]).then(() => {
-      isRolling = false;
-      render();
-      scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
-    });
+    ])
+      .then(() => finishOpeningRollAnimation())
+      .catch(error => finishOpeningRollAnimation(error));
   }
 
   function startOpeningTurnRoll() {
@@ -1661,17 +1793,15 @@ window.NarduController = (function () {
         duration: 1800,
       }),
       trayRollAnimation(),
-    ]).then(() => {
-      isRolling = false;
-      render();
-      publishRemoteState();
-      if (state.winner) { onGameOver(); return; }
-      if (state.turn === rollingTurn && mode === 'bot' && !isMyTurn()) {
-        schedule(playBotTurn, 700);
-      } else {
-        maybeScheduleAutoEndTurn();
-      }
-    });
+    ])
+      .then(() => {
+        publishRemoteState();
+        finishTurnRollAnimation(rollingTurn);
+      })
+      .catch(error => {
+        publishRemoteState();
+        finishTurnRollAnimation(rollingTurn, error);
+      });
   }
 
   async function autoRoll() {
@@ -1705,20 +1835,9 @@ window.NarduController = (function () {
         token: state.rollToken,
       }),
       trayRollAnimation(),
-    ]).then(() => {
-      isRolling = false;
-      render();
-      if (state.winner) { onGameOver(); return; }
-      if (state.phase === 'roll') {
-        scheduleAutoRoll(650);
-        return;
-      }
-      if (state.turn === rollingTurn && mode === 'bot' && !isMyTurn()) {
-        schedule(playBotTurn, 700);
-      } else {
-        maybeScheduleAutoEndTurn();
-      }
-    });
+    ])
+      .then(() => finishTurnRollAnimation(rollingTurn))
+      .catch(error => finishTurnRollAnimation(rollingTurn, error));
   }
 
   function endTurnUser() {
@@ -1733,7 +1852,9 @@ window.NarduController = (function () {
 
   function afterTurn() {
     render();
+    persistRoomSnapshot();
     if (state.winner) { onGameOver(); return; }
+    if (mode === 'bot') queueBotAnalysisPublish(120);
     ensureAutoProgress(700);
   }
 
@@ -2384,10 +2505,40 @@ window.NarduController = (function () {
   }
 
   /* ── bot ─────────────────────────────────── */
+  function fallbackBotPlan() {
+    try {
+      return (NarduGame.chooseBotSequence?.(state, state.turn, { difficulty: botDifficulty }) || [])
+        .map(move => ({ from: move.from, die: move.die }));
+    } catch (error) {
+      console.warn('Fallback bot plan failed', error?.message || error);
+      return [];
+    }
+  }
+
+  function safeBotPlan() {
+    try {
+      const planned = NarduBot.plan(state, { difficulty: botDifficulty });
+      if (Array.isArray(planned)) return planned.map(move => ({ from: move.from, die: move.die }));
+    } catch (error) {
+      console.warn('Bot plan failed, using fallback', error?.message || error);
+    }
+    return fallbackBotPlan();
+  }
+
+  function nextLegalBotMove() {
+    try {
+      return NarduGame.legalNextMoves(state)
+        .find(move => NarduGame.isValidMove(state, move.from, move.die));
+    } catch {
+      return null;
+    }
+  }
+
   function playBotTurn() {
+    if (!state || state.phase !== 'move' || state.winner) return;
     NarduSound.prime();
     undoStack = [];
-    const moves = NarduBot.plan(state, { difficulty: botDifficulty });
+    const moves = safeBotPlan();
     if (moves.length === 0) {
       NarduGame.endTurn(state); afterTurn(); return;
     }
@@ -2398,7 +2549,15 @@ window.NarduController = (function () {
         else afterTurn();
         return;
       }
-      const m = moves[i++];
+      let m = moves[i++];
+      if (!NarduGame.isValidMove(state, m.from, m.die)) {
+        m = nextLegalBotMove();
+        if (!m) {
+          NarduGame.endTurn(state);
+          afterTurn();
+          return;
+        }
+      }
       const to = NarduGame.moveTo(state.turn, m.from, m.die, state);
       animateMove(m.from, to, () => {
         const applied = NarduGame.applyMove(state, m.from, m.die);
@@ -2410,6 +2569,7 @@ window.NarduController = (function () {
         }
         playMoveSound(m);
         render();
+        persistRoomSnapshot();
         if (state.winner) { onGameOver(); return; }
         schedule(step, 380);
       });
@@ -2427,6 +2587,10 @@ window.NarduController = (function () {
       destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
       movingChecker: options.movingChecker,
     }).then(() => {
+      isAnimating = false;
+      done();
+    }).catch(error => {
+      console.warn('Checker animation failed', error?.message || error);
       isAnimating = false;
       done();
     });
