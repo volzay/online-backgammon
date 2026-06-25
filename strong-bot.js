@@ -13,6 +13,7 @@ window.NarduStrongBot = (function () {
     games: 0,
     losses: 0,
     headBlock: 1.18,
+    headEscape: 1.32,
     routeControl: 1.14,
     preserveHeadLandings: 1.22,
     avoidRush: 1.12,
@@ -304,10 +305,100 @@ window.NarduStrongBot = (function () {
     if (endReserve < startReserve) penalty += (2600000 + headCheckers * 420000) * pressure;
     if (endReserve < Math.min(2, startReserve)) penalty += (3600000 + headCheckers * 620000) * pressure;
     if (!restoredFromHead && startReserve <= 3) penalty += usedFromReserve * (1900000 + headCheckers * 360000) * pressure;
+    if (!restoredFromHead && startReserve <= 1) penalty += usedFromReserve * (12000000 + headCheckers * 1800000) * pressure;
     if (restoredFromHead && endReserve >= startReserve) {
       penalty += usedFromReserve * (startReserve <= 2 ? 1800000 : 520000) * pressure;
     }
     return penalty;
+  }
+
+  function headExitPressure(state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const head = NarduGame.headPoint(color, state);
+    const headCheckers = countAt(state, head);
+    if (headCheckers <= 0) return 0;
+    const opponentHome = homeCount(state, opponent);
+    const opponentOff = state.off?.[opponent] || 0;
+    const opponentPips = NarduGame.pipsFor(state, opponent);
+    return 1
+      + headCheckers / 3.2
+      + Math.max(0, opponentHome - 4) / 7
+      + opponentOff * 0.45
+      + Math.max(0, 170 - opponentPips) / 115;
+  }
+
+  function headExitSecurityScore(state, color) {
+    const head = NarduGame.headPoint(color, state);
+    const headCheckers = countAt(state, head);
+    if (headCheckers <= 0) return 0;
+    const pressure = headExitPressure(state, color);
+    let score = 0;
+    let ownExits = 0;
+    let openExits = 0;
+    let opponentRun = 0;
+    let longestOpponentRun = 0;
+
+    for (let die = 1; die <= 6; die += 1) {
+      const point = NarduGame.moveTo(color, head, die, state);
+      if (!point) continue;
+      const data = state.points?.[point];
+      const critical = die === 1 || die === 3 || die === 5 || die === 6;
+      const weight = (critical ? 1.35 : 1) * (8 - die * 0.55);
+      if (data?.color === color) {
+        ownExits += 1;
+        opponentRun = 0;
+        const made = data.count >= 2;
+        const reserve = Math.min(4, data.count || 0);
+        score += weight * (made ? 520000 : 220000) * pressure;
+        score += weight * reserve * 58000 * pressure;
+        if (data.count > 4) score -= weight * Math.pow(data.count - 4, 2) * 52000;
+      } else if (!data) {
+        openExits += 1;
+        opponentRun = 0;
+        score -= weight * 170000 * pressure;
+      } else {
+        opponentRun += 1;
+        longestOpponentRun = Math.max(longestOpponentRun, opponentRun);
+        score -= weight * (data.count >= 2 ? 1450000 : 980000) * pressure;
+      }
+    }
+
+    if (ownExits <= 0) score -= (4600000 + headCheckers * 640000) * pressure;
+    if (ownExits === 1 && openExits <= 1) score -= (1700000 + headCheckers * 360000) * pressure;
+    if (longestOpponentRun >= 3) score -= Math.pow(longestOpponentRun, 3) * (260000 + headCheckers * 70000) * pressure;
+    if (longestOpponentRun >= 5) score -= (5200000 + headCheckers * 900000) * pressure;
+    return score;
+  }
+
+  function headExitStrategyScore(before, next, color, sequence = []) {
+    const head = NarduGame.headPoint(color, before);
+    const headCheckers = countAt(before, head);
+    if (headCheckers <= 0) return 0;
+    const pressure = headExitPressure(before, color);
+    let score = headExitSecurityScore(next, color) - headExitSecurityScore(before, color);
+
+    for (let die = 1; die <= 6; die += 1) {
+      const point = NarduGame.moveTo(color, head, die, before);
+      if (!point) continue;
+      const beforeCount = before.points?.[point]?.color === color ? before.points[point].count || 0 : 0;
+      const nextCount = next.points?.[point]?.color === color ? next.points[point].count || 0 : 0;
+      const usedFromExit = sequence.filter(move => Number(move.from) === Number(point)).length;
+      const restoredFromHead = sequence.some(move => Number(move.from) === Number(head) && Number(move.die) === die);
+      const critical = die === 1 || die === 3 || die === 5 || die === 6;
+      const weight = (critical ? 1.45 : 1) * (8 - die * 0.5);
+
+      if (nextCount > beforeCount) {
+        score += (beforeCount === 0 ? 980000 : 360000) * weight * pressure;
+        if (beforeCount < 2 && nextCount >= 2) score += 1280000 * weight * pressure;
+      }
+      if (usedFromExit && beforeCount > 0) {
+        if (nextCount < beforeCount) score -= usedFromExit * (1450000 + headCheckers * 280000) * weight * pressure;
+        if (beforeCount >= 2 && nextCount < 2) score -= (2200000 + headCheckers * 360000) * weight * pressure;
+        if (nextCount <= 0) score -= (3600000 + headCheckers * 540000) * weight * pressure;
+        if (!restoredFromHead && nextCount <= beforeCount) score -= usedFromExit * 840000 * weight * pressure;
+      }
+    }
+    return score;
   }
 
   function uniqueDice(state) {
@@ -594,6 +685,7 @@ window.NarduStrongBot = (function () {
     score += keyHeadLandingGain(before, next, color) * 0.9;
     score -= keyHeadLandingBreakPenalty(before, next, color) * 2.4;
     score -= headSixSourcePenalty(before, next, color, sequence) * 2.8;
+    score += headExitStrategyScore(before, next, color, sequence) * 2.2;
     score += (headSixReserveScore(next, color) - headSixReserveScore(before, color)) * 1.6;
     if (!nextOff && opponentOff > 0) score -= 7000000 + opponentOff * 4100000;
     if (NarduGame.homeReady(next, opponent) && !nextOff) score -= 9000000;
@@ -632,6 +724,7 @@ window.NarduStrongBot = (function () {
     score -= headChannelScore(state, opponent) * 11;
     score += headLandingAnchorScore(state, color) * 34 * profile.preserveHeadLandings;
     score += headSixReserveScore(state, color) * profile.preserveHeadLandings;
+    score += headExitSecurityScore(state, color) * profile.headEscape;
     score -= headLandingAnchorScore(state, opponent) * 10;
     score += opponentHeadBlockScore(state, color) * 24 * profile.headBlock;
     score -= opponentHeadFreedomScore(state, color) * 42 * profile.headBlock;
@@ -693,6 +786,7 @@ window.NarduStrongBot = (function () {
       + keyHeadLandingGain(state, next, color) * profile.preserveHeadLandings
       - keyHeadLandingBreakPenalty(state, next, color) * profile.preserveHeadLandings
       - headSixSourcePenalty(state, next, color, sequence) * profile.preserveHeadLandings
+      + headExitStrategyScore(state, next, color, sequence) * profile.headEscape
       + headDisciplineScore(state, next, color, sequence) * profile.preserveHeadLandings
       + raceRescueScore(state, next, color, sequence);
   }
@@ -784,6 +878,7 @@ window.NarduStrongBot = (function () {
     profile.games = (Number(profile.games) || 0) + 1;
     if (!botWon) profile.losses = (Number(profile.losses) || 0) + 1;
     profile.headBlock = clamp(profile.headBlock + lossPressure * danger * (1 + freedom / 800 + opponentHead / 12), 0.9, 1.85);
+    profile.headEscape = clamp(profile.headEscape + lossPressure * danger * (1 + botHead / 8 + headExitPressure(state, botColor) / 5), 1.05, 2.2);
     profile.routeControl = clamp(profile.routeControl + lossPressure * danger * (route < 180 ? 1.25 : 0.45), 0.9, 1.8);
     profile.preserveHeadLandings = clamp(profile.preserveHeadLandings + lossPressure * danger * 1.35, 1, 1.95);
     profile.avoidRush = clamp(profile.avoidRush + lossPressure * danger * (botHead > 3 || opponentOff > botOff ? 1.2 : 0.55), 0.9, 1.75);
