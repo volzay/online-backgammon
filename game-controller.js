@@ -1979,7 +1979,10 @@ window.NarduController = (function () {
       for (const move of sequence) {
         if (move.from !== currentFrom) break;
         moves.push(move);
-        if (move.bearOff || move.to === 0) break;
+        if (move.bearOff || move.to === 0) {
+          if (moves.length >= 2) addChainDestination(results, seen, moves);
+          break;
+        }
         currentFrom = move.to;
         if (moves.length >= 2) addChainDestination(results, seen, moves);
       }
