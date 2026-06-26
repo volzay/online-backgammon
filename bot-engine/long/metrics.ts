@@ -68,6 +68,10 @@ export function outsideHomeCount(state, color) {
   return checkersInTrackRange(state, color, 0, 17);
 }
 
+export function entryZoneOutsideCount(state, color) {
+  return checkersInTrackRange(state, color, 12, 17);
+}
+
 export function homeBoardCount(state, color) {
   return checkersInTrackRange(state, color, 18, 23);
 }
@@ -166,6 +170,69 @@ export function prematureHomeRushPenalty(state, color) {
   return home * (headDebt * 1.8 + supportDebt * 0.42 + Math.max(0, outside - 8) * 0.35);
 }
 
+export function lateEntryPressure(state, color) {
+  const outside = outsideHomeCount(state, color);
+  if (!outside) return 0;
+  const opponent = opponentOf(color);
+  const entry = entryZoneOutsideCount(state, color);
+  const lateRace = Math.max(0, 7 - outside) * 0.72;
+  const opponentRace = offCount(state, opponent) * 0.32 + (homeReady(state, opponent) ? 1.8 : 0);
+  const entryRatio = entry / Math.max(1, outside);
+  return 1 + entryRatio * 2.4 + lateRace + opponentRace;
+}
+
+export function opponentTrapRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let run = 0;
+  let runStart = 0;
+  let risk = 0;
+
+  path.forEach((point, index) => {
+    const stack = stackAt(state, point);
+    if (stack?.color === opponent) {
+      if (!run) runStart = index;
+      run += 1;
+      if (run >= 3) {
+        const ownBehind = path.slice(0, runStart).reduce((total, behindPoint) => {
+          const behind = stackAt(state, behindPoint);
+          return total + (behind?.color === color ? Number(behind.count) || 0 : 0);
+        }, 0);
+        if (ownBehind > 0) {
+          const zone = runStart < 8 ? 1.85 : runStart < 13 ? 1.45 : runStart < 18 ? 1.15 : 0.65;
+          const severity = run >= 6 ? 22 : run >= 5 ? 9.5 : run >= 4 ? 4.2 : 1.75;
+          const escapeGaps = path.slice(index + 1, index + 4).reduce((total, escapePoint) => {
+            const escape = stackAt(state, escapePoint);
+            return total + (escape?.color === opponent ? 0 : 1);
+          }, 0);
+          const gapRelief = 1 / (1 + escapeGaps * 0.45);
+          risk += ownBehind * run * run * severity * zone * gapRelief;
+        }
+      }
+      return;
+    }
+    run = 0;
+  });
+
+  return risk;
+}
+
+export function homeEntryMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 12 && fromPos < 18 && toPos >= 18 ? 1 : 0);
+  }, 0);
+}
+
+export function homeShuffleMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 18 && toPos >= 18 && !(move.bearOff || move.to === 0) ? 1 : 0);
+  }, 0);
+}
+
 export function blockadeScore(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(opponent);
@@ -212,7 +279,7 @@ export function stuckRisk(state, color) {
     risk -= count * progress * 0.35;
   });
 
-  return risk;
+  return risk + opponentTrapRisk(state, color) * 0.72;
 }
 
 export function tempoValue(before, after, color) {

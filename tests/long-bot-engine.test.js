@@ -107,21 +107,84 @@ test("evaluation rewards head support and penalizes trapped checkers", () => {
 test("evaluation prefers distributed checkers over home towers before the race", () => {
   const { engine } = loadBrowserEngine();
   const balanced = longState({
-    12: { color: "dark", count: 5 },
-    11: { color: "dark", count: 2 },
-    9: { color: "dark", count: 2 },
-    7: { color: "dark", count: 2 },
-    4: { color: "dark", count: 2 },
-    2: { color: "dark", count: 2 },
+    12: { color: "dark", count: 3 },
+    11: { color: "dark", count: 3 },
+    10: { color: "dark", count: 3 },
+    9: { color: "dark", count: 3 },
+    8: { color: "dark", count: 3 },
     24: { color: "white", count: 15 },
   });
   const rushed = longState({
-    12: { color: "dark", count: 9 },
-    17: { color: "dark", count: 1 },
-    16: { color: "dark", count: 1 },
-    15: { color: "dark", count: 4 },
+    12: { color: "dark", count: 11 },
+    11: { color: "dark", count: 1 },
+    10: { color: "dark", count: 1 },
+    9: { color: "dark", count: 1 },
+    8: { color: "dark", count: 1 },
     24: { color: "white", count: 15 },
   });
 
   assert.ok(engine.evaluateState(balanced, "dark") > engine.evaluateState(rushed, "dark"));
 });
+
+test("near-home checkers are both entered before home shuffles", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    20: { color: "dark", count: 1 },
+    19: { color: "dark", count: 1 },
+    18: { color: "dark", count: 2 },
+    16: { color: "dark", count: 3 },
+    14: { color: "dark", count: 4 },
+    13: { color: "dark", count: 4 },
+    24: { color: "white", count: 8 },
+    23: { color: "white", count: 7 },
+  }, {
+    dice: [1, 2],
+    rolled: [1, 2],
+  });
+
+  const legal = game.bestMoveSequences(state, "dark").filter(sequence => sequence.length);
+  const maxHomeGain = Math.max(...legal.map(sequence => {
+    const next = JSON.parse(JSON.stringify(state));
+    sequence.forEach(move => game.applyMove(next, move.from, move.die, { autoEnd: false }));
+    return countHome(next, "dark") - countHome(state, "dark");
+  }));
+  const plan = engine.plan(state);
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(countHome(after, "dark") - countHome(state, "dark"), maxHomeGain);
+  assert.equal(maxHomeGain, 2);
+});
+
+test("trap risk makes the bot escape before improving home points", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    10: { color: "dark", count: 1 },
+    18: { color: "dark", count: 3 },
+    17: { color: "dark", count: 3 },
+    16: { color: "dark", count: 3 },
+    15: { color: "dark", count: 3 },
+    14: { color: "dark", count: 2 },
+    8: { color: "white", count: 2 },
+    7: { color: "white", count: 2 },
+    6: { color: "white", count: 2 },
+    2: { color: "white", count: 9 },
+  }, {
+    dice: [4, 1],
+    rolled: [4, 1],
+  });
+
+  const plan = engine.plan(state);
+  assert.equal(JSON.stringify(plan), JSON.stringify([{ from: 10, die: 1 }, { from: 9, die: 4 }]));
+});
+
+function countHome(state, color) {
+  const path = color === "white"
+    ? [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    : [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
+  return Object.entries(state.points || {}).reduce((total, [point, data]) => {
+    if (data.color !== color) return total;
+    const pos = path.indexOf(Number(point));
+    return total + (pos >= 18 && pos <= 23 ? data.count : 0);
+  }, state.off?.[color] || 0);
+}

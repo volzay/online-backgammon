@@ -1,5 +1,14 @@
 import { evaluateState, mergeWeights, scoreSequence } from './evaluator.ts';
-import { homeReady, offCount, pipsFor } from './metrics.ts';
+import {
+  homeEntryMoveCount,
+  homeReady,
+  homeShuffleMoveCount,
+  lateEntryPressure,
+  offCount,
+  opponentTrapRisk,
+  pathPos,
+  pipsFor,
+} from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
 const DEFAULT_TIME_LIMIT_MS = 900;
@@ -54,15 +63,23 @@ export function createLongBotEngine(adapter, options = {}) {
 function prefilterSequences(state, color, sequences, maxCandidates) {
   if (sequences.length <= maxCandidates) return sequences;
   const ready = homeReady(state, color);
+  const entryPressure = lateEntryPressure(state, color);
+  const trapPressure = opponentTrapRisk(state, color);
 
   return sequences
     .map(sequence => {
       const offMoves = sequence.reduce((total, move) => total + (move.bearOff || move.to === 0 ? 1 : 0), 0);
       const roughPips = sequence.reduce((total, move) => total + Number(move.die || 0), 0);
       const homeShuffle = ready ? sequence.length - offMoves : 0;
+      const homeEntries = homeEntryMoveCount(sequence, color);
+      const insideHomeMoves = homeShuffleMoveCount(sequence, color);
+      const outsideMoves = sequence.reduce((total, move) => total + (pathPos(color, move.from) < 18 ? 1 : 0), 0);
       return {
         sequence,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
+          + homeEntries * 65000 * entryPressure
+          - insideHomeMoves * 18000 * entryPressure
+          + outsideMoves * Math.min(90000, trapPressure * 320)
           + roughPips * 120
           + offCount(state, color) * 10
           - pipsFor(state, color) * 0.01,
