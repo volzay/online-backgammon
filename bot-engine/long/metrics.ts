@@ -5,6 +5,8 @@ export const LONG_PATHS = {
   dark: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13],
 };
 
+const HEAD_LANDING_DICE = [1, 3, 5, 6];
+
 export function opponentOf(color) {
   return color === 'white' ? 'dark' : 'white';
 }
@@ -114,21 +116,74 @@ export function headLandingSupportScore(state, color) {
   const head = headPoint(color);
   const headCount = countAt(state, head, color);
   if (headCount <= 2) return 0;
-  const importantDice = [1, 3, 5, 6];
   const pressure = 1 + Math.max(0, headCount - 4) / 5;
 
-  return importantDice.reduce((score, die) => {
+  return HEAD_LANDING_DICE.reduce((score, die) => {
     const target = pathFor(color)[die];
     const stack = target ? stackAt(state, target) : null;
-    const dieWeight = die === 1 || die === 3 || die === 5 ? 1.45 : 1.2;
+    const dieWeight = headLandingDieWeight(die);
     if (stack?.color === color) {
-      const made = stack.count >= 2 ? 1.9 : 0.9;
-      const stackPenalty = Math.max(0, stack.count - 3) * 0.42;
-      return score + dieWeight * Math.max(0.3, made - stackPenalty);
+      const count = Number(stack.count) || 0;
+      const blockValue = 1.72 + Math.min(2, Math.max(0, count - 1)) * 0.16;
+      const stackPenalty = Math.max(0, count - 3) * 0.24;
+      return score + dieWeight * Math.max(0.8, blockValue - stackPenalty);
     }
-    if (!stack) return score - dieWeight * 0.75;
-    return score - dieWeight * 1.8;
+    if (!stack) return score - dieWeight * 0.95;
+    return score - dieWeight * 2.4;
   }, 0) * pressure;
+}
+
+export function headLandingExposureRisk(state, color) {
+  const headCount = headCheckers(state, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    const dieWeight = headLandingDieWeight(die);
+    const occupiedByOpponent = stack?.color === opponent;
+    const reachable = !occupiedByOpponent && canReachPoint(state, opponent, target);
+    return risk + dieWeight * pressure * (
+      occupiedByOpponent ? 8.5 : 3.1 + (reachable ? 4.7 : 0)
+    );
+  }, 0);
+}
+
+export function headLandingBreakRisk(before, after, color) {
+  const headCount = headCheckers(before, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const beforeStack = stackAt(before, target);
+    const afterStack = stackAt(after, target);
+    if (beforeStack?.color !== color || afterStack?.color === color) return risk;
+    const reachable = canReachPoint(after, opponent, target);
+    return risk + headLandingDieWeight(die) * pressure * (reachable ? 11 : 6.2);
+  }, 0);
+}
+
+function headLandingDieWeight(die) {
+  if (die === 1) return 3.45;
+  if (die === 3) return 2.45;
+  if (die === 5) return 2.25;
+  return 1.75;
+}
+
+function canReachPoint(state, color, target) {
+  const targetPos = pathPos(color, target);
+  if (targetPos < 0) return false;
+  return Object.entries(state.points || {}).some(([point, stack]) => {
+    if (stack.color !== color) return false;
+    const pos = pathPos(color, Number(point));
+    const distance = targetPos - pos;
+    return distance >= 1 && distance <= 6;
+  });
 }
 
 export function opponentHeadBlockScore(state, color) {
@@ -231,6 +286,21 @@ export function homeShuffleMoveCount(sequence = [], color) {
     const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
     return total + (fromPos >= 18 && toPos >= 18 && !(move.bearOff || move.to === 0) ? 1 : 0);
   }, 0);
+}
+
+export function outsideDevelopmentMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos < 18 && toPos > fromPos && toPos < 18 ? 1 : 0);
+  }, 0);
+}
+
+export function developmentPressure(state, color) {
+  if (homeReady(state, color)) return 0;
+  return 1
+    + Math.min(2.4, headCheckers(state, color) / 4.5)
+    + Math.min(1.8, outsideHomeCount(state, color) / 8);
 }
 
 export function blockadeScore(state, color) {

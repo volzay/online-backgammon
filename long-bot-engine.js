@@ -9,6 +9,8 @@ const LONG_PATHS = {
   dark: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13],
 };
 
+const HEAD_LANDING_DICE = [1, 3, 5, 6];
+
 function opponentOf(color) {
   return color === 'white' ? 'dark' : 'white';
 }
@@ -118,21 +120,74 @@ function headLandingSupportScore(state, color) {
   const head = headPoint(color);
   const headCount = countAt(state, head, color);
   if (headCount <= 2) return 0;
-  const importantDice = [1, 3, 5, 6];
   const pressure = 1 + Math.max(0, headCount - 4) / 5;
 
-  return importantDice.reduce((score, die) => {
+  return HEAD_LANDING_DICE.reduce((score, die) => {
     const target = pathFor(color)[die];
     const stack = target ? stackAt(state, target) : null;
-    const dieWeight = die === 1 || die === 3 || die === 5 ? 1.45 : 1.2;
+    const dieWeight = headLandingDieWeight(die);
     if (stack?.color === color) {
-      const made = stack.count >= 2 ? 1.9 : 0.9;
-      const stackPenalty = Math.max(0, stack.count - 3) * 0.42;
-      return score + dieWeight * Math.max(0.3, made - stackPenalty);
+      const count = Number(stack.count) || 0;
+      const blockValue = 1.72 + Math.min(2, Math.max(0, count - 1)) * 0.16;
+      const stackPenalty = Math.max(0, count - 3) * 0.24;
+      return score + dieWeight * Math.max(0.8, blockValue - stackPenalty);
     }
-    if (!stack) return score - dieWeight * 0.75;
-    return score - dieWeight * 1.8;
+    if (!stack) return score - dieWeight * 0.95;
+    return score - dieWeight * 2.4;
   }, 0) * pressure;
+}
+
+function headLandingExposureRisk(state, color) {
+  const headCount = headCheckers(state, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    const dieWeight = headLandingDieWeight(die);
+    const occupiedByOpponent = stack?.color === opponent;
+    const reachable = !occupiedByOpponent && canReachPoint(state, opponent, target);
+    return risk + dieWeight * pressure * (
+      occupiedByOpponent ? 8.5 : 3.1 + (reachable ? 4.7 : 0)
+    );
+  }, 0);
+}
+
+function headLandingBreakRisk(before, after, color) {
+  const headCount = headCheckers(before, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const beforeStack = stackAt(before, target);
+    const afterStack = stackAt(after, target);
+    if (beforeStack?.color !== color || afterStack?.color === color) return risk;
+    const reachable = canReachPoint(after, opponent, target);
+    return risk + headLandingDieWeight(die) * pressure * (reachable ? 11 : 6.2);
+  }, 0);
+}
+
+function headLandingDieWeight(die) {
+  if (die === 1) return 3.45;
+  if (die === 3) return 2.45;
+  if (die === 5) return 2.25;
+  return 1.75;
+}
+
+function canReachPoint(state, color, target) {
+  const targetPos = pathPos(color, target);
+  if (targetPos < 0) return false;
+  return Object.entries(state.points || {}).some(([point, stack]) => {
+    if (stack.color !== color) return false;
+    const pos = pathPos(color, Number(point));
+    const distance = targetPos - pos;
+    return distance >= 1 && distance <= 6;
+  });
 }
 
 function opponentHeadBlockScore(state, color) {
@@ -237,6 +292,21 @@ function homeShuffleMoveCount(sequence = [], color) {
   }, 0);
 }
 
+function outsideDevelopmentMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos < 18 && toPos > fromPos && toPos < 18 ? 1 : 0);
+  }, 0);
+}
+
+function developmentPressure(state, color) {
+  if (homeReady(state, color)) return 0;
+  return 1
+    + Math.min(2.4, headCheckers(state, color) / 4.5)
+    + Math.min(1.8, outsideHomeCount(state, color) / 8);
+}
+
 function blockadeScore(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(opponent);
@@ -320,6 +390,7 @@ const DEFAULT_LONG_BOT_WEIGHTS = {
   rushPenalty: 12500,
   homeEntry: 145000,
   trapRisk: 62000,
+  headLandingExposure: 62000,
 };
 
 function mergeWeights(weights = {}) {
@@ -353,6 +424,8 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     + opponentHeadBlockScore(state, color) * weights.headRelease * 0.82
     + footholdScore(state, color) * weights.foothold
     - footholdScore(state, opponent) * weights.foothold * 0.38
+    - headLandingExposureRisk(state, color) * weights.headLandingExposure
+    + headLandingExposureRisk(state, opponent) * weights.headLandingExposure * 0.18
     - prematureHomeRushPenalty(state, color) * weights.rushPenalty
     - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
     + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
@@ -375,6 +448,8 @@ function sequenceStats(before, after, color, sequence = []) {
   const trapBefore = opponentTrapRisk(before, color);
   const opponent = opponentOf(color);
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
+  const headLandingBreak = headLandingBreakRisk(before, after, color);
+  const outsideDevelopmentMoves = outsideDevelopmentMoveCount(sequence, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -392,6 +467,8 @@ function sequenceStats(before, after, color, sequence = []) {
     trapDelta,
     trapBefore,
     opponentTrapGain,
+    headLandingBreak,
+    outsideDevelopmentMoves,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -401,6 +478,7 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   const stats = sequenceStats(before, after, color, sequence);
   const pressure = phasePressure(before, color);
   const entryPressure = lateEntryPressure(before, color);
+  const development = developmentPressure(before, color);
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
 
   score += tempoValue(before, after, color) * weights.tempo * pressure;
@@ -414,13 +492,19 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
+  score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
+  score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }
-  if (!homeReady(before, color) && entryPressure > 1) {
+  if (!homeReady(before, color)) {
     const tacticalJustification = cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.11
       + Math.max(0, stats.blockadeGain) * weights.blockade * 0.85;
-    const shufflePenalty = stats.homeShuffleMoves * weights.homeEntry * 0.9 * entryPressure;
+    const shufflePenalty = stats.homeShuffleMoves
+      * weights.homeEntry
+      * 1.18
+      * Math.max(1, entryPressure)
+      * Math.max(1, development);
     score -= Math.max(0, shufflePenalty - tacticalJustification);
   }
 
@@ -499,6 +583,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const ready = homeReady(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
+  const development = developmentPressure(state, color);
 
   return sequences
     .map(sequence => {
@@ -512,7 +597,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         sequence,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
-          - insideHomeMoves * 18000 * entryPressure
+          - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
           + outsideMoves * Math.min(90000, trapPressure * 320)
           + roughPips * 120
           + offCount(state, color) * 10

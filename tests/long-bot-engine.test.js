@@ -178,6 +178,32 @@ test("trap risk makes the bot escape before improving home points", () => {
   assert.equal(JSON.stringify(plan), JSON.stringify([{ from: 10, die: 1 }, { from: 9, die: 4 }]));
 });
 
+test("head landing anchors are preserved when the opponent can immediately occupy them", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    4: { color: "dark", count: 1 },
+    7: { color: "dark", count: 3 },
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "dark", count: 1 },
+    12: { color: "dark", count: 8 },
+    14: { color: "white", count: 1 },
+    15: { color: "dark", count: 1 },
+    18: { color: "dark", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 9 },
+  }, {
+    dice: [6, 5],
+    rolled: [6, 5],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 300 });
+  assert.ok(!plan.some(move => move.from === 11));
+  assert.ok(plan.some(move => move.from === 7 && move.die === 5));
+});
+
 function countHome(state, color) {
   const path = color === "white"
     ? [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]

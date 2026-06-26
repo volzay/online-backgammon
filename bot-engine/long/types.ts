@@ -45,6 +45,7 @@ export interface LongBotWeights {
   rushPenalty: number;
   homeEntry: number;
   trapRisk: number;
+  headLandingExposure: number;
 }
 
 export interface LongBotEngineOptions {

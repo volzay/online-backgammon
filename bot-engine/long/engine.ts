@@ -1,5 +1,6 @@
 import { evaluateState, mergeWeights, scoreSequence } from './evaluator.ts';
 import {
+  developmentPressure,
   homeEntryMoveCount,
   homeReady,
   homeShuffleMoveCount,
@@ -65,6 +66,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const ready = homeReady(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
+  const development = developmentPressure(state, color);
 
   return sequences
     .map(sequence => {
@@ -78,7 +80,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         sequence,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
-          - insideHomeMoves * 18000 * entryPressure
+          - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
           + outsideMoves * Math.min(90000, trapPressure * 320)
           + roughPips * 120
           + offCount(state, color) * 10

@@ -1,10 +1,13 @@
 import type { LongBotWeights } from './types.ts';
 import {
   blockadeScore,
+  developmentPressure,
   distributionPenalty,
   entryZoneOutsideCount,
   footholdScore,
   headCheckers,
+  headLandingBreakRisk,
+  headLandingExposureRisk,
   headLandingSupportScore,
   homeEntryMoveCount,
   homeBoardCount,
@@ -16,6 +19,7 @@ import {
   opponentOf,
   opponentHeadBlockScore,
   opponentTrapRisk,
+  outsideDevelopmentMoveCount,
   phasePressure,
   pipsFor,
   prematureHomeRushPenalty,
@@ -37,6 +41,7 @@ export const DEFAULT_LONG_BOT_WEIGHTS = {
   rushPenalty: 12500,
   homeEntry: 145000,
   trapRisk: 62000,
+  headLandingExposure: 62000,
 };
 
 export function mergeWeights(weights = {}) {
@@ -70,6 +75,8 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     + opponentHeadBlockScore(state, color) * weights.headRelease * 0.82
     + footholdScore(state, color) * weights.foothold
     - footholdScore(state, opponent) * weights.foothold * 0.38
+    - headLandingExposureRisk(state, color) * weights.headLandingExposure
+    + headLandingExposureRisk(state, opponent) * weights.headLandingExposure * 0.18
     - prematureHomeRushPenalty(state, color) * weights.rushPenalty
     - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
     + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
@@ -92,6 +99,8 @@ export function sequenceStats(before, after, color, sequence = []) {
   const trapBefore = opponentTrapRisk(before, color);
   const opponent = opponentOf(color);
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
+  const headLandingBreak = headLandingBreakRisk(before, after, color);
+  const outsideDevelopmentMoves = outsideDevelopmentMoveCount(sequence, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -109,6 +118,8 @@ export function sequenceStats(before, after, color, sequence = []) {
     trapDelta,
     trapBefore,
     opponentTrapGain,
+    headLandingBreak,
+    outsideDevelopmentMoves,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -118,6 +129,7 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   const stats = sequenceStats(before, after, color, sequence);
   const pressure = phasePressure(before, color);
   const entryPressure = lateEntryPressure(before, color);
+  const development = developmentPressure(before, color);
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
 
   score += tempoValue(before, after, color) * weights.tempo * pressure;
@@ -131,13 +143,19 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
+  score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
+  score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }
-  if (!homeReady(before, color) && entryPressure > 1) {
+  if (!homeReady(before, color)) {
     const tacticalJustification = cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.11
       + Math.max(0, stats.blockadeGain) * weights.blockade * 0.85;
-    const shufflePenalty = stats.homeShuffleMoves * weights.homeEntry * 0.9 * entryPressure;
+    const shufflePenalty = stats.homeShuffleMoves
+      * weights.homeEntry
+      * 1.18
+      * Math.max(1, entryPressure)
+      * Math.max(1, development);
     score -= Math.max(0, shufflePenalty - tacticalJustification);
   }
 
