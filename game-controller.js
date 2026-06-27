@@ -2045,10 +2045,19 @@ window.NarduController = (function () {
   }
 
   function moveActionForPoint(from, point) {
-    const fullDest = legalFullDestinations(from).find(d => d.to === point);
-    if (fullDest) return { type: 'sequence', dest: fullDest };
-    const dest = NarduGame.legalDestinations(state, from).find(d => d.to === point);
-    if (dest) return { type: 'single', dest };
+    return preferredMoveAction(
+      legalFullDestinations(from),
+      NarduGame.legalDestinations(state, from),
+      point,
+    );
+  }
+
+  function preferredMoveAction(fullDestinations, destinations, point) {
+    const single = destinations.find(destination => destination.to === point);
+    if (point === 0 && single) return { type: 'single', dest: single };
+    const sequence = fullDestinations.find(destination => destination.to === point);
+    if (sequence) return { type: 'sequence', dest: sequence };
+    if (single) return { type: 'single', dest: single };
     return null;
   }
 
@@ -2090,20 +2099,15 @@ window.NarduController = (function () {
   function onBearTrackClick(color) {
     /* clicking the bear track confirms a bear-off when a destination of 0 is legal */
     if (!pending || state.turn !== color) return;
-    const dests = NarduGame.legalDestinations(state, pending.from);
-    const fullDests = legalFullDestinations(pending.from);
-    const fullDest = fullDests.find(d => d.to === 0);
-    if (fullDest) {
-      const from = pending.from;
-      pending = null; state.selected = null; state.hints = []; state.fullHints = [];
-      doUserMoveSequence(from, fullDest.moves);
-      return;
-    }
-    const dest = dests.find(d => d.to === 0);
-    if (!dest) return;
+    const action = moveActionForPoint(pending.from, 0);
+    if (!action) return;
     const from = pending.from;
     pending = null; state.selected = null; state.hints = []; state.fullHints = [];
-    doUserMove(from, dest.die, dest);
+    if (action.type === 'sequence') {
+      doUserMoveSequence(from, action.dest.moves);
+      return;
+    }
+    doUserMove(from, action.dest.die, action.dest);
   }
 
   function onBearButtonClick() {
@@ -3081,5 +3085,6 @@ window.NarduController = (function () {
     prepareRoomReload,
     concedeRemoteGameByLobbyExit,
     resolveBotDifficulty,
+    preferredMoveAction,
   };
 })();

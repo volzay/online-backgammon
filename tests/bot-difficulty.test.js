@@ -70,3 +70,21 @@ test("bot planner keeps the strongest difficulty hint from saved state", () => {
     "hard",
   );
 });
+
+test("direct bear-off is preferred over a chained route to the tray", () => {
+  const context = controllerContext();
+  const choose = context.window.NarduController.preferredMoveAction;
+  const chained = {
+    to: 0,
+    moves: [
+      { from: 3, to: 2, die: 1 },
+      { from: 2, to: 0, die: 4, bearOff: true },
+    ],
+  };
+  const direct = { from: 3, to: 0, die: 4, bearOff: true };
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(choose([chained], [direct], 0))),
+    { type: "single", dest: direct },
+  );
+});
