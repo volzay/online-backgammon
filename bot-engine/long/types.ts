@@ -46,6 +46,7 @@ export interface LongBotWeights {
   homeEntry: number;
   trapRisk: number;
   headLandingExposure: number;
+  opponentHeadFreedom: number;
 }
 
 export interface LongBotEngineOptions {

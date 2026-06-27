@@ -207,6 +207,49 @@ function opponentHeadBlockScore(state, color) {
   }, 0) * pressure;
 }
 
+function opponentHeadFreedomRisk(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHeadCount = headCheckers(state, opponent);
+  if (opponentHeadCount <= 2) return 0;
+  const pressure = 1 + Math.max(0, opponentHeadCount - 4) / 4;
+  let openLandings = 0;
+
+  const landingRisk = HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(opponent)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    openLandings += 1;
+    const dieWeight = headLandingDieWeight(die);
+    const supported = stack?.color === opponent;
+    return risk + dieWeight * (supported ? 5.4 : 3.7);
+  }, 0);
+
+  return pressure * (landingRisk + openLandings * openLandings * 1.35);
+}
+
+function opponentHeadFreedomMoveDelta(state, color, sequence = []) {
+  const points = Object.fromEntries(
+    Object.entries(state.points || {}).map(([point, stack]) => [point, { ...stack }]),
+  );
+  const after = { ...state, points };
+
+  sequence.forEach(move => {
+    const fromKey = String(move.from);
+    const source = points[fromKey];
+    if (source?.color === color) {
+      source.count -= 1;
+      if (source.count <= 0) delete points[fromKey];
+    }
+    if (move.bearOff || move.to === 0) return;
+    const toKey = String(move.to);
+    const target = points[toKey];
+    if (target?.color === color) target.count += 1;
+    else if (!target) points[toKey] = { color, count: 1 };
+  });
+
+  return opponentHeadFreedomRisk(state, color) - opponentHeadFreedomRisk(after, color);
+}
+
 function footholdScore(state, color) {
   const defensive = madePointsInTrackRange(state, color, 1, 7) * 2.8
     + occupiedInTrackRange(state, color, 1, 7) * 0.75;
@@ -300,6 +343,26 @@ function outsideDevelopmentMoveCount(sequence = [], color) {
   }, 0);
 }
 
+function entryContinuationMoveCount(sequence = [], color) {
+  let total = 0;
+  let trackedPoint = null;
+
+  sequence.forEach(move => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    if (trackedPoint !== null && Number(move.from) === trackedPoint && toPos > fromPos) {
+      total += 1;
+      trackedPoint = move.bearOff || move.to === 0 ? null : Number(move.to);
+      return;
+    }
+    trackedPoint = fromPos >= 12 && fromPos < 18 && toPos >= 18
+      ? Number(move.to)
+      : null;
+  });
+
+  return total;
+}
+
 function developmentPressure(state, color) {
   if (homeReady(state, color)) return 0;
   return 1
@@ -391,6 +454,7 @@ const DEFAULT_LONG_BOT_WEIGHTS = {
   homeEntry: 145000,
   trapRisk: 62000,
   headLandingExposure: 62000,
+  opponentHeadFreedom: 48000,
 };
 
 function mergeWeights(weights = {}) {
@@ -422,6 +486,7 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     + headLandingSupportScore(state, color) * weights.headRelease
     - headLandingSupportScore(state, opponent) * weights.headRelease * 0.34
     + opponentHeadBlockScore(state, color) * weights.headRelease * 0.82
+    - opponentHeadFreedomRisk(state, color) * weights.opponentHeadFreedom
     + footholdScore(state, color) * weights.foothold
     - footholdScore(state, opponent) * weights.foothold * 0.38
     - headLandingExposureRisk(state, color) * weights.headLandingExposure
@@ -450,6 +515,9 @@ function sequenceStats(before, after, color, sequence = []) {
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
   const headLandingBreak = headLandingBreakRisk(before, after, color);
   const outsideDevelopmentMoves = outsideDevelopmentMoveCount(sequence, color);
+  const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
+  const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
+    - opponentHeadFreedomRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -469,6 +537,8 @@ function sequenceStats(before, after, color, sequence = []) {
     opponentTrapGain,
     headLandingBreak,
     outsideDevelopmentMoves,
+    entryContinuationMoves,
+    opponentHeadFreedomDelta,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -493,7 +563,9 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
+  score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
+  score += stats.entryContinuationMoves * weights.tempo * 0.42;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }
@@ -553,6 +625,7 @@ function createLongBotEngine(adapter, options = {}) {
         sequence,
         after,
         score: scoreSequence(state, after, color, sequence, weights),
+        features: sequenceStats(state, after, color, sequence),
       });
       if (Date.now() - startedAt > timeLimitMs && ranked.length >= 8) break;
     }
@@ -593,12 +666,14 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
       const homeEntries = homeEntryMoveCount(sequence, color);
       const insideHomeMoves = homeShuffleMoveCount(sequence, color);
       const outsideMoves = sequence.reduce((total, move) => total + (pathPos(color, move.from) < 18 ? 1 : 0), 0);
+      const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
       return {
         sequence,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
           + outsideMoves * Math.min(90000, trapPressure * 320)
+          + opponentHeadControlGain * 18000
           + roughPips * 120
           + offCount(state, color) * 10
           - pipsFor(state, color) * 0.01,
@@ -650,15 +725,20 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
+const ENGINE_VERSION = 'long-linear-v3';
+
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
   const engine = createLongBotEngine(adapter, options);
+  let lastDecision = null;
 
   return {
     plan(state, runtimeOptions = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
-      return engine.plan(state, color, runtimeOptions);
+      const ranked = engine.rank(state, color, runtimeOptions);
+      lastDecision = decisionRecord(state, color, ranked, runtimeOptions.weights);
+      return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
     },
 
     rank(state, runtimeOptions = {}) {
@@ -671,7 +751,59 @@ function createBrowserLongBotEngine(game, options = {}) {
       if (!state || !color) return 0;
       return engine.evaluateState(state, color, weights);
     },
+
+    consumeLastDecision() {
+      const decision = lastDecision;
+      lastDecision = null;
+      return decision;
+    },
+
+    version: ENGINE_VERSION,
   };
+}
+
+function decisionRecord(state, color, ranked, weights = undefined) {
+  const candidates = ranked.slice(0, 4).map(candidate => ({
+    score: Math.round(candidate.score),
+    moves: candidate.sequence.map(move => ({
+      from: move.from,
+      to: move.bearOff ? 0 : move.to,
+      die: move.die,
+    })),
+    features: { ...(candidate.features || {}) },
+  }));
+  if (!candidates.length) return null;
+
+  return {
+    id: positionFingerprint(state, color),
+    at: new Date().toISOString(),
+    engineVersion: ENGINE_VERSION,
+    weights: weights && typeof weights === 'object'
+      ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
+      : {},
+    color,
+    dice: [...(state.dice || [])],
+    position: {
+      points: JSON.parse(JSON.stringify(state.points || {})),
+      off: { white: Number(state.off?.white) || 0, dark: Number(state.off?.dark) || 0 },
+    },
+    selected: candidates[0],
+    alternatives: candidates.slice(1),
+  };
+}
+
+function positionFingerprint(state, color) {
+  const points = Object.entries(state.points || {})
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([point, stack]) => `${point}:${stack.color[0]}${stack.count}`)
+    .join(',');
+  const source = `${color}|${(state.dice || []).join(',')}|${points}|${state.off?.white || 0}:${state.off?.dark || 0}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `lb3-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 function installBrowserLongBotEngine(root = globalThis) {

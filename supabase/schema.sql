@@ -217,6 +217,28 @@ create table if not exists public.rating_events (
 alter table public.rating_events
 add column if not exists history jsonb not null default '[]'::jsonb;
 
+create table if not exists public.bot_training_games (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid references public.rooms(id) on delete set null,
+  room_code text not null unique,
+  player_user_id uuid references public.profiles(id) on delete set null,
+  player_name text not null,
+  bot_name text not null,
+  engine_version text not null default '',
+  difficulty text not null default 'hard',
+  bot_color text not null check (bot_color in ('white', 'dark')),
+  winner text not null check (winner in ('white', 'dark')),
+  result_type text not null default 'normal',
+  decision_count integer not null default 0,
+  decisions jsonb not null default '[]'::jsonb,
+  final_state jsonb not null default '{}'::jsonb,
+  completed_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists bot_training_games_completed_idx
+on public.bot_training_games (completed_at desc);
+
 create table if not exists public.admin_audit (
   id uuid primary key default gen_random_uuid(),
   actor_user_id uuid references public.profiles(id) on delete set null,
@@ -233,6 +255,7 @@ alter table public.friend_messages enable row level security;
 alter table public.rooms enable row level security;
 alter table public.room_messages enable row level security;
 alter table public.rating_events enable row level security;
+alter table public.bot_training_games enable row level security;
 alter table public.admin_audit enable row level security;
 
 create or replace function public.admin_email_whitelist()
@@ -258,6 +281,14 @@ $$;
 
 revoke all on function public.is_admin_user() from public;
 grant execute on function public.is_admin_user() to authenticated;
+
+drop policy if exists "admins can read bot training games" on public.bot_training_games;
+create policy "admins can read bot training games"
+on public.bot_training_games for select
+to authenticated
+using (public.is_admin_user());
+
+grant select on public.bot_training_games to authenticated;
 
 drop policy if exists "profiles are visible to authenticated users" on public.profiles;
 create policy "profiles are visible to authenticated users"
@@ -1010,6 +1041,124 @@ $$;
 
 revoke all on function public.nickname_auth_email(text) from public;
 grant execute on function public.nickname_auth_email(text) to anon, authenticated;
+
+create or replace function public.archive_bot_training_game(p_room_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_code text := upper(trim(coalesce(p_room_code, '')));
+  target_room public.rooms%rowtype;
+  memory jsonb;
+  decisions jsonb;
+  outcome jsonb;
+  saved_id uuid;
+  saved_count integer;
+  resolved_bot_color text;
+begin
+  if clean_code = '' then
+    raise exception 'Room code is required.';
+  end if;
+
+  select r.* into target_room
+  from public.rooms r
+  where r.code = clean_code
+  limit 1;
+
+  if target_room.id is null then
+    raise exception 'Room not found.';
+  end if;
+  if target_room.host_user_id is not null
+    and target_room.host_user_id is distinct from auth.uid()
+    and not coalesce(public.is_admin_user(), false) then
+    raise exception 'Only the room player can archive this game.';
+  end if;
+  if coalesce(target_room.game_state->>'mode', '') <> 'bot'
+    or coalesce(target_room.game_state->>'variant', target_room.variant) <> 'long'
+    or coalesce(target_room.game_state->>'botDifficulty', '') <> 'hard' then
+    raise exception 'This room is not a hard long-bot game.';
+  end if;
+  if coalesce(target_room.game_state->>'winner', '') not in ('white', 'dark') then
+    raise exception 'The game is not finished.';
+  end if;
+
+  memory := coalesce(target_room.game_state->'analysis'->'botMemory', '{}'::jsonb);
+  decisions := coalesce(memory->'decisions', '[]'::jsonb);
+  if jsonb_typeof(decisions) <> 'array' then
+    decisions := '[]'::jsonb;
+  end if;
+  outcome := coalesce(memory->'outcome', '{}'::jsonb);
+  resolved_bot_color := coalesce(
+    nullif(outcome->>'botColor', ''),
+    case
+      when coalesce(target_room.game_state->'analysis'->>'playerColor', 'white') = 'white'
+        then 'dark'
+      else 'white'
+    end
+  );
+
+  insert into public.bot_training_games (
+    room_id,
+    room_code,
+    player_user_id,
+    player_name,
+    bot_name,
+    engine_version,
+    difficulty,
+    bot_color,
+    winner,
+    result_type,
+    decision_count,
+    decisions,
+    final_state,
+    completed_at
+  )
+  values (
+    target_room.id,
+    target_room.code,
+    target_room.host_user_id,
+    target_room.host_name,
+    coalesce(target_room.guest_name, target_room.game_state->'analysis'->>'botName', 'Hard bot'),
+    coalesce(memory->>'engineVersion', ''),
+    coalesce(target_room.game_state->>'botDifficulty', 'hard'),
+    resolved_bot_color,
+    target_room.game_state->>'winner',
+    coalesce(nullif(target_room.game_state->>'resultType', ''), 'normal'),
+    jsonb_array_length(decisions),
+    decisions,
+    target_room.game_state,
+    coalesce(target_room.archived_at, now())
+  )
+  on conflict (room_code) do update
+  set
+    room_id = excluded.room_id,
+    player_user_id = excluded.player_user_id,
+    player_name = excluded.player_name,
+    bot_name = excluded.bot_name,
+    engine_version = excluded.engine_version,
+    difficulty = excluded.difficulty,
+    bot_color = excluded.bot_color,
+    winner = excluded.winner,
+    result_type = excluded.result_type,
+    decision_count = excluded.decision_count,
+    decisions = excluded.decisions,
+    final_state = excluded.final_state,
+    completed_at = excluded.completed_at
+  returning id, decision_count into saved_id, saved_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'id', saved_id,
+    'roomCode', target_room.code,
+    'decisionCount', saved_count
+  );
+end;
+$$;
+
+revoke all on function public.archive_bot_training_game(text) from public;
+grant execute on function public.archive_bot_training_game(text) to anon, authenticated;
 
 do $$
 begin

@@ -203,6 +203,49 @@ export function opponentHeadBlockScore(state, color) {
   }, 0) * pressure;
 }
 
+export function opponentHeadFreedomRisk(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHeadCount = headCheckers(state, opponent);
+  if (opponentHeadCount <= 2) return 0;
+  const pressure = 1 + Math.max(0, opponentHeadCount - 4) / 4;
+  let openLandings = 0;
+
+  const landingRisk = HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(opponent)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    openLandings += 1;
+    const dieWeight = headLandingDieWeight(die);
+    const supported = stack?.color === opponent;
+    return risk + dieWeight * (supported ? 5.4 : 3.7);
+  }, 0);
+
+  return pressure * (landingRisk + openLandings * openLandings * 1.35);
+}
+
+export function opponentHeadFreedomMoveDelta(state, color, sequence = []) {
+  const points = Object.fromEntries(
+    Object.entries(state.points || {}).map(([point, stack]) => [point, { ...stack }]),
+  );
+  const after = { ...state, points };
+
+  sequence.forEach(move => {
+    const fromKey = String(move.from);
+    const source = points[fromKey];
+    if (source?.color === color) {
+      source.count -= 1;
+      if (source.count <= 0) delete points[fromKey];
+    }
+    if (move.bearOff || move.to === 0) return;
+    const toKey = String(move.to);
+    const target = points[toKey];
+    if (target?.color === color) target.count += 1;
+    else if (!target) points[toKey] = { color, count: 1 };
+  });
+
+  return opponentHeadFreedomRisk(state, color) - opponentHeadFreedomRisk(after, color);
+}
+
 export function footholdScore(state, color) {
   const defensive = madePointsInTrackRange(state, color, 1, 7) * 2.8
     + occupiedInTrackRange(state, color, 1, 7) * 0.75;
@@ -294,6 +337,26 @@ export function outsideDevelopmentMoveCount(sequence = [], color) {
     const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
     return total + (fromPos >= 0 && fromPos < 18 && toPos > fromPos && toPos < 18 ? 1 : 0);
   }, 0);
+}
+
+export function entryContinuationMoveCount(sequence = [], color) {
+  let total = 0;
+  let trackedPoint = null;
+
+  sequence.forEach(move => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    if (trackedPoint !== null && Number(move.from) === trackedPoint && toPos > fromPos) {
+      total += 1;
+      trackedPoint = move.bearOff || move.to === 0 ? null : Number(move.to);
+      return;
+    }
+    trackedPoint = fromPos >= 12 && fromPos < 18 && toPos >= 18
+      ? Number(move.to)
+      : null;
+  });
+
+  return total;
 }
 
 export function developmentPressure(state, color) {

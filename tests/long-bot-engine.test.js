@@ -54,6 +54,7 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.plan, "function");
   assert.equal(typeof engine.rank, "function");
   assert.equal(typeof engine.evaluateState, "function");
+  assert.equal(typeof engine.consumeLastDecision, "function");
 });
 
 test("endgame plan prioritizes bearing off instead of shuffling home points", () => {
@@ -135,8 +136,8 @@ test("near-home checkers are both entered before home shuffles", () => {
     16: { color: "dark", count: 3 },
     14: { color: "dark", count: 4 },
     13: { color: "dark", count: 4 },
-    24: { color: "white", count: 8 },
-    23: { color: "white", count: 7 },
+    1: { color: "white", count: 8 },
+    2: { color: "white", count: 7 },
   }, {
     dice: [1, 2],
     rolled: [1, 2],
@@ -202,6 +203,68 @@ test("head landing anchors are preserved when the opponent can immediately occup
   const plan = engine.plan(state, { maxCandidates: 300 });
   assert.ok(!plan.some(move => move.from === 11));
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
+});
+
+test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    4: { color: "dark", count: 1 },
+    6: { color: "dark", count: 1 },
+    7: { color: "dark", count: 2 },
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 7 },
+    16: { color: "white", count: 1 },
+    17: { color: "dark", count: 2 },
+    18: { color: "dark", count: 1 },
+    19: { color: "dark", count: 1 },
+    24: { color: "white", count: 10 },
+  }, {
+    dice: [2, 2, 2, 2],
+    rolled: [2, 2, 2, 2],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 48, timeLimitMs: 900 });
+  assert.equal(JSON.stringify(plan), JSON.stringify([
+    { from: 7, die: 2 },
+    { from: 5, die: 2 },
+    { from: 3, die: 2 },
+    { from: 1, die: 2 },
+  ]));
+  assert.ok(!plan.some(move => move.from === 19));
+
+  const decision = engine.consumeLastDecision();
+  assert.match(decision.id, /^lb3-/);
+  assert.equal(decision.engineVersion, "long-linear-v3");
+  assert.equal(decision.selected.moves.length, 4);
+  assert.ok(decision.alternatives.length > 0);
+  assert.equal(engine.consumeLastDecision(), null);
+});
+
+test("XP7E-F64Y move 299 carries the last outside checker through the home entry", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "dark", count: 2 },
+    3: { color: "dark", count: 1 },
+    13: { color: "dark", count: 3 },
+    14: { color: "dark", count: 4 },
+    15: { color: "dark", count: 2 },
+    16: { color: "dark", count: 2 },
+    20: { color: "dark", count: 1 },
+  }, {
+    dice: [3, 4],
+    rolled: [3, 4],
+    off: { white: 14, dark: 0 },
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 48, timeLimitMs: 900 });
+  assert.equal(JSON.stringify(plan), JSON.stringify([
+    { from: 20, die: 3 },
+    { from: 17, die: 4 },
+  ]));
 });
 
 function countHome(state, color) {

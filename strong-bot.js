@@ -9,9 +9,9 @@ window.NarduStrongBot = (function () {
   const PREFILTER_SEQUENCE_LIMIT = 48;
   const REPLY_LIMIT = 4;
   const PLAN_TIME_LIMIT_MS = 900;
-  const PROFILE_KEY = 'narduh-strong-bot-profile-v2';
+  const PROFILE_KEY = 'narduh-strong-bot-profile-v3';
   const DEFAULT_PROFILE = {
-    version: 1,
+    version: 2,
     games: 0,
     losses: 0,
     headBlock: 1.18,
@@ -61,6 +61,24 @@ window.NarduStrongBot = (function () {
     } catch (error) {
       // Learning is optional; gameplay must not depend on storage availability.
     }
+  }
+
+  function longEngineWeights(profile = learningProfile()) {
+    const ratio = (key, min = 0.82, max = 1.38) => clamp(
+      Number(profile[key] || DEFAULT_PROFILE[key]) / DEFAULT_PROFILE[key],
+      min,
+      max,
+    );
+    return {
+      opponentHeadFreedom: 48000 * ratio('headBlock'),
+      headLandingExposure: 62000 * ratio('preserveHeadLandings'),
+      headRelease: 9800 * ratio('preserveHeadLandings'),
+      foothold: 4300 * ratio('headEscape'),
+      homeEntry: 145000 * ratio('avoidRush'),
+      rushPenalty: 12500 * ratio('avoidRush'),
+      trapRisk: 62000 * ratio('routeControl'),
+      distribution: 780 * ratio('avoidTowers'),
+    };
   }
 
   function cloneState(state) {
@@ -1224,6 +1242,7 @@ window.NarduStrongBot = (function () {
         const enginePlan = window.NarduLongBotEngine.plan(state, {
           maxCandidates: PREFILTER_SEQUENCE_LIMIT,
           timeLimitMs: PLAN_TIME_LIMIT_MS,
+          weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
       } catch (error) {

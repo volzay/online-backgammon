@@ -3,6 +3,7 @@ import {
   blockadeScore,
   developmentPressure,
   distributionPenalty,
+  entryContinuationMoveCount,
   entryZoneOutsideCount,
   footholdScore,
   headCheckers,
@@ -18,6 +19,7 @@ import {
   offCount,
   opponentOf,
   opponentHeadBlockScore,
+  opponentHeadFreedomRisk,
   opponentTrapRisk,
   outsideDevelopmentMoveCount,
   phasePressure,
@@ -42,6 +44,7 @@ export const DEFAULT_LONG_BOT_WEIGHTS = {
   homeEntry: 145000,
   trapRisk: 62000,
   headLandingExposure: 62000,
+  opponentHeadFreedom: 48000,
 };
 
 export function mergeWeights(weights = {}) {
@@ -73,6 +76,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     + headLandingSupportScore(state, color) * weights.headRelease
     - headLandingSupportScore(state, opponent) * weights.headRelease * 0.34
     + opponentHeadBlockScore(state, color) * weights.headRelease * 0.82
+    - opponentHeadFreedomRisk(state, color) * weights.opponentHeadFreedom
     + footholdScore(state, color) * weights.foothold
     - footholdScore(state, opponent) * weights.foothold * 0.38
     - headLandingExposureRisk(state, color) * weights.headLandingExposure
@@ -101,6 +105,9 @@ export function sequenceStats(before, after, color, sequence = []) {
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
   const headLandingBreak = headLandingBreakRisk(before, after, color);
   const outsideDevelopmentMoves = outsideDevelopmentMoveCount(sequence, color);
+  const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
+  const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
+    - opponentHeadFreedomRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -120,6 +127,8 @@ export function sequenceStats(before, after, color, sequence = []) {
     opponentTrapGain,
     headLandingBreak,
     outsideDevelopmentMoves,
+    entryContinuationMoves,
+    opponentHeadFreedomDelta,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -144,7 +153,9 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
+  score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
+  score += stats.entryContinuationMoves * weights.tempo * 0.42;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }

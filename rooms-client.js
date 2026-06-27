@@ -583,6 +583,16 @@
     return { ok: true, version: nextVersion };
   }
 
+  async function archiveBotTrainingGame(code) {
+    if (!configured()) return { skipped: true };
+    const client = await supabase();
+    const { data, error } = await client.rpc("archive_bot_training_game", {
+      p_room_code: normalizeCode(code),
+    });
+    if (error) throw supabaseError(error, "Could not archive bot training game.");
+    return data || { ok: true };
+  }
+
   function opponentColor(color) {
     return color === "dark" ? "white" : "dark";
   }
@@ -924,6 +934,7 @@
     deleteRoom,
     getGameState,
     putGameState,
+    archiveBotTrainingGame,
     updatePresence,
     leaveRoom,
     watchRoom,

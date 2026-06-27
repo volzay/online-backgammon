@@ -39,6 +39,7 @@ window.NarduController = (function () {
   let botAnalysisVersion = 0;
   let botAnalysisEnsurePromise = null;
   let botAnalysisPublishQueue = Promise.resolve();
+  let botTrainingArchivePending = false;
   let remoteAnimatedRollTokens = new Set();
   let remoteMoveSoundKeys = new Set();
   let remoteMoveSoundReady = false;
@@ -50,6 +51,7 @@ window.NarduController = (function () {
   const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
   const ROOM_RELOAD_MAX_AGE_MS = 10 * 60 * 1000;
   const ROOM_PERSIST_MAX_AGE_MS = 96 * 60 * 60 * 1000;
+  const BOT_MEMORY_MAX_DECISIONS = 180;
   const OPENING_RESULT_PAUSE_MS = 2600;
   const MOVE_SOUND_SETTLE_MS = 210;
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
@@ -406,6 +408,7 @@ window.NarduController = (function () {
     botAnalysisVersion = 0;
     botAnalysisEnsurePromise = null;
     botAnalysisPublishQueue = Promise.resolve();
+    botTrainingArchivePending = false;
     remoteAnimatedRollTokens = new Set();
     remoteMoveSoundKeys = new Set();
     remoteMoveSoundReady = false;
@@ -2521,11 +2524,69 @@ window.NarduController = (function () {
   function safeBotPlan() {
     try {
       const planned = NarduBot.plan(state, { difficulty: botDifficulty });
-      if (Array.isArray(planned)) return planned.map(move => ({ from: move.from, die: move.die }));
+      if (Array.isArray(planned)) {
+        rememberBotDecision(window.NarduLongBotEngine?.consumeLastDecision?.());
+        return planned.map(move => ({ from: move.from, die: move.die }));
+      }
     } catch (error) {
       console.warn('Bot plan failed, using fallback', error?.message || error);
     }
     return fallbackBotPlan();
+  }
+
+  function rememberBotDecision(decision) {
+    if (!decision || mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long') return;
+    state.analysis ||= {};
+    const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
+      ? state.analysis.botMemory
+      : {};
+    const decisions = Array.isArray(memory.decisions) ? memory.decisions : [];
+    if (decisions.some(item => item?.id === decision.id)) return;
+    decisions.push(decision);
+    if (decisions.length > BOT_MEMORY_MAX_DECISIONS) {
+      decisions.splice(0, decisions.length - BOT_MEMORY_MAX_DECISIONS);
+    }
+    state.analysis.botMemory = {
+      ...memory,
+      format: 1,
+      engineVersion: decision.engineVersion || memory.engineVersion || '',
+      decisions,
+      updatedAt: decision.at || new Date().toISOString(),
+    };
+  }
+
+  function finalizeBotMemory() {
+    if (mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long' || !state?.winner) return;
+    state.analysis ||= {};
+    const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
+      ? state.analysis.botMemory
+      : {};
+    state.analysis.botMemory = {
+      ...memory,
+      format: 1,
+      decisions: Array.isArray(memory.decisions) ? memory.decisions : [],
+      outcome: {
+        winner: state.winner,
+        botColor: NarduGame.opponentOf(playerColor),
+        resultType: state.resultType || 'normal',
+        score: { ...(state.score || {}) },
+        finishedAt: state.finishedAt
+          ? new Date(state.finishedAt).toISOString()
+          : new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  function archiveBotTrainingGame(publishPromise) {
+    if (botTrainingArchivePending || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) return;
+    botTrainingArchivePending = true;
+    Promise.resolve(publishPromise)
+      .then(() => window.NarduRooms.archiveBotTrainingGame(remoteCode))
+      .catch(error => console.warn('Could not archive bot training game', error?.message || error))
+      .finally(() => {
+        botTrainingArchivePending = false;
+      });
   }
 
   function nextLegalBotMove() {
@@ -2637,6 +2698,7 @@ window.NarduController = (function () {
   /* ── game over screen + rating update ─────── */
   function onGameOver() {
     recordMatchGame();
+    finalizeBotMemory();
     renderPlayerStats();
     if (mode === 'remote' && !state.gameOverPublishedAt) {
       state.gameOverPublishedAt = new Date().toISOString();
@@ -2644,7 +2706,8 @@ window.NarduController = (function () {
     }
     if (mode === 'bot' && !state.gameOverPublishedAt) {
       state.gameOverPublishedAt = new Date().toISOString();
-      publishBotAnalysisState();
+      const publishPromise = publishBotAnalysisState();
+      if (botDifficulty === 'hard' && variant === 'long') archiveBotTrainingGame(publishPromise);
     }
     if (mode === 'bot' && botDifficulty === 'hard' && window.NarduStrongBot?.learnFromGame) {
       window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor));
