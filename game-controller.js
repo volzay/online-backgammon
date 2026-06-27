@@ -40,6 +40,7 @@ window.NarduController = (function () {
   let botAnalysisEnsurePromise = null;
   let botAnalysisPublishQueue = Promise.resolve();
   let botTrainingArchivePending = false;
+  let botTrainingArchiveDone = false;
   let remoteAnimatedRollTokens = new Set();
   let remoteMoveSoundKeys = new Set();
   let remoteMoveSoundReady = false;
@@ -49,6 +50,8 @@ window.NarduController = (function () {
   let rematchRestartToken = null;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
   const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
+  const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
+  const CREATE_GAME_KEY = 'narduh-created-game';
   const ROOM_RELOAD_MAX_AGE_MS = 10 * 60 * 1000;
   const ROOM_PERSIST_MAX_AGE_MS = 96 * 60 * 60 * 1000;
   const BOT_MEMORY_MAX_DECISIONS = 180;
@@ -381,11 +384,19 @@ window.NarduController = (function () {
   function init(opts = {}) {
     const url = new URL(location.href);
     mode = opts.mode || url.searchParams.get('mode') || 'bot';
+    const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
     spectatorMode = Boolean(opts.spectator || url.searchParams.get('role') === 'spectator' || url.searchParams.get('spectator') === '1');
     const waitingForOpponent = opts.waiting || url.searchParams.get('waiting') === '1';
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
-    botDifficulty = normalizeBotDifficulty(opts.difficulty || url.searchParams.get('difficulty') || botDifficulty);
+    const storedBotConfig = readBotGameConfig(roomCode);
+    botDifficulty = resolveBotDifficulty(
+      opts.difficulty,
+      url.searchParams.get('difficulty'),
+      storedBotConfig?.difficulty,
+      opponentName,
+      opponentRating,
+    );
     variant = normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
     playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
     viewColor = spectatorMode
@@ -395,9 +406,12 @@ window.NarduController = (function () {
     if (statTimer) clearInterval(statTimer);
     statTimer = null;
 
-    const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
     const restoredState = waitingForOpponent ? null : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
     state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState(variant);
+    if (mode === 'bot') {
+      adoptBotIdentity(state);
+      persistBotGameConfig(roomCode, url);
+    }
     if (opts.matchScore && !restoredState) {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
@@ -409,6 +423,7 @@ window.NarduController = (function () {
     botAnalysisEnsurePromise = null;
     botAnalysisPublishQueue = Promise.resolve();
     botTrainingArchivePending = false;
+    botTrainingArchiveDone = false;
     remoteAnimatedRollTokens = new Set();
     remoteMoveSoundKeys = new Set();
     remoteMoveSoundReady = false;
@@ -444,7 +459,9 @@ window.NarduController = (function () {
       restoreBotAnalysisState(url, roomCode).then(restored => {
         if (restored) {
           state = restored;
+          adoptBotIdentity(state);
           attachRuntimeStateFields(roomCode);
+          persistBotGameConfig(roomCode, url);
           pending = null;
           undoStack = [];
           render();
@@ -464,9 +481,73 @@ window.NarduController = (function () {
     ensureAutoProgress(mode === 'remote' ? 1300 : 650);
   }
 
-  function normalizeBotDifficulty(value) {
-    const key = String(value || '').trim().toLowerCase();
-    return ['easy', 'medium', 'hard'].includes(key) ? key : 'easy';
+  function resolveBotDifficulty(...hints) {
+    const levels = { easy: 1, medium: 2, hard: 3 };
+    let resolved = null;
+    hints.flat().forEach(value => {
+      const raw = String(value ?? '').trim().toLowerCase();
+      let candidate = null;
+      const numeric = Number(raw);
+      if (levels[raw]) candidate = raw;
+      else if (/hard|слож|трудн/.test(raw) || numeric >= 1450) candidate = 'hard';
+      else if (/medium|средн/.test(raw) || numeric >= 1100) candidate = 'medium';
+      else if (/easy|л[её]гк/.test(raw) || (numeric > 0 && numeric < 1100)) candidate = 'easy';
+      if (candidate && (!resolved || levels[candidate] > levels[resolved])) resolved = candidate;
+    });
+    return resolved || 'easy';
+  }
+
+  function readBotGameConfig(roomCode) {
+    if (!roomCode) return null;
+    try {
+      const direct = JSON.parse(localStorage.getItem(`${BOT_GAME_CONFIG_PREFIX}${roomCode}`) || 'null');
+      if (direct?.game === roomCode) return direct;
+      const recent = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
+      return recent?.game === roomCode ? recent : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function adoptBotIdentity(source = {}) {
+    botDifficulty = resolveBotDifficulty(
+      botDifficulty,
+      source.botDifficulty,
+      source.analysis?.difficulty,
+      source.analysis?.botName,
+      opponentName,
+      opponentRating,
+    );
+    const botNames = {
+      easy: tr('bot_easy'),
+      medium: tr('bot_medium'),
+      hard: tr('bot_hard'),
+    };
+    const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+    opponentName = botNames[botDifficulty];
+    opponentRating = botRatings[botDifficulty];
+  }
+
+  function persistBotGameConfig(roomCode, url = null) {
+    if (mode !== 'bot' || !roomCode) return;
+    const config = {
+      game: roomCode,
+      opponent: 'bot',
+      difficulty: botDifficulty,
+      variant,
+      botName: opponentName,
+      botRating: opponentRating,
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${roomCode}`, JSON.stringify(config));
+      localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(config));
+    } catch {}
+    if (!url) return;
+    url.searchParams.set('difficulty', botDifficulty);
+    url.searchParams.set('opp', opponentName);
+    url.searchParams.set('oppR', String(opponentRating));
+    if (url.href !== location.href) history.replaceState(null, '', url);
   }
 
   function normalizeVariant(value) {
@@ -2579,10 +2660,13 @@ window.NarduController = (function () {
   }
 
   function archiveBotTrainingGame(publishPromise) {
-    if (botTrainingArchivePending || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) return;
+    if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) return;
     botTrainingArchivePending = true;
     Promise.resolve(publishPromise)
       .then(() => window.NarduRooms.archiveBotTrainingGame(remoteCode))
+      .then(() => {
+        botTrainingArchiveDone = true;
+      })
       .catch(error => console.warn('Could not archive bot training game', error?.message || error))
       .finally(() => {
         botTrainingArchivePending = false;
@@ -2700,14 +2784,17 @@ window.NarduController = (function () {
     recordMatchGame();
     finalizeBotMemory();
     renderPlayerStats();
+    let botPublishPromise = botAnalysisPublishQueue;
     if (mode === 'remote' && !state.gameOverPublishedAt) {
       state.gameOverPublishedAt = new Date().toISOString();
       publishRemoteState();
     }
     if (mode === 'bot' && !state.gameOverPublishedAt) {
       state.gameOverPublishedAt = new Date().toISOString();
-      const publishPromise = publishBotAnalysisState();
-      if (botDifficulty === 'hard' && variant === 'long') archiveBotTrainingGame(publishPromise);
+      botPublishPromise = publishBotAnalysisState();
+    }
+    if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
+      archiveBotTrainingGame(botPublishPromise);
     }
     if (mode === 'bot' && botDifficulty === 'hard' && window.NarduStrongBot?.learnFromGame) {
       window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor));
@@ -2983,5 +3070,16 @@ window.NarduController = (function () {
     undoLastMove();
   });
 
-  return { init, getState, render, setRenderer, onPointClick, publishRemoteState, receiveRemoteState, prepareRoomReload, concedeRemoteGameByLobbyExit };
+  return {
+    init,
+    getState,
+    render,
+    setRenderer,
+    onPointClick,
+    publishRemoteState,
+    receiveRemoteState,
+    prepareRoomReload,
+    concedeRemoteGameByLobbyExit,
+    resolveBotDifficulty,
+  };
 })();

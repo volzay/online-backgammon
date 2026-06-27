@@ -657,6 +657,7 @@
   });
 
   const CREATE_GAME_KEY = 'narduh-created-game';
+  const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
   const createGamePanel = document.getElementById('create-game-panel');
   const createGameForm = document.getElementById('create-game-form');
   const createPassword = document.getElementById('create-password');
@@ -775,19 +776,26 @@
     }
 
     if (createState.opponent === 'bot') {
+      const selectedDifficulty = document.querySelector('[data-create-option="difficulty"].active')?.dataset.value;
+      if (['easy', 'medium', 'hard'].includes(selectedDifficulty)) {
+        createState.difficulty = selectedDifficulty;
+      }
+      const gameCode = createLocalGameCode();
       const settings = {
         ...createState,
+        game: gameCode,
         access: 'open',
         password: '',
         createdAt: new Date().toISOString(),
       };
       localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(settings));
+      localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${gameCode}`, JSON.stringify(settings));
 
       const params = new URLSearchParams({
         mode: 'bot',
         opp: tt(botNameKeys[createState.difficulty]),
         oppR: String(botRatings[createState.difficulty]),
-        game: createLocalGameCode(),
+        game: gameCode,
         variant: createState.variant,
         opponent: 'bot',
         access: 'open',
@@ -890,11 +898,22 @@
       const a = b.dataset.action;
       let params;
       if (a === 'quick') {
+        const gameCode = createLocalGameCode();
+        const settings = {
+          game: gameCode,
+          opponent: 'bot',
+          difficulty: 'medium',
+          variant: quickState.variant,
+          access: 'open',
+          createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(settings));
+        localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${gameCode}`, JSON.stringify(settings));
         params = new URLSearchParams({
           mode: 'bot',
           opp: tt('room_opponent'),
           oppR: 1100,
-          game: createLocalGameCode(),
+          game: gameCode,
           variant: quickState.variant,
           opponent: 'bot',
           access: 'open',

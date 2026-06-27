@@ -6,11 +6,24 @@ window.NarduBot = (function () {
   const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
 
   function normalizeDifficulty(value, state = {}) {
-    const raw = String(value || state.botDifficulty || '').trim().toLowerCase();
-    if (DIFFICULTIES.has(raw)) return raw;
-    if (/hard|слож|1500/.test(raw)) return 'hard';
-    if (/medium|сред|1200/.test(raw)) return 'medium';
-    return 'easy';
+    const levels = { easy: 1, medium: 2, hard: 3 };
+    const hints = [
+      value,
+      state.botDifficulty,
+      state.analysis?.difficulty,
+      state.analysis?.botName,
+    ];
+    let resolved = 'easy';
+    hints.forEach(hint => {
+      const raw = String(hint || '').trim().toLowerCase();
+      let candidate = null;
+      if (DIFFICULTIES.has(raw)) candidate = raw;
+      else if (/hard|слож|трудн|1500/.test(raw)) candidate = 'hard';
+      else if (/medium|сред|1200/.test(raw)) candidate = 'medium';
+      else if (/easy|л[её]гк|900/.test(raw)) candidate = 'easy';
+      if (candidate && levels[candidate] > levels[resolved]) resolved = candidate;
+    });
+    return resolved;
   }
 
   function cloneState(state) {
@@ -100,5 +113,6 @@ window.NarduBot = (function () {
     plan,
     pickBestMove,
     evalMove,
+    normalizeDifficulty,
   };
 })();
