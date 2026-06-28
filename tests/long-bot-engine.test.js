@@ -237,7 +237,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb3-/);
-  assert.equal(decision.engineVersion, "long-linear-v4");
+  assert.equal(decision.engineVersion, "long-linear-v5");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.alternatives.length > 0);
   assert.equal(engine.consumeLastDecision(), null);
@@ -300,6 +300,42 @@ test("SX6K-4V5S move 229 preserves the only gateway for trapped checkers", () =>
   assert.deepEqual(JSON.parse(JSON.stringify(after.points[5])), { color: "dark", count: 1 });
   assert.equal(after.points[14]?.color, "dark");
   assert.equal(after.points[14]?.count, 3);
+});
+
+test("348Z-ELLM move 126 keeps a two-step gateway open for the head", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "white", count: 1 },
+    3: { color: "dark", count: 4 },
+    4: { color: "dark", count: 2 },
+    5: { color: "dark", count: 2 },
+    6: { color: "white", count: 1 },
+    7: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    11: { color: "white", count: 2 },
+    12: { color: "dark", count: 4 },
+    13: { color: "dark", count: 1 },
+    14: { color: "dark", count: 2 },
+    15: { color: "white", count: 1 },
+    17: { color: "white", count: 2 },
+    18: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 1 },
+  }, {
+    dice: [1, 1, 1, 1],
+    rolled: [1, 1, 1, 1],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 48, timeLimitMs: 900 });
+  assert.equal(plan.filter(move => move.from === 5).length, 1);
+
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[5])), { color: "dark", count: 1 });
+  assert.equal(after.points[12]?.count, 4);
 });
 
 function countHome(state, color) {

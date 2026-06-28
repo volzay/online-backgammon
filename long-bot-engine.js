@@ -322,6 +322,7 @@ function opponentTrapRisk(state, color) {
 function escapeGatewayRisk(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(color);
+  const head = headPoint(color);
   let risk = 0;
 
   Object.entries(state.points || {}).forEach(([point, stack]) => {
@@ -332,19 +333,53 @@ function escapeGatewayRisk(state, color) {
     const blocked = targets.filter(target => colorAt(state, target) === opponent).length;
     if (blocked < 3) return;
 
-    const ownLandings = targets.filter(target => colorAt(state, target) === color).length;
+    const immediateOwnLandings = targets.filter(target => (
+      colorAt(state, target) === color
+      && gatewayHasMobility(state, color, pathPos(color, target))
+    )).length;
+    const extendedTargets = path.slice(pos + 7, pos + 13);
+    const extendedOwnGateways = extendedTargets.filter(target => (
+      colorAt(state, target) === color
+      && canReachViaTwoDice(state, color, pos, pathPos(color, target))
+      && gatewayHasMobility(state, color, pathPos(color, target))
+    )).length;
+    const ownLandings = immediateOwnLandings + extendedOwnGateways;
     const emptyLandings = targets.filter(target => !colorAt(state, target));
     const exposedEmpties = emptyLandings.filter(target => canReachPoint(state, opponent, target)).length;
     const checkerCount = Number(stack.count) || 0;
     const severity = checkerCount * Math.pow(blocked - 2, 2);
     const routePressure = 1 + Math.max(0, 12 - pos) * 0.14;
-    const supportFactor = ownLandings > 0 ? 0.35 : 1;
+    const headPressure = Number(point) === head ? 1 + Math.min(3, checkerCount * 0.55) : 1;
+    const supportFactor = ownLandings > 0 ? 0.18 : 1.15;
     const exposureFactor = exposedEmpties * 0.55;
     const narrowExitFactor = ownLandings + emptyLandings.length <= 1 ? 1.4 : 0;
-    risk += severity * routePressure * (supportFactor + exposureFactor + narrowExitFactor);
+    risk += severity * routePressure * headPressure
+      * (supportFactor + exposureFactor + narrowExitFactor);
   });
 
   return risk;
+}
+
+function canReachViaTwoDice(state, color, fromPos, targetPos) {
+  if (targetPos - fromPos < 7 || targetPos - fromPos > 12) return false;
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  for (let firstDie = 1; firstDie <= 6; firstDie += 1) {
+    const secondDie = targetPos - fromPos - firstDie;
+    if (secondDie < 1 || secondDie > 6) continue;
+    const intermediate = path[fromPos + firstDie];
+    if (intermediate && colorAt(state, intermediate) !== opponent) return true;
+  }
+  return false;
+}
+
+function gatewayHasMobility(state, color, gatewayPos) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const exits = path.slice(gatewayPos + 1, gatewayPos + 7)
+    .filter(target => colorAt(state, target) !== opponent)
+    .length;
+  return exits >= 2;
 }
 
 function homeEntryMoveCount(sequence = [], color) {
@@ -759,7 +794,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-linear-v4';
+const ENGINE_VERSION = 'long-linear-v5';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
