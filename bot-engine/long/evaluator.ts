@@ -5,6 +5,7 @@ import {
   distributionPenalty,
   entryContinuationMoveCount,
   entryZoneOutsideCount,
+  escapeGatewayRisk,
   footholdScore,
   headCheckers,
   headLandingBreakRisk,
@@ -45,6 +46,7 @@ export const DEFAULT_LONG_BOT_WEIGHTS = {
   trapRisk: 62000,
   headLandingExposure: 62000,
   opponentHeadFreedom: 48000,
+  escapeGatewayRisk: 800000,
 };
 
 export function mergeWeights(weights = {}) {
@@ -85,7 +87,9 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
     + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
     - ownTrapRisk * weights.trapRisk
-    + opponentTrapReward * weights.trapRisk * 0.055;
+    + opponentTrapReward * weights.trapRisk * 0.055
+    - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
+    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12;
 }
 
 export function sequenceStats(before, after, color, sequence = []) {
@@ -108,6 +112,7 @@ export function sequenceStats(before, after, color, sequence = []) {
   const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
   const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
     - opponentHeadFreedomRisk(after, color);
+  const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -129,6 +134,7 @@ export function sequenceStats(before, after, color, sequence = []) {
     outsideDevelopmentMoves,
     entryContinuationMoves,
     opponentHeadFreedomDelta,
+    escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -154,6 +160,7 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
   score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
+  score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {

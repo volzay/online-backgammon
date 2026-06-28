@@ -77,6 +77,7 @@ window.NarduStrongBot = (function () {
       homeEntry: 145000 * ratio('avoidRush'),
       rushPenalty: 12500 * ratio('avoidRush'),
       trapRisk: 62000 * ratio('routeControl'),
+      escapeGatewayRisk: 800000 * ratio('routeControl'),
       distribution: 780 * ratio('avoidTowers'),
     };
   }

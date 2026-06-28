@@ -319,6 +319,34 @@ function opponentTrapRisk(state, color) {
   return risk;
 }
 
+function escapeGatewayRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const targets = path.slice(pos + 1, pos + 7);
+    const blocked = targets.filter(target => colorAt(state, target) === opponent).length;
+    if (blocked < 3) return;
+
+    const ownLandings = targets.filter(target => colorAt(state, target) === color).length;
+    const emptyLandings = targets.filter(target => !colorAt(state, target));
+    const exposedEmpties = emptyLandings.filter(target => canReachPoint(state, opponent, target)).length;
+    const checkerCount = Number(stack.count) || 0;
+    const severity = checkerCount * Math.pow(blocked - 2, 2);
+    const routePressure = 1 + Math.max(0, 12 - pos) * 0.14;
+    const supportFactor = ownLandings > 0 ? 0.35 : 1;
+    const exposureFactor = exposedEmpties * 0.55;
+    const narrowExitFactor = ownLandings + emptyLandings.length <= 1 ? 1.4 : 0;
+    risk += severity * routePressure * (supportFactor + exposureFactor + narrowExitFactor);
+  });
+
+  return risk;
+}
+
 function homeEntryMoveCount(sequence = [], color) {
   return sequence.reduce((total, move) => {
     const fromPos = pathPos(color, move.from);
@@ -455,6 +483,7 @@ const DEFAULT_LONG_BOT_WEIGHTS = {
   trapRisk: 62000,
   headLandingExposure: 62000,
   opponentHeadFreedom: 48000,
+  escapeGatewayRisk: 800000,
 };
 
 function mergeWeights(weights = {}) {
@@ -495,7 +524,9 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
     + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
     - ownTrapRisk * weights.trapRisk
-    + opponentTrapReward * weights.trapRisk * 0.055;
+    + opponentTrapReward * weights.trapRisk * 0.055
+    - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
+    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12;
 }
 
 function sequenceStats(before, after, color, sequence = []) {
@@ -518,6 +549,7 @@ function sequenceStats(before, after, color, sequence = []) {
   const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
   const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
     - opponentHeadFreedomRisk(after, color);
+  const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
 
@@ -539,6 +571,7 @@ function sequenceStats(before, after, color, sequence = []) {
     outsideDevelopmentMoves,
     entryContinuationMoves,
     opponentHeadFreedomDelta,
+    escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
   };
@@ -564,6 +597,7 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
   score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
+  score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
@@ -725,7 +759,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-linear-v3';
+const ENGINE_VERSION = 'long-linear-v4';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

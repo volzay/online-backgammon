@@ -315,6 +315,34 @@ export function opponentTrapRisk(state, color) {
   return risk;
 }
 
+export function escapeGatewayRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const targets = path.slice(pos + 1, pos + 7);
+    const blocked = targets.filter(target => colorAt(state, target) === opponent).length;
+    if (blocked < 3) return;
+
+    const ownLandings = targets.filter(target => colorAt(state, target) === color).length;
+    const emptyLandings = targets.filter(target => !colorAt(state, target));
+    const exposedEmpties = emptyLandings.filter(target => canReachPoint(state, opponent, target)).length;
+    const checkerCount = Number(stack.count) || 0;
+    const severity = checkerCount * Math.pow(blocked - 2, 2);
+    const routePressure = 1 + Math.max(0, 12 - pos) * 0.14;
+    const supportFactor = ownLandings > 0 ? 0.35 : 1;
+    const exposureFactor = exposedEmpties * 0.55;
+    const narrowExitFactor = ownLandings + emptyLandings.length <= 1 ? 1.4 : 0;
+    risk += severity * routePressure * (supportFactor + exposureFactor + narrowExitFactor);
+  });
+
+  return risk;
+}
+
 export function homeEntryMoveCount(sequence = [], color) {
   return sequence.reduce((total, move) => {
     const fromPos = pathPos(color, move.from);
