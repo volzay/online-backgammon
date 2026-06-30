@@ -1226,6 +1226,73 @@ function isFinalGameState(gameState) {
   ));
 }
 
+function checkerCountFor(gameState, color) {
+  let total = 0;
+  const points = gameState.points || {};
+  for (const key of Object.keys(points)) {
+    const stack = points[key];
+    if (!stack || stack.color !== color) continue;
+    const count = Number(stack.count);
+    if (!Number.isInteger(count) || count < 0) return Number.NaN;
+    total += count;
+  }
+  for (const area of ["off", "bar"]) {
+    const count = Number(gameState[area]?.[color]);
+    if (!Number.isInteger(count) || count < 0) return Number.NaN;
+    total += count;
+  }
+  return total;
+}
+
+function validatePublishedGameState(gameState) {
+  if (
+    !gameState
+    || typeof gameState !== "object"
+    || Array.isArray(gameState)
+    || !gameState.points
+    || typeof gameState.points !== "object"
+    || Array.isArray(gameState.points)
+  ) {
+    return "Некорректное состояние партии.";
+  }
+
+  for (const [point, stack] of Object.entries(gameState.points)) {
+    const pointNumber = Number(point);
+    if (
+      !Number.isInteger(pointNumber)
+      || pointNumber < 1
+      || pointNumber > 24
+      || !stack
+      || !["white", "dark"].includes(stack.color)
+      || !Number.isInteger(Number(stack.count))
+      || Number(stack.count) < 1
+    ) {
+      return "Некорректное состояние позиции.";
+    }
+  }
+
+  for (const color of ["white", "dark"]) {
+    if (checkerCountFor(gameState, color) !== 15) {
+      return "Нарушение целостности доски.";
+    }
+  }
+
+  if (gameState.winner && !["white", "dark"].includes(gameState.winner)) {
+    return "Некорректно указан победитель.";
+  }
+  if (gameState.winner) {
+    const borneOffWin = Number(gameState.off?.[gameState.winner]) === 15;
+    const history = Array.isArray(gameState.history) ? gameState.history : [];
+    const conceded = Boolean(gameState.networkLoss) || history.some(item => (
+      item && (item.resign || item.networkLoss || item.leave || item.timeout)
+    ));
+    if (!borneOffWin && !conceded) {
+      return "Победа не подтверждена позицией на доске.";
+    }
+  }
+  return null;
+}
+
 function archiveReasonForRoom(room) {
   const game = room.gameState || {};
   const latest = Array.isArray(game.history) ? game.history[0] : null;
@@ -2124,8 +2191,21 @@ async function handleApi(req, res, url) {
         sendJson(res, 400, { error: "Некорректное состояние партии." });
         return;
       }
+      const currentVersion = Number(room.gameVersion) || 0;
+      if ((Number(body.version) || 0) !== currentVersion) {
+        sendJson(res, 409, {
+          error: "Состояние комнаты уже обновлено другим клиентом.",
+          version: currentVersion,
+        });
+        return;
+      }
+      const stateError = validatePublishedGameState(body.state);
+      if (stateError) {
+        sendJson(res, 422, { error: stateError, version: currentVersion });
+        return;
+      }
       room.gameState = body.state;
-      room.gameVersion = (room.gameVersion || 0) + 1;
+      room.gameVersion = currentVersion + 1;
       room.gameUpdatedAt = new Date().toISOString();
       if (isFinalGameState(room.gameState)) {
         room.gameState.finishedAt ||= Date.now();

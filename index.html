@@ -343,6 +343,7 @@
   }
 
   const ACTIVE_ROOM_KEY = 'narduh-active-room';
+  const CREATE_GAME_KEY = 'narduh-created-game';
   const opponentLabelKeys = { player: 'opponent_player', bot: 'opponent_bot' };
   const difficultyLabelKeys = { easy: 'difficulty_easy', medium: 'difficulty_medium', hard: 'difficulty_hard' };
   const variantLabelKeys = { long: 'long_backgammon', short: 'short_backgammon' };
@@ -396,6 +397,42 @@
       renderTables();
     } catch {
       /* keep the last visible session list if the server is restarting */
+    }
+  }
+
+  function storedRoomCodes() {
+    const codes = [];
+    try {
+      [ACTIVE_ROOM_KEY, CREATE_GAME_KEY].forEach(key => {
+        const room = JSON.parse(localStorage.getItem(key) || 'null');
+        if (room?.code) codes.push(String(room.code).trim().toUpperCase());
+      });
+    } catch {}
+    return [...new Set(codes)];
+  }
+
+  function clearClosedRoomStorage(closedCodes) {
+    const closed = new Set((closedCodes || []).map(code => String(code).trim().toUpperCase()));
+    [ACTIVE_ROOM_KEY, CREATE_GAME_KEY].forEach(key => {
+      try {
+        const room = JSON.parse(localStorage.getItem(key) || 'null');
+        if (room?.code && closed.has(String(room.code).trim().toUpperCase())) {
+          localStorage.removeItem(key);
+        }
+      } catch {
+        localStorage.removeItem(key);
+      }
+    });
+  }
+
+  async function closeWaitingRoomsOnLobbyEntry() {
+    try {
+      const data = await NarduRooms.closeOwnWaitingRooms({ codes: storedRoomCodes() });
+      clearClosedRoomStorage(data.closedCodes || []);
+      return data;
+    } catch (error) {
+      console.warn('Could not close waiting rooms after lobby entry', error?.message || error);
+      return { ok: false, closedCodes: [] };
     }
   }
 
@@ -590,7 +627,12 @@
       : `<div class="sessions-empty">${escapeHtml(tt('no_sessions'))}</div>`;
   }
   renderTables();
-  refreshPlayerRooms();
+  const lobbyCleanupPromise = closeWaitingRoomsOnLobbyEntry()
+    .finally(refreshPlayerRooms);
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    closeWaitingRoomsOnLobbyEntry().finally(refreshPlayerRooms);
+  });
   setInterval(refreshPlayerRooms, 2500);
 
   document.querySelectorAll('[data-session-filter]').forEach(btn => {
@@ -656,13 +698,13 @@
     location.href = 'room.html?' + params.toString();
   });
 
-  const CREATE_GAME_KEY = 'narduh-created-game';
   const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
   const createGamePanel = document.getElementById('create-game-panel');
   const createGameForm = document.getElementById('create-game-form');
   const createPassword = document.getElementById('create-password');
   const createSummary = document.getElementById('create-game-summary');
   const createError = document.getElementById('create-game-error');
+  const createSubmit = createGameForm.querySelector('.create-submit');
   const joinCodePanel = document.getElementById('join-code-panel');
   const joinCodeForm = document.getElementById('join-code-form');
   const joinCodeInput = document.getElementById('join-code');
@@ -679,6 +721,7 @@
     variant: 'long',
   };
   const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+  let createRequestPending = false;
 
   function syncQuickVariant() {
     document.querySelectorAll('[data-quick-variant]').forEach(btn => {
@@ -805,8 +848,14 @@
       return;
     }
 
+    if (createRequestPending) return;
+    createRequestPending = true;
+    createSubmit.disabled = true;
+    createGameForm.setAttribute('aria-busy', 'true');
+
     let room;
     try {
+      await lobbyCleanupPromise;
       const data = await NarduRooms.createRoom({
         hostName: userName(),
         hostRating: userRating(),
@@ -821,6 +870,9 @@
     } catch (err) {
       if (err.data?.room && goToExistingPlayerRoom(err.data.room)) return;
       createError.textContent = err.message || tt('err_create_session');
+      createRequestPending = false;
+      createSubmit.disabled = false;
+      createGameForm.removeAttribute('aria-busy');
       return;
     }
 

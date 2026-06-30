@@ -1777,6 +1777,7 @@ window.NarduGame = (function () {
     pathPos,
     barPoint,
     pipsFor,
+    resultTypeFor,
     opponentOf,
     endTurn,
     headPoint,

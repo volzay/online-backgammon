@@ -1248,8 +1248,16 @@ async function activeRoom() {
 }
 
 async function removeCurrentWaitingRoom() {
-  if (!roomCode) return;
-  await NarduRooms.deleteRoom(roomCode).catch(() => {});
+  if (!roomCode) return false;
+  let removed = false;
+  try {
+    const result = await NarduRooms.deleteRoom(roomCode);
+    removed = result.removed === true;
+  } catch (error) {
+    console.warn('Could not close current waiting room', error?.message || error);
+    return false;
+  }
+  if (!removed) return false;
   try {
     const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
     if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
@@ -1259,6 +1267,7 @@ async function removeCurrentWaitingRoom() {
     localStorage.removeItem(CREATE_GAME_KEY);
     localStorage.removeItem(ACTIVE_ROOM_KEY);
   }
+  return true;
 }
 function isActiveRemoteRoom() {
   return roomCode && roomUrl.searchParams.get('mode') === 'remote' && !isWaitingHost && !isSpectatorRoom;

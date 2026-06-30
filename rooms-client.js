@@ -370,6 +370,16 @@
         return { room: publicRoom(data, { password }) };
       }
       lastError = error;
+      if (error.code === "23505" && authUser?.id) {
+        const existingRoom = await findActiveRoomFor(client, authUser.id);
+        if (existingRoom) {
+          throw roomError(
+            "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
+            409,
+            { room: publicRoom(existingRoom, { password }) }
+          );
+        }
+      }
       if (error.code !== "23505") break;
     }
     throw supabaseError(lastError, "Could not create room.");
@@ -518,16 +528,58 @@
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}`, { method: "DELETE" });
     }
     const { client } = await roomClientContext();
-    const { error } = await client
+    const { data, error } = await client
       .from("rooms")
       .update({
         status: "closed",
         archived_at: new Date().toISOString(),
         closed_reason: "removed",
       })
-      .eq("code", normalizedCode);
+      .eq("code", normalizedCode)
+      .neq("status", "closed")
+      .select("code")
+      .maybeSingle();
     if (error) throw supabaseError(error, "Could not close room.");
-    return { ok: true };
+    return { ok: true, removed: Boolean(data), code: normalizedCode };
+  }
+
+  async function closeOwnWaitingRooms(payload = {}) {
+    const codes = [...new Set((payload.codes || []).map(normalizeCode).filter(Boolean))];
+    if (!configured()) {
+      const closed = [];
+      for (const code of codes) {
+        const result = await deleteRoom(code);
+        if (result.removed) closed.push(code);
+      }
+      return { ok: true, closedCodes: closed };
+    }
+
+    const { client, authUser } = await roomClientContext({ allowLocalFallback: true });
+    if (authUser?.id) {
+      const { data, error } = await client
+        .from("rooms")
+        .update({
+          status: "closed",
+          archived_at: new Date().toISOString(),
+          closed_reason: "lobby_exit",
+        })
+        .eq("host_user_id", authUser.id)
+        .eq("status", "waiting")
+        .is("guest_user_id", null)
+        .select("code");
+      if (error) throw supabaseError(error, "Could not close waiting rooms.");
+      return {
+        ok: true,
+        closedCodes: (data || []).map(row => normalizeCode(row.code)).filter(Boolean),
+      };
+    }
+
+    const closed = [];
+    for (const code of codes) {
+      const result = await deleteRoom(code);
+      if (result.removed) closed.push(code);
+    }
+    return { ok: true, closedCodes: closed };
   }
 
   function finalGameState(state) {
@@ -932,6 +984,7 @@
     getRoom,
     joinRoom,
     deleteRoom,
+    closeOwnWaitingRooms,
     getGameState,
     putGameState,
     archiveBotTrainingGame,
