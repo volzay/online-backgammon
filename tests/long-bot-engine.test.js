@@ -57,6 +57,70 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.consumeLastDecision, "function");
 });
 
+test("learned profile cannot destabilize the long engine weights", () => {
+  let capturedOptions = null;
+  let requestedKey = null;
+  const context = {
+    window: {
+      localStorage: {
+        getItem(key) {
+          requestedKey = key;
+          return JSON.stringify({
+            headBlock: 1.85,
+            headEscape: 2.2,
+            routeControl: 1.8,
+            preserveHeadLandings: 1.95,
+            avoidRush: 1.75,
+            avoidTowers: 1.7,
+          });
+        },
+        setItem() {},
+      },
+      NarduLongBotEngine: {
+        plan(_state, options) {
+          capturedOptions = options;
+          return [{ from: 12, die: 1 }];
+        },
+      },
+    },
+    console,
+    Date,
+    Math,
+  };
+  context.window.window = context.window;
+  context.globalThis = context.window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), context, {
+    filename: "strong-bot.js",
+  });
+
+  context.window.NarduStrongBot.plan(longState({
+    12: { color: "dark", count: 15 },
+    24: { color: "white", count: 15 },
+  }, {
+    dice: [1, 2],
+    rolled: [1, 2],
+  }));
+
+  assert.equal(requestedKey, "narduh-strong-bot-profile-v4");
+  assert.ok(capturedOptions);
+  const bases = {
+    opponentHeadFreedom: 48000,
+    headLandingExposure: 62000,
+    headRelease: 9800,
+    foothold: 4300,
+    homeEntry: 145000,
+    rushPenalty: 12500,
+    trapRisk: 62000,
+    escapeGatewayRisk: 800000,
+    distribution: 780,
+  };
+  Object.entries(bases).forEach(([key, base]) => {
+    assert.ok(capturedOptions.weights[key] <= base * 1.08 + 0.001, key);
+    assert.ok(capturedOptions.weights[key] >= base * 0.96 - 0.001, key);
+  });
+});
+
 test("endgame plan prioritizes bearing off instead of shuffling home points", () => {
   const { game, engine } = loadBrowserEngine();
   const state = longState({
@@ -237,13 +301,13 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb3-/);
-  assert.equal(decision.engineVersion, "long-linear-v5");
+  assert.equal(decision.engineVersion, "long-linear-v6");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.alternatives.length > 0);
   assert.equal(engine.consumeLastDecision(), null);
 });
 
-test("XP7E-F64Y move 299 carries the last outside checker through the home entry", () => {
+test("XP7E-F64Y move 299 enters one checker and advances another outside checker", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "white", count: 1 },
@@ -261,10 +325,9 @@ test("XP7E-F64Y move 299 carries the last outside checker through the home entry
   });
 
   const plan = engine.plan(state, { maxCandidates: 48, timeLimitMs: 900 });
-  assert.equal(JSON.stringify(plan), JSON.stringify([
-    { from: 20, die: 3 },
-    { from: 17, die: 4 },
-  ]));
+  assert.ok(plan.some(move => move.from === 20 && move.die === 3));
+  assert.ok(plan.some(move => move.from === 3 && move.die === 4));
+  assert.ok(!plan.some(move => move.from === 17));
 });
 
 test("SX6K-4V5S move 229 preserves the only gateway for trapped checkers", () => {
@@ -338,6 +401,72 @@ test("348Z-ELLM move 126 keeps a two-step gateway open for the head", () => {
   assert.equal(after.points[12]?.count, 4);
 });
 
+test("X383-UNU9 move 118 enters a lagging checker instead of improving the home board", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    7: { color: "white", count: 1 },
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    13: { color: "dark", count: 1 },
+    14: { color: "white", count: 2 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "dark", count: 2 },
+    18: { color: "dark", count: 5 },
+    19: { color: "white", count: 5 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 1 },
+  }, {
+    dice: [4, 1],
+    rolled: [4, 1],
+  });
+
+  const outsideBefore = countOutsideHome(state, "dark");
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(countOutsideHome(after, "dark"), outsideBefore - 1);
+  assert.ok(plan.some(move => move.from === 22 && move.die === 4));
+});
+
+test("X383-UNU9 move 134 carries the laggard home instead of making a cosmetic home move", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    7: { color: "white", count: 1 },
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 2 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    13: { color: "dark", count: 2 },
+    14: { color: "white", count: 2 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "dark", count: 1 },
+    18: { color: "dark", count: 5 },
+    19: { color: "white", count: 4 },
+    22: { color: "dark", count: 1 },
+    24: { color: "white", count: 1 },
+  }, {
+    dice: [3, 5],
+    rolled: [3, 5],
+  });
+
+  const outsideBefore = countOutsideHome(state, "dark");
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(countOutsideHome(after, "dark"), outsideBefore - 1);
+  assert.ok(!plan.some(move => move.from === 18 && move.die === 5));
+});
+
 function countHome(state, color) {
   const path = color === "white"
     ? [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
@@ -347,4 +476,8 @@ function countHome(state, color) {
     const pos = path.indexOf(Number(point));
     return total + (pos >= 18 && pos <= 23 ? data.count : 0);
   }, state.off?.[color] || 0);
+}
+
+function countOutsideHome(state, color) {
+  return 15 - countHome(state, color);
 }

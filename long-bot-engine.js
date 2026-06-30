@@ -74,6 +74,14 @@ function outsideHomeCount(state, color) {
   return checkersInTrackRange(state, color, 0, 17);
 }
 
+function outsideHomePips(state, color) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    return total + (pos >= 0 && pos < 18 ? stack.count * (18 - pos) : 0);
+  }, 0);
+}
+
 function entryZoneOutsideCount(state, color) {
   return checkersInTrackRange(state, color, 12, 17);
 }
@@ -281,6 +289,29 @@ function lateEntryPressure(state, color) {
   const opponentRace = offCount(state, opponent) * 0.32 + (homeReady(state, opponent) ? 1.8 : 0);
   const entryRatio = entry / Math.max(1, outside);
   return 1 + entryRatio * 2.4 + lateRace + opponentRace;
+}
+
+function routeCompletionPressure(state, color) {
+  const outside = outsideHomeCount(state, color);
+  if (!outside) return 0;
+
+  const opponent = opponentOf(color);
+  const ownHome = homeBoardCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const opponentReady = homeReady(state, opponent);
+
+  if (outside > 8 && opponentOff === 0 && !opponentReady) {
+    return 0.18 + Math.min(0.32, ownHome * 0.025);
+  }
+
+  return Math.min(
+    6.5,
+    1
+      + Math.max(0, 9 - outside) * 0.45
+      + ownHome * 0.12
+      + opponentOff * 0.62
+      + (opponentReady ? 1.8 : 0),
+  );
 }
 
 function opponentTrapRisk(state, color) {
@@ -573,7 +604,8 @@ function sequenceStats(before, after, color, sequence = []) {
   const blockadeGain = blockadeScore(after, color) - blockadeScore(before, color);
   const headGain = headCheckers(before, color) - headCheckers(after, color);
   const footholdGain = footholdScore(after, color) - footholdScore(before, color);
-  const outsideReduction = Math.max(0, entryZoneOutsideCount(before, color) - entryZoneOutsideCount(after, color));
+  const outsideReduction = Math.max(0, outsideHomeCount(before, color) - outsideHomeCount(after, color));
+  const outsidePipGain = Math.max(0, outsideHomePips(before, color) - outsideHomePips(after, color));
   const homeEntryMoves = homeEntryMoveCount(sequence, color);
   const trapDelta = opponentTrapRisk(before, color) - opponentTrapRisk(after, color);
   const trapBefore = opponentTrapRisk(before, color);
@@ -598,6 +630,7 @@ function sequenceStats(before, after, color, sequence = []) {
     headGain,
     footholdGain,
     outsideReduction,
+    outsidePipGain,
     homeEntryMoves,
     trapDelta,
     trapBefore,
@@ -616,6 +649,7 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   const stats = sequenceStats(before, after, color, sequence);
   const pressure = phasePressure(before, color);
   const entryPressure = lateEntryPressure(before, color);
+  const completionPressure = routeCompletionPressure(before, color);
   const development = developmentPressure(before, color);
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
 
@@ -628,6 +662,8 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.footholdGain * weights.foothold * 1.2;
   score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure;
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
+  score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
+  score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
@@ -645,7 +681,8 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
       * weights.homeEntry
       * 1.18
       * Math.max(1, entryPressure)
-      * Math.max(1, development);
+      * Math.max(1, development)
+      * Math.max(1, completionPressure);
     score -= Math.max(0, shufflePenalty - tacticalJustification);
   }
 
@@ -794,7 +831,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-linear-v5';
+const ENGINE_VERSION = 'long-linear-v6';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

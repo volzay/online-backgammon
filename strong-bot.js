@@ -9,9 +9,9 @@ window.NarduStrongBot = (function () {
   const PREFILTER_SEQUENCE_LIMIT = 48;
   const REPLY_LIMIT = 4;
   const PLAN_TIME_LIMIT_MS = 900;
-  const PROFILE_KEY = 'narduh-strong-bot-profile-v3';
+  const PROFILE_KEY = 'narduh-strong-bot-profile-v4';
   const DEFAULT_PROFILE = {
-    version: 2,
+    version: 3,
     games: 0,
     losses: 0,
     headBlock: 1.18,
@@ -64,11 +64,10 @@ window.NarduStrongBot = (function () {
   }
 
   function longEngineWeights(profile = learningProfile()) {
-    const ratio = (key, min = 0.82, max = 1.38) => clamp(
-      Number(profile[key] || DEFAULT_PROFILE[key]) / DEFAULT_PROFILE[key],
-      min,
-      max,
-    );
+    const ratio = (key) => {
+      const learned = Number(profile[key] || DEFAULT_PROFILE[key]) / DEFAULT_PROFILE[key];
+      return clamp(1 + (learned - 1) * 0.24, 0.96, 1.08);
+    };
     return {
       opponentHeadFreedom: 48000 * ratio('headBlock'),
       headLandingExposure: 62000 * ratio('preserveHeadLandings'),
