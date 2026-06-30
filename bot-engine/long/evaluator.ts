@@ -16,9 +16,11 @@ import {
   homeReady,
   homeShuffleMoveCount,
   homeTotalCount,
+  laggardRouteDebt,
   lateEntryPressure,
   offCount,
   opponentOf,
+  opponentHeadFenceBarrierScore,
   opponentHeadBlockScore,
   opponentHeadFreedomRisk,
   opponentTrapRisk,
@@ -106,6 +108,7 @@ export function sequenceStats(before, after, color, sequence = []) {
   const footholdGain = footholdScore(after, color) - footholdScore(before, color);
   const outsideReduction = Math.max(0, outsideHomeCount(before, color) - outsideHomeCount(after, color));
   const outsidePipGain = Math.max(0, outsideHomePips(before, color) - outsideHomePips(after, color));
+  const laggardDebtDelta = laggardRouteDebt(before, color) - laggardRouteDebt(after, color);
   const homeEntryMoves = homeEntryMoveCount(sequence, color);
   const trapDelta = opponentTrapRisk(before, color) - opponentTrapRisk(after, color);
   const trapBefore = opponentTrapRisk(before, color);
@@ -116,6 +119,8 @@ export function sequenceStats(before, after, color, sequence = []) {
   const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
   const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
     - opponentHeadFreedomRisk(after, color);
+  const opponentHeadBarrierDelta = opponentHeadFenceBarrierScore(after, color)
+    - opponentHeadFenceBarrierScore(before, color);
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
@@ -131,6 +136,7 @@ export function sequenceStats(before, after, color, sequence = []) {
     footholdGain,
     outsideReduction,
     outsidePipGain,
+    laggardDebtDelta,
     homeEntryMoves,
     trapDelta,
     trapBefore,
@@ -139,6 +145,7 @@ export function sequenceStats(before, after, color, sequence = []) {
     outsideDevelopmentMoves,
     entryContinuationMoves,
     opponentHeadFreedomDelta,
+    opponentHeadBarrierDelta,
     escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
@@ -164,10 +171,12 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
   score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
+  score += stats.laggardDebtDelta * weights.homeEntry;
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
   score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
+  score += stats.opponentHeadBarrierDelta * weights.opponentHeadFreedom * 0.55;
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;

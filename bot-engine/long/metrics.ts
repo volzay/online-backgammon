@@ -78,6 +78,20 @@ export function outsideHomePips(state, color) {
   }, 0);
 }
 
+export function laggardRouteDebt(state, color) {
+  if (headCheckers(state, color) > 0) return 0;
+  const outside = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point, stack]) => ({ pos: pathPos(color, Number(point)), count: Number(stack.count) || 0 }))
+    .filter(item => item.pos >= 0 && item.pos < 18);
+  if (!outside.length) return 0;
+
+  const lastPos = Math.min(...outside.map(item => item.pos));
+  return outside
+    .filter(item => item.pos <= lastPos + 2)
+    .reduce((total, item) => total + item.count * Math.pow(18 - item.pos, 2), 0);
+}
+
 export function entryZoneOutsideCount(state, color) {
   return checkersInTrackRange(state, color, 12, 17);
 }
@@ -344,6 +358,32 @@ export function opponentTrapRisk(state, color) {
   });
 
   return risk;
+}
+
+export function opponentHeadFenceBarrierScore(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  if (opponentHead <= 2) return 0;
+  const path = pathFor(opponent);
+  const pressure = 1 + Math.max(0, opponentHead - 4) / 6;
+
+  return [1, 2, 3, 4, 5, 6].reduce((score, die) => {
+    const target = pathFor(opponent)[die];
+    if (!target || colorAt(state, target) !== color) return score;
+
+    let run = 1;
+    for (let index = die - 1; index >= 0 && colorAt(state, path[index]) === opponent; index -= 1) {
+      run += 1;
+    }
+    for (
+      let index = die + 1;
+      index < path.length && colorAt(state, path[index]) === opponent;
+      index += 1
+    ) {
+      run += 1;
+    }
+    return score + (run >= 3 ? Math.pow(run, 3) * pressure : 0);
+  }, 0);
 }
 
 export function escapeGatewayRisk(state, color) {

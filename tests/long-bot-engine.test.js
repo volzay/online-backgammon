@@ -301,7 +301,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb3-/);
-  assert.equal(decision.engineVersion, "long-linear-v6");
+  assert.equal(decision.engineVersion, "long-linear-v7");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.alternatives.length > 0);
   assert.equal(engine.consumeLastDecision(), null);
@@ -465,6 +465,99 @@ test("X383-UNU9 move 134 carries the laggard home instead of making a cosmetic h
 
   assert.equal(countOutsideHome(after, "dark"), outsideBefore - 1);
   assert.ok(!plan.some(move => move.from === 18 && move.die === 5));
+});
+
+test("SGHP-V6KP move 22 advances the deepest laggard before entering a nearer checker", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "dark", count: 3 },
+    3: { color: "white", count: 1 },
+    4: { color: "dark", count: 1 },
+    5: { color: "dark", count: 2 },
+    6: { color: "dark", count: 1 },
+    7: { color: "dark", count: 1 },
+    8: { color: "dark", count: 1 },
+    9: { color: "white", count: 4 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 2 },
+    13: { color: "white", count: 1 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "dark", count: 3 },
+    17: { color: "white", count: 1 },
+    18: { color: "white", count: 1 },
+    19: { color: "white", count: 1 },
+    22: { color: "dark", count: 1 },
+    23: { color: "dark", count: 1 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [3, 5],
+    rolled: [3, 5],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  assert.ok(plan.some(move => move.from === 7));
+  assert.ok(!plan.some(move => move.from === 24 && move.die === 3));
+});
+
+test("TB9N-MS4S move 5 preserves the stronger opponent-head barrier", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    6: { color: "dark", count: 1 },
+    9: { color: "white", count: 1 },
+    12: { color: "dark", count: 12 },
+    15: { color: "white", count: 1 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "dark", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 10 },
+  }, {
+    dice: [5, 4],
+    rolled: [5, 4],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[21])), { color: "dark", count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[18])), { color: "dark", count: 1 });
+});
+
+test("U3DQ-PGZX move 11 keeps the point that prevents a head-built fence", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    2: { color: "dark", count: 1 },
+    4: { color: "dark", count: 1 },
+    5: { color: "dark", count: 1 },
+    6: { color: "dark", count: 3 },
+    7: { color: "white", count: 1 },
+    8: { color: "white", count: 1 },
+    9: { color: "dark", count: 2 },
+    11: { color: "dark", count: 1 },
+    12: { color: "dark", count: 5 },
+    17: { color: "white", count: 1 },
+    18: { color: "dark", count: 1 },
+    19: { color: "white", count: 2 },
+    20: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 2 },
+    24: { color: "white", count: 5 },
+  }, {
+    dice: [4, 5],
+    rolled: [4, 5],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[18])), { color: "dark", count: 1 });
+  assert.ok(!plan.some(move => move.from === 18));
 });
 
 function countHome(state, color) {

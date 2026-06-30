@@ -82,6 +82,20 @@ function outsideHomePips(state, color) {
   }, 0);
 }
 
+function laggardRouteDebt(state, color) {
+  if (headCheckers(state, color) > 0) return 0;
+  const outside = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point, stack]) => ({ pos: pathPos(color, Number(point)), count: Number(stack.count) || 0 }))
+    .filter(item => item.pos >= 0 && item.pos < 18);
+  if (!outside.length) return 0;
+
+  const lastPos = Math.min(...outside.map(item => item.pos));
+  return outside
+    .filter(item => item.pos <= lastPos + 2)
+    .reduce((total, item) => total + item.count * Math.pow(18 - item.pos, 2), 0);
+}
+
 function entryZoneOutsideCount(state, color) {
   return checkersInTrackRange(state, color, 12, 17);
 }
@@ -350,6 +364,32 @@ function opponentTrapRisk(state, color) {
   return risk;
 }
 
+function opponentHeadFenceBarrierScore(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  if (opponentHead <= 2) return 0;
+  const path = pathFor(opponent);
+  const pressure = 1 + Math.max(0, opponentHead - 4) / 6;
+
+  return [1, 2, 3, 4, 5, 6].reduce((score, die) => {
+    const target = pathFor(opponent)[die];
+    if (!target || colorAt(state, target) !== color) return score;
+
+    let run = 1;
+    for (let index = die - 1; index >= 0 && colorAt(state, path[index]) === opponent; index -= 1) {
+      run += 1;
+    }
+    for (
+      let index = die + 1;
+      index < path.length && colorAt(state, path[index]) === opponent;
+      index += 1
+    ) {
+      run += 1;
+    }
+    return score + (run >= 3 ? Math.pow(run, 3) * pressure : 0);
+  }, 0);
+}
+
 function escapeGatewayRisk(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(color);
@@ -606,6 +646,7 @@ function sequenceStats(before, after, color, sequence = []) {
   const footholdGain = footholdScore(after, color) - footholdScore(before, color);
   const outsideReduction = Math.max(0, outsideHomeCount(before, color) - outsideHomeCount(after, color));
   const outsidePipGain = Math.max(0, outsideHomePips(before, color) - outsideHomePips(after, color));
+  const laggardDebtDelta = laggardRouteDebt(before, color) - laggardRouteDebt(after, color);
   const homeEntryMoves = homeEntryMoveCount(sequence, color);
   const trapDelta = opponentTrapRisk(before, color) - opponentTrapRisk(after, color);
   const trapBefore = opponentTrapRisk(before, color);
@@ -616,6 +657,8 @@ function sequenceStats(before, after, color, sequence = []) {
   const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
   const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
     - opponentHeadFreedomRisk(after, color);
+  const opponentHeadBarrierDelta = opponentHeadFenceBarrierScore(after, color)
+    - opponentHeadFenceBarrierScore(before, color);
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
@@ -631,6 +674,7 @@ function sequenceStats(before, after, color, sequence = []) {
     footholdGain,
     outsideReduction,
     outsidePipGain,
+    laggardDebtDelta,
     homeEntryMoves,
     trapDelta,
     trapBefore,
@@ -639,6 +683,7 @@ function sequenceStats(before, after, color, sequence = []) {
     outsideDevelopmentMoves,
     entryContinuationMoves,
     opponentHeadFreedomDelta,
+    opponentHeadBarrierDelta,
     escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
@@ -664,10 +709,12 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
   score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
+  score += stats.laggardDebtDelta * weights.homeEntry;
   score += stats.trapDelta * weights.trapRisk * 1.8;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
   score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
+  score += stats.opponentHeadBarrierDelta * weights.opponentHeadFreedom * 0.55;
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
@@ -831,7 +878,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-linear-v6';
+const ENGINE_VERSION = 'long-linear-v7';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
