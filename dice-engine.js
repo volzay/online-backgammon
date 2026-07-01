@@ -5,15 +5,15 @@
 
 window.NarduDiceEngine = (function () {
   const DEFAULTS = {
-    duration: 1550,
-    gravity: 0.88,
-    floorBounce: 0.43,
-    railBounceX: 0.84,
-    railBounceY: 0.82,
-    bodyBounce: 0.76,
-    linearFriction: 0.988,
-    angularFriction: 0.989,
-    spinFriction: 0.99,
+    duration: 720,
+    gravity: 1.25,
+    floorBounce: 0.33,
+    railBounceX: 0.7,
+    railBounceY: 0.7,
+    bodyBounce: 0.6,
+    linearFriction: 0.88,
+    angularFriction: 0.88,
+    spinFriction: 0.88,
     maxFrameMs: 38,
   };
 
@@ -71,47 +71,99 @@ window.NarduDiceEngine = (function () {
     }
 
     createBodies() {
-      const launchFromRight = this.color === 'white';
-      return this.faces.map((_, i) => {
-        const speed = randomBetween(10.5, 15.5);
+      // Drop each die from just above its (checker-free) landing spot, with only
+      // a little sideways drift and a fast tumble - so it falls onto the board,
+      // bounces a couple of times and settles, instead of skidding in from a rail.
+      const area = this.settleArea();
+      const placed = [];
+      return this.faces.map((face, i) => {
+        const target = findClearSpot(area, this.blockers, placed, this.diceSize, this.diceGap);
+        placed.push(target);
         return {
           id: i,
-          x: launchFromRight
-            ? randomBetween(this.area.xMax - 10, this.area.xMax)
-            : randomBetween(this.area.xMin, this.area.xMin + 10),
-          y: randomBetween(this.area.yMin + 20, this.area.yMax - 20),
-          z: randomBetween(130, 200),
-          vx: (launchFromRight ? -1 : 1) * speed * randomBetween(0.86, 1.12),
-          vy: randomBetween(-7.4, 7.4),
-          vz: randomBetween(-16, -10),
+          x: clamp(target.x + randomBetween(-8, 8), area.xMin, area.xMax),
+          y: clamp(target.y + randomBetween(-8, 8), area.yMin, area.yMax),
+          z: randomBetween(56, 80),
+          vx: randomBetween(-1.8, 1.8),
+          vy: randomBetween(-1.8, 1.8),
+          vz: randomBetween(-1, 1),
           rx: randomBetween(-80, 80),
           ry: randomBetween(-80, 80),
           rz: randomBetween(0, 360),
-          avx: randomBetween(18, 34) * randomSign(),
-          avy: randomBetween(18, 34) * randomSign(),
-          avz: randomBetween(14, 28) * randomSign(),
-          face: 1 + Math.floor(Math.random() * 6),
+          avx: randomBetween(13, 24) * randomSign(),
+          avy: randomBetween(13, 24) * randomSign(),
+          avz: randomBetween(11, 20) * randomSign(),
+          face,
+          targetX: target.x,
+          targetY: target.y,
           displayFaces: this.randomOrientation(),
           used: false,
           rolling: true,
+          settle: 0,
+          restYaw: Math.random() * Math.PI * 2,
           nextFaceAt: this.now() + randomBetween(45, 95),
         };
       });
     }
 
     step(dt, time) {
-      this.bodies.forEach(body => this.stepBody(body, dt, time));
+      // The last stretch of the roll is a settle phase: the tumble freezes and
+      // each die glides to a checker-free target while the renderer rotates it
+      // onto its result, so it never comes to rest on top of a checker.
+      const elapsed = time - this.startAt;
+      const settleStart = this.duration * 0.62;
+      const settleT = elapsed <= settleStart
+        ? 0
+        : clamp((elapsed - settleStart) / Math.max(1, this.duration - settleStart), 0, 1);
 
-      for (let i = 0; i < this.bodies.length; i++) {
-        for (let j = i + 1; j < this.bodies.length; j++) {
-          this.collideBodies(this.bodies[i], this.bodies[j]);
-        }
+      if (settleT > 0 && !this.targetsAssigned) {
+        this.assignSettleTargets();
+        this.targetsAssigned = true;
       }
 
-      this.bodies.forEach(body => this.keepAwayFromBlockers(body));
+      this.bodies.forEach(body => this.stepBody(body, dt, time, settleT));
+
+      if (settleT === 0) {
+        for (let i = 0; i < this.bodies.length; i++) {
+          for (let j = i + 1; j < this.bodies.length; j++) {
+            this.collideBodies(this.bodies[i], this.bodies[j]);
+          }
+        }
+        this.bodies.forEach(body => this.keepAwayFromBlockers(body));
+      }
     }
 
-    stepBody(body, dt, time) {
+    assignSettleTargets() {
+      // Targets were chosen at launch (each die was dropped over its spot); here
+      // we just remember where the die actually is when the settle phase begins so
+      // a small final nudge lands it exactly on its clear target.
+      const area = this.settleArea();
+      const placed = this.bodies.filter(b => b.targetX !== undefined).map(b => ({ x: b.targetX, y: b.targetY }));
+      this.bodies.forEach(body => {
+        if (body.targetX === undefined) {
+          const target = findClearSpot(area, this.blockers, placed, this.diceSize, this.diceGap);
+          body.targetX = target.x;
+          body.targetY = target.y;
+          placed.push(target);
+        }
+        body.settleFromX = body.x;
+        body.settleFromY = body.y;
+      });
+    }
+
+    stepBody(body, dt, time, settleT = 0) {
+      if (settleT > 0) {
+        body.settle = settleT;
+        const e = easeInOut(settleT);
+        // Sink onto the board and glide to the clear resting target.
+        body.z = Math.max(0, body.z * (1 - e) - 0.4);
+        if (body.targetX !== undefined) {
+          body.x = body.settleFromX + (body.targetX - body.settleFromX) * e;
+          body.y = body.settleFromY + (body.targetY - body.settleFromY) * e;
+        }
+        return;
+      }
+
       body.x += body.vx * dt;
       body.y += body.vy * dt;
       body.z += body.vz * dt;
@@ -248,26 +300,23 @@ window.NarduDiceEngine = (function () {
     }
 
     finish() {
-      const placed = [];
+      if (!this.targetsAssigned) this.assignSettleTargets();
       const settleArea = this.settleArea();
       this.bodies.forEach((body, i) => {
         body.z = 0;
         body.vz = 0;
         body.vx = 0;
         body.vy = 0;
-        body.rx = 0;
-        body.ry = 0;
-        body.rz = snapToRightAngle(body.rz);
+        body.settle = 1;
 
-        for (let attempt = 0; attempt < 80; attempt++) {
-          if (this.isSpotClear(body, placed)) break;
-          body.x = randomBetween(settleArea.xMin, settleArea.xMax);
-          body.y = randomBetween(settleArea.yMin, settleArea.yMax);
+        // Rest on the checker-free target chosen at settle start.
+        if (body.targetX !== undefined) {
+          body.x = body.targetX;
+          body.y = body.targetY;
         }
         body.x = clamp(body.x, settleArea.xMin, settleArea.xMax);
         body.y = clamp(body.y, settleArea.yMin, settleArea.yMax);
 
-        placed.push(body);
         body.face = this.faces[i];
         body.used = false;
         body.rolling = false;
@@ -357,6 +406,51 @@ window.NarduDiceEngine = (function () {
 
   function rectsOverlap(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+
+  function easeInOut(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+  }
+
+  // Signed clearance of a die centred at (x,y): >= 0 means it overlaps no checker
+  // blocker and no already-placed die; larger is further from everything.
+  function clearSpotScore(x, y, blockers, placed, size, gap) {
+    const half = size / 2;
+    const rect = { left: x - half, right: x + half, top: y - half, bottom: y + half };
+    let minClear = Infinity;
+    for (const b of blockers) {
+      const dx = Math.max(b.left - rect.right, rect.left - b.right);
+      const dy = Math.max(b.top - rect.bottom, rect.top - b.bottom);
+      minClear = Math.min(minClear, Math.max(dx, dy));
+    }
+    for (const p of placed) {
+      minClear = Math.min(minClear, Math.hypot(x - p.x, y - p.y) - (size + gap));
+    }
+    return minClear;
+  }
+
+  // Grid-search the settle area for a checker-free resting spot. Returns a random
+  // clear cell when one exists, otherwise the least-crowded fallback.
+  function findClearSpot(area, blockers, placed, size, gap) {
+    const cols = 8;
+    const rows = 10;
+    const cellW = (area.xMax - area.xMin) / cols;
+    const cellH = (area.yMax - area.yMin) / rows;
+    let best = { x: (area.xMin + area.xMax) / 2, y: (area.yMin + area.yMax) / 2 };
+    let bestScore = -Infinity;
+    const clear = [];
+    for (let cx = 0; cx <= cols; cx++) {
+      for (let cy = 0; cy <= rows; cy++) {
+        const x = clamp(area.xMin + cellW * cx, area.xMin, area.xMax);
+        const y = clamp(area.yMin + cellH * cy, area.yMin, area.yMax);
+        const score = clearSpotScore(x, y, blockers || [], placed, size, gap);
+        if (score > bestScore) { bestScore = score; best = { x, y }; }
+        if (score >= 0) clear.push({ x, y });
+      }
+    }
+    if (clear.length) return clear[Math.floor(Math.random() * clear.length)];
+    return best;
   }
 
   return {

@@ -1114,7 +1114,7 @@ window.NarduController = (function () {
         layer: boardDiceLayer,
         opening,
         token,
-        duration: 2600,
+        duration: 800,
       }),
       trayRollAnimation(),
     ]).then(() => {
@@ -1147,7 +1147,7 @@ window.NarduController = (function () {
         faces,
         color: rollingTurn,
         token,
-        duration: token?.startsWith('opening-turn:') ? 1800 : undefined,
+        duration: token?.startsWith('opening-turn:') ? 740 : undefined,
       }),
       trayRollAnimation(),
     ]).then(() => {
@@ -1264,10 +1264,15 @@ window.NarduController = (function () {
   function renderBoardDice() {
     const layer = document.getElementById('board-dice-layer');
     if (!layer) return;
-    layer.innerHTML = '';
+    // The active animation owns the existing canvas. Removing it here drops the
+    // WebGL context for a frame and makes the dice flash or disappear.
+    if (isRolling) return;
     layer.classList.remove('head-home-white', 'head-home-dark');
 
-    if (isRolling || state.phase === 'over' || state.rolled.length === 0) return;
+    if (state.phase === 'over' || state.rolled.length === 0) {
+      NarduBoardEngine.renderDice(layer, [], { board: true });
+      return;
+    }
 
     if (state.phase === 'opening-result' && state.openingRoll) {
       layer.dataset.boardDiceCount = '2';
@@ -1654,10 +1659,16 @@ window.NarduController = (function () {
   }
 
   async function sha256Hex(input) {
-    if (!window.crypto?.subtle) return sha256HexFallback(input);
-    const bytes = new TextEncoder().encode(input);
-    const digest = await window.crypto.subtle.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    if (window.crypto?.subtle) {
+      try {
+        const bytes = new TextEncoder().encode(input);
+        const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+        return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+      } catch {
+        // Privacy modes can expose crypto.subtle while rejecting digest().
+      }
+    }
+    return sha256HexFallback(input);
   }
 
   function diceValuesFromHash(hash, count = 2) {
@@ -1805,46 +1816,53 @@ window.NarduController = (function () {
     if (mode === 'remote' && !isRemoteHost()) return;
     const user = window.NarduApp?.getUser?.();
     isRolling = true;
-    NarduSound.prime();
-    NarduSound.dice();
-    const fair = await shaDiceRoll({ label: 'opening', color: 'opening', noTie: true });
-    const whitePlayer = {
-      id: 'white',
-      name: playerColor === 'white' ? (user?.name || sideName('white')) : localizedName(opponentName),
-      color: 'white',
-      die: fair.values[0],
-    };
-    const darkPlayer = {
-      id: 'dark',
-      name: playerColor === 'dark' ? (user?.name || sideName('dark')) : localizedName(opponentName),
-      color: 'dark',
-      die: fair.values[1],
-    };
-    const opening = NarduGame.decideOpeningRoll(state, whitePlayer, darkPlayer);
-    opening.sha256 = fair.hash;
-    opening.rerolls = fair.rerolls;
-    const openingHistory = state.history?.find(item => item.opening);
-    if (openingHistory) {
-      openingHistory.sha256 = fair.hash;
-      openingHistory.rerolls = fair.rerolls;
-    }
-    state.rollToken = `opening:${fair.hash.slice(0, 16)}:${opening.host.die}:${opening.guest.die}`;
-    publishRemoteState();
-    render();
+    try {
+      NarduSound.prime();
+      NarduSound.dice();
+      const fair = await shaDiceRoll({ label: 'opening', color: 'opening', noTie: true });
+      const whitePlayer = {
+        id: 'white',
+        name: playerColor === 'white' ? (user?.name || sideName('white')) : localizedName(opponentName),
+        color: 'white',
+        die: fair.values[0],
+      };
+      const darkPlayer = {
+        id: 'dark',
+        name: playerColor === 'dark' ? (user?.name || sideName('dark')) : localizedName(opponentName),
+        color: 'dark',
+        die: fair.values[1],
+      };
+      const opening = NarduGame.decideOpeningRoll(state, whitePlayer, darkPlayer);
+      opening.sha256 = fair.hash;
+      opening.rerolls = fair.rerolls;
+      const openingHistory = state.history?.find(item => item.opening);
+      if (openingHistory) {
+        openingHistory.sha256 = fair.hash;
+        openingHistory.rerolls = fair.rerolls;
+      }
+      state.rollToken = `opening:${fair.hash.slice(0, 16)}:${opening.host.die}:${opening.guest.die}`;
+      publishRemoteState();
+      render();
 
-    const boardDiceLayer = document.getElementById('board-dice-layer');
-    if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
-    Promise.all([
-      NarduBoardEngine.animateOpeningRoll({
-        layer: boardDiceLayer,
-        opening,
-        token: state.rollToken,
-        duration: 2600,
-      }),
-      trayRollAnimation(),
-    ])
-      .then(() => finishOpeningRollAnimation())
-      .catch(error => finishOpeningRollAnimation(error));
+      const boardDiceLayer = document.getElementById('board-dice-layer');
+      if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
+      Promise.all([
+        NarduBoardEngine.animateOpeningRoll({
+          layer: boardDiceLayer,
+          opening,
+          token: state.rollToken,
+          duration: 800,
+        }),
+        trayRollAnimation(),
+      ])
+        .then(() => finishOpeningRollAnimation())
+        .catch(error => finishOpeningRollAnimation(error));
+    } catch (error) {
+      console.warn('Opening roll failed', error?.message || error);
+      isRolling = false;
+      render();
+      ensureAutoProgress(800);
+    }
   }
 
   function startOpeningTurnRoll() {
@@ -1874,7 +1892,7 @@ window.NarduController = (function () {
         faces: boardFaces,
         color: rollingTurn,
         token: state.rollToken,
-        duration: 1800,
+        duration: 740,
       }),
       trayRollAnimation(),
     ])
@@ -1891,37 +1909,44 @@ window.NarduController = (function () {
   async function autoRoll() {
     if (state.phase !== 'roll' || isRolling) return;
     const rollingTurn = state.turn;
-    NarduSound.prime();
-    NarduSound.dice();
     isRolling = true;
-    const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
-    const r = fair.roll;
-    undoStack = [];
-    NarduGame.applyRoll(state, r);
-    state.history.unshift({
-      color: rollingTurn,
-      roll: compactRollText(r),
-      sha256: fair.hash,
-      at: new Date().toISOString(),
-    });
-    state.rollToken = `roll:${fair.hash.slice(0, 16)}:${compactRollText(r)}`;
-    publishRemoteState();
-    render();
-    const boardFaces = boardDiceFaces(r);
-    const boardDiceLayer = document.getElementById('board-dice-layer');
-    if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
-
-    Promise.all([
-      NarduBoardEngine.animateDiceRoll({
-        layer: boardDiceLayer,
-        faces: boardFaces,
+    try {
+      NarduSound.prime();
+      NarduSound.dice();
+      const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
+      const r = fair.roll;
+      undoStack = [];
+      NarduGame.applyRoll(state, r);
+      state.history.unshift({
         color: rollingTurn,
-        token: state.rollToken,
-      }),
-      trayRollAnimation(),
-    ])
-      .then(() => finishTurnRollAnimation(rollingTurn))
-      .catch(error => finishTurnRollAnimation(rollingTurn, error));
+        roll: compactRollText(r),
+        sha256: fair.hash,
+        at: new Date().toISOString(),
+      });
+      state.rollToken = `roll:${fair.hash.slice(0, 16)}:${compactRollText(r)}`;
+      publishRemoteState();
+      render();
+      const boardFaces = boardDiceFaces(r);
+      const boardDiceLayer = document.getElementById('board-dice-layer');
+      if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
+
+      Promise.all([
+        NarduBoardEngine.animateDiceRoll({
+          layer: boardDiceLayer,
+          faces: boardFaces,
+          color: rollingTurn,
+          token: state.rollToken,
+        }),
+        trayRollAnimation(),
+      ])
+        .then(() => finishTurnRollAnimation(rollingTurn))
+        .catch(error => finishTurnRollAnimation(rollingTurn, error));
+    } catch (error) {
+      console.warn('Turn roll failed', error?.message || error);
+      isRolling = false;
+      render();
+      ensureAutoProgress(800);
+    }
   }
 
   function endTurnUser() {

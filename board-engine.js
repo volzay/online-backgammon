@@ -6,7 +6,7 @@
 window.NarduBoardEngine = (function () {
   const DIE_SIZE = 39;
   const DICE_GAP = 11;
-  const DICE_ROLL_MS = 1550;
+  const DICE_ROLL_MS = 720;
   const HIT_COOLDOWN_MS = 74;
   const MAX_DPR = 2;
   const MIN_REST_ANGLE_DELTA = 16;
@@ -198,6 +198,7 @@ window.NarduBoardEngine = (function () {
             ry: body.ry,
             rz: body.rz,
             seed: body.rz + i * 71,
+            restYaw: body.restYaw,
           })),
         };
         placementToken = opts.token || `${placementColor}:${faces.join(',')}:${Date.now()}`;
@@ -215,7 +216,8 @@ window.NarduBoardEngine = (function () {
     }
 
     layer.dataset.diceEngine = 'legacy';
-    const bodies = createDiceBodies(placementColor, faces.length, area);
+    const bodies = createDiceBodies(placementColor, faces.length, area, blockers);
+    bodies.forEach((body, i) => { body.face = faces[i]; });
     const start = performance.now();
     let last = start;
     drawDiceScene(canvas, bodies);
@@ -227,7 +229,7 @@ window.NarduBoardEngine = (function () {
         last = now;
 
         if (!done) {
-          stepDiceBodies(bodies, area, blockers, dt, now);
+          stepDiceBodies(bodies, area, blockers, dt, now, settleProgress(now - start, duration));
           drawDiceScene(canvas, bodies);
           requestAnimationFrame(tick);
           return;
@@ -250,6 +252,7 @@ window.NarduBoardEngine = (function () {
             ry: body.ry,
             rz: body.rz,
             seed: body.rz + i * 71,
+            restYaw: body.restYaw,
           })),
         };
         placementToken = opts.token || `${placementColor}:${faces.join(',')}:${Date.now()}`;
@@ -280,18 +283,20 @@ window.NarduBoardEngine = (function () {
     const guestArea = diceRollArea(opening.guest.color || 'dark', 1);
     if (!hostArea || !guestArea) return Promise.resolve();
 
-    const duration = opts.duration || Math.max(2100, DICE_ROLL_MS + 650);
+    const duration = opts.duration || (DICE_ROLL_MS + 80);
     const blockers = checkerBlockers();
     const bodies = [
       {
-        ...createDiceBodies(opening.host.color || 'white', 1, hostArea)[0],
+        ...createDiceBodies(opening.host.color || 'white', 1, hostArea, blockers)[0],
         area: hostArea,
         finalFace: opening.host.die,
+        face: opening.host.die,
       },
       {
-        ...createDiceBodies(opening.guest.color || 'dark', 1, guestArea)[0],
+        ...createDiceBodies(opening.guest.color || 'dark', 1, guestArea, blockers)[0],
         area: guestArea,
         finalFace: opening.guest.die,
+        face: opening.guest.die,
       },
     ];
     const start = performance.now();
@@ -309,7 +314,7 @@ window.NarduBoardEngine = (function () {
         last = now;
 
         if (!done) {
-          stepDiceBodies(bodies, null, blockers, dt, now);
+          stepDiceBodies(bodies, null, blockers, dt, now, settleProgress(now - start, duration));
           drawDiceScene(canvas, bodies);
           requestAnimationFrame(tick);
           return;
@@ -332,6 +337,7 @@ window.NarduBoardEngine = (function () {
             ry: body.ry,
             rz: body.rz,
             seed: body.rz + i * 71,
+            restYaw: body.restYaw,
           })),
         };
         openingPlacementToken = opts.token || `opening:${opening.at || ''}:${opening.host.die}:${opening.guest.die}`;
@@ -349,52 +355,143 @@ window.NarduBoardEngine = (function () {
     });
   }
 
-  function createDiceBodies(color, diceCount, area) {
+  function createDiceBodies(color, diceCount, area, blockers = []) {
+    // Drop each die from just above a checker-free spot, so it falls onto the
+    // board and bounces to rest rather than skidding in from the side rail.
+    const settleArea = insetDiceArea(area) || area;
     const bodies = [];
-    const launchFromRight = color === 'white';
+    const placed = [];
     for (let i = 0; i < diceCount; i++) {
-      const speed = randomBetween(10.5, 15.5);
+      const target = findClearSpot(settleArea, blockers, placed, currentDieSize(), currentDiceGap());
+      placed.push(target);
       bodies.push({
-        x: launchFromRight ? randomBetween(area.xMax - 10, area.xMax) : randomBetween(area.xMin, area.xMin + 10),
-        y: randomBetween(area.yMin + 20, area.yMax - 20),
-        z: randomBetween(130, 200),
-        vx: (launchFromRight ? -1 : 1) * speed * randomBetween(0.86, 1.12),
-        vy: randomBetween(-7.4, 7.4),
-        vz: randomBetween(-16, -10),
+        x: clamp(target.x + randomBetween(-8, 8), settleArea.xMin, settleArea.xMax),
+        y: clamp(target.y + randomBetween(-8, 8), settleArea.yMin, settleArea.yMax),
+        z: randomBetween(56, 80),
+        vx: randomBetween(-1.8, 1.8),
+        vy: randomBetween(-1.8, 1.8),
+        vz: randomBetween(-1, 1),
         rx: randomBetween(-80, 80),
         ry: randomBetween(-80, 80),
         rz: randomBetween(0, 360),
-        avx: randomBetween(18, 34) * randomSign(),
-        avy: randomBetween(18, 34) * randomSign(),
-        avz: randomBetween(14, 28) * randomSign(),
+        avx: randomBetween(13, 24) * randomSign(),
+        avy: randomBetween(13, 24) * randomSign(),
+        avz: randomBetween(11, 20) * randomSign(),
         face: 1 + Math.floor(Math.random() * 6),
+        targetX: target.x,
+        targetY: target.y,
         displayFaces: randomOrientation(),
         used: false,
         rolling: true,
+        settle: 0,
+        restYaw: Math.random() * Math.PI * 2,
         nextFaceAt: performance.now() + randomBetween(45, 95),
       });
     }
     return bodies;
   }
 
-  function stepDiceBodies(bodies, area, blockers, dt, now) {
+  function settleProgress(elapsed, duration) {
+    const settleStart = duration * 0.62;
+    if (elapsed <= settleStart) return 0;
+    return Math.min(1, (elapsed - settleStart) / Math.max(1, duration - settleStart));
+  }
+
+  function easeSettle(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+  }
+
+  // Signed clearance of a die centred at (x,y): >= 0 means it clears every checker
+  // blocker and every already-placed die.
+  function clearSpotScore(x, y, blockers, placed, size, gap) {
+    const half = size / 2;
+    const rect = { left: x - half, right: x + half, top: y - half, bottom: y + half };
+    let minClear = Infinity;
+    for (const b of blockers) {
+      const dx = Math.max(b.left - rect.right, rect.left - b.right);
+      const dy = Math.max(b.top - rect.bottom, rect.top - b.bottom);
+      minClear = Math.min(minClear, Math.max(dx, dy));
+    }
+    for (const p of placed) {
+      minClear = Math.min(minClear, Math.hypot(x - p.x, y - p.y) - (size + gap));
+    }
+    return minClear;
+  }
+
+  // Grid-search a roll area for a checker-free resting spot: a random clear cell
+  // if one exists, else the least-crowded fallback.
+  function findClearSpot(area, blockers, placed, size, gap) {
+    const cols = 8;
+    const rows = 10;
+    const cellW = (area.xMax - area.xMin) / cols;
+    const cellH = (area.yMax - area.yMin) / rows;
+    let best = { x: (area.xMin + area.xMax) / 2, y: (area.yMin + area.yMax) / 2 };
+    let bestScore = -Infinity;
+    const clear = [];
+    for (let cx = 0; cx <= cols; cx++) {
+      for (let cy = 0; cy <= rows; cy++) {
+        const x = clamp(area.xMin + cellW * cx, area.xMin, area.xMax);
+        const y = clamp(area.yMin + cellH * cy, area.yMin, area.yMax);
+        const score = clearSpotScore(x, y, blockers || [], placed, size, gap);
+        if (score > bestScore) { bestScore = score; best = { x, y }; }
+        if (score >= 0) clear.push({ x, y });
+      }
+    }
+    if (clear.length) return clear[Math.floor(Math.random() * clear.length)];
+    return best;
+  }
+
+  function stepDiceBodies(bodies, area, blockers, dt, now, settleT = 0) {
     bodies.forEach(body => {
       const bounds = body.area || area;
       if (!bounds) return;
 
+      if (settleT > 0) {
+        body.settle = settleT;
+        // Settle phase: glide to a checker-free target while sinking to the board.
+        // The spin stays frozen so the renderer can slerp the pose onto the rolled
+        // value, and the die never rests on a checker.
+        //
+        // Anchor the glide the first time we settle. Gate on settleFromX (the
+        // anchor itself), NOT targetX: createDiceBodies pre-assigns targetX/targetY,
+        // so gating on targetX would skip this block and leave settleFromX
+        // undefined — making `settleFromX + (targetX - settleFromX) * e` evaluate to
+        // NaN and dropping the die to a (0,0)/off-screen position for the whole
+        // settle, which read as the dice vanishing mid-roll.
+        if (body.settleFromX === undefined) {
+          if (body.targetX === undefined) {
+            const settleArea = insetDiceArea(bounds);
+            const placed = bodies
+              .filter(other => other !== body && other.targetX !== undefined)
+              .map(other => ({ x: other.targetX, y: other.targetY }));
+            const target = findClearSpot(settleArea, blockers || [], placed, currentDieSize(), currentDiceGap());
+            body.targetX = target.x;
+            body.targetY = target.y;
+          }
+          body.settleFromX = body.x;
+          body.settleFromY = body.y;
+        }
+        const e = easeSettle(settleT);
+        body.z = Math.max(0, body.z * (1 - e) - 0.4);
+        body.x = body.settleFromX + (body.targetX - body.settleFromX) * e;
+        body.y = body.settleFromY + (body.targetY - body.settleFromY) * e;
+        return;
+      }
+
       body.x += body.vx * dt;
       body.y += body.vy * dt;
       body.z += body.vz * dt;
-      body.vz -= 0.86 * dt;
+      body.vz -= 1.25 * dt;
 
-      body.vx *= 0.988;
-      body.vy *= 0.988;
+      body.vx *= 0.88;
+      body.vy *= 0.88;
       body.rx += body.avx * dt;
       body.ry += body.avy * dt;
       body.rz += body.avz * dt;
-      body.avx *= 0.989;
-      body.avy *= 0.989;
-      body.avz *= 0.99;
+      body.avx *= 0.88;
+      body.avy *= 0.88;
+      body.avz *= 0.88;
 
       let railHit = false;
       let boardHit = false;
@@ -402,9 +499,9 @@ window.NarduBoardEngine = (function () {
         body.z = 0;
         if (body.vz < -1.0) {
           const impact = Math.abs(body.vz);
-          body.vz = impact * 0.43;
-          body.vx *= 0.90;
-          body.vy *= 0.90;
+          body.vz = impact * 0.33;
+          body.vx *= 0.85;
+          body.vy *= 0.85;
           body.avx += randomBetween(-12, 12);
           body.avy += randomBetween(-12, 12);
           body.avz += randomBetween(-10, 10);
@@ -417,24 +514,24 @@ window.NarduBoardEngine = (function () {
 
       if (body.x < bounds.xMin) {
         body.x = bounds.xMin;
-        body.vx = Math.abs(body.vx) * 0.84;
+        body.vx = Math.abs(body.vx) * 0.7;
         body.avz += randomBetween(7, 12);
         railHit = true;
       } else if (body.x > bounds.xMax) {
         body.x = bounds.xMax;
-        body.vx = -Math.abs(body.vx) * 0.84;
+        body.vx = -Math.abs(body.vx) * 0.7;
         body.avz -= randomBetween(7, 12);
         railHit = true;
       }
 
       if (body.y < bounds.yMin) {
         body.y = bounds.yMin;
-        body.vy = Math.abs(body.vy) * 0.82;
+        body.vy = Math.abs(body.vy) * 0.7;
         body.avx += randomBetween(6, 11);
         railHit = true;
       } else if (body.y > bounds.yMax) {
         body.y = bounds.yMax;
-        body.vy = -Math.abs(body.vy) * 0.82;
+        body.vy = -Math.abs(body.vy) * 0.7;
         body.avx -= randomBetween(6, 11);
         railHit = true;
       }
@@ -453,13 +550,14 @@ window.NarduBoardEngine = (function () {
       }
     });
 
-    for (let i = 0; i < bodies.length; i++) {
-      for (let j = i + 1; j < bodies.length; j++) {
-        collideDice(bodies[i], bodies[j]);
+    if (settleT === 0) {
+      for (let i = 0; i < bodies.length; i++) {
+        for (let j = i + 1; j < bodies.length; j++) {
+          collideDice(bodies[i], bodies[j]);
+        }
       }
+      bodies.forEach(body => keepAwayFromBlockers(body, blockers, body.area || area));
     }
-
-    bodies.forEach(body => keepAwayFromBlockers(body, blockers, body.area || area));
   }
 
   function collideDice(a, b) {
@@ -1188,83 +1286,60 @@ window.NarduBoardEngine = (function () {
   }
 
   function pickRestingSpot(area, blockers, placed, index) {
-    for (let attempt = 0; attempt < 80; attempt++) {
-      const spot = {
-        x: randomBetween(area.xMin, area.xMax),
-        y: randomBetween(area.yMin, area.yMax),
-        z: 0,
-        rx: randomBetween(-4, 4),
-        ry: randomBetween(-4, 4),
-        rz: randomBetween(0, 360),
-        seed: Math.random() * 1000,
-      };
-      if (isSpotClear(spot, blockers, placed)) return spot;
-    }
-
-    const fallbackOffset = (index - Math.max(0, placed.length / 2)) * (currentDieSize() * 0.72);
+    const placedPts = placed.map(spot => ({ x: spot.x, y: spot.y }));
+    const spot = findClearSpot(area, blockers || [], placedPts, currentDieSize(), currentDiceGap());
     return {
-      x: clamp((area.xMin + area.xMax) / 2 + fallbackOffset, area.xMin, area.xMax),
-      y: randomBetween(area.yMin, area.yMax),
+      x: spot.x,
+      y: spot.y,
       z: 0,
       rx: randomBetween(-4, 4),
       ry: randomBetween(-4, 4),
       rz: randomBetween(0, 360),
       seed: Math.random() * 1000,
+      restYaw: 0,
     };
   }
 
   function settleBodies(bodies, area, blockers) {
+    const settleArea = insetDiceArea(area);
+    const placed = [];
     bodies.forEach(body => {
       body.z = 0;
       body.vz = 0;
       body.vx = 0;
       body.vy = 0;
-      body.rx = randomBetween(-3.5, 3.5);
-      body.ry = randomBetween(-3.5, 3.5);
-      body.rz = normalizeFlatAngle(body.rz + randomBetween(-18, 18));
-
-      const settleArea = insetDiceArea(area);
-
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const others = bodies.filter(other => other !== body).map(other => ({ x: other.x, y: other.y }));
-        if (isSpotClear(body, blockers, others)) break;
-        body.x = randomBetween(settleArea.xMin, settleArea.xMax);
-        body.y = randomBetween(settleArea.yMin, settleArea.yMax);
+      // The roll already glided the die to a checker-free target; trust it, and
+      // only grid-search a fresh clear spot if no target was assigned.
+      let x = body.targetX;
+      let y = body.targetY;
+      if (x === undefined) {
+        const spot = findClearSpot(settleArea, blockers || [], placed, currentDieSize(), currentDiceGap());
+        x = spot.x;
+        y = spot.y;
       }
-
-      body.x = clamp(body.x, settleArea.xMin, settleArea.xMax);
-      body.y = clamp(body.y, settleArea.yMin, settleArea.yMax);
+      body.x = clamp(x, settleArea.xMin, settleArea.xMax);
+      body.y = clamp(y, settleArea.yMin, settleArea.yMax);
+      placed.push({ x: body.x, y: body.y });
     });
-
-    for (let pass = 0; pass < 6; pass++) {
-      for (let i = 0; i < bodies.length; i++) {
-        for (let j = i + 1; j < bodies.length; j++) {
-          separateRestingDice(bodies[i], bodies[j], insetDiceArea(area));
-        }
-      }
-    }
     diversifyRestingAngles(bodies);
   }
 
   function settleOpeningBodies(bodies, blockers) {
     bodies.forEach(body => {
-      const area = body.area;
-      const settleArea = insetDiceArea(area);
+      const settleArea = insetDiceArea(body.area);
       body.z = 0;
       body.vz = 0;
       body.vx = 0;
       body.vy = 0;
-      body.rx = randomBetween(-3.5, 3.5);
-      body.ry = randomBetween(-3.5, 3.5);
-      body.rz = normalizeFlatAngle(body.rz + randomBetween(-18, 18));
-
-      for (let attempt = 0; attempt < 70; attempt++) {
-        if (isSpotClear(body, blockers, [])) break;
-        body.x = randomBetween(settleArea.xMin, settleArea.xMax);
-        body.y = randomBetween(settleArea.yMin, settleArea.yMax);
+      let x = body.targetX;
+      let y = body.targetY;
+      if (x === undefined) {
+        const spot = findClearSpot(settleArea, blockers || [], [], currentDieSize(), currentDiceGap());
+        x = spot.x;
+        y = spot.y;
       }
-      body.x = clamp(body.x, settleArea.xMin, settleArea.xMax);
-      body.y = clamp(body.y, settleArea.yMin, settleArea.yMax);
+      body.x = clamp(x, settleArea.xMin, settleArea.xMax);
+      body.y = clamp(y, settleArea.yMin, settleArea.yMax);
     });
     diversifyRestingAngles(bodies);
   }
