@@ -9,9 +9,10 @@ window.NarduStrongBot = (function () {
   const PREFILTER_SEQUENCE_LIMIT = 48;
   const REPLY_LIMIT = 4;
   const PLAN_TIME_LIMIT_MS = 900;
-  const PROFILE_KEY = 'narduh-strong-bot-profile-v4';
+  const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
   const DEFAULT_PROFILE = {
-    version: 3,
+    version: 4,
     games: 0,
     losses: 0,
     headBlock: 1.18,
@@ -64,10 +65,9 @@ window.NarduStrongBot = (function () {
   }
 
   function longEngineWeights(profile = learningProfile()) {
-    const ratio = (key) => {
-      const learned = Number(profile[key] || DEFAULT_PROFILE[key]) / DEFAULT_PROFILE[key];
-      return clamp(1 + (learned - 1) * 0.24, 0.96, 1.08);
-    };
+    // Strategy weights are intentionally stable. Situation-specific experience is
+    // applied by the long-bot engine and cannot drift the whole playing style.
+    const ratio = () => 1;
     return {
       opponentHeadFreedom: 48000 * ratio('headBlock'),
       headLandingExposure: 62000 * ratio('preserveHeadLandings'),
@@ -79,6 +79,31 @@ window.NarduStrongBot = (function () {
       escapeGatewayRisk: 800000 * ratio('routeControl'),
       distribution: 780 * ratio('avoidTowers'),
     };
+  }
+
+  function localExperience() {
+    const store = storage();
+    if (!store) return [];
+    try {
+      const parsed = JSON.parse(store.getItem(EXPERIENCE_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed.slice(0, 120) : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function saveLocalExperience(patterns) {
+    const store = storage();
+    if (!store) return;
+    try {
+      store.setItem(EXPERIENCE_KEY, JSON.stringify(patterns.slice(0, 120)));
+    } catch (error) {
+      // Experience is optional; gameplay remains deterministic without storage.
+    }
+  }
+
+  function syncLocalExperience() {
+    window.NarduLongBotEngine?.setExperience?.(localExperience(), 'local');
   }
 
   function cloneState(state) {
@@ -1239,6 +1264,7 @@ window.NarduStrongBot = (function () {
   function plan(state) {
     if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
       try {
+        syncLocalExperience();
         const enginePlan = window.NarduLongBotEngine.plan(state, {
           maxCandidates: PREFILTER_SEQUENCE_LIMIT,
           timeLimitMs: PLAN_TIME_LIMIT_MS,
@@ -1315,30 +1341,52 @@ window.NarduStrongBot = (function () {
 
   function learnFromGame(state, botColor) {
     if (!state?.winner || !botColor) return null;
-    const opponent = NarduGame.opponentOf(botColor);
     const botWon = state.winner === botColor;
     const profile = learningProfile();
-    const lossPressure = botWon ? -0.012 : 0.04;
-    const resultBoost = state.resultType === 'koks' ? 2.8 : state.resultType === 'mars' ? 2.1 : 1;
-    const opponentOff = state.off?.[opponent] || 0;
-    const botOff = state.off?.[botColor] || 0;
-    const opponentHead = countAt(state, NarduGame.headPoint(opponent, state));
-    const botHead = countAt(state, NarduGame.headPoint(botColor, state));
-    const tower = homeTowerPenalty(state, botColor);
-    const route = opponentRouteControlScore(state, botColor);
-    const freedom = opponentHeadFreedomScore(state, botColor);
-    const danger = Math.max(1, resultBoost + opponentOff / 8 + Math.max(0, opponentOff - botOff) / 6);
-
     profile.games = (Number(profile.games) || 0) + 1;
     if (!botWon) profile.losses = (Number(profile.losses) || 0) + 1;
-    profile.headBlock = clamp(profile.headBlock + lossPressure * danger * (1 + freedom / 800 + opponentHead / 12), 0.9, 1.85);
-    profile.headEscape = clamp(profile.headEscape + lossPressure * danger * (1 + botHead / 8 + headExitPressure(state, botColor) / 5), 1.05, 2.2);
-    profile.routeControl = clamp(profile.routeControl + lossPressure * danger * (route < 180 ? 1.25 : 0.45), 0.9, 1.8);
-    profile.preserveHeadLandings = clamp(profile.preserveHeadLandings + lossPressure * danger * 1.35, 1, 1.95);
-    profile.avoidRush = clamp(profile.avoidRush + lossPressure * danger * (botHead > 3 || opponentOff > botOff ? 1.2 : 0.55), 0.9, 1.75);
-    profile.avoidTowers = clamp(profile.avoidTowers + lossPressure * danger * (tower > 0 ? 1.35 : 0.55), 0.9, 1.7);
     profile.updatedAt = new Date().toISOString();
     saveLearningProfile(profile);
+
+    const patterns = localExperience();
+    const byKey = new Map(patterns.map(pattern => [
+      `${pattern.contextKey}::${pattern.actionKey}`,
+      { ...pattern },
+    ]));
+    const decisions = Array.isArray(state.analysis?.botMemory?.decisions)
+      ? state.analysis.botMemory.decisions
+      : [];
+    const severeLoss = !botWon && (state.resultType === 'mars' || state.resultType === 'koks');
+
+    decisions.forEach((decision) => {
+      const descriptor = decision?.experience || decision?.selected?.experience;
+      const severity = Math.max(0, Number(descriptor?.mistakeSeverity) || 0);
+      if (!descriptor?.contextKey || !descriptor?.actionKey || severity < 0.45) return;
+      const key = `${descriptor.contextKey}::${descriptor.actionKey}`;
+      const pattern = byKey.get(key) || {
+        contextKey: descriptor.contextKey,
+        actionKey: descriptor.actionKey,
+        samples: 0,
+        losses: 0,
+        severeLosses: 0,
+        signalWeight: 0,
+      };
+      pattern.samples += 1;
+      if (!botWon) pattern.losses += 1;
+      if (severeLoss) pattern.severeLosses += 1;
+      pattern.signalWeight += severity;
+      pattern.updatedAt = new Date().toISOString();
+      byKey.set(key, pattern);
+    });
+
+    const learnedPatterns = Array.from(byKey.values())
+      .sort((left, right) => (
+        Number(right.samples || 0) - Number(left.samples || 0)
+        || Number(right.signalWeight || 0) - Number(left.signalWeight || 0)
+      ))
+      .slice(0, 120);
+    saveLocalExperience(learnedPatterns);
+    window.NarduLongBotEngine?.setExperience?.(learnedPatterns, 'local');
     return profile;
   }
 

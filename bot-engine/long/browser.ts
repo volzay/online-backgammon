@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-linear-v7';
+const ENGINE_VERSION = 'long-analytic-v8';
 
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -28,6 +28,14 @@ export function createBrowserLongBotEngine(game, options = {}) {
       return engine.evaluateState(state, color, weights);
     },
 
+    setExperience(patterns, source = 'runtime') {
+      return engine.setExperience(patterns, source);
+    },
+
+    experienceSize() {
+      return engine.experienceSize();
+    },
+
     consumeLastDecision() {
       const decision = lastDecision;
       lastDecision = null;
@@ -47,6 +55,14 @@ function decisionRecord(state, color, ranked, weights = undefined) {
       die: move.die,
     })),
     features: { ...(candidate.features || {}) },
+    tactical: candidate.tactical ? {
+      expectedImpact: Math.round(candidate.tactical.expectedImpact),
+      worstImpact: Math.round(candidate.tactical.worstImpact),
+      rolls: candidate.tactical.rolls,
+      adjustment: Math.round(candidate.tactical.adjustment),
+    } : null,
+    experience: candidate.experience ? { ...candidate.experience } : null,
+    experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),
   }));
   if (!candidates.length) return null;
 
@@ -65,6 +81,7 @@ function decisionRecord(state, color, ranked, weights = undefined) {
     },
     selected: candidates[0],
     alternatives: candidates.slice(1),
+    experience: candidates[0].experience ? { ...candidates[0].experience } : null,
   };
 }
 
@@ -79,7 +96,7 @@ function positionFingerprint(state, color) {
     hash ^= source.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `lb3-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  return `lb4-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 export function installBrowserLongBotEngine(root = globalThis) {

@@ -47,6 +47,7 @@ window.NarduController = (function () {
   let localRatingRecordedKey = null;
   let lastRatingResult = null;
   let gameOverSoundKey = null;
+  let botLearningRecordedKey = null;
   let rematchRestartToken = null;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
   const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
@@ -430,6 +431,7 @@ window.NarduController = (function () {
     localRatingRecordedKey = null;
     lastRatingResult = null;
     gameOverSoundKey = null;
+    botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
     rematchRestartToken = null;
     if (remotePollTimer) clearInterval(remotePollTimer);
@@ -658,10 +660,10 @@ window.NarduController = (function () {
     return payload;
   }
 
-  function canPublishBotAnalysis() {
+  function canPublishBotAnalysis(options = {}) {
     return mode === 'bot' &&
       Boolean(remoteCode) &&
-      !botAnalysisDisabled &&
+      (options.force || !botAnalysisDisabled) &&
       window.NarduRooms?.configured?.();
   }
 
@@ -728,8 +730,10 @@ window.NarduController = (function () {
     window.setTimeout(() => publishBotAnalysisState(), Math.max(0, Number(delay) || 0));
   }
 
-  async function publishBotAnalysisState() {
-    if (!canPublishBotAnalysis() || state.phase === 'waiting' || isApplyingRemote) return;
+  async function publishBotAnalysisState(options = {}) {
+    const force = options.force === true;
+    if (!canPublishBotAnalysis({ force }) || state.phase === 'waiting' || isApplyingRemote) return false;
+    if (force) botAnalysisDisabled = false;
     syncTurnClock();
     persistRoomSnapshot();
     const payload = botAnalysisPayload();
@@ -741,18 +745,21 @@ window.NarduController = (function () {
         try {
           const data = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
           if (Number.isFinite(data?.version)) botAnalysisVersion = data.version;
+          return true;
         } catch (error) {
           if (error?.status !== 409) {
             console.warn('Could not save bot analysis state', error?.message || error);
-            return;
+            return false;
           }
           try {
             const current = await window.NarduRooms.getGameState(remoteCode);
             if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
             const saved = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
             if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
+            return true;
           } catch (retryError) {
             console.warn('Could not recover bot analysis sync', retryError?.message || retryError);
+            return false;
           }
         }
       });
@@ -2688,11 +2695,12 @@ window.NarduController = (function () {
     };
   }
 
-  function archiveBotTrainingGame(publishPromise) {
+  function archiveBotTrainingGame(publishPromise, finalPayload = null) {
     if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) return;
     botTrainingArchivePending = true;
+    const payload = finalPayload || botAnalysisPayload();
     Promise.resolve(publishPromise)
-      .then(() => window.NarduRooms.archiveBotTrainingGame(remoteCode))
+      .then(() => window.NarduRooms.archiveBotTrainingGame(remoteCode, payload))
       .then(() => {
         botTrainingArchiveDone = true;
       })
@@ -2810,48 +2818,72 @@ window.NarduController = (function () {
 
   /* ── game over screen + rating update ─────── */
   function onGameOver() {
-    recordMatchGame();
-    finalizeBotMemory();
-    renderPlayerStats();
-    let botPublishPromise = botAnalysisPublishQueue;
-    if (mode === 'remote' && !state.gameOverPublishedAt) {
-      state.gameOverPublishedAt = new Date().toISOString();
-      publishRemoteState();
-    }
-    if (mode === 'bot' && !state.gameOverPublishedAt) {
-      state.gameOverPublishedAt = new Date().toISOString();
-      botPublishPromise = publishBotAnalysisState();
-    }
-    if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
-      archiveBotTrainingGame(botPublishPromise);
-    }
-    if (mode === 'bot' && botDifficulty === 'hard' && window.NarduStrongBot?.learnFromGame) {
-      window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor));
-    }
+    if (!state?.winner) return;
+    let resultKey = gameResultKey();
+    const safeStep = (label, fn, fallback = null) => {
+      try {
+        return fn();
+      } catch (error) {
+        console.warn(`${label} failed`, error?.message || error);
+        return fallback;
+      }
+    };
 
-    const didWin = state.winner === playerColor;
-    const resultKey = gameResultKey();
-    if ((mode === 'bot' || mode === 'remote') && localRatingRecordedKey !== resultKey) {
-      const r = NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
-        resultType: state.resultType || '',
-        winner: state.winner,
-        score: { ...state.score },
-        history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
-        finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
-      });
-      lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;
-      localRatingRecordedKey = resultKey;
-    }
-    if (gameOverSoundKey !== resultKey) {
-      gameOverSoundKey = resultKey;
-      const delay = Math.max(
-        GAME_OVER_SOUND_GAP_MS,
-        gameplaySoundBusyUntil - Date.now() + GAME_OVER_SOUND_GAP_MS,
-      );
-      schedule(() => (didWin ? NarduSound.win() : NarduSound.lose()), delay);
-    }
+    try {
+      safeStep('Record match game', recordMatchGame);
+      resultKey = gameResultKey();
+      safeStep('Finalize bot memory', finalizeBotMemory);
+      safeStep('Render player stats', renderPlayerStats);
 
-    renderGameOverModal();
+      let botPublishPromise = botAnalysisPublishQueue;
+      let botFinalPayload = null;
+      if (mode === 'remote' && !state.gameOverPublishedAt) {
+        state.gameOverPublishedAt = new Date().toISOString();
+        publishRemoteState();
+      }
+      if (mode === 'bot' && !state.gameOverPublishedAt) {
+        state.gameOverPublishedAt = new Date().toISOString();
+        botFinalPayload = safeStep('Build final bot analysis payload', botAnalysisPayload, null);
+        botPublishPromise = publishBotAnalysisState({ force: true });
+      } else if (mode === 'bot') {
+        botFinalPayload = safeStep('Build final bot analysis payload', botAnalysisPayload, null);
+      }
+      if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
+        archiveBotTrainingGame(botPublishPromise, botFinalPayload);
+      }
+      if (
+        mode === 'bot' &&
+        botDifficulty === 'hard' &&
+        window.NarduStrongBot?.learnFromGame &&
+        botLearningRecordedKey !== resultKey
+      ) {
+        botLearningRecordedKey = resultKey;
+        safeStep('Long bot learning', () => window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor)));
+      }
+
+      const didWin = state.winner === playerColor;
+      if ((mode === 'bot' || mode === 'remote') && localRatingRecordedKey !== resultKey) {
+        const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
+          resultType: state.resultType || '',
+          winner: state.winner,
+          score: { ...state.score },
+          history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
+          finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
+        }));
+        lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;
+        localRatingRecordedKey = resultKey;
+      }
+      if (gameOverSoundKey !== resultKey) {
+        gameOverSoundKey = resultKey;
+        const delay = Math.max(
+          GAME_OVER_SOUND_GAP_MS,
+          gameplaySoundBusyUntil - Date.now() + GAME_OVER_SOUND_GAP_MS,
+        );
+        schedule(() => (didWin ? NarduSound.win() : NarduSound.lose()), delay);
+      }
+    } finally {
+      renderGameOverModal();
+    }
   }
 
   function gameResultKey() {

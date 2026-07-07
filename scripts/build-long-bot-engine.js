@@ -6,6 +6,7 @@ const OUTPUT = path.join(ROOT, "long-bot-engine.js");
 const SOURCES = [
   "bot-engine/long/metrics.ts",
   "bot-engine/long/evaluator.ts",
+  "bot-engine/long/analysis.ts",
   "bot-engine/long/engine.ts",
   "bot-engine/long/nardu-game-adapter.ts",
   "bot-engine/long/browser.ts",

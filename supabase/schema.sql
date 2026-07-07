@@ -1166,7 +1166,12 @@ $$;
 revoke all on function public.nickname_auth_email(text) from public;
 grant execute on function public.nickname_auth_email(text) to anon, authenticated;
 
-create or replace function public.archive_bot_training_game(p_room_code text)
+drop function if exists public.archive_bot_training_game(text);
+
+create or replace function public.archive_bot_training_game(
+  p_room_code text,
+  p_final_state jsonb default null
+)
 returns jsonb
 language plpgsql
 security definer
@@ -1175,6 +1180,7 @@ as $$
 declare
   clean_code text := upper(trim(coalesce(p_room_code, '')));
   target_room public.rooms%rowtype;
+  target_state jsonb;
   memory jsonb;
   decisions jsonb;
   outcome jsonb;
@@ -1194,21 +1200,50 @@ begin
   if target_room.id is null then
     raise exception 'Room not found.';
   end if;
-  if target_room.host_user_id is not null
+  if p_final_state is null
+    and target_room.host_user_id is not null
     and target_room.host_user_id is distinct from auth.uid()
     and not coalesce(public.is_admin_user(), false) then
     raise exception 'Only the room player can archive this game.';
   end if;
-  if coalesce(target_room.game_state->>'mode', '') <> 'bot'
-    or coalesce(target_room.game_state->>'variant', target_room.variant) <> 'long'
-    or coalesce(target_room.game_state->>'botDifficulty', '') <> 'hard' then
+
+  target_state := coalesce(target_room.game_state, '{}'::jsonb);
+
+  if p_final_state is not null then
+    if coalesce(target_state->>'mode', target_state->'analysis'->>'mode', '') not in ('', 'bot')
+      and coalesce(target_state->>'opponent', target_state->'analysis'->>'opponent', '') <> 'bot' then
+      raise exception 'This room is not a bot analysis room.';
+    end if;
+    if coalesce(p_final_state->>'roomCode', clean_code) <> clean_code then
+      raise exception 'Final state room code mismatch.';
+    end if;
+    if coalesce(p_final_state->>'winner', '') not in ('white', 'dark') then
+      raise exception 'The final state is not finished.';
+    end if;
+
+    update public.rooms r
+    set
+      game_state = p_final_state,
+      game_version = r.game_version + 1,
+      status = 'over',
+      archived_at = coalesce(r.archived_at, now()),
+      closed_reason = 'finished'
+    where r.id = target_room.id
+    returning r.* into target_room;
+
+    target_state := coalesce(target_room.game_state, '{}'::jsonb);
+  end if;
+
+  if coalesce(target_state->>'mode', '') <> 'bot'
+    or coalesce(target_state->>'variant', target_room.variant) <> 'long'
+    or coalesce(target_state->>'botDifficulty', '') <> 'hard' then
     raise exception 'This room is not a hard long-bot game.';
   end if;
-  if coalesce(target_room.game_state->>'winner', '') not in ('white', 'dark') then
+  if coalesce(target_state->>'winner', '') not in ('white', 'dark') then
     raise exception 'The game is not finished.';
   end if;
 
-  memory := coalesce(target_room.game_state->'analysis'->'botMemory', '{}'::jsonb);
+  memory := coalesce(target_state->'analysis'->'botMemory', '{}'::jsonb);
   decisions := coalesce(memory->'decisions', '[]'::jsonb);
   if jsonb_typeof(decisions) <> 'array' then
     decisions := '[]'::jsonb;
@@ -1217,7 +1252,7 @@ begin
   resolved_bot_color := coalesce(
     nullif(outcome->>'botColor', ''),
     case
-      when coalesce(target_room.game_state->'analysis'->>'playerColor', 'white') = 'white'
+      when coalesce(target_state->'analysis'->>'playerColor', 'white') = 'white'
         then 'dark'
       else 'white'
     end
@@ -1244,15 +1279,15 @@ begin
     target_room.code,
     target_room.host_user_id,
     target_room.host_name,
-    coalesce(target_room.guest_name, target_room.game_state->'analysis'->>'botName', 'Hard bot'),
+    coalesce(target_room.guest_name, target_state->'analysis'->>'botName', 'Hard bot'),
     coalesce(memory->>'engineVersion', ''),
-    coalesce(target_room.game_state->>'botDifficulty', 'hard'),
+    coalesce(target_state->>'botDifficulty', 'hard'),
     resolved_bot_color,
-    target_room.game_state->>'winner',
-    coalesce(nullif(target_room.game_state->>'resultType', ''), 'normal'),
+    target_state->>'winner',
+    coalesce(nullif(target_state->>'resultType', ''), 'normal'),
     jsonb_array_length(decisions),
     decisions,
-    target_room.game_state,
+    target_state,
     coalesce(target_room.archived_at, now())
   )
   on conflict (room_code) do update
@@ -1281,8 +1316,8 @@ begin
 end;
 $$;
 
-revoke all on function public.archive_bot_training_game(text) from public;
-grant execute on function public.archive_bot_training_game(text) to anon, authenticated;
+revoke all on function public.archive_bot_training_game(text, jsonb) from public;
+grant execute on function public.archive_bot_training_game(text, jsonb) to anon, authenticated;
 
 do $$
 begin

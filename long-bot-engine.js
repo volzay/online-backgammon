@@ -750,7 +750,271 @@ function cappedTrapReward(value) {
 }
 
 
+/* bot-engine/long/analysis.ts */
+
+
+const MAX_REPLY_SEQUENCES = 8;
+const MAX_TACTICAL_CANDIDATES = 6;
+const MAX_EXPERIENCE_PENALTY = 2600000;
+
+const TACTICAL_ROLLS = [
+  { dice: [6, 6], weight: 1 },
+  { dice: [5, 5], weight: 1 },
+  { dice: [4, 4], weight: 1 },
+  { dice: [3, 3], weight: 1 },
+  { dice: [2, 2], weight: 1 },
+  { dice: [1, 1], weight: 1 },
+  { dice: [6, 5], weight: 2 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [6, 1], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+];
+
+function analyzeOpponentReplies(
+  adapter,
+  color,
+  candidates,
+  weights,
+  deadline,
+) {
+  const tacticalCandidates = candidates.slice(0, MAX_TACTICAL_CANDIDATES);
+  if (tacticalCandidates.length < 2 || Date.now() >= deadline) return candidates;
+
+  const opponent = opponentOf(color);
+  const accumulators = tacticalCandidates.map(candidate => ({
+    candidate,
+    expectedImpact: 0,
+    weight: 0,
+    worstImpact: 0,
+    rolls: 0,
+  }));
+
+  for (const roll of TACTICAL_ROLLS) {
+    if (Date.now() >= deadline) break;
+    let completedRoll = true;
+    const rollResults = [];
+
+    for (const accumulator of accumulators) {
+      if (Date.now() >= deadline) {
+        completedRoll = false;
+        break;
+      }
+      const replyState = prepareReplyState(accumulator.candidate.after, opponent, roll.dice);
+      const replySequences = sampledSequences(
+        adapter.legalSequences(replyState, opponent),
+        MAX_REPLY_SEQUENCES,
+      );
+      const beforeValue = evaluateState(replyState, color, weights);
+      let worstValue = beforeValue;
+
+      for (const reply of replySequences) {
+        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+        const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
+        const ownValue = evaluateState(replyAfter, color, weights);
+        const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
+        worstValue = Math.min(worstValue, replyValue);
+      }
+      rollResults.push(worstValue - beforeValue);
+    }
+
+    if (!completedRoll) break;
+    rollResults.forEach((impact, index) => {
+      const accumulator = accumulators[index];
+      accumulator.expectedImpact += impact * roll.weight;
+      accumulator.weight += roll.weight;
+      accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
+      accumulator.rolls += 1;
+    });
+  }
+
+  accumulators.forEach((accumulator) => {
+    if (!accumulator.weight) return;
+    const expectedImpact = accumulator.expectedImpact / accumulator.weight;
+    const tacticalAdjustment = expectedImpact * 0.38 + accumulator.worstImpact * 0.08;
+    accumulator.candidate.score += tacticalAdjustment;
+    accumulator.candidate.tactical = {
+      expectedImpact,
+      worstImpact: accumulator.worstImpact,
+      rolls: accumulator.rolls,
+      adjustment: tacticalAdjustment,
+    };
+  });
+
+  return candidates.sort((left, right) => right.score - left.score);
+}
+
+function experienceDescriptor(
+  state,
+  color,
+  features,
+  tactical = null,
+) {
+  const opponent = opponentOf(color);
+  const ownHead = headCheckers(state, color);
+  const outside = outsideHomeCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const ownOff = offCount(state, color);
+  const trap = opponentTrapRisk(state, color);
+  const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
+  const phase = homeReady(state, color)
+    ? 'bearoff'
+    : opponentOff > 0 && ownOff === 0
+      ? 'koks-rescue'
+      : outside <= 4
+        ? 'late-entry'
+        : ownHead > 0
+          ? 'head-development'
+          : 'route';
+  const contextKey = [
+    phase,
+    bucket('h', ownHead, [0, 1, 3, 7]),
+    bucket('o', outside, [0, 2, 5, 9]),
+    bucket('po', opponentOff, [0, 1, 5, 10]),
+    bucket('tr', trap, [0, 40, 180, 600]),
+    bucket('pd', pipDelta, [-36, -8, 9, 37]),
+  ].join('|');
+
+  const actionKey = [
+    signedFlag('head', features.headGain),
+    signedFlag('entry', features.outsideReduction),
+    signedFlag('trap', features.trapDelta),
+    signedFlag('freedom', features.opponentHeadFreedomDelta),
+    signedFlag('distribution', features.distributionDelta),
+    Number(features.headLandingBreak || 0) > 0 ? 'support:break' : 'support:keep',
+    Number(features.homeShuffleMoves || 0) > 0 ? 'home:shuffle' : 'home:steady',
+    Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
+  ].join('|');
+
+  const urgency = 1
+    + opponentOff * 0.12
+    + (homeReady(state, opponent) ? 0.65 : 0)
+    + (phase === 'koks-rescue' ? 0.8 : 0);
+  let mistakeSeverity = 0;
+  mistakeSeverity += Math.min(3, Math.max(0, Number(features.headLandingBreak) || 0)) * 0.9;
+  mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
+  if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
+    mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.outsideReduction || 0) <= 0) {
+    mistakeSeverity += 1.15 + Math.min(1.2, outside / 8);
+  }
+  if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
+    mistakeSeverity += 1.4;
+  }
+  if (tactical && Number(tactical.worstImpact) < -4000000) {
+    mistakeSeverity += Math.min(2.2, Math.abs(Number(tactical.worstImpact)) / 16000000);
+  }
+
+  return {
+    contextKey,
+    actionKey,
+    mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
+    phase,
+  };
+}
+
+function normalizeExperiencePatterns(patterns = []) {
+  const normalized = new Map();
+  (Array.isArray(patterns) ? patterns : []).forEach((pattern) => {
+    const contextKey = String(pattern?.contextKey || pattern?.context_key || '');
+    const actionKey = String(pattern?.actionKey || pattern?.action_key || '');
+    if (!contextKey || !actionKey) return;
+    const key = `${contextKey}::${actionKey}`;
+    const current = normalized.get(key) || {
+      contextKey,
+      actionKey,
+      samples: 0,
+      losses: 0,
+      severeLosses: 0,
+      signalWeight: 0,
+    };
+    current.samples += Math.max(0, Number(pattern.samples) || 0);
+    current.losses += Math.max(0, Number(pattern.losses) || 0);
+    current.severeLosses += Math.max(
+      0,
+      Number(pattern.severeLosses ?? pattern.severe_losses) || 0,
+    );
+    current.signalWeight += Math.max(
+      0,
+      Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
+    );
+    normalized.set(key, current);
+  });
+  return normalized;
+}
+
+function experienceAdjustment(descriptor, experience) {
+  if (!descriptor || !(experience instanceof Map)) return 0;
+  const pattern = experience.get(`${descriptor.contextKey}::${descriptor.actionKey}`);
+  if (!pattern || pattern.samples < 2 || descriptor.mistakeSeverity <= 0) return 0;
+
+  const lossRate = (pattern.losses + 1) / (pattern.samples + 2);
+  if (lossRate <= 0.55) return 0;
+  const severeRate = pattern.severeLosses / Math.max(1, pattern.samples);
+  const confidence = Math.min(0.88, pattern.samples / (pattern.samples + 6));
+  const learnedSeverity = Math.min(
+    4,
+    pattern.signalWeight / Math.max(1, pattern.samples),
+  );
+  const penalty = (
+    280000
+    * confidence
+    * (lossRate - 0.5)
+    * (1 + severeRate * 1.8)
+    * (1 + learnedSeverity * 0.28)
+    * Math.min(4, descriptor.mistakeSeverity)
+  );
+  return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
+}
+
+function prepareReplyState(state, color, dice) {
+  return {
+    ...state,
+    turn: color,
+    phase: 'move',
+    dice: [...dice],
+    rolled: [...dice],
+    turnMoves: [],
+    headPlayedThisTurn: {
+      ...(state.headPlayedThisTurn || {}),
+      [color]: false,
+    },
+  };
+}
+
+function sampledSequences(sequences, limit) {
+  const legal = (Array.isArray(sequences) ? sequences : []).filter(sequence => sequence?.length);
+  if (legal.length <= limit) return legal;
+  const sampled = [];
+  const seen = new Set();
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
+    const sequence = legal[sourceIndex];
+    const key = sequence.map(move => `${move.from}:${move.die}`).join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sampled.push(sequence);
+  }
+  return sampled;
+}
+
+function bucket(prefix, value, thresholds) {
+  const number = Number(value) || 0;
+  const index = thresholds.findIndex(threshold => number <= threshold);
+  return `${prefix}${index < 0 ? thresholds.length : index}`;
+}
+
+function signedFlag(name, value) {
+  const number = Number(value) || 0;
+  return `${name}:${number > 0.001 ? 'gain' : number < -0.001 ? 'loss' : 'flat'}`;
+}
+
+
 /* bot-engine/long/engine.ts */
+
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
@@ -760,6 +1024,8 @@ function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
   const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
   const defaultTimeLimitMs = Number(options.timeLimitMs) || DEFAULT_TIME_LIMIT_MS;
+  const experienceSources = new Map();
+  let experience = new Map();
 
   function rank(state, color = state.turn, runtimeOptions = {}) {
     if (!color) return [];
@@ -767,6 +1033,8 @@ function createLongBotEngine(adapter, options = {}) {
     const startedAt = Date.now();
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
     const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
+    const deadline = startedAt + timeLimitMs;
+    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.48);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -780,10 +1048,29 @@ function createLongBotEngine(adapter, options = {}) {
         score: scoreSequence(state, after, color, sequence, weights),
         features: sequenceStats(state, after, color, sequence),
       });
-      if (Date.now() - startedAt > timeLimitMs && ranked.length >= 8) break;
+      if (Date.now() >= staticDeadline && ranked.length >= 12) break;
     }
 
-    return ranked.sort((a, b) => b.score - a.score);
+    ranked.forEach((candidate) => {
+      candidate.baseScore = candidate.score;
+      candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
+      candidate.experience = experienceDescriptor(state, color, candidate.features);
+      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.score += candidate.experienceAdjustment;
+    });
+
+    const strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+      .sort((left, right) => right.score - left.score);
+    analyzeOpponentReplies(adapter, color, strategicallyRanked, weights, deadline);
+    strategicallyRanked.forEach((candidate) => {
+      candidate.experience = experienceDescriptor(
+        state,
+        color,
+        candidate.features,
+        candidate.tactical,
+      );
+    });
+    return strategicallyRanked.sort((left, right) => right.score - left.score);
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -801,6 +1088,16 @@ function createLongBotEngine(adapter, options = {}) {
       const after = adapter.applySequence(state, sequence, color);
       return scoreSequence(state, after, color, sequence, mergeWeights(weights));
     },
+    setExperience(patterns = [], source = 'runtime') {
+      experienceSources.set(String(source || 'runtime'), Array.isArray(patterns) ? patterns : []);
+      experience = normalizeExperiencePatterns(
+        Array.from(experienceSources.values()).flat(),
+      );
+      return experience.size;
+    },
+    experienceSize() {
+      return experience.size;
+    },
   };
 }
 
@@ -811,7 +1108,8 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
 
-  return sequences
+  const head = headPoint(color);
+  const scored = sequences
     .map(sequence => {
       const offMoves = sequence.reduce((total, move) => total + (move.bearOff || move.to === 0 ? 1 : 0), 0);
       const roughPips = sequence.reduce((total, move) => total + Number(move.die || 0), 0);
@@ -819,22 +1117,145 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
       const homeEntries = homeEntryMoveCount(sequence, color);
       const insideHomeMoves = homeShuffleMoveCount(sequence, color);
       const outsideMoves = sequence.reduce((total, move) => total + (pathPos(color, move.from) < 18 ? 1 : 0), 0);
+      const headMoves = sequence.reduce(
+        (total, move) => total + (Number(move.from) === Number(head) ? 1 : 0),
+        0,
+      );
       const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
       return {
         sequence,
+        offMoves,
+        homeEntries,
+        outsideMoves,
+        headMoves,
+        homeShuffle: insideHomeMoves,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
           + outsideMoves * Math.min(90000, trapPressure * 320)
+          + headMoves * (headCheckers(state, color) <= 2 ? 150000 : 28000)
           + opponentHeadControlGain * 18000
           + roughPips * 120
           + offCount(state, color) * 10
           - pipsFor(state, color) * 0.01,
       };
     })
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, maxCandidates)
-    .map(item => item.sequence);
+    .sort((a, b) => b.priority - a.priority);
+
+  const selected = [];
+  const seen = new Set();
+  const add = (item) => {
+    if (!item || selected.length >= maxCandidates) return;
+    const key = item.sequence.map(move => `${move.from}:${move.die}`).join(',');
+    if (seen.has(key)) return;
+    seen.add(key);
+    selected.push(item.sequence);
+  };
+  const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
+
+  add(bestBy(item => item.headMoves > 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.homeEntries > 0, (a, b) => (
+    b.homeEntries - a.homeEntries || b.priority - a.priority
+  )));
+  add(bestBy(item => item.outsideMoves > 0, (a, b) => (
+    b.outsideMoves - a.outsideMoves || b.priority - a.priority
+  )));
+  add(bestBy(item => item.homeShuffle === 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.offMoves > 0, (a, b) => (
+    b.offMoves - a.offMoves || b.priority - a.priority
+  )));
+  scored.forEach(add);
+  return selected;
+}
+
+function prioritizeForcedRacePlay(state, color, ranked) {
+  if (!ranked.length) return ranked;
+  if (homeReady(state, color)) {
+    const maxOff = Math.max(...ranked.map(candidate => Number(candidate.features.offGain) || 0));
+    return ranked.filter(candidate => Number(candidate.features.offGain) === maxOff);
+  }
+
+  const opponent = opponentOf(color);
+  const outside = outsideHomeCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const trapPressure = opponentTrapRisk(state, color);
+  const maxEntry = Math.max(...ranked.map(candidate => Number(candidate.features.outsideReduction) || 0));
+  const maxHeadRelease = Math.max(...ranked.map(candidate => Number(candidate.features.headGain) || 0));
+  const urgentHeadRelease = headCheckers(state, color) > 0
+    && maxHeadRelease > 0
+    && (
+      headCheckers(state, color) <= 2
+      || opponentOff > 0
+      || homeReady(state, opponent)
+      || trapPressure > 80
+    );
+
+  ranked.forEach((candidate) => {
+    const features = candidate.features;
+    if (urgentHeadRelease) {
+      candidate.score += Number(features.headGain || 0) * 36000000;
+      if (Number(features.headGain || 0) < maxHeadRelease) candidate.score -= 28000000;
+    }
+    if (outside <= 4 && maxEntry > 0) {
+      candidate.score += Number(features.outsideReduction || 0)
+        * (14000000 + opponentOff * 3500000);
+      if (Number(features.outsideReduction || 0) < maxEntry) {
+        candidate.score -= (maxEntry - Number(features.outsideReduction || 0))
+          * (9000000 + opponentOff * 2200000);
+      }
+    }
+    if (trapPressure > 850 && maxEntry > 0) {
+      const entry = Number(features.outsideReduction || 0);
+      const trapScale = Math.min(72000000, trapPressure * 52000);
+      candidate.score += entry * (18000000 + trapScale);
+      if (entry < maxEntry) {
+        candidate.score -= (maxEntry - entry) * (16000000 + trapScale * 0.82);
+      }
+      candidate.score -= Number(features.homeShuffleMoves || 0)
+        * (12000000 + trapScale * 0.72);
+    }
+    if (trapPressure < 120 && maxEntry > 0 && headCheckers(state, color) >= 7) {
+      const entry = Number(features.outsideReduction || 0);
+      candidate.score += entry * 72000000;
+      if (entry <= 0 && Number(features.headGain || 0) > 0) candidate.score -= 12000000;
+    }
+    if (opponentOff >= 3 && offCount(state, color) === 0) {
+      candidate.score += Number(features.bearOffMoves || 0) * 42000000;
+      candidate.score += Number(features.outsideReduction || 0) * 15000000;
+      candidate.score += Number(features.headGain || 0) * 12000000;
+      candidate.score -= Number(features.homeShuffleMoves || 0) * 14000000;
+    }
+  });
+  return ranked;
+}
+
+function strategicSafetyAdjustment(state, color, features) {
+  const opponent = opponentOf(color);
+  const opponentOff = offCount(state, opponent);
+  const outside = outsideHomeCount(state, color);
+  let score = 0;
+
+  score -= Math.max(0, Number(features.headLandingBreak) || 0)
+    * (4200000 + headCheckers(state, color) * 620000);
+  score += Number(features.opponentHeadFreedomDelta || 0)
+    * (2200000 + Math.max(0, headCheckers(state, opponent) - 2) * 240000);
+  if (Number(features.trapBefore || 0) > 0) {
+    score += Number(features.trapDelta || 0) * (380000 + opponentOff * 70000);
+    if (Number(features.trapDelta || 0) <= 0) {
+      score -= Math.min(24000000, Number(features.trapBefore) * 68000);
+    }
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
+    score -= Number(features.homeShuffleMoves)
+      * (3800000 + Math.max(0, 6 - outside) * 1600000 + opponentOff * 1100000);
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.trapBefore || 0) > 850) {
+    score -= Number(features.homeShuffleMoves)
+      * Math.min(160000000, Number(features.trapBefore) * 9500);
+  }
+  score += Math.max(0, Number(features.laggardDebtDelta) || 0)
+    * (155000 + developmentPressure(state, color) * 42000);
+  return score;
 }
 
 
@@ -878,7 +1299,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-linear-v7';
+const ENGINE_VERSION = 'long-analytic-v8';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -905,6 +1326,14 @@ function createBrowserLongBotEngine(game, options = {}) {
       return engine.evaluateState(state, color, weights);
     },
 
+    setExperience(patterns, source = 'runtime') {
+      return engine.setExperience(patterns, source);
+    },
+
+    experienceSize() {
+      return engine.experienceSize();
+    },
+
     consumeLastDecision() {
       const decision = lastDecision;
       lastDecision = null;
@@ -924,6 +1353,14 @@ function decisionRecord(state, color, ranked, weights = undefined) {
       die: move.die,
     })),
     features: { ...(candidate.features || {}) },
+    tactical: candidate.tactical ? {
+      expectedImpact: Math.round(candidate.tactical.expectedImpact),
+      worstImpact: Math.round(candidate.tactical.worstImpact),
+      rolls: candidate.tactical.rolls,
+      adjustment: Math.round(candidate.tactical.adjustment),
+    } : null,
+    experience: candidate.experience ? { ...candidate.experience } : null,
+    experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),
   }));
   if (!candidates.length) return null;
 
@@ -942,6 +1379,7 @@ function decisionRecord(state, color, ranked, weights = undefined) {
     },
     selected: candidates[0],
     alternatives: candidates.slice(1),
+    experience: candidates[0].experience ? { ...candidates[0].experience } : null,
   };
 }
 
@@ -956,7 +1394,7 @@ function positionFingerprint(state, color) {
     hash ^= source.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `lb3-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  return `lb4-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 function installBrowserLongBotEngine(root = globalThis) {

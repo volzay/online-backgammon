@@ -635,12 +635,21 @@
     return { ok: true, version: nextVersion };
   }
 
-  async function archiveBotTrainingGame(code) {
+  async function archiveBotTrainingGame(code, finalState = null) {
     if (!configured()) return { skipped: true };
     const client = await supabase();
-    const { data, error } = await client.rpc("archive_bot_training_game", {
+    const args = {
       p_room_code: normalizeCode(code),
-    });
+    };
+    if (finalState && typeof finalState === "object") {
+      args.p_final_state = JSON.parse(JSON.stringify(finalState));
+    }
+    let { data, error } = await client.rpc("archive_bot_training_game", args);
+    if (error && args.p_final_state && /function .*archive_bot_training_game|Could not find the function|schema cache/i.test(error.message || "")) {
+      ({ data, error } = await client.rpc("archive_bot_training_game", {
+        p_room_code: args.p_room_code,
+      }));
+    }
     if (error) throw supabaseError(error, "Could not archive bot training game.");
     return data || { ok: true };
   }

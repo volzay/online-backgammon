@@ -55,6 +55,8 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.rank, "function");
   assert.equal(typeof engine.evaluateState, "function");
   assert.equal(typeof engine.consumeLastDecision, "function");
+  assert.equal(typeof engine.setExperience, "function");
+  assert.equal(typeof engine.experienceSize, "function");
 });
 
 test("learned profile cannot destabilize the long engine weights", () => {
@@ -102,7 +104,7 @@ test("learned profile cannot destabilize the long engine weights", () => {
     rolled: [1, 2],
   }));
 
-  assert.equal(requestedKey, "narduh-strong-bot-profile-v4");
+  assert.equal(requestedKey, "narduh-strong-bot-profile-v5");
   assert.ok(capturedOptions);
   const bases = {
     opponentHeadFreedom: 48000,
@@ -300,9 +302,10 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
   assert.ok(!plan.some(move => move.from === 19));
 
   const decision = engine.consumeLastDecision();
-  assert.match(decision.id, /^lb3-/);
-  assert.equal(decision.engineVersion, "long-linear-v7");
+  assert.match(decision.id, /^lb4-/);
+  assert.equal(decision.engineVersion, "long-analytic-v8");
   assert.equal(decision.selected.moves.length, 4);
+  assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
   assert.equal(engine.consumeLastDecision(), null);
 });

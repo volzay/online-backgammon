@@ -55,3 +55,41 @@ export interface LongBotEngineOptions {
   maxCandidates?: number;
   timeLimitMs?: number;
 }
+
+export interface LongBotTacticalAnalysis {
+  expectedImpact: number;
+  worstImpact: number;
+  rolls: number;
+  adjustment: number;
+}
+
+export interface LongBotExperienceDescriptor {
+  contextKey: string;
+  actionKey: string;
+  mistakeSeverity: number;
+  phase: string;
+}
+
+export interface LongBotExperiencePattern {
+  contextKey?: string;
+  context_key?: string;
+  actionKey?: string;
+  action_key?: string;
+  samples: number;
+  losses: number;
+  severeLosses?: number;
+  severe_losses?: number;
+  signalWeight?: number;
+  signal_weight?: number;
+}
+
+export interface LongBotRankedCandidate {
+  sequence: LongBotSequence;
+  after: LongBotState;
+  score: number;
+  baseScore?: number;
+  features: Record<string, number>;
+  tactical?: LongBotTacticalAnalysis;
+  experience?: LongBotExperienceDescriptor;
+  experienceAdjustment?: number;
+}
