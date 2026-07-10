@@ -34,6 +34,7 @@ const STATIC_FILES = [
   "dice-webgl.js",
   "sound.js",
   "rating.js",
+  "admin-room-data.js",
   "homegate.js",
 ];
 

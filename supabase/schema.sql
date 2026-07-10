@@ -363,6 +363,221 @@ create table if not exists public.bot_training_games (
 create index if not exists bot_training_games_completed_idx
 on public.bot_training_games (completed_at desc);
 
+create table if not exists public.room_game_archives (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  room_code text not null,
+  result_key text not null,
+  variant text not null default 'long' check (variant in ('long', 'short')),
+  host_name text not null,
+  guest_name text,
+  winner text not null check (winner in ('white', 'dark')),
+  result_type text not null default 'normal',
+  borne_off jsonb not null default '{"white":0,"dark":0}'::jsonb,
+  history_count integer not null default 0,
+  final_state jsonb not null default '{}'::jsonb,
+  completed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (room_id, result_key)
+);
+
+create index if not exists room_game_archives_completed_idx
+on public.room_game_archives (completed_at desc);
+
+create or replace function public.archive_finished_room_game()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  gs jsonb := coalesce(new.game_state, '{}'::jsonb);
+  history jsonb := coalesce(gs->'history', '[]'::jsonb);
+  resolved_history_count integer := 0;
+  resolved_result_key text;
+begin
+  if coalesce(gs->>'winner', '') not in ('white', 'dark') then
+    return new;
+  end if;
+
+  if jsonb_typeof(history) = 'array' then
+    resolved_history_count := jsonb_array_length(history);
+  else
+    history := '[]'::jsonb;
+  end if;
+
+  resolved_result_key := coalesce(
+    nullif(gs->>'finishedAt', ''),
+    nullif(gs->'history'->0->>'at', ''),
+    concat('version:', new.game_version)
+  ) || ':' || gs->>'winner' || ':' || coalesce(nullif(gs->>'resultType', ''), 'normal');
+
+  insert into public.room_game_archives (
+    room_id,
+    room_code,
+    result_key,
+    variant,
+    host_name,
+    guest_name,
+    winner,
+    result_type,
+    borne_off,
+    history_count,
+    final_state,
+    completed_at
+  )
+  values (
+    new.id,
+    new.code,
+    resolved_result_key,
+    new.variant,
+    new.host_name,
+    new.guest_name,
+    gs->>'winner',
+    coalesce(nullif(gs->>'resultType', ''), 'normal'),
+    coalesce(gs->'borneOff', gs->'off', '{"white":0,"dark":0}'::jsonb),
+    resolved_history_count,
+    gs,
+    coalesce(new.archived_at, new.updated_at, now())
+  )
+  on conflict (room_id, result_key) do update
+  set
+    winner = excluded.winner,
+    result_type = excluded.result_type,
+    borne_off = excluded.borne_off,
+    history_count = excluded.history_count,
+    final_state = excluded.final_state,
+    completed_at = excluded.completed_at;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_room_game_finished on public.rooms;
+create trigger on_room_game_finished
+after insert or update of game_state on public.rooms
+for each row execute function public.archive_finished_room_game();
+
+insert into public.room_game_archives (
+  room_id,
+  room_code,
+  result_key,
+  variant,
+  host_name,
+  guest_name,
+  winner,
+  result_type,
+  borne_off,
+  history_count,
+  final_state,
+  completed_at
+)
+select
+  r.id,
+  r.code,
+  'room:' || coalesce(nullif(r.game_state->>'finishedAt', ''), r.game_version::text),
+  r.variant,
+  r.host_name,
+  r.guest_name,
+  r.game_state->>'winner',
+  coalesce(nullif(r.game_state->>'resultType', ''), 'normal'),
+  coalesce(r.game_state->'borneOff', r.game_state->'off', '{"white":0,"dark":0}'::jsonb),
+  case
+    when jsonb_typeof(r.game_state->'history') = 'array' then jsonb_array_length(r.game_state->'history')
+    else 0
+  end,
+  r.game_state,
+  coalesce(r.archived_at, r.updated_at, now())
+from public.rooms r
+where coalesce(r.game_state->>'winner', '') in ('white', 'dark')
+on conflict (room_id, result_key) do nothing;
+
+insert into public.room_game_archives (
+  room_id,
+  room_code,
+  result_key,
+  variant,
+  host_name,
+  guest_name,
+  winner,
+  result_type,
+  borne_off,
+  history_count,
+  final_state,
+  completed_at
+)
+select
+  room.id,
+  room.code,
+  'rating:' || event.id::text,
+  room.variant,
+  room.host_name,
+  room.guest_name,
+  event.winner,
+  coalesce(nullif(event.result_type, ''), 'normal'),
+  off_counts.value,
+  case when jsonb_typeof(event.history) = 'array' then jsonb_array_length(event.history) else 0 end,
+  jsonb_build_object(
+    'mode', event.mode,
+    'variant', room.variant,
+    'roomCode', room.code,
+    'phase', 'over',
+    'winner', event.winner,
+    'resultType', coalesce(nullif(event.result_type, ''), 'normal'),
+    'off', off_counts.value,
+    'score', coalesce(event.score, '{}'::jsonb),
+    'history', event.history,
+    'finishedAt', event.created_at
+  ),
+  event.created_at
+from public.rating_events event
+join lateral (
+  select candidate.*
+  from public.rooms candidate
+  where candidate.host_user_id = event.user_id
+    and lower(coalesce(candidate.guest_name, '')) = lower(coalesce(event.opponent, ''))
+    and candidate.created_at <= event.created_at + interval '5 minutes'
+  order by abs(extract(epoch from (event.created_at - candidate.created_at)))
+  limit 1
+) room on true
+cross join lateral (
+  select jsonb_build_object(
+    'white', count(*) filter (
+      where item->>'color' = 'white' and item->>'to' in ('снято', 'borne-off')
+    ),
+    'dark', count(*) filter (
+      where item->>'color' = 'dark' and item->>'to' in ('снято', 'borne-off')
+    )
+  ) as value
+  from jsonb_array_elements(
+    case when jsonb_typeof(event.history) = 'array' then event.history else '[]'::jsonb end
+  ) item
+) off_counts
+where event.created_at >= now() - interval '96 hours'
+  and event.winner in ('white', 'dark')
+  and jsonb_typeof(event.history) = 'array'
+  and jsonb_array_length(event.history) > 0
+  and not exists (
+    select 1
+    from public.room_game_archives existing
+    where existing.room_id = room.id
+      and existing.winner = event.winner
+      and existing.history_count = jsonb_array_length(event.history)
+      and abs(extract(epoch from (existing.completed_at - event.created_at))) < 120
+  )
+on conflict (room_id, result_key) do nothing;
+
+delete from public.room_game_archives rating_copy
+where rating_copy.result_key like 'rating:%'
+  and exists (
+    select 1
+    from public.room_game_archives captured
+    where captured.room_id = rating_copy.room_id
+      and captured.result_key not like 'rating:%'
+      and captured.winner = rating_copy.winner
+      and captured.history_count = rating_copy.history_count
+      and abs(extract(epoch from (captured.completed_at - rating_copy.completed_at))) < 120
+  );
+
 create table if not exists public.admin_audit (
   id uuid primary key default gen_random_uuid(),
   actor_user_id uuid references public.profiles(id) on delete set null,
@@ -380,6 +595,7 @@ alter table public.rooms enable row level security;
 alter table public.room_messages enable row level security;
 alter table public.rating_events enable row level security;
 alter table public.bot_training_games enable row level security;
+alter table public.room_game_archives enable row level security;
 alter table public.admin_audit enable row level security;
 
 create or replace function public.admin_email_whitelist()
@@ -413,6 +629,14 @@ to authenticated
 using (public.is_admin_user());
 
 grant select on public.bot_training_games to authenticated;
+
+drop policy if exists "admins can read room game archives" on public.room_game_archives;
+create policy "admins can read room game archives"
+on public.room_game_archives for select
+to authenticated
+using (public.is_admin_user());
+
+grant select on public.room_game_archives to authenticated;
 
 drop policy if exists "profiles are visible to authenticated users" on public.profiles;
 create policy "profiles are visible to authenticated users"
@@ -829,10 +1053,16 @@ as $$
 declare
   cutoff_at timestamptz := now() - make_interval(hours => greatest(coalesce(max_age_hours, 96), 1));
   deleted_count integer := 0;
+  deleted_games integer := 0;
 begin
   if not public.is_admin_user() then
     raise exception 'Admin access required' using errcode = '42501';
   end if;
+
+  delete from public.room_game_archives a
+  where a.completed_at < cutoff_at;
+
+  get diagnostics deleted_games = row_count;
 
   delete from public.rooms r
   where coalesce(r.archived_at, r.updated_at, r.created_at) < cutoff_at
@@ -844,6 +1074,7 @@ begin
     );
 
   get diagnostics deleted_count = row_count;
+  deleted_count := deleted_count + deleted_games;
 
   if deleted_count > 0 then
     insert into public.admin_audit (actor_user_id, action, details)

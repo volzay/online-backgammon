@@ -66,7 +66,7 @@ function controllerContext() {
   return context;
 }
 
-test("another bot game ignores the completed room snapshot and keeps match score", async () => {
+test("an internal round restart ignores the completed room snapshot and keeps match score", async () => {
   const context = controllerContext();
   const controller = context.window.NarduController;
   const signature = `${context.location.pathname}${context.location.search}`;
@@ -110,6 +110,33 @@ test("another bot game ignores the completed room snapshot and keeps match score
   const persisted = JSON.parse(context.localStorage.getItem(snapshotKey));
   assert.equal(persisted.state.winner, null);
   assert.equal(persisted.state.phase, "opening");
+});
+
+test("another bot game opens a new room code", () => {
+  const context = controllerContext();
+  const controller = context.window.NarduController;
+  controller.init({
+    mode: "bot",
+    roomCode: "TEST-RM1",
+    variant: "long",
+    difficulty: "hard",
+    opponent: "Hard bot",
+    opponentRating: 1500,
+    skipAutoStart: true,
+  });
+
+  const nextCode = controller.startBotGameInNewRoom();
+  const nextUrl = new URL(context.location.href);
+  assert.match(nextCode, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.notEqual(nextCode, "TEST-RM1");
+  assert.equal(nextUrl.searchParams.get("game"), nextCode);
+  assert.equal(nextUrl.searchParams.get("mode"), "bot");
+  assert.equal(nextUrl.searchParams.get("difficulty"), "hard");
+
+  const saved = JSON.parse(context.localStorage.getItem(`narduh-bot-game:${nextCode}`));
+  assert.equal(saved.game, nextCode);
+  assert.equal(saved.variant, "long");
+  assert.equal(saved.difficulty, "hard");
 });
 
 test("saving a new game reopens an archived room", async () => {

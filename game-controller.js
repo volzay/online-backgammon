@@ -42,6 +42,7 @@ window.NarduController = (function () {
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
   let botTrainingArchivePromise = Promise.resolve();
+  let botGameFinalizePromise = Promise.resolve();
   let remoteAnimatedRollTokens = new Set();
   let remoteMoveSoundKeys = new Set();
   let remoteMoveSoundReady = false;
@@ -440,6 +441,7 @@ window.NarduController = (function () {
     botTrainingArchivePending = false;
     botTrainingArchiveDone = false;
     botTrainingArchivePromise = Promise.resolve();
+    botGameFinalizePromise = Promise.resolve();
     remoteAnimatedRollTokens = new Set();
     remoteMoveSoundKeys = new Set();
     remoteMoveSoundReady = false;
@@ -1610,6 +1612,33 @@ window.NarduController = (function () {
       for (let i = 0; i < data.length; i += 1) data[i] = Math.floor(Math.random() * 256);
     }
     return Array.from(data, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function createGameRoomCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = new Uint8Array(8);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    const code = Array.from(bytes, value => alphabet[value % alphabet.length]).join('');
+    return `${code.slice(0, 4)}-${code.slice(4)}`;
+  }
+
+  function startBotGameInNewRoom() {
+    const nextCode = createGameRoomCode();
+    clearRoomSnapshots();
+    persistBotGameConfig(nextCode);
+    const url = new URL(location.href);
+    ['room', 'host', 'guest', 'waiting', 'role', 'spectator', 'view'].forEach(key => url.searchParams.delete(key));
+    url.searchParams.set('mode', 'bot');
+    url.searchParams.set('game', nextCode);
+    url.searchParams.set('opp', opponentName);
+    url.searchParams.set('oppR', String(opponentRating));
+    url.searchParams.set('variant', variant);
+    url.searchParams.set('opponent', 'bot');
+    url.searchParams.set('access', 'open');
+    url.searchParams.set('difficulty', botDifficulty);
+    location.href = url.toString();
+    return nextCode;
   }
 
   function utf8Bytes(input) {
@@ -2866,6 +2895,9 @@ window.NarduController = (function () {
       } else if (mode === 'bot') {
         botFinalPayload = safeStep('Build final bot analysis payload', botAnalysisPayload, null);
       }
+      if (mode === 'bot') {
+        botGameFinalizePromise = Promise.resolve(botPublishPromise).catch(() => {});
+      }
       if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
         archiveBotTrainingGame(botPublishPromise, botFinalPayload);
       }
@@ -3014,11 +3046,16 @@ window.NarduController = (function () {
         button.disabled = true;
         button.textContent = tr('preparing');
       }
-      if (mode === 'bot' && botTrainingArchivePending) {
+      if (mode === 'bot') {
         await Promise.race([
-          botTrainingArchivePromise.catch(() => {}),
+          Promise.all([
+            botGameFinalizePromise.catch(() => {}),
+            botTrainingArchivePromise.catch(() => {}),
+          ]),
           new Promise(resolve => setTimeout(resolve, 2500)),
         ]);
+        startBotGameInNewRoom();
+        return;
       }
       startNextGame({ publish: false });
       return;
@@ -3172,6 +3209,7 @@ window.NarduController = (function () {
     receiveRemoteState,
     prepareRoomReload,
     concedeRemoteGameByLobbyExit,
+    startBotGameInNewRoom,
     startNextGame,
     resolveBotDifficulty,
     preferredMoveAction,

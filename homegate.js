@@ -4,8 +4,9 @@ const LANG_KEY = "narduh-lang";
 const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
-const SUPABASE_ROOM_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
-const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_SELECT},room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
+const SUPABASE_ROOM_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
+const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at)`;
+const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
 
 const state = {
   admin: null,
@@ -101,6 +102,12 @@ const adminDict = {
     updated: "Обновлена",
     last_roll: "Последний бросок",
     winner: "Победитель",
+    result: "Результат",
+    normal_result: "Обычная победа",
+    mars: "Марс",
+    koks: "Кокс",
+    latest_completed_game: "Последняя завершённая партия",
+    current_match_log: "Текущая партия",
     close_reason: "Причина закрытия",
     close_room: "Закрыть",
     match_log: "Ход партии",
@@ -219,6 +226,12 @@ const adminDict = {
     updated: "Updated",
     last_roll: "Last roll",
     winner: "Winner",
+    result: "Result",
+    normal_result: "Normal win",
+    mars: "Mars",
+    koks: "Koks",
+    latest_completed_game: "Latest completed game",
+    current_match_log: "Current game",
     close_reason: "Close reason",
     close_room: "Close room",
     match_log: "Match log",
@@ -519,8 +532,12 @@ function reasonText(reason) {
   }[value] || value;
 }
 
+function normalizedBorneOff(game = {}) {
+  return window.NarduAdminRoomData.borneOff(game);
+}
+
 function borneOffText(room) {
-  const off = room.borneOff || {};
+  const off = room.borneOff || normalizedBorneOff(room);
   return `${off.white || 0}/${off.dark || 0}`;
 }
 
@@ -532,6 +549,13 @@ function doubleText(room) {
 function winnerText(summary) {
   if (!summary?.winner) return "-";
   return summary.winnerName ? `${summary.winnerName} (${colorLabel(summary.winner)})` : colorLabel(summary.winner);
+}
+
+function resultTypeText(summary) {
+  if (!summary?.winner) return "-";
+  if (summary.resultType === "mars") return t("mars");
+  if (summary.resultType === "koks") return t("koks");
+  return t("normal_result");
 }
 
 function isRecentActivity(value, maxAgeMs = 3 * 60 * 1000) {
@@ -625,12 +649,13 @@ function supabaseRoomMessages(room) {
 }
 
 function supabaseRoomSummary(room) {
-  const game = room.game_state || {};
+  const { game, liveGame, archive: latestArchive, archived } = window.NarduAdminRoomData.displayedGame(room);
   const chatMessages = supabaseRoomMessages(room);
   const players = supabasePlayersForRoom(room);
-  const stats = rollStats(game);
-  const winnerColor = game.winner || null;
+  const stats = rollStats(liveGame);
+  const winnerColor = game.winner || latestArchive?.winner || null;
   const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
+  const borneOff = normalizedBorneOff(game);
   return {
     id: room.id,
     archiveId: null,
@@ -638,7 +663,7 @@ function supabaseRoomSummary(room) {
     code: room.code,
     name: `${room.host_name || t("host")}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
     variant: room.variant,
-    status: game.phase === "over" || game.winner ? "over" : room.status,
+    status: liveGame.phase === "over" || liveGame.winner ? "over" : room.status,
     privacy: room.access === "closed" ? "password" : "open",
     players,
     createdAt: room.created_at,
@@ -648,9 +673,11 @@ function supabaseRoomSummary(room) {
     winner: winnerColor,
     winnerName: winnerPlayer?.name || null,
     winnerPlayer: winnerPlayer || null,
-    resultType: game.resultType || null,
-    borneOff: game.borneOff || game.off || { white: 0, dark: 0 },
-    historyCount: game.history?.length || 0,
+    resultType: game.resultType || latestArchive?.result_type || null,
+    borneOff,
+    historyCount: game.history?.length || latestArchive?.history_count || 0,
+    latestCompletedAt: latestArchive?.completed_at || null,
+    displaysCompletedGame: archived,
     chatCount: chatMessages.length || game.chat?.length || 0,
     ...stats,
   };
@@ -658,12 +685,16 @@ function supabaseRoomSummary(room) {
 
 function supabaseRoomDetail(room) {
   const summary = supabaseRoomSummary(room);
-  const game = { ...(room.game_state || {}) };
+  const selected = window.NarduAdminRoomData.displayedGame(room);
+  const liveGame = { ...selected.liveGame };
+  liveGame.history = Array.isArray(liveGame.history) ? liveGame.history : [];
+  const useArchivedGame = Boolean(selected.archived && selected.archive?.final_state);
+  const game = useArchivedGame ? { ...selected.game } : { ...liveGame };
   game.history = Array.isArray(game.history) ? game.history : [];
   const chatMessages = supabaseRoomMessages(room);
   game.chat = chatMessages.length ? chatMessages : (Array.isArray(game.chat) ? game.chat : []);
-  game.off ||= { white: 0, dark: 0 };
-  game.borneOff = game.borneOff || game.off;
+  game.off = normalizedBorneOff(game);
+  game.borneOff = game.off;
   return {
     summary,
     session: {
@@ -679,6 +710,8 @@ function supabaseRoomDetail(room) {
       joinedAt: room.joined_at || null,
       closedByAdmin: null,
       game,
+      liveGame: useArchivedGame ? liveGame : null,
+      gameView: useArchivedGame ? "archive" : "live",
     },
   };
 }
@@ -726,6 +759,10 @@ function roomCard(room) {
         <span>${escapeHtml(playerLine(room))}</span>
         <span>${t("borne_off")}</span>
         <span>${borneOffText(room)}</span>
+        <span>${t("winner")}</span>
+        <span>${escapeHtml(winnerText(room))}</span>
+        <span>${t("result")}</span>
+        <span>${escapeHtml(resultTypeText(room))}</span>
         <span>${t("doubles")}</span>
         <span>${doubleText(room)}</span>
         <span>${t("updated")}</span>
@@ -768,6 +805,10 @@ function monitorCard(key) {
         <span>${doubleText(room)}</span>
         <span>${t("borne_off")}</span>
         <span class="monitor-number">${borneOffText(room)}</span>
+        <span>${t("winner")}</span>
+        <span>${escapeHtml(winnerText(room))}</span>
+        <span>${t("result")}</span>
+        <span>${escapeHtml(resultTypeText(room))}</span>
       </div>
       <div class="room-actions">
         <button class="btn ghost small" data-open="${escapeHtml(key)}">${t("open")}</button>
@@ -868,6 +909,7 @@ function gameProtocolText(detail = state.detail) {
     `${t("created")}: ${summary.createdAt || "-"}`,
     `${t("updated")}: ${summary.updatedAt || "-"}`,
     `${t("winner")}: ${winnerText(summary)}`,
+    `${t("result")}: ${resultTypeText(summary)}`,
     `${t("borne_off")}: ${t("white")} ${summary.borneOff?.white || 0}, ${t("dark")} ${summary.borneOff?.dark || 0}`,
     `${t("rolls")}: ${summary.rolls || 0}`,
     `${t("doubles")}: ${doubleText(summary)}`,
@@ -924,6 +966,8 @@ function detailHtml() {
         <div class="detail-row"><span>${t("doubles")}</span><strong>${doubleText(summary)}</strong></div>
         <div class="detail-row"><span>${t("borne_off")}</span><strong>${borneOffText(summary)}</strong></div>
         <div class="detail-row"><span>${t("winner")}</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
+        <div class="detail-row"><span>${t("result")}</span><strong>${escapeHtml(resultTypeText(summary))}</strong></div>
+        ${session.gameView === "archive" ? `<div class="detail-row"><span>${t("game")}</span><strong>${t("latest_completed_game")} · ${fmtTime(summary.latestCompletedAt)}</strong></div>` : ""}
         ${summary.adminCloseReason ? `<div class="detail-row"><span>${t("close_reason")}</span><strong>${escapeHtml(reasonText(summary.adminCloseReason))}</strong></div>` : ""}
         ${summary.source === "active" && !state.readonlyAdmin ? `<button class="btn ghost danger small detail-close" type="button" data-admin-close="${escapeHtml(detailKey)}">${t("close_room")}</button>` : ""}
         ${canDelete ? `<button class="btn ghost danger small detail-close" type="button" data-admin-delete-room="${escapeHtml(detailKey)}">${t("delete_room")}</button>` : ""}
@@ -935,6 +979,11 @@ function detailHtml() {
         </div>
         <ul class="history-admin">${historyListHtml(game.history)}</ul>
       </div>
+      ${session.liveGame ? `
+      <div class="detail-section">
+        <div class="detail-section-head"><h3>${t("current_match_log")}</h3></div>
+        <ul class="history-admin">${historyListHtml(session.liveGame.history)}</ul>
+      </div>` : ""}
       <div class="detail-section">
         <h3>${t("chat")}</h3>
         <ul class="chat-admin">${adminChatListHtml(game.chat)}</ul>
