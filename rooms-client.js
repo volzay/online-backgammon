@@ -620,6 +620,10 @@
       updates.status = "over";
       updates.archived_at = new Date().toISOString();
       updates.closed_reason = "finished";
+    } else if (state?.phase !== "waiting") {
+      updates.status = "joined";
+      updates.archived_at = null;
+      updates.closed_reason = null;
     }
     const { data, error } = await client
       .from("rooms")

@@ -41,6 +41,7 @@ window.NarduController = (function () {
   let botAnalysisPublishQueue = Promise.resolve();
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
+  let botTrainingArchivePromise = Promise.resolve();
   let remoteAnimatedRollTokens = new Set();
   let remoteMoveSoundKeys = new Set();
   let remoteMoveSoundReady = false;
@@ -302,6 +303,15 @@ window.NarduController = (function () {
     return writeRoomSnapshot({ session: false, persistent: true });
   }
 
+  function clearRoomSnapshots() {
+    try {
+      sessionStorage.removeItem(ROOM_RELOAD_SNAPSHOT_KEY);
+    } catch {}
+    try {
+      localStorage.removeItem(roomPersistentSnapshotKey());
+    } catch {}
+  }
+
   function readRoomSnapshot(storage, key) {
     try {
       return JSON.parse(storage.getItem(key) || 'null');
@@ -384,6 +394,7 @@ window.NarduController = (function () {
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
     const url = new URL(location.href);
+    const freshGame = opts.freshGame === true;
     mode = opts.mode || url.searchParams.get('mode') || 'bot';
     const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
     spectatorMode = Boolean(opts.spectator || url.searchParams.get('role') === 'spectator' || url.searchParams.get('spectator') === '1');
@@ -407,7 +418,10 @@ window.NarduController = (function () {
     if (statTimer) clearInterval(statTimer);
     statTimer = null;
 
-    const restoredState = waitingForOpponent ? null : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
+    if (freshGame) clearRoomSnapshots();
+    const restoredState = waitingForOpponent || freshGame
+      ? null
+      : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
     state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState(variant);
     if (mode === 'bot') {
       adoptBotIdentity(state);
@@ -425,6 +439,7 @@ window.NarduController = (function () {
     botAnalysisPublishQueue = Promise.resolve();
     botTrainingArchivePending = false;
     botTrainingArchiveDone = false;
+    botTrainingArchivePromise = Promise.resolve();
     remoteAnimatedRollTokens = new Set();
     remoteMoveSoundKeys = new Set();
     remoteMoveSoundReady = false;
@@ -457,7 +472,7 @@ window.NarduController = (function () {
     if (applyLocalBearOffDemo(url)) return;
     if (waitingForOpponent) return;
     if (!opts.skipRemoteSync) startRemoteSync();
-    if (mode === 'bot' && !restoredState && canPublishBotAnalysis()) {
+    if (mode === 'bot' && !restoredState && !freshGame && canPublishBotAnalysis()) {
       restoreBotAnalysisState(url, roomCode).then(restored => {
         if (restored) {
           state = restored;
@@ -2696,10 +2711,12 @@ window.NarduController = (function () {
   }
 
   function archiveBotTrainingGame(publishPromise, finalPayload = null) {
-    if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) return;
+    if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) {
+      return botTrainingArchivePromise;
+    }
     botTrainingArchivePending = true;
     const payload = finalPayload || botAnalysisPayload();
-    Promise.resolve(publishPromise)
+    botTrainingArchivePromise = Promise.resolve(publishPromise)
       .then(() => window.NarduRooms.archiveBotTrainingGame(remoteCode, payload))
       .then(() => {
         botTrainingArchiveDone = true;
@@ -2708,6 +2725,7 @@ window.NarduController = (function () {
       .finally(() => {
         botTrainingArchivePending = false;
       });
+    return botTrainingArchivePromise;
   }
 
   function nextLegalBotMove() {
@@ -2989,8 +3007,19 @@ window.NarduController = (function () {
     document.getElementById('go-lobby')?.addEventListener('click', () => leaveRoomToLobby(true));
   }
 
-  function requestRematchOrStart() {
+  async function requestRematchOrStart() {
     if (mode !== 'remote') {
+      const button = document.getElementById('go-again');
+      if (button) {
+        button.disabled = true;
+        button.textContent = tr('preparing');
+      }
+      if (mode === 'bot' && botTrainingArchivePending) {
+        await Promise.race([
+          botTrainingArchivePromise.catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 2500)),
+        ]);
+      }
       startNextGame({ publish: false });
       return;
     }
@@ -3035,7 +3064,7 @@ window.NarduController = (function () {
     leaveRoomToLobby(true);
   }
 
-  function startNextGame({ publish = false } = {}) {
+  function startNextGame({ publish = false, autoStart = true } = {}) {
     if (mode === 'remote' && publish) {
       const token = state.rematch?.id || `${Date.now()}-${Math.random()}`;
       if (rematchRestartToken === token) return;
@@ -3043,6 +3072,7 @@ window.NarduController = (function () {
     }
     const nextMatchScore = normalizedMatchScore(state.matchScore);
     nextMatchScore.recordedWinner = null;
+    clearRoomSnapshots();
     document.getElementById('game-over')?.remove();
     clearAll();
     schedule(async () => {
@@ -3055,8 +3085,9 @@ window.NarduController = (function () {
         variant,
         playerColor,
         matchScore: nextMatchScore,
+        freshGame: true,
         skipRemoteSync: deferRemoteStart,
-        skipAutoStart: deferRemoteStart,
+        skipAutoStart: deferRemoteStart || !autoStart,
       });
       state.rematch = null;
       if (publish) {
@@ -3141,6 +3172,7 @@ window.NarduController = (function () {
     receiveRemoteState,
     prepareRoomReload,
     concedeRemoteGameByLobbyExit,
+    startNextGame,
     resolveBotDifficulty,
     preferredMoveAction,
   };

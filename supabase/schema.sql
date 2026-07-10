@@ -1221,17 +1221,9 @@ begin
       raise exception 'The final state is not finished.';
     end if;
 
-    update public.rooms r
-    set
-      game_state = p_final_state,
-      game_version = r.game_version + 1,
-      status = 'over',
-      archived_at = coalesce(r.archived_at, now()),
-      closed_reason = 'finished'
-    where r.id = target_room.id
-    returning r.* into target_room;
-
-    target_state := coalesce(target_room.game_state, '{}'::jsonb);
+    -- Archive the immutable final payload without writing it back to the live
+    -- room. A player may already have started the next game in this room.
+    target_state := p_final_state;
   end if;
 
   if coalesce(target_state->>'mode', '') <> 'bot'
