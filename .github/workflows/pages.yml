@@ -34,8 +34,8 @@ jobs:
       - name: Build static site
         run: npm run build
         env:
-          SUPABASE_URL: https://pzknykygxtbzdhuitzzh.supabase.co
-          SUPABASE_ANON_KEY: sb_publishable_MLLEF0G2GhSKSL7grWm-zg_FKHzDKNO
+          SUPABASE_URL: https://api.201-51-7-193.sslip.io
+          SUPABASE_ANON_KEY: sb_publishable_kWyPnUGXGMJ0afLvIdRNNr_j7tZjhXC
           SITE_BASE_URL: https://volzay.github.io/online-backgammon
 
       - name: Upload artifact

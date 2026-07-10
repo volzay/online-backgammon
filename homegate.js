@@ -339,7 +339,7 @@ function isInvalidSupabaseCredentials(error) {
 function adminAuthErrorMessage(error) {
   const message = String(error?.message || error || "");
   if (isInvalidSupabaseCredentials(error)) {
-    return "Неверный пароль или такой Auth-пользователь ещё не создан в Supabase. Пароль от dashboard.supabase.com здесь не подходит.";
+    return "Неверный пароль или такой Auth-пользователь ещё не создан. Используйте пароль игрового аккаунта администратора.";
   }
   if (/email not confirmed/i.test(message)) {
     return "Email администратора ещё не подтверждён в Supabase Auth. Подтвердите письмо или временно отключите Confirm email.";

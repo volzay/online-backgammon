@@ -1,18 +1,40 @@
-# Supabase Setup
+# Self-hosted Supabase Setup
 
-1. Create a Supabase project.
-2. Open SQL Editor.
-3. Run `schema.sql`.
-4. In Authentication, enable Email signups.
-5. In Realtime settings, verify Realtime is enabled.
-6. Project URL is `https://pzknykygxtbzdhuitzzh.supabase.co`.
-7. Publishable browser key is configured in `.github/workflows/pages.yml`.
-8. In Authentication -> URL Configuration, set:
-   - Site URL: `https://volzay.github.io/online-backgammon`
-   - Redirect URL: `https://volzay.github.io/online-backgammon/login.html`
+The production backend is a self-hosted Supabase stack on Timeweb Cloud.
 
-If email confirmation is enabled, registration shows a confirmation message and the user signs in after following the email link. If email confirmation is disabled for MVP testing, sign-up returns an active session immediately.
+- Public API URL: `https://api.201-51-7-193.sslip.io`
+- Frontend URL: `https://volzay.github.io/online-backgammon/`
+- Server project directory: `/opt/online-backgammon-supabase`
+- Application schema: `supabase/schema.sql`
 
-The GitHub Pages frontend uses Supabase for Auth, lobby rooms, room join, game-state sync, presence heartbeat, and room chat. Local development still falls back to `server.js` when `runtime-config.js` has empty Supabase values.
+The GitHub Pages frontend uses the self-hosted stack for Auth, Postgres, RPC,
+RLS, Realtime, presence, rooms, game-state sync, chat, ratings, and the admin
+surface. Local development still falls back to `server.js` when
+`runtime-config.js` contains empty backend values.
 
-The browser must only receive the public anon/publishable key. Never expose the `service_role` key in `runtime-config.js`, GitHub Actions, or frontend code.
+The browser must only receive the publishable key. Never expose the secret or
+legacy `service_role` key in `runtime-config.js`, GitHub Actions, or frontend
+code.
+
+## Apply schema updates
+
+Copy `supabase/schema.sql` to the server and run it against the database:
+
+```sh
+docker cp schema.sql supabase-db:/tmp/online-backgammon-schema.sql
+docker exec supabase-db psql \
+  --single-transaction \
+  --variable ON_ERROR_STOP=1 \
+  -U postgres -d postgres \
+  -f /tmp/online-backgammon-schema.sql
+```
+
+## Runtime configuration
+
+The production URL and publishable key are set in
+`.github/workflows/pages.yml`. Auth must keep email login enabled because
+nickname accounts authenticate through an internal synthetic email generated
+by `register_nickname_user`; the public registration form still asks only for a
+nickname and password.
+
+See `ops/timeweb/README.md` for server operation, health checks, and backups.
