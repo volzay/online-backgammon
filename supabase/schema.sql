@@ -405,11 +405,17 @@ begin
     history := '[]'::jsonb;
   end if;
 
-  resolved_result_key := coalesce(
-    nullif(gs->>'finishedAt', ''),
-    nullif(gs->'history'->0->>'at', ''),
-    concat('version:', new.game_version)
-  ) || ':' || gs->>'winner' || ':' || coalesce(nullif(gs->>'resultType', ''), 'normal');
+  resolved_result_key := concat(
+    coalesce(
+      nullif(gs->>'finishedAt', ''),
+      nullif(gs->'history'->0->>'at', ''),
+      concat('version:', new.game_version)
+    ),
+    ':',
+    gs->>'winner',
+    ':',
+    coalesce(nullif(gs->>'resultType', ''), 'normal')
+  );
 
   insert into public.room_game_archives (
     room_id,
@@ -1464,6 +1470,21 @@ begin
     raise exception 'The game is not finished.';
   end if;
 
+  if p_final_state is not null
+    and coalesce(target_room.game_state->>'winner', '') = ''
+    and nullif(target_room.game_state->>'startedAt', '') is not null
+    and target_room.game_state->>'startedAt' = target_state->>'startedAt' then
+    update public.rooms
+    set
+      game_state = target_state,
+      game_version = game_version + 1,
+      status = 'over',
+      archived_at = now(),
+      closed_reason = 'finished'
+    where id = target_room.id
+    returning * into target_room;
+  end if;
+
   memory := coalesce(target_state->'analysis'->'botMemory', '{}'::jsonb);
   decisions := coalesce(memory->'decisions', '[]'::jsonb);
   if jsonb_typeof(decisions) <> 'array' then
@@ -1594,6 +1615,129 @@ $$;
 
 revoke all on function public.get_long_bot_experience_patterns() from public;
 grant execute on function public.get_long_bot_experience_patterns() to anon, authenticated;
+
+drop function if exists public.record_rating_result(text, text, integer, boolean, text, text, text, jsonb, jsonb, timestamptz);
+
+create or replace function public.record_rating_result(
+  p_result_key text,
+  p_opponent text,
+  p_opponent_rating integer,
+  p_did_win boolean,
+  p_mode text,
+  p_result_type text,
+  p_winner text,
+  p_score jsonb,
+  p_history jsonb,
+  p_finished_at timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  player_id uuid := auth.uid();
+  clean_key text := left(trim(coalesce(p_result_key, '')), 120);
+  current_rating integer;
+  next_rating integer;
+  rating_delta integer;
+  next_tier text;
+  expected_score double precision;
+  existing_event public.rating_events%rowtype;
+begin
+  if player_id is null then
+    raise exception 'Authentication is required.';
+  end if;
+  if clean_key = '' then
+    raise exception 'Result key is required.';
+  end if;
+
+  select * into existing_event
+  from public.rating_events
+  where user_id = player_id and result_key = clean_key;
+  if existing_event.id is not null then
+    select tier into next_tier from public.profiles where id = player_id;
+    return jsonb_build_object(
+      'ok', true,
+      'duplicate', true,
+      'delta', existing_event.delta,
+      'rating', existing_event.rating_after,
+      'tier', coalesce(next_tier, 'Bronze')
+    );
+  end if;
+
+  select greatest(1, coalesce(rating, 1000)) into current_rating
+  from public.profiles
+  where id = player_id
+  for update;
+  if current_rating is null then
+    raise exception 'Player profile was not found.';
+  end if;
+
+  expected_score := 1.0 / (1.0 + power(
+    10.0,
+    (greatest(1, coalesce(p_opponent_rating, 1000)) - current_rating) / 400.0
+  ));
+  next_rating := round(current_rating + 24 * ((case when p_did_win then 1 else 0 end) - expected_score));
+  rating_delta := next_rating - current_rating;
+  next_tier := case
+    when next_rating >= 2100 then 'Diamond'
+    when next_rating >= 1800 then 'Platinum'
+    when next_rating >= 1500 then 'Gold'
+    when next_rating >= 1200 then 'Silver'
+    else 'Bronze'
+  end;
+
+  insert into public.rating_events (
+    user_id,
+    result_key,
+    opponent,
+    opponent_rating,
+    did_win,
+    mode,
+    result_type,
+    winner,
+    score,
+    history,
+    delta,
+    rating_after,
+    created_at
+  ) values (
+    player_id,
+    clean_key,
+    left(coalesce(p_opponent, ''), 32),
+    greatest(1, coalesce(p_opponent_rating, 1000)),
+    coalesce(p_did_win, false),
+    left(coalesce(p_mode, ''), 20),
+    case when p_result_type in ('mars', 'koks') then p_result_type else '' end,
+    case when p_winner in ('white', 'dark') then p_winner else '' end,
+    coalesce(p_score, '{}'::jsonb),
+    case when jsonb_typeof(p_history) = 'array' then p_history else '[]'::jsonb end,
+    rating_delta,
+    next_rating,
+    coalesce(p_finished_at, now())
+  );
+
+  update public.profiles
+  set
+    rating = next_rating,
+    tier = next_tier,
+    rating_eligible = true,
+    last_seen_at = now()
+  where id = player_id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'duplicate', false,
+    'delta', rating_delta,
+    'rating', next_rating,
+    'tier', next_tier
+  );
+end;
+$$;
+
+revoke all on function public.record_rating_result(text, text, integer, boolean, text, text, text, jsonb, jsonb, timestamptz) from public;
+grant execute on function public.record_rating_result(text, text, integer, boolean, text, text, text, jsonb, jsonb, timestamptz) to authenticated;
 
 do $$
 begin

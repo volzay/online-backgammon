@@ -58,10 +58,64 @@ test("borne-off totals can be reconstructed from the complete move history", () 
   assert.deepEqual(roomData.borneOff(game), { white: 2, dark: 1 });
 });
 
+test("admin preview recovers a finished bot game when the live room stopped at 14 checkers", () => {
+  const history = Array.from({ length: 283 }, (_, index) => ({
+    color: index === 282 ? "white" : (index % 2 ? "dark" : "white"),
+    to: index === 282 ? "снято" : 4,
+  }));
+  const room = {
+    game_state: {
+      phase: "move",
+      winner: null,
+      off: { white: 14, dark: 0 },
+      history: history.slice(0, -1),
+    },
+    room_game_archives: [],
+    bot_training_games: [{
+      id: "training-game",
+      winner: "white",
+      result_type: "koks",
+      completed_at: "2026-07-11T18:28:08Z",
+      final_state: {
+        phase: "over",
+        winner: "white",
+        resultType: "koks",
+        off: { white: 15, dark: 0 },
+        history,
+      },
+    }],
+  };
+
+  const selected = roomData.displayedGame(room);
+  assert.equal(selected.archived, true);
+  assert.equal(selected.game.winner, "white");
+  assert.equal(selected.game.resultType, "koks");
+  assert.equal(selected.game.history.length, 283);
+  assert.deepEqual(roomData.borneOff(selected.game), { white: 15, dark: 0 });
+});
+
 test("database schema archives every finished room state", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   assert.match(schema, /create table if not exists public\.room_game_archives/);
   assert.match(schema, /create trigger on_room_game_finished/);
   assert.match(schema, /after insert or update of game_state on public\.rooms/);
   assert.match(schema, /'history', event\.history/);
+  assert.match(schema, /create or replace function public\.record_rating_result/);
+  assert.match(schema, /game_state = target_state/);
+  assert.match(schema, /target_room\.game_state->>'startedAt' = target_state->>'startedAt'/);
+  assert.match(schema, /resolved_result_key := concat\(/);
+});
+
+test("admin history auto-refresh pauses while the operator is scrolling", () => {
+  const source = fs.readFileSync(path.join(ROOT, "homegate.js"), "utf8");
+  assert.match(source, /adminScrollInteractionUntil = Date\.now\(\) \+ 8000/);
+  assert.match(source, /Date\.now\(\) < adminScrollInteractionUntil/);
+  assert.match(source, /autoRefreshInFlight/);
+  assert.match(source, /Timeweb мониторинг/);
+});
+
+test("rating client persists a result through the atomic server RPC", () => {
+  const source = fs.readFileSync(path.join(ROOT, "rating.js"), "utf8");
+  assert.match(source, /client\.rpc\('record_rating_result'/);
+  assert.match(source, /syncPromise/);
 });

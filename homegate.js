@@ -5,8 +5,10 @@ const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
 const SUPABASE_ROOM_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
-const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at)`;
-const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
+const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,completed_at)`;
+const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at),room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
+let adminScrollInteractionUntil = 0;
+let autoRefreshInFlight = false;
 
 const state = {
   admin: null,
@@ -43,7 +45,7 @@ const adminDict = {
     logout: "Выйти",
     login_eyebrow: "Администрирование",
     login_title: "Вход в панель",
-    login_supabase_desc: "Войдите Supabase-аккаунтом администратора, чтобы открыть мониторинг комнат и управление игроками.",
+    login_supabase_desc: "Войдите аккаунтом администратора Timeweb, чтобы открыть мониторинг комнат и управление игроками.",
     login_server_desc: "Введите пароль администратора, чтобы открыть мониторинг комнат и управление игроками.",
     admin_email: "Email администратора",
     password: "Пароль",
@@ -152,7 +154,7 @@ const adminDict = {
     closed_archive_unavailable: "Архив закрытых комнат на GitHub Pages недоступен без server-side admin function.",
     users_unavailable: "Список игроков недоступен",
     no_players_yet: "Игроков пока нет.",
-    readonly_admin_mode: "GitHub Pages · Supabase мониторинг",
+    readonly_admin_mode: "GitHub Pages · Timeweb мониторинг",
   },
   en: {
     title: "Admin · Online Backgammon",
@@ -167,7 +169,7 @@ const adminDict = {
     logout: "Log out",
     login_eyebrow: "Administration",
     login_title: "Panel login",
-    login_supabase_desc: "Sign in with the Supabase admin account to monitor rooms and manage players.",
+    login_supabase_desc: "Sign in with the Timeweb admin account to monitor rooms and manage players.",
     login_server_desc: "Enter the admin password to monitor rooms and manage players.",
     admin_email: "Admin email",
     password: "Password",
@@ -276,7 +278,7 @@ const adminDict = {
     closed_archive_unavailable: "Closed-room archive on GitHub Pages needs a server-side admin function.",
     users_unavailable: "Player list unavailable",
     no_players_yet: "No players yet.",
-    readonly_admin_mode: "GitHub Pages · Supabase monitoring",
+    readonly_admin_mode: "GitHub Pages · Timeweb monitoring",
   },
 };
 
@@ -471,7 +473,7 @@ function allRooms() {
 }
 
 function archiveRetentionText() {
-  if (state.backend === "supabase") return "Supabase";
+  if (state.backend === "supabase") return "Timeweb";
   return state.lang === "en" ? `${state.retentionHours} hours` : `${state.retentionHours} часов`;
 }
 
@@ -578,7 +580,7 @@ function userStatusClass(user) {
 
 function passwordStateText(user) {
   if (user.passwordState === "guest") return t("guest_profile");
-  if (user.passwordState === "supabase") return "Supabase Auth";
+  if (user.passwordState === "supabase") return "Timeweb Auth";
   if (user.passwordState === "set") return t("password_set_by_admin");
   if (user.passwordState === "client") return t("local_profile");
   return t("no_password");
@@ -652,7 +654,7 @@ function supabaseRoomSummary(room) {
   const { game, liveGame, archive: latestArchive, archived } = window.NarduAdminRoomData.displayedGame(room);
   const chatMessages = supabaseRoomMessages(room);
   const players = supabasePlayersForRoom(room);
-  const stats = rollStats(liveGame);
+  const stats = rollStats(game);
   const winnerColor = game.winner || latestArchive?.winner || null;
   const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
   const borneOff = normalizedBorneOff(game);
@@ -663,7 +665,7 @@ function supabaseRoomSummary(room) {
     code: room.code,
     name: `${room.host_name || t("host")}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
     variant: room.variant,
-    status: liveGame.phase === "over" || liveGame.winner ? "over" : room.status,
+    status: game.phase === "over" || game.winner ? "over" : room.status,
     privacy: room.access === "closed" ? "password" : "open",
     players,
     createdAt: room.created_at,
@@ -942,12 +944,14 @@ function scrollSnapshot() {
 
 function restoreScrollSnapshot(snapshot) {
   if (!snapshot) return;
-  window.setTimeout(() => {
+  const apply = () => {
     const history = document.querySelector(".history-admin");
     const chat = document.querySelector(".chat-admin");
     if (history && snapshot.history !== null) history.scrollTop = snapshot.history;
     if (chat && snapshot.chat !== null) chat.scrollTop = snapshot.chat;
-  }, 0);
+  };
+  apply();
+  window.requestAnimationFrame(() => window.requestAnimationFrame(apply));
 }
 
 function detailHtml() {
@@ -1717,8 +1721,23 @@ document.addEventListener("click", async event => {
   }
 });
 
+function markAdminScrollInteraction(event) {
+  if (event.target?.closest?.(".history-admin, .chat-admin")) {
+    adminScrollInteractionUntil = Date.now() + 8000;
+  }
+}
+
+app.addEventListener("wheel", markAdminScrollInteraction, { passive: true });
+app.addEventListener("touchstart", markAdminScrollInteraction, { passive: true });
+app.addEventListener("touchmove", markAdminScrollInteraction, { passive: true });
+app.addEventListener("pointerdown", markAdminScrollInteraction, { passive: true });
+
 window.setInterval(() => {
-  if (state.admin) refresh().catch(() => {});
+  if (!state.admin || document.hidden || Date.now() < adminScrollInteractionUntil || autoRefreshInFlight) return;
+  autoRefreshInFlight = true;
+  refresh().catch(() => {}).finally(() => {
+    autoRefreshInFlight = false;
+  });
 }, 5000);
 
 loadMe().catch(error => {

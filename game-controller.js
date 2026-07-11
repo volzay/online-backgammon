@@ -2938,6 +2938,12 @@ window.NarduController = (function () {
         }));
         lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;
         localRatingRecordedKey = resultKey;
+        if (r?.syncPromise) {
+          botGameFinalizePromise = Promise.all([
+            botGameFinalizePromise.catch(() => {}),
+            Promise.resolve(r.syncPromise).catch(() => {}),
+          ]).then(() => true);
+        }
       }
       if (gameOverSoundKey !== resultKey) {
         gameOverSoundKey = resultKey;
@@ -3052,7 +3058,13 @@ window.NarduController = (function () {
     document.getElementById('go-again')?.addEventListener('click', requestRematchOrStart);
     document.getElementById('rematch-yes')?.addEventListener('click', acceptRematch);
     document.getElementById('rematch-no')?.addEventListener('click', declineRematch);
-    document.getElementById('go-lobby')?.addEventListener('click', () => leaveRoomToLobby(true));
+    document.getElementById('go-lobby')?.addEventListener('click', async () => {
+      await Promise.race([
+        botGameFinalizePromise.catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 2500)),
+      ]);
+      leaveRoomToLobby(true);
+    });
   }
 
   async function requestRematchOrStart() {

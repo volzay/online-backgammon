@@ -55,6 +55,35 @@ window.NarduRating = (function () {
     const { data: authData, error: authError } = await client.auth.getUser();
     if (authError || authData?.user?.id !== user.id) return false;
 
+    if (entry?.resultKey) {
+      const { data: result, error: resultError } = await client.rpc('record_rating_result', {
+        p_result_key: String(entry.resultKey || '').slice(0, 120),
+        p_opponent: String(entry.opponent || '').slice(0, 32),
+        p_opponent_rating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : DEFAULT_RATING,
+        p_did_win: Boolean(entry.didWin),
+        p_mode: String(entry.mode || '').slice(0, 20),
+        p_result_type: ['mars', 'koks'].includes(entry.resultType) ? entry.resultType : '',
+        p_winner: entry.winner === 'dark' ? 'dark' : (entry.winner === 'white' ? 'white' : ''),
+        p_score: entry.score && typeof entry.score === 'object' ? entry.score : {},
+        p_history: Array.isArray(entry.history) ? entry.history.slice(0, 500) : [],
+        p_finished_at: entry.finishedAt || new Date().toISOString(),
+      });
+      if (!resultError) {
+        user.rating = normalizeRating(result?.rating);
+        user.tier = result?.tier || tierFor(user.rating);
+        user.ratingEligible = true;
+        const current = NarduApp.getUser();
+        if (current && !current.guest && current.id === user.id) {
+          NarduApp.setUser({ ...current, rating: user.rating, tier: user.tier, ratingEligible: true });
+          NarduApp.paintUser();
+        }
+        return true;
+      }
+      if (!/record_rating_result|Could not find the function|schema cache/i.test(resultError.message || '')) {
+        throw resultError;
+      }
+    }
+
     const { data: profile, error: profileError } = await client
       .from('profiles')
       .update({
@@ -116,8 +145,8 @@ window.NarduRating = (function () {
   }
 
   function syncServerRating(user, entry) {
-    if (!isRatedUser(user)) return;
-    fetch('/api/rating/sync', {
+    if (!isRatedUser(user)) return Promise.resolve(false);
+    return fetch('/api/rating/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -137,17 +166,20 @@ window.NarduRating = (function () {
         NarduApp.setUser(data.user);
         NarduApp.paintUser();
       })
-      .catch(() => {});
+      .then(() => true)
+      .catch(() => false);
   }
 
   function syncRegisteredRating(user, entry) {
-    if (!isRatedUser(user)) return;
-    syncSupabaseRating(user, entry)
+    if (!isRatedUser(user)) return Promise.resolve(false);
+    return syncSupabaseRating(user, entry)
       .then(done => {
-        if (!done) syncServerRating(user, entry);
+        if (!done) return syncServerRating(user, entry);
+        return true;
       })
       .catch(() => {
-        if (!window.NarduSupabase?.configured?.()) syncServerRating(user, entry);
+        if (!window.NarduSupabase?.configured?.()) return syncServerRating(user, entry);
+        return false;
       });
   }
 
@@ -183,8 +215,8 @@ window.NarduRating = (function () {
     if (user.history.length > 50) user.history.length = 50;
     NarduApp.setUser(user);
     NarduApp.paintUser();
-    syncRegisteredRating(user, entry);
-    return { delta, rating: user.rating, tier: user.tier };
+    const syncPromise = syncRegisteredRating(user, entry);
+    return { delta, rating: user.rating, tier: user.tier, syncPromise };
   }
 
   return { expected, next, tierFor, normalizeRating, isRatedUser, assignProfileRating, record };
