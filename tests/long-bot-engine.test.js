@@ -303,7 +303,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v8");
+  assert.equal(decision.engineVersion, "long-analytic-v9");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -311,7 +311,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 });
 
 test("XP7E-F64Y move 299 enters one checker and advances another outside checker", () => {
-  const { engine } = loadBrowserEngine();
+  const { game, engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "white", count: 1 },
     2: { color: "dark", count: 2 },
@@ -327,9 +327,12 @@ test("XP7E-F64Y move 299 enters one checker and advances another outside checker
     off: { white: 14, dark: 0 },
   });
 
+  const outsideBefore = countOutsideHome(state, "dark");
   const plan = engine.plan(state, { maxCandidates: 48, timeLimitMs: 900 });
-  assert.ok(plan.some(move => move.from === 20 && move.die === 3));
-  assert.ok(plan.some(move => move.from === 3 && move.die === 4));
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+  assert.ok(plan.some(move => move.from === 20));
+  assert.equal(countOutsideHome(after, "dark"), outsideBefore - 1);
   assert.ok(!plan.some(move => move.from === 17));
 });
 
@@ -504,7 +507,7 @@ test("SGHP-V6KP move 22 advances the deepest laggard before entering a nearer ch
   assert.ok(!plan.some(move => move.from === 24 && move.die === 3));
 });
 
-test("TB9N-MS4S move 5 preserves the stronger opponent-head barrier", () => {
+test("TB9N-MS4S move 5 releases the crowded head without opening either barrier", () => {
   const { game, engine } = loadBrowserEngine();
   const state = longState({
     6: { color: "dark", count: 1 },
@@ -527,7 +530,55 @@ test("TB9N-MS4S move 5 preserves the stronger opponent-head barrier", () => {
   plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
 
   assert.deepEqual(JSON.parse(JSON.stringify(after.points[21])), { color: "dark", count: 1 });
-  assert.deepEqual(JSON.parse(JSON.stringify(after.points[18])), { color: "dark", count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[23])), { color: "dark", count: 1 });
+  assert.equal(after.points[12]?.count, 11);
+});
+
+test("v9 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    11: { color: "dark", count: 1 },
+    12: { color: "dark", count: 13 },
+    13: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    24: { color: "white", count: 13 },
+  }, { dice: [5, 3], rolled: [5, 3] });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  assert.ok(plan.some(move => move.from === 12 && move.die === 5));
+  assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
+});
+
+test("v9 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    3: { color: "dark", count: 1 },
+    8: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    12: { color: "dark", count: 12 },
+    14: { color: "white", count: 1 },
+    18: { color: "dark", count: 1 },
+    20: { color: "white", count: 1 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 11 },
+  }, { dice: [5, 4], rolled: [5, 4] });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  assert.ok(plan.some(move => move.from === 12 && move.die === 5));
+});
+
+test("shared long-bot experience is exposed by a read-only aggregate RPC", () => {
+  const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
+  const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
+  const controller = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8");
+
+  assert.match(schema, /get_long_bot_experience_patterns\(\)/);
+  assert.match(schema, /winner <> bot_color/);
+  assert.match(schema, /engine_version like 'long-analytic-%'/);
+  assert.match(schema, /auth\.uid\(\) is null or target_room\.host_user_id is distinct from auth\.uid\(\)/);
+  assert.match(client, /setExperience\(patterns, "server"\)/);
+  assert.match(controller, /ensureAutoProgressAfterExperience/);
 });
 
 test("U3DQ-PGZX move 11 keeps the point that prevents a head-built fence", () => {

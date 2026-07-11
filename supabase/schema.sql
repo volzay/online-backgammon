@@ -1431,10 +1431,8 @@ begin
   if target_room.id is null then
     raise exception 'Room not found.';
   end if;
-  if p_final_state is null
-    and target_room.host_user_id is not null
-    and target_room.host_user_id is distinct from auth.uid()
-    and not coalesce(public.is_admin_user(), false) then
+  if not coalesce(public.is_admin_user(), false)
+    and (auth.uid() is null or target_room.host_user_id is distinct from auth.uid()) then
     raise exception 'Only the room player can archive this game.';
   end if;
 
@@ -1541,6 +1539,61 @@ $$;
 
 revoke all on function public.archive_bot_training_game(text, jsonb) from public;
 grant execute on function public.archive_bot_training_game(text, jsonb) to anon, authenticated;
+
+create or replace function public.get_long_bot_experience_patterns()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with expanded as (
+    select
+      g.winner,
+      g.bot_color,
+      g.result_type,
+      coalesce(decision->'experience', decision->'selected'->'experience') as descriptor
+    from public.bot_training_games g
+    cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
+    where g.difficulty = 'hard'
+      and g.engine_version like 'long-analytic-%'
+      and g.completed_at >= now() - interval '180 days'
+  ), grouped as (
+    select
+      descriptor->>'contextKey' as context_key,
+      descriptor->>'actionKey' as action_key,
+      count(*)::integer as samples,
+      count(*) filter (where winner <> bot_color)::integer as losses,
+      count(*) filter (
+        where winner <> bot_color and result_type in ('mars', 'koks')
+      )::integer as severe_losses,
+      sum(coalesce((descriptor->>'mistakeSeverity')::numeric, 0))::double precision as signal_weight
+    from expanded
+    where coalesce(descriptor->>'contextKey', '') <> ''
+      and coalesce(descriptor->>'actionKey', '') <> ''
+    group by descriptor->>'contextKey', descriptor->>'actionKey'
+  ), ranked as (
+    select *
+    from grouped
+    order by samples desc, signal_weight desc
+    limit 240
+  )
+  select coalesce(
+    jsonb_agg(jsonb_build_object(
+      'contextKey', context_key,
+      'actionKey', action_key,
+      'samples', samples,
+      'losses', losses,
+      'severeLosses', severe_losses,
+      'signalWeight', signal_weight
+    ) order by samples desc, signal_weight desc),
+    '[]'::jsonb
+  )
+  from ranked
+$$;
+
+revoke all on function public.get_long_bot_experience_patterns() from public;
+grant execute on function public.get_long_bot_experience_patterns() to anon, authenticated;
 
 do $$
 begin

@@ -21,7 +21,7 @@ import {
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 900;
+const DEFAULT_TIME_LIMIT_MS = 1200;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -37,7 +37,7 @@ export function createLongBotEngine(adapter, options = {}) {
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
     const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
     const deadline = startedAt + timeLimitMs;
-    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.48);
+    const staticDeadline = startedAt + Math.max(140, timeLimitMs * 0.42);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -136,7 +136,13 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
           + outsideMoves * Math.min(90000, trapPressure * 320)
-          + headMoves * (headCheckers(state, color) <= 2 ? 150000 : 28000)
+          + headMoves * (
+            headCheckers(state, color) >= 7
+              ? 250000 + headCheckers(state, color) * 30000
+              : headCheckers(state, color) <= 2
+                ? 180000
+                : 95000
+          )
           + opponentHeadControlGain * 18000
           + roughPips * 120
           + offCount(state, color) * 10
@@ -184,6 +190,7 @@ function prioritizeForcedRacePlay(state, color, ranked) {
   const trapPressure = opponentTrapRisk(state, color);
   const maxEntry = Math.max(...ranked.map(candidate => Number(candidate.features.outsideReduction) || 0));
   const maxHeadRelease = Math.max(...ranked.map(candidate => Number(candidate.features.headGain) || 0));
+  const headRemaining = headCheckers(state, color);
   const urgentHeadRelease = headCheckers(state, color) > 0
     && maxHeadRelease > 0
     && (
@@ -195,6 +202,17 @@ function prioritizeForcedRacePlay(state, color, ranked) {
 
   ranked.forEach((candidate) => {
     const features = candidate.features;
+    if (headRemaining >= 7 && maxHeadRelease > 0) {
+      const release = Number(features.headGain || 0);
+      const developmentScale = 52000000 + headRemaining * 5200000;
+      candidate.score += release * developmentScale;
+      if (release < maxHeadRelease) candidate.score -= developmentScale * 0.72;
+      if (release <= 0 && Number(features.outsideReduction || 0) > 0) {
+        candidate.score -= 26000000 + headRemaining * 2800000;
+      }
+    } else if (headRemaining >= 4 && maxHeadRelease > 0) {
+      candidate.score += Number(features.headGain || 0) * 18000000;
+    }
     if (urgentHeadRelease) {
       candidate.score += Number(features.headGain || 0) * 36000000;
       if (Number(features.headGain || 0) < maxHeadRelease) candidate.score -= 28000000;
@@ -217,10 +235,9 @@ function prioritizeForcedRacePlay(state, color, ranked) {
       candidate.score -= Number(features.homeShuffleMoves || 0)
         * (12000000 + trapScale * 0.72);
     }
-    if (trapPressure < 120 && maxEntry > 0 && headCheckers(state, color) >= 7) {
-      const entry = Number(features.outsideReduction || 0);
-      candidate.score += entry * 72000000;
-      if (entry <= 0 && Number(features.headGain || 0) > 0) candidate.score -= 12000000;
+    if (trapPressure < 120 && headRemaining >= 7 && maxHeadRelease > 0) {
+      candidate.score += Number(features.headGain || 0) * 24000000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
     }
     if (opponentOff >= 3 && offCount(state, color) === 0) {
       candidate.score += Number(features.bearOffMoves || 0) * 42000000;
@@ -246,6 +263,12 @@ function strategicSafetyAdjustment(state, color, features) {
     score += Number(features.trapDelta || 0) * (380000 + opponentOff * 70000);
     if (Number(features.trapDelta || 0) <= 0) {
       score -= Math.min(24000000, Number(features.trapBefore) * 68000);
+    }
+  }
+  if (Number(features.fenceClosureBefore || 0) > 0) {
+    score += Number(features.fenceClosureDelta || 0) * 950000;
+    if (Number(features.fenceClosureDelta || 0) < 0) {
+      score += Number(features.fenceClosureDelta || 0) * 1800000;
     }
   }
   if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {

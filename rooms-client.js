@@ -5,6 +5,7 @@
   const PROFILE_HEARTBEAT_MS = 30000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();
+  let longBotExperiencePromise = null;
 
   function configured() {
     return Boolean(window.NarduSupabase?.configured?.());
@@ -658,6 +659,23 @@
     return data || { ok: true };
   }
 
+  async function loadLongBotExperience({ refresh = false } = {}) {
+    if (!configured() || !window.NarduLongBotEngine?.setExperience) return [];
+    if (longBotExperiencePromise && !refresh) return longBotExperiencePromise;
+    longBotExperiencePromise = (async () => {
+      const client = await supabase();
+      const { data, error } = await client.rpc("get_long_bot_experience_patterns");
+      if (error) throw supabaseError(error, "Could not load long-bot experience.");
+      const patterns = Array.isArray(data) ? data : [];
+      window.NarduLongBotEngine.setExperience(patterns, "server");
+      return patterns;
+    })().catch(error => {
+      longBotExperiencePromise = null;
+      throw error;
+    });
+    return longBotExperiencePromise;
+  }
+
   function opponentColor(color) {
     return color === "dark" ? "white" : "dark";
   }
@@ -1001,6 +1019,7 @@
     getGameState,
     putGameState,
     archiveBotTrainingGame,
+    loadLongBotExperience,
     updatePresence,
     leaveRoom,
     watchRoom,

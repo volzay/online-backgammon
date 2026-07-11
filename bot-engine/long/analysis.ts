@@ -10,23 +10,31 @@ import {
 } from './metrics.ts';
 
 const MAX_REPLY_SEQUENCES = 8;
-const MAX_TACTICAL_CANDIDATES = 6;
+const MAX_TACTICAL_CANDIDATES = 5;
 const MAX_EXPERIENCE_PENALTY = 2600000;
 
 const TACTICAL_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [6, 4], weight: 2 },
+  { dice: [5, 4], weight: 2 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [6, 2], weight: 2 },
+  { dice: [5, 2], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 2], weight: 2 },
+  { dice: [6, 1], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [4, 1], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [2, 1], weight: 2 },
   { dice: [6, 6], weight: 1 },
   { dice: [5, 5], weight: 1 },
   { dice: [4, 4], weight: 1 },
   { dice: [3, 3], weight: 1 },
   { dice: [2, 2], weight: 1 },
   { dice: [1, 1], weight: 1 },
-  { dice: [6, 5], weight: 2 },
-  { dice: [6, 3], weight: 2 },
-  { dice: [6, 1], weight: 2 },
-  { dice: [5, 3], weight: 2 },
-  { dice: [5, 1], weight: 2 },
-  { dice: [4, 2], weight: 2 },
-  { dice: [3, 1], weight: 2 },
 ];
 
 export function analyzeOpponentReplies(
@@ -151,6 +159,7 @@ export function experienceDescriptor(
   let mistakeSeverity = 0;
   mistakeSeverity += Math.min(3, Math.max(0, Number(features.headLandingBreak) || 0)) * 0.9;
   mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
+  mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
@@ -179,32 +188,37 @@ export function normalizeExperiencePatterns(patterns = []) {
     const actionKey = String(pattern?.actionKey || pattern?.action_key || '');
     if (!contextKey || !actionKey) return;
     const key = `${contextKey}::${actionKey}`;
-    const current = normalized.get(key) || {
+    const contribution = {
       contextKey,
       actionKey,
-      samples: 0,
-      losses: 0,
-      severeLosses: 0,
-      signalWeight: 0,
+      samples: Math.max(0, Number(pattern.samples) || 0),
+      losses: Math.max(0, Number(pattern.losses) || 0),
+      severeLosses: Math.max(
+        0,
+        Number(pattern.severeLosses ?? pattern.severe_losses) || 0,
+      ),
+      signalWeight: Math.max(
+        0,
+        Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
+      ),
     };
-    current.samples += Math.max(0, Number(pattern.samples) || 0);
-    current.losses += Math.max(0, Number(pattern.losses) || 0);
-    current.severeLosses += Math.max(
-      0,
-      Number(pattern.severeLosses ?? pattern.severe_losses) || 0,
-    );
-    current.signalWeight += Math.max(
-      0,
-      Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
-    );
-    normalized.set(key, current);
+    mergePattern(normalized, key, contribution, contextKey, actionKey);
+
+    const phase = contextKey.split('|')[0] || 'route';
+    mergePattern(normalized, `phase:${phase}::${actionKey}`, contribution, phase, actionKey);
+    mergePattern(normalized, `*::${actionKey}`, contribution, '*', actionKey);
   });
   return normalized;
 }
 
 export function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
-  const pattern = experience.get(`${descriptor.contextKey}::${descriptor.actionKey}`);
+  const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
+  const pattern = [
+    experience.get(`${descriptor.contextKey}::${descriptor.actionKey}`),
+    experience.get(`phase:${phase}::${descriptor.actionKey}`),
+    experience.get(`*::${descriptor.actionKey}`),
+  ].find(candidate => candidate?.samples >= 2);
   if (!pattern || pattern.samples < 2 || descriptor.mistakeSeverity <= 0) return 0;
 
   const lossRate = (pattern.losses + 1) / (pattern.samples + 2);
@@ -224,6 +238,22 @@ export function experienceAdjustment(descriptor, experience) {
     * Math.min(4, descriptor.mistakeSeverity)
   );
   return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
+}
+
+function mergePattern(target, key, pattern, contextKey, actionKey) {
+  const current = target.get(key) || {
+    contextKey,
+    actionKey,
+    samples: 0,
+    losses: 0,
+    severeLosses: 0,
+    signalWeight: 0,
+  };
+  current.samples += pattern.samples;
+  current.losses += pattern.losses;
+  current.severeLosses += pattern.severeLosses;
+  current.signalWeight += pattern.signalWeight;
+  target.set(key, current);
 }
 
 function prepareReplyState(state, color, dice) {

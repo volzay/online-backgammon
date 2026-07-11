@@ -360,6 +360,41 @@ export function opponentTrapRisk(state, color) {
   return risk;
 }
 
+export function fenceClosureRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+
+    const checkerCount = Number(stack.count) || 0;
+    for (let start = pos + 1; start <= Math.min(pos + 6, path.length - 6); start += 1) {
+      const window = path.slice(start, start + 6);
+      if (window.some(target => colorAt(state, target) === color)) continue;
+
+      const blocked = window.filter(target => colorAt(state, target) === opponent).length;
+      if (blocked < 3) continue;
+      const reachableGaps = window.filter(target => (
+        !colorAt(state, target) && canReachPoint(state, opponent, target)
+      )).length;
+      if (blocked + reachableGaps < 5) continue;
+
+      const severity = blocked >= 5 ? 24 : blocked === 4 ? 7.5 : 2.2;
+      const proximity = 1 + Math.max(0, 11 - pos) * 0.12;
+      const headPressure = Number(point) === headPoint(color)
+        ? 1 + Math.min(3.5, checkerCount * 0.28)
+        : 1;
+      risk += checkerCount * severity * proximity * headPressure
+        * (1 + reachableGaps * 0.16);
+    }
+  });
+
+  return risk;
+}
+
 export function opponentHeadFenceBarrierScore(state, color) {
   const opponent = opponentOf(color);
   const opponentHead = headCheckers(state, opponent);

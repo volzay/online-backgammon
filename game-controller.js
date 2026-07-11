@@ -488,7 +488,7 @@ window.NarduController = (function () {
         }
       }).finally(() => {
         queueBotAnalysisPublish(restoredState ? 200 : 900);
-        if (!opts.skipAutoStart) ensureAutoProgress(650);
+        if (!opts.skipAutoStart) ensureAutoProgressAfterExperience(650);
       });
       return;
     }
@@ -497,7 +497,23 @@ window.NarduController = (function () {
       queueBotAnalysisPublish(900);
     }
     if (opts.skipAutoStart) return;
-    ensureAutoProgress(mode === 'remote' ? 1300 : 650);
+    ensureAutoProgressAfterExperience(mode === 'remote' ? 1300 : 650);
+  }
+
+  function ensureAutoProgressAfterExperience(delay) {
+    if (mode !== 'bot' || variant !== 'long' || botDifficulty !== 'hard') {
+      ensureAutoProgress(delay);
+      return;
+    }
+    const load = window.NarduRooms?.loadLongBotExperience?.();
+    if (!load?.then) {
+      ensureAutoProgress(delay);
+      return;
+    }
+    Promise.race([
+      load.catch(error => console.warn('Could not load shared bot experience', error?.message || error)),
+      new Promise(resolve => setTimeout(resolve, 1800)),
+    ]).finally(() => ensureAutoProgress(delay));
   }
 
   function resolveBotDifficulty(...hints) {

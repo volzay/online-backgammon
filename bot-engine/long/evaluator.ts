@@ -6,6 +6,7 @@ import {
   entryContinuationMoveCount,
   entryZoneOutsideCount,
   escapeGatewayRisk,
+  fenceClosureRisk,
   footholdScore,
   headCheckers,
   headLandingBreakRisk,
@@ -67,6 +68,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
   const pressure = phasePressure(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const ownTrapRisk = opponentTrapRisk(state, color);
+  const ownFenceClosureRisk = fenceClosureRisk(state, color);
   const opponentTrapReward = cappedTrapReward(opponentTrapRisk(state, opponent));
 
   return (opponentPips - ownPips) * weights.progress
@@ -92,6 +94,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
     + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
     - ownTrapRisk * weights.trapRisk
+    - ownFenceClosureRisk * weights.trapRisk * 1.45
     + opponentTrapReward * weights.trapRisk * 0.055
     - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
     + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12;
@@ -112,6 +115,8 @@ export function sequenceStats(before, after, color, sequence = []) {
   const homeEntryMoves = homeEntryMoveCount(sequence, color);
   const trapDelta = opponentTrapRisk(before, color) - opponentTrapRisk(after, color);
   const trapBefore = opponentTrapRisk(before, color);
+  const fenceClosureDelta = fenceClosureRisk(before, color) - fenceClosureRisk(after, color);
+  const fenceClosureBefore = fenceClosureRisk(before, color);
   const opponent = opponentOf(color);
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
   const headLandingBreak = headLandingBreakRisk(before, after, color);
@@ -140,6 +145,8 @@ export function sequenceStats(before, after, color, sequence = []) {
     homeEntryMoves,
     trapDelta,
     trapBefore,
+    fenceClosureDelta,
+    fenceClosureBefore,
     opponentTrapGain,
     headLandingBreak,
     outsideDevelopmentMoves,
@@ -173,6 +180,7 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
   score += stats.laggardDebtDelta * weights.homeEntry;
   score += stats.trapDelta * weights.trapRisk * 1.8;
+  score += stats.fenceClosureDelta * weights.trapRisk * 2.35;
   score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
   score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
   score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
