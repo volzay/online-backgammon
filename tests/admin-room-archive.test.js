@@ -101,6 +101,9 @@ test("database schema archives every finished room state", () => {
   assert.match(schema, /after insert or update of game_state on public\.rooms/);
   assert.match(schema, /'history', event\.history/);
   assert.match(schema, /create or replace function public\.record_rating_result/);
+  assert.match(schema, /resolved_room_code text := upper/);
+  assert.match(schema, /game_state = resolved_final_state/);
+  assert.match(schema, /status = 'over'/);
   assert.match(schema, /game_state = target_state/);
   assert.match(schema, /target_room\.game_state->>'startedAt' = target_state->>'startedAt'/);
   assert.match(schema, /resolved_result_key := concat\(/);
@@ -129,4 +132,8 @@ test("game-over modal refreshes from the authoritative Timeweb rating result", (
   assert.match(source, /lastRatingResult = \{[\s\S]*authoritative\.delta[\s\S]*authoritative\.rating/);
   assert.match(source, /renderGameOverModal\(\)/);
   assert.match(source, /ratingRetryCount < 3/);
+  assert.match(source, /ensureBotFinalStatePublished/);
+  assert.match(source, /archiveBotTrainingGame\(botFinalPayload\)/);
+  assert.match(source, /waitForFinalPersistence/);
+  assert.match(source, /setTimeout\(\(\) => resolve\(false\), 15000\)/);
 });

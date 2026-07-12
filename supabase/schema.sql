@@ -1644,12 +1644,49 @@ declare
   next_tier text;
   expected_score double precision;
   existing_event public.rating_events%rowtype;
+  resolved_room_code text := upper(trim(coalesce(p_score->>'roomCode', '')));
+  resolved_final_state jsonb := coalesce(p_score->'finalState', '{}'::jsonb);
+  normalized_history jsonb := case
+    when jsonb_typeof(p_history) = 'array' then p_history
+    else '[]'::jsonb
+  end;
 begin
   if player_id is null then
     raise exception 'Authentication is required.';
   end if;
   if clean_key = '' then
     raise exception 'Result key is required.';
+  end if;
+
+  -- Rating and room finalization share the same authenticated transaction. This
+  -- repairs a room even when the browser aborted its large final PATCH request.
+  if p_mode = 'bot'
+     and resolved_room_code <> ''
+     and coalesce(resolved_final_state->>'winner', '') in ('white', 'dark') then
+    begin
+      resolved_final_state := resolved_final_state || jsonb_build_object(
+        'history', normalized_history,
+        'phase', 'over',
+        'winner', case when p_winner in ('white', 'dark') then p_winner else resolved_final_state->>'winner' end,
+        'resultType', case
+          when p_result_type in ('mars', 'koks') then p_result_type
+          else coalesce(nullif(resolved_final_state->>'resultType', ''), 'normal')
+        end,
+        'off', coalesce(p_score->'off', resolved_final_state->'off'),
+        'finishedAt', coalesce(resolved_final_state->'finishedAt', to_jsonb(coalesce(p_finished_at, now())))
+      );
+      update public.rooms
+      set
+        game_state = resolved_final_state,
+        game_version = game_version + 1,
+        status = 'over',
+        archived_at = coalesce(p_finished_at, now()),
+        closed_reason = 'finished'
+      where code = resolved_room_code
+        and host_user_id = player_id;
+    exception when others then
+      raise warning 'Could not finalize room % from rating result: %', resolved_room_code, sqlerrm;
+    end;
   end if;
 
   select * into existing_event
@@ -1712,7 +1749,7 @@ begin
     case when p_result_type in ('mars', 'koks') then p_result_type else '' end,
     case when p_winner in ('white', 'dark') then p_winner else '' end,
     coalesce(p_score, '{}'::jsonb),
-    case when jsonb_typeof(p_history) = 'array' then p_history else '[]'::jsonb end,
+    normalized_history,
     rating_delta,
     next_rating,
     coalesce(p_finished_at, now())
