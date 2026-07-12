@@ -118,4 +118,15 @@ test("rating client persists a result through the atomic server RPC", () => {
   const source = fs.readFileSync(path.join(ROOT, "rating.js"), "utf8");
   assert.match(source, /client\.rpc\('record_rating_result'/);
   assert.match(source, /syncPromise/);
+  assert.match(source, /delta:\s*Number\(result\?\.delta/);
+  assert.match(source, /rating:\s*user\.rating/);
+});
+
+test("game-over modal refreshes from the authoritative Timeweb rating result", () => {
+  const source = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8");
+  assert.match(source, /if \(r\) \{[\s\S]*localRatingRecordedKey = resultKey/);
+  assert.match(source, /Promise\.resolve\(r\.syncPromise\)[\s\S]*authoritative/);
+  assert.match(source, /lastRatingResult = \{[\s\S]*authoritative\.delta[\s\S]*authoritative\.rating/);
+  assert.match(source, /renderGameOverModal\(\)/);
+  assert.match(source, /ratingRetryCount < 3/);
 });

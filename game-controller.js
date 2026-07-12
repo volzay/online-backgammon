@@ -48,6 +48,8 @@ window.NarduController = (function () {
   let remoteMoveSoundReady = false;
   let localRatingRecordedKey = null;
   let lastRatingResult = null;
+  let ratingRetryKey = null;
+  let ratingRetryCount = 0;
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
@@ -447,6 +449,8 @@ window.NarduController = (function () {
     remoteMoveSoundReady = false;
     localRatingRecordedKey = null;
     lastRatingResult = null;
+    ratingRetryKey = null;
+    ratingRetryCount = 0;
     gameOverSoundKey = null;
     botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
@@ -2936,13 +2940,39 @@ window.NarduController = (function () {
           history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
           finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
         }));
-        lastRatingResult = r ? { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey } : null;
-        localRatingRecordedKey = resultKey;
+        if (r) {
+          lastRatingResult = { delta: r.delta || 0, rating: r.rating ?? null, key: resultKey };
+          localRatingRecordedKey = resultKey;
+          ratingRetryKey = null;
+          ratingRetryCount = 0;
+        }
         if (r?.syncPromise) {
+          const ratingSyncPromise = Promise.resolve(r.syncPromise)
+            .then(authoritative => {
+              if (!authoritative || resultKey !== gameResultKey()) return authoritative;
+              lastRatingResult = {
+                delta: Number(authoritative.delta ?? r.delta ?? 0),
+                rating: authoritative.rating ?? r.rating ?? null,
+                key: resultKey,
+              };
+              renderGameOverModal();
+              return authoritative;
+            });
           botGameFinalizePromise = Promise.all([
             botGameFinalizePromise.catch(() => {}),
-            Promise.resolve(r.syncPromise).catch(() => {}),
+            ratingSyncPromise.catch(() => {}),
           ]).then(() => true);
+        } else if (!r && !NarduApp.getUser()?.guest) {
+          if (ratingRetryKey !== resultKey) {
+            ratingRetryKey = resultKey;
+            ratingRetryCount = 0;
+          }
+          if (ratingRetryCount < 3) {
+            ratingRetryCount += 1;
+            schedule(() => {
+              if (state?.winner && localRatingRecordedKey !== resultKey) onGameOver();
+            }, 500 * ratingRetryCount);
+          }
         }
       }
       if (gameOverSoundKey !== resultKey) {
