@@ -46,6 +46,23 @@ window.NarduRating = (function () {
     user.ratingEligible = true;
     return user;
   }
+  function persistUserSafely(user) {
+    try {
+      NarduApp.setUser(user);
+      NarduApp.paintUser();
+      return true;
+    } catch (error) {
+      console.warn('Could not persist the local rating cache', error?.message || error);
+      return false;
+    }
+  }
+  function compactHistoryEntry(entry = {}) {
+    const { history, ...compact } = entry;
+    const historyCount = Array.isArray(history)
+      ? history.length
+      : Math.max(0, Number(entry.historyCount) || 0);
+    return { ...compact, historyCount };
+  }
   async function syncSupabaseRating(user, entry) {
     if (!window.NarduSupabase?.configured?.() || !user?.id) return null;
     const client = await window.NarduSupabase.client();
@@ -74,8 +91,7 @@ window.NarduRating = (function () {
         user.ratingEligible = true;
         const current = NarduApp.getUser();
         if (current && !current.guest && current.id === user.id) {
-          NarduApp.setUser({ ...current, rating: user.rating, tier: user.tier, ratingEligible: true });
-          NarduApp.paintUser();
+          persistUserSafely({ ...current, rating: user.rating, tier: user.tier, ratingEligible: true });
         }
         return {
           delta: Number(result?.delta ?? entry?.delta ?? 0),
@@ -132,7 +148,7 @@ window.NarduRating = (function () {
 
     const current = NarduApp.getUser();
     if (profile && current && !current.guest && current.id === profile.id) {
-      NarduApp.setUser({
+      persistUserSafely({
         ...current,
         name: profile.nickname || current.name,
         nickname: profile.nickname || current.nickname,
@@ -143,7 +159,6 @@ window.NarduRating = (function () {
         registered: true,
         guest: false,
       });
-      NarduApp.paintUser();
     }
     return {
       delta: Number(entry?.delta || 0),
@@ -171,8 +186,7 @@ window.NarduRating = (function () {
         if (!data?.user) return null;
         const current = NarduApp.getUser();
         if (!current || current.guest || (current.id && current.id !== data.user.id)) return null;
-        NarduApp.setUser(data.user);
-        NarduApp.paintUser();
+        persistUserSafely(data.user);
         return {
           delta: Number(data.delta ?? entry?.delta ?? 0),
           rating: normalizeRating(data.user.rating),
@@ -205,8 +219,8 @@ window.NarduRating = (function () {
     user.rating += delta;
     user.tier   = tierFor(user.rating);
     user.ratingEligible = true;
-    user.history = user.history || [];
-    const entry = {
+    const fullHistory = Array.isArray(details.history) ? details.history.map(item => ({ ...item })) : [];
+    const syncEntry = {
       resultKey: resultKey || `${mode}:${Date.now()}:${opponentName}:${didWin ? 1 : 0}`,
       ts: Date.now(),
       opponent: opponentName,
@@ -216,18 +230,19 @@ window.NarduRating = (function () {
       resultType: details.resultType || '',
       winner: details.winner || '',
       score: details.score || null,
-      history: Array.isArray(details.history) ? details.history.map(item => ({ ...item })) : [],
+      history: fullHistory,
       finishedAt: details.finishedAt || new Date().toISOString(),
       delta,
       ratingAfter: user.rating,
       tierAfter: user.tier,
     };
-    user.history.unshift(entry);
-    /* trim to last 50 games */
-    if (user.history.length > 50) user.history.length = 50;
-    NarduApp.setUser(user);
-    NarduApp.paintUser();
-    const syncPromise = syncRegisteredRating(user, entry);
+    const compactEntry = compactHistoryEntry(syncEntry);
+    user.history = [
+      compactEntry,
+      ...(Array.isArray(user.history) ? user.history.map(compactHistoryEntry) : []),
+    ].slice(0, 50);
+    persistUserSafely(user);
+    const syncPromise = syncRegisteredRating(user, syncEntry);
     return { delta, rating: user.rating, tier: user.tier, syncPromise };
   }
 
