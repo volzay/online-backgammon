@@ -58,6 +58,52 @@ test("borne-off totals can be reconstructed from the complete move history", () 
   assert.deepEqual(roomData.borneOff(game), { white: 2, dark: 1 });
 });
 
+test("archive summary derives rolls, doubles and last roll from the final snapshot", () => {
+  const history = [
+    { color: "white", roll: "6:6", at: "2026-07-13T06:48:00Z", sha256: "latest" },
+    { color: "dark", roll: "2:5", at: "2026-07-13T06:47:00Z", sha256: "older" },
+  ];
+  const stats = roomData.rollStats({ history });
+
+  assert.equal(stats.rolls, 2);
+  assert.equal(stats.doubles, 1);
+  assert.equal(stats.doubleRate, 0.5);
+  assert.deepEqual(stats.lastRoll, history[0]);
+});
+
+test("the room-list payload produces the same completed-game totals as room detail", () => {
+  const finalState = {
+    phase: "over",
+    winner: "white",
+    off: { white: 15, dark: 5 },
+    history: [
+      { color: "white", roll: "6:6", at: "2026-07-13T07:37:00Z" },
+      { color: "dark", roll: "2:4", at: "2026-07-13T07:36:00Z" },
+    ],
+  };
+  const listRoom = {
+    game_state: { phase: "move", winner: null, off: { white: 0, dark: 0 }, history: [] },
+    room_game_archives: [{
+      id: "archive-5sce",
+      winner: "white",
+      result_type: "normal",
+      borne_off: finalState.off,
+      history_count: finalState.history.length,
+      final_state: finalState,
+      completed_at: "2026-07-13T07:37:30Z",
+    }],
+  };
+
+  const selected = roomData.displayedGame(listRoom);
+  assert.deepEqual(roomData.borneOff(selected.game), { white: 15, dark: 5 });
+  assert.deepEqual(roomData.rollStats(selected.game), {
+    rolls: 2,
+    doubles: 1,
+    doubleRate: 0.5,
+    lastRoll: { color: "white", roll: "6:6", at: "2026-07-13T07:37:00Z", sha256: undefined },
+  });
+});
+
 test("admin preview recovers a finished bot game when the live room stopped at 14 checkers", () => {
   const history = Array.from({ length: 283 }, (_, index) => ({
     color: index === 282 ? "white" : (index % 2 ? "dark" : "white"),
@@ -115,6 +161,8 @@ test("admin history auto-refresh pauses while the operator is scrolling", () => 
   assert.match(source, /Date\.now\(\) < adminScrollInteractionUntil/);
   assert.match(source, /autoRefreshInFlight/);
   assert.match(source, /Timeweb мониторинг/);
+  assert.match(source, /room_game_archives\([^)]*final_state/);
+  assert.match(source, /bot_training_games\([^)]*final_state/);
 });
 
 test("rating client persists a result through the atomic server RPC", () => {
@@ -136,4 +184,8 @@ test("game-over modal refreshes from the authoritative Timeweb rating result", (
   assert.match(source, /archiveBotTrainingGame\(botFinalPayload\)/);
   assert.match(source, /waitForFinalPersistence/);
   assert.match(source, /setTimeout\(\(\) => resolve\(false\), 15000\)/);
+  assert.match(source, /clearTimeout\(timeoutId\)/);
+  assert.doesNotMatch(source, /Boolean\(saved && ratingSaved\)/);
+  assert.match(source, /firstSuccessfulPersistence/);
+  assert.doesNotMatch(source, /results\.every\(Boolean\)/);
 });

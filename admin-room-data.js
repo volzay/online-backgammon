@@ -44,6 +44,22 @@
     return result;
   }
 
+  function rollStats(game = {}) {
+    const rolls = (Array.isArray(game.history) ? game.history : []).filter(item => item?.roll);
+    const doubles = rolls.filter(item => {
+      const [a, b] = String(item.roll).split(":").map(Number);
+      return Number.isFinite(a) && a === b;
+    });
+    return {
+      rolls: rolls.length,
+      doubles: doubles.length,
+      doubleRate: rolls.length ? doubles.length / rolls.length : 0,
+      lastRoll: rolls[0]
+        ? { color: rolls[0].color, roll: rolls[0].roll, at: rolls[0].at, sha256: rolls[0].sha256 }
+        : null,
+    };
+  }
+
   function displayedGame(room) {
     const liveGame = room?.game_state || {};
     const archive = latestArchive(room);
@@ -57,5 +73,5 @@
     return { game, liveGame, archive, archived: true };
   }
 
-  return { archives, latestArchive, borneOff, displayedGame };
+  return { archives, latestArchive, borneOff, rollStats, displayedGame };
 });

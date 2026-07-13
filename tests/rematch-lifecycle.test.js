@@ -66,6 +66,132 @@ function controllerContext() {
   return context;
 }
 
+function finishedGameContext({ failFinalState = false, failArchive = false } = {}) {
+  const elements = new Map();
+  const makeElement = initialId => {
+    const listeners = new Map();
+    let id = initialId || "";
+    let innerHTML = "";
+    const element = {
+      disabled: false,
+      textContent: "",
+      className: "",
+      classList: { add() {}, remove() {}, contains() { return false; } },
+      addEventListener(type, handler) { listeners.set(type, handler); },
+      async click() { return listeners.get("click")?.({ target: element }); },
+      remove() { if (id) elements.delete(id); },
+      set id(value) { id = value; elements.set(value, element); },
+      get id() { return id; },
+      set innerHTML(value) {
+        innerHTML = value;
+        for (const buttonId of ["go-again", "go-lobby", "rematch-yes", "rematch-no"]) {
+          if (value.includes(`id="${buttonId}"`)) elements.set(buttonId, makeElement(buttonId));
+          else elements.delete(buttonId);
+        }
+      },
+      get innerHTML() { return innerHTML; },
+    };
+    if (id) elements.set(id, element);
+    return element;
+  };
+  const document = {
+    hidden: false,
+    body: { appendChild(element) { if (element.id) elements.set(element.id, element); } },
+    createElement() { return makeElement(); },
+    getElementById(id) { return elements.get(id) || null; },
+    addEventListener() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+  };
+  const localStorage = memoryStorage();
+  const sessionStorage = memoryStorage();
+  const location = {
+    href: "https://example.test/room.html?mode=bot&game=TEST-RM1&variant=long&difficulty=hard",
+    pathname: "/room.html",
+    search: "?mode=bot&game=TEST-RM1&variant=long&difficulty=hard",
+    hostname: "example.test",
+  };
+  const roomCalls = { finalStates: 0, archives: 0, lobby: 0 };
+  const never = new Promise(() => {});
+  const window = {
+    addEventListener() {},
+    setTimeout(callback, ms) { return setTimeout(callback, Math.min(Number(ms) || 0, 5)); },
+    requestAnimationFrame(callback) { callback(); },
+    NarduApp: {
+      getUser() { return { id: "user-1", name: "Tester", guest: false }; },
+      paintUser() {},
+    },
+    NarduRooms: {
+      configured() { return true; },
+      async ensureBotAnalysisRoom() { return { version: 0 }; },
+      async getGameState() { const error = new Error("not found"); error.status = 404; throw error; },
+      async putGameState() {
+        roomCalls.finalStates += 1;
+        if (failFinalState) throw new Error("final state unavailable");
+        return { version: roomCalls.finalStates };
+      },
+      async archiveBotTrainingGame() {
+        roomCalls.archives += 1;
+        if (failArchive) throw new Error("archive unavailable");
+        return { ok: true };
+      },
+    },
+    NarduRoom: {
+      leaveToLobby() { roomCalls.lobby += 1; location.href = "index.html"; },
+    },
+  };
+  const context = {
+    window,
+    document,
+    console,
+    Date,
+    Math,
+    JSON,
+    URL,
+    Uint8Array,
+    TextEncoder,
+    setTimeout,
+    clearTimeout,
+    setInterval() { return 1; },
+    clearInterval() {},
+    requestAnimationFrame: window.requestAnimationFrame,
+    localStorage,
+    sessionStorage,
+    location,
+    history: { replaceState() {} },
+    NarduSound: { prime() {}, win() {}, lose() {}, move() {}, bearOff() {} },
+    NarduRating: {
+      record() { return { delta: 19, rating: 1268, syncPromise: never }; },
+    },
+  };
+  window.window = window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "game.js"), "utf8"), context, { filename: "game.js" });
+  context.NarduGame = window.NarduGame;
+  const source = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8")
+    .replace("    preferredMoveAction,\n  };", "    preferredMoveAction,\n    __test: { onGameOver },\n  };");
+  vm.runInContext(source, context, { filename: "game-controller.js" });
+
+  const controller = window.NarduController;
+  controller.init({
+    mode: "bot",
+    roomCode: "TEST-RM1",
+    variant: "long",
+    difficulty: "hard",
+    opponent: "Hard bot",
+    opponentRating: 1500,
+    skipAutoStart: true,
+  });
+  const state = controller.getState();
+  state.phase = "over";
+  state.winner = "white";
+  state.off = { white: 15, dark: 5 };
+  state.finishedAt = Date.now();
+  state.history = [{ color: "white", roll: "6:6", at: new Date().toISOString() }];
+  controller.__test.onGameOver();
+  return { context, controller, document, location, roomCalls };
+}
+
 test("an internal round restart ignores the completed room snapshot and keeps match score", async () => {
   const context = controllerContext();
   const controller = context.window.NarduController;
@@ -137,6 +263,48 @@ test("another bot game opens a new room code", () => {
   assert.equal(saved.game, nextCode);
   assert.equal(saved.variant, "long");
   assert.equal(saved.difficulty, "hard");
+});
+
+test("lobby exit is not blocked by a rating request that never settles", async () => {
+  const { document, location, roomCalls } = finishedGameContext();
+
+  await document.getElementById("go-lobby").click();
+
+  assert.ok(roomCalls.finalStates >= 1);
+  assert.equal(roomCalls.archives, 1);
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
+});
+
+test("another bot game is not blocked by a rating request that never settles", async () => {
+  const { document, location, roomCalls } = finishedGameContext();
+
+  await document.getElementById("go-again").click();
+
+  assert.ok(roomCalls.finalStates >= 1);
+  assert.equal(roomCalls.archives, 1);
+  assert.match(location.href, /[?&]game=[A-Z2-9]{4}-[A-Z2-9]{4}/);
+  assert.notEqual(new URL(location.href).searchParams.get("game"), "TEST-RM1");
+});
+
+test("a saved training archive releases the lobby even if the parallel room update fails", async () => {
+  const { document, location, roomCalls } = finishedGameContext({ failFinalState: true });
+
+  await document.getElementById("go-lobby").click();
+
+  assert.equal(roomCalls.archives, 1);
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
+});
+
+test("a saved final room state releases the lobby even if the optional training archive fails", async () => {
+  const { document, location, roomCalls } = finishedGameContext({ failArchive: true });
+
+  await document.getElementById("go-lobby").click();
+
+  assert.ok(roomCalls.finalStates >= 1);
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
 });
 
 test("saving a new game reopens an archived room", async () => {

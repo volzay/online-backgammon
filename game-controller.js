@@ -2953,11 +2953,7 @@ window.NarduController = (function () {
         botGameFinalizePromise = Promise.resolve(botPublishPromise).catch(() => false);
       }
       if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
-        const trainingPromise = archiveBotTrainingGame(botFinalPayload);
-        botGameFinalizePromise = Promise.all([
-          botGameFinalizePromise,
-          trainingPromise,
-        ]).then(results => results.every(Boolean));
+        archiveBotTrainingGame(botFinalPayload);
       }
       if (
         mode === 'bot' &&
@@ -3005,10 +3001,9 @@ window.NarduController = (function () {
               renderGameOverModal();
               return authoritative;
             });
-          botGameFinalizePromise = Promise.all([
-            botGameFinalizePromise.catch(() => false),
-            ratingSyncPromise.catch(() => null),
-          ]).then(([saved, ratingSaved]) => Boolean(saved && ratingSaved));
+          // Rating is recoverable and must never keep the player trapped in the
+          // finished-game modal after the room state itself has been saved.
+          ratingSyncPromise.catch(() => null);
         } else if (!r && !NarduApp.getUser()?.guest) {
           if (ratingRetryKey !== resultKey) {
             ratingRetryKey = resultKey;
@@ -3148,13 +3143,31 @@ window.NarduController = (function () {
       button.disabled = true;
       button.textContent = tr('saving_result');
     }
+    const persistenceAttempts = [botGameFinalizePromise.catch(() => false)];
+    if (botDifficulty === 'hard' && variant === 'long') {
+      persistenceAttempts.push(botTrainingArchivePromise.catch(() => false));
+    }
+    const firstSuccessfulPersistence = new Promise(resolve => {
+      let pendingAttempts = persistenceAttempts.length;
+      persistenceAttempts.forEach(attempt => {
+        Promise.resolve(attempt).then(saved => {
+          if (saved) {
+            resolve(true);
+            return;
+          }
+          pendingAttempts -= 1;
+          if (pendingAttempts === 0) resolve(false);
+        });
+      });
+    });
+    let timeoutId = null;
     const saved = await Promise.race([
-      Promise.all([
-        botGameFinalizePromise.catch(() => false),
-        botTrainingArchivePromise.catch(() => false),
-      ]).then(results => results.every(Boolean)),
-      new Promise(resolve => setTimeout(() => resolve(false), 15000)),
+      firstSuccessfulPersistence,
+      new Promise(resolve => {
+        timeoutId = setTimeout(() => resolve(false), 15000);
+      }),
     ]);
+    if (timeoutId !== null) clearTimeout(timeoutId);
     if (saved) return true;
     gameOverPublishPromise = null;
     botTrainingArchivePending = false;

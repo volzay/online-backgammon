@@ -5,7 +5,7 @@ const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
 const SUPABASE_ROOM_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
-const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,completed_at)`;
+const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at)`;
 const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at),room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
 let adminScrollInteractionUntil = 0;
 let autoRefreshInFlight = false;
@@ -587,17 +587,7 @@ function passwordStateText(user) {
 }
 
 function rollStats(game) {
-  const rolls = (game?.history || []).filter(item => item.roll);
-  const doubles = rolls.filter(item => {
-    const [a, b] = String(item.roll).split(":").map(Number);
-    return Number.isFinite(a) && a === b;
-  });
-  return {
-    rolls: rolls.length,
-    doubles: doubles.length,
-    doubleRate: rolls.length ? doubles.length / rolls.length : 0,
-    lastRoll: rolls[0] ? { color: rolls[0].color, roll: rolls[0].roll, at: rolls[0].at, sha256: rolls[0].sha256 } : null,
-  };
+  return window.NarduAdminRoomData.rollStats(game);
 }
 
 function supabasePlayersForRoom(room) {
