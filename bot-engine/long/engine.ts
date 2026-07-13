@@ -23,7 +23,7 @@ import {
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 2400;
+const DEFAULT_TIME_LIMIT_MS = 3600;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -78,11 +78,32 @@ export function createLongBotEngine(adapter, options = {}) {
     const maxEntry = Math.max(...tacticallyRanked.map(
       candidate => Number(candidate.features.outsideReduction) || 0,
     ));
-    const strategicallyEligible = trapPressure > 850 && outside <= 8 && maxEntry > 0
-      ? tacticallyRanked.filter(
-        candidate => Number(candidate.features.outsideReduction) === maxEntry,
-      )
-      : tacticallyRanked;
+    const fenceRun = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
+    ));
+    const nonSevereTowerCandidates = fenceRun >= 5
+      ? tacticallyRanked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
+      : [];
+    const hasSevereTowerCandidate = tacticallyRanked.some(
+      candidate => Number(candidate.features.maxRouteTowerAfter) >= 7,
+    );
+    let strategicallyEligible = hasSevereTowerCandidate && nonSevereTowerCandidates.length
+      ? nonSevereTowerCandidates
+      : trapPressure > 850 && outside <= 8 && maxEntry > 0 && fenceRun < 4
+        ? tacticallyRanked.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxEntry,
+        )
+        : tacticallyRanked;
+    if (fenceRun >= 5) {
+      const maxSafeEntry = Math.max(...strategicallyEligible.map(
+        candidate => Number(candidate.features.outsideReduction) || 0,
+      ));
+      if (maxSafeEntry > 0) {
+        strategicallyEligible = strategicallyEligible.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxSafeEntry,
+        );
+      }
+    }
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     const requireComparableTactics = trapPressure > 850 && outside > 8;
     const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
@@ -250,7 +271,14 @@ function prioritizeForcedRacePlay(state, color, ranked) {
           * (9000000 + opponentOff * 2200000);
       }
     }
-    if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
+    const fenceRun = Number(features.opponentFenceRunBefore || 0);
+    if (trapPressure > 850 && fenceRun >= 4) {
+      candidate.score += Number(features.trapDelta || 0) * 2200000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2800000;
+      candidate.score += Math.max(0, Number(features.laggardDebtDelta) || 0) * 340000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 12000000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
+    } else if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
       const entry = Number(features.outsideReduction || 0);
       const trapScale = Math.min(72000000, trapPressure * 52000);
       candidate.score += entry * (18000000 + trapScale);
@@ -312,6 +340,17 @@ function strategicSafetyAdjustment(state, color, features) {
   if (outside > 0 && distributionDelta < 0) {
     score += distributionDelta
       * (150000 + Math.min(180000, Number(features.trapBefore || 0) * 120));
+  }
+  const routeTowerDelta = Number(features.routeTowerDelta || 0);
+  const fenceRun = Number(features.opponentFenceRunBefore || 0);
+  if (outside > 0 && routeTowerDelta !== 0) {
+    const towerScale = 18000
+      + Math.max(0, fenceRun - 2) * 9000
+      + Math.min(45000, Number(features.trapBefore || 0) * 20);
+    score += routeTowerDelta * towerScale;
+    if (routeTowerDelta < 0 && fenceRun >= 4) {
+      score += routeTowerDelta * 75000;
+    }
   }
   if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
     score -= Number(features.homeShuffleMoves)

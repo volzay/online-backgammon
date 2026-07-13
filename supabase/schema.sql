@@ -1666,6 +1666,13 @@ begin
     begin
       resolved_final_state := resolved_final_state || jsonb_build_object(
         'history', normalized_history,
+        'analysis', coalesce(
+          resolved_final_state->'analysis',
+          (select r.game_state->'analysis' from public.rooms r
+           where r.code = resolved_room_code and r.host_user_id = player_id
+           limit 1),
+          '{}'::jsonb
+        ),
         'phase', 'over',
         'winner', case when p_winner in ('white', 'dark') then p_winner else resolved_final_state->>'winner' end,
         'resultType', case

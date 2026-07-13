@@ -149,6 +149,8 @@ test("database schema archives every finished room state", () => {
   assert.match(schema, /create or replace function public\.record_rating_result/);
   assert.match(schema, /resolved_room_code text := upper/);
   assert.match(schema, /game_state = resolved_final_state/);
+  assert.match(schema, /'analysis', coalesce\(/);
+  assert.match(schema, /r\.game_state->'analysis'/);
   assert.match(schema, /status = 'over'/);
   assert.match(schema, /game_state = target_state/);
   assert.match(schema, /target_room\.game_state->>'startedAt' = target_state->>'startedAt'/);
@@ -182,6 +184,8 @@ test("game-over modal refreshes from the authoritative Timeweb rating result", (
   assert.match(source, /ratingRetryCount < 3/);
   assert.match(source, /ensureBotFinalStatePublished/);
   assert.match(source, /archiveBotTrainingGame\(botFinalPayload\)/);
+  assert.doesNotMatch(source, /analysis:\s*undefined/);
+  assert.match(source, /archived\?\.decisionCount/);
   assert.doesNotMatch(source, /waitForFinalPersistence/);
   assert.doesNotMatch(source, /saving_result/);
   assert.doesNotMatch(source, /Boolean\(saved && ratingSaved\)/);

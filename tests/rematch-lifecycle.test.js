@@ -131,10 +131,14 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
         if (failFinalState) throw new Error("final state unavailable");
         return { version: roomCalls.finalStates };
       },
-      async archiveBotTrainingGame() {
+      async archiveBotTrainingGame(_code, payload) {
         roomCalls.archives += 1;
+        roomCalls.archivePayload = payload;
         if (failArchive) throw new Error("archive unavailable");
-        return { ok: true };
+        return {
+          ok: true,
+          decisionCount: payload?.analysis?.botMemory?.decisions?.length || 0,
+        };
       },
     },
     NarduRoom: {
@@ -166,7 +170,10 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
     history: { replaceState() {} },
     NarduSound: { prime() {}, win() {}, lose() {}, move() {}, bearOff() {} },
     NarduRating: {
-      record() { return { delta: 19, rating: 1268, syncPromise: never }; },
+      record(_name, _rating, _won, _mode, _key, details) {
+        roomCalls.ratingDetails = details;
+        return { delta: 19, rating: 1268, syncPromise: never };
+      },
     },
   };
   window.window = window;
@@ -193,6 +200,12 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
   state.off = { white: 15, dark: 5 };
   state.finishedAt = Date.now();
   state.history = [{ color: "white", roll: "6:6", at: new Date().toISOString() }];
+  state.analysis = {
+    botMemory: {
+      engineVersion: "long-analytic-v12",
+      decisions: [{ id: "lb4-test", experience: { actionKey: "route:test" } }],
+    },
+  };
   controller.__test.onGameOver();
   return { context, controller, document, location, roomCalls };
 }
@@ -289,6 +302,15 @@ test("another bot game starts immediately and shows no saving state while rating
   assert.match(location.href, /[?&]game=[A-Z2-9]{4}-[A-Z2-9]{4}/);
   assert.notEqual(new URL(location.href).searchParams.get("game"), "TEST-RM1");
   assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
+});
+
+test("finished bot analysis reaches both rating finalization and the training archive", async () => {
+  const { roomCalls } = finishedGameContext();
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(roomCalls.ratingDetails.score.finalState.analysis.botMemory.decisions.length, 1);
+  assert.equal(roomCalls.archivePayload.analysis.botMemory.decisions.length, 1);
+  assert.equal(roomCalls.archives, 1);
 });
 
 test("the first game-over action wins when lobby and another game are clicked", async () => {

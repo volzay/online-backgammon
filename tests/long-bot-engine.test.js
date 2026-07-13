@@ -276,7 +276,7 @@ test("head landing anchors are preserved when the opponent can immediately occup
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
 });
 
-test("v11 reapplies learned loss penalties after tactical threats are discovered", () => {
+test("v12 learned losses materially change tactical ranking", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   engine.setExperience([], "tactical-regression");
@@ -289,10 +289,10 @@ test("v11 reapplies learned loss penalties after tactical threats are discovered
   engine.setExperience([{
     contextKey: descriptor.contextKey,
     actionKey: descriptor.actionKey,
-    samples: 12,
-    losses: 12,
-    severeLosses: 8,
-    signalWeight: 40,
+    samples: 64,
+    losses: 64,
+    severeLosses: 48,
+    signalWeight: 256,
   }], "tactical-regression");
 
   const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
@@ -302,11 +302,16 @@ test("v11 reapplies learned loss penalties after tactical threats are discovered
     && candidate.tactical
   ));
   assert.ok(matching);
-  assert.ok(matching.experienceAdjustment < 0);
+  assert.ok(matching.experienceAdjustment < -5000000);
+  assert.ok(
+    learned[0].experience?.contextKey !== descriptor.contextKey
+      || learned[0].experience?.actionKey !== descriptor.actionKey,
+    `learned losing action remained first with adjustment ${matching.experienceAdjustment}`,
+  );
   engine.setExperience([], "tactical-regression");
 });
 
-test("v11 searches three plies through an opponent reply and its own recovery", async () => {
+test("v12 searches four plies through two opponent turns", async () => {
   const { createLongBotEngine } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -321,7 +326,7 @@ test("v11 searches three plies through an opponent reply and its own recovery", 
         ];
       }
       const entry = Object.entries(state.points).find(([, stack]) => stack.color === color);
-      if (!entry || depth >= 3) return [];
+      if (!entry || depth >= 4) return [];
       const from = Number(entry[0]);
       const to = color === "dark"
         ? (from === 1 ? 24 : from - 1)
@@ -353,11 +358,12 @@ test("v11 searches three plies through an opponent reply and its own recovery", 
   }, { dice: [1, 2], rolled: [1, 2], searchDepth: 0 });
 
   const ranked = engine.rank(state, "dark", { maxCandidates: 8, timeLimitMs: 1000 });
-  const deepCandidate = ranked.find(candidate => candidate.tactical?.plies === 3);
+  const deepCandidate = ranked.find(candidate => candidate.tactical?.plies === 4);
 
-  assert.equal(maxSearchDepth, 3);
+  assert.equal(maxSearchDepth, 4);
   assert.ok(deepCandidate);
   assert.ok(deepCandidate.tactical.recoveryRolls > 0);
+  assert.ok(deepCandidate.tactical.continuationRolls > 0);
 });
 
 test("SNUQ-8DQC saves the route instead of entering home and enabling a six-point fence", () => {
@@ -396,6 +402,44 @@ test("SNUQ-8DQC saves the route instead of entering home and enabling a six-poin
     .map(stack => stack.count)) < 6);
 });
 
+test("SU9F-5VFB turn 25 minimizes the tower under the opponent fence", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    4: { color: "dark", count: 1 },
+    5: { color: "white", count: 2 },
+    6: { color: "white", count: 1 },
+    7: { color: "white", count: 1 },
+    8: { color: "white", count: 3 },
+    9: { color: "white", count: 2 },
+    10: { color: "white", count: 1 },
+    11: { color: "dark", count: 2 },
+    12: { color: "dark", count: 2 },
+    13: { color: "white", count: 1 },
+    14: { color: "dark", count: 5 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "dark", count: 4 },
+    18: { color: "white", count: 1 },
+    19: { color: "dark", count: 1 },
+  }, { dice: [5, 3], rolled: [5, 3] });
+  const towerSize = position => Math.max(...Object.entries(position.points)
+    .filter(([point, stack]) => stack.color === "dark" && Number(point) !== 12)
+    .map(([, stack]) => Number(stack.count) || 0));
+  const legal = game.bestMoveSequences(state, "dark").filter(sequence => sequence.length);
+  const minimumTower = Math.min(...legal.map(sequence => {
+    const after = JSON.parse(JSON.stringify(state));
+    sequence.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+    return towerSize(after);
+  }));
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 3600 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(towerSize(after), minimumTower);
+  assert.ok(towerSize(after) < 7);
+});
+
 test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -428,7 +472,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v11");
+  assert.equal(decision.engineVersion, "long-analytic-v12");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -659,7 +703,7 @@ test("TB9N-MS4S move 5 releases the crowded head without opening either barrier"
   assert.equal(after.points[12]?.count, 11);
 });
 
-test("v11 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+test("v12 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -675,7 +719,7 @@ test("v11 releases the head instead of rushing a lone checker home in 3DAG-EQ52"
   assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
 });
 
-test("v11 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+test("v12 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     3: { color: "dark", count: 1 },

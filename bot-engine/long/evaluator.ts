@@ -12,6 +12,7 @@ import {
   headLandingBreakRisk,
   headLandingExposureRisk,
   headLandingSupportScore,
+  headPoint,
   homeEntryMoveCount,
   homeBoardCount,
   homeReady,
@@ -24,14 +25,17 @@ import {
   opponentHeadFenceBarrierScore,
   opponentHeadBlockScore,
   opponentHeadFreedomRisk,
+  opponentFenceRun,
   opponentTrapRisk,
   outsideDevelopmentMoveCount,
   outsideHomeCount,
   outsideHomePips,
+  pathPos,
   phasePressure,
   pipsFor,
   prematureHomeRushPenalty,
   routeCompletionPressure,
+  routeTowerRisk,
   stuckRisk,
   tempoValue,
 } from './metrics.ts';
@@ -81,6 +85,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - stuckRisk(state, color) * weights.stuckRisk * pressure
     + stuckRisk(state, opponent) * weights.stuckRisk * 0.42
     - distributionPenalty(state, color) * weights.distribution
+    - routeTowerRisk(state, color) * weights.distribution * 12
     + distributionPenalty(state, opponent) * weights.distribution * 0.2
     + headLandingSupportScore(state, color) * weights.headRelease
     - headLandingSupportScore(state, opponent) * weights.headRelease * 0.34
@@ -106,6 +111,7 @@ export function sequenceStats(before, after, color, sequence = []) {
   const pipGain = pipsFor(before, color) - pipsFor(after, color);
   const riskDelta = stuckRisk(before, color) - stuckRisk(after, color);
   const distributionDelta = distributionPenalty(before, color) - distributionPenalty(after, color);
+  const routeTowerDelta = routeTowerRisk(before, color) - routeTowerRisk(after, color);
   const blockadeGain = blockadeScore(after, color) - blockadeScore(before, color);
   const headGain = headCheckers(before, color) - headCheckers(after, color);
   const footholdGain = footholdScore(after, color) - footholdScore(before, color);
@@ -129,6 +135,21 @@ export function sequenceStats(before, after, color, sequence = []) {
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
+  const maxRouteTowerAfter = Object.entries(after.points || {}).reduce((maximum, [point, stack]) => (
+    stack.color === color && Number(point) !== Number(headPoint(color))
+      ? Math.max(maximum, Number(stack.count) || 0)
+      : maximum
+  ), 0);
+  const routeSignature = sequence
+    .map(move => {
+      const from = Math.max(0, pathPos(color, Number(move.from)));
+      const to = move.bearOff || move.to === 0
+        ? 24
+        : Math.max(0, pathPos(color, Number(move.to)));
+      return `${Math.floor(from / 3)}>${Math.floor(to / 3)}`;
+    })
+    .sort()
+    .join('+');
 
   return {
     offGain,
@@ -136,6 +157,9 @@ export function sequenceStats(before, after, color, sequence = []) {
     pipGain,
     riskDelta,
     distributionDelta,
+    routeTowerDelta,
+    routeTowerAfter: routeTowerRisk(after, color),
+    opponentFenceRunBefore: opponentFenceRun(before, color),
     blockadeGain,
     headGain,
     footholdGain,
@@ -156,6 +180,8 @@ export function sequenceStats(before, after, color, sequence = []) {
     escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
+    routeSignature,
+    maxRouteTowerAfter,
   };
 }
 

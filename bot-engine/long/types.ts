@@ -61,11 +61,22 @@ export interface LongBotTacticalAnalysis {
   worstImpact: number;
   rolls: number;
   adjustment: number;
+  recoveryExpected?: number;
+  recoveryWorst?: number;
+  recoveryRolls?: number;
+  deepAdjustment?: number;
+  continuationExpected?: number;
+  continuationWorst?: number;
+  continuationRolls?: number;
+  continuationAdjustment?: number;
+  plies?: number;
 }
 
 export interface LongBotExperienceDescriptor {
   contextKey: string;
   actionKey: string;
+  familyActionKey?: string;
+  legacyActionKey?: string;
   mistakeSeverity: number;
   phase: string;
 }
@@ -88,7 +99,7 @@ export interface LongBotRankedCandidate {
   after: LongBotState;
   score: number;
   baseScore?: number;
-  features: Record<string, number>;
+  features: Record<string, number | string>;
   tactical?: LongBotTacticalAnalysis;
   experience?: LongBotExperienceDescriptor;
   experienceAdjustment?: number;

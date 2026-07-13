@@ -138,6 +138,45 @@ function distributionPenalty(state, color) {
   }, 0);
 }
 
+function opponentFenceRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let longest = 0;
+
+  for (let start = 0; start < path.length; start += 1) {
+    if (colorAt(state, path[start]) !== opponent) continue;
+    const ownBehind = path.slice(0, start).some(point => colorAt(state, point) === color);
+    if (!ownBehind) continue;
+    let run = 0;
+    while (start + run < path.length && colorAt(state, path[start + run]) === opponent) {
+      run += 1;
+    }
+    longest = Math.max(longest, run);
+  }
+
+  return longest;
+}
+
+function routeTowerRisk(state, color) {
+  if (outsideHomeCount(state, color) <= 0) return 0;
+  const fenceRun = opponentFenceRun(state, color);
+  const fenceScale = 1
+    + Math.pow(Math.max(0, fenceRun - 2), 2) * 0.72
+    + Math.min(4, opponentTrapRisk(state, color) / 480);
+  const head = headPoint(color);
+
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color || Number(point) === Number(head)) return total;
+    const count = Number(stack.count) || 0;
+    const excess = Math.max(0, count - 3);
+    if (!excess) return total;
+    const severe = Math.max(0, count - 5);
+    const pos = pathPos(color, Number(point));
+    const routeWeight = pos >= 18 ? 1.45 : 1 + Math.max(0, 10 - pos) * 0.04;
+    return total + (excess * excess * 6 + severe * severe * 34) * routeWeight * fenceScale;
+  }, 0);
+}
+
 function headLandingSupportScore(state, color) {
   const head = headPoint(color);
   const headCount = countAt(state, head, color);
@@ -653,6 +692,7 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     - stuckRisk(state, color) * weights.stuckRisk * pressure
     + stuckRisk(state, opponent) * weights.stuckRisk * 0.42
     - distributionPenalty(state, color) * weights.distribution
+    - routeTowerRisk(state, color) * weights.distribution * 12
     + distributionPenalty(state, opponent) * weights.distribution * 0.2
     + headLandingSupportScore(state, color) * weights.headRelease
     - headLandingSupportScore(state, opponent) * weights.headRelease * 0.34
@@ -678,6 +718,7 @@ function sequenceStats(before, after, color, sequence = []) {
   const pipGain = pipsFor(before, color) - pipsFor(after, color);
   const riskDelta = stuckRisk(before, color) - stuckRisk(after, color);
   const distributionDelta = distributionPenalty(before, color) - distributionPenalty(after, color);
+  const routeTowerDelta = routeTowerRisk(before, color) - routeTowerRisk(after, color);
   const blockadeGain = blockadeScore(after, color) - blockadeScore(before, color);
   const headGain = headCheckers(before, color) - headCheckers(after, color);
   const footholdGain = footholdScore(after, color) - footholdScore(before, color);
@@ -701,6 +742,21 @@ function sequenceStats(before, after, color, sequence = []) {
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
+  const maxRouteTowerAfter = Object.entries(after.points || {}).reduce((maximum, [point, stack]) => (
+    stack.color === color && Number(point) !== Number(headPoint(color))
+      ? Math.max(maximum, Number(stack.count) || 0)
+      : maximum
+  ), 0);
+  const routeSignature = sequence
+    .map(move => {
+      const from = Math.max(0, pathPos(color, Number(move.from)));
+      const to = move.bearOff || move.to === 0
+        ? 24
+        : Math.max(0, pathPos(color, Number(move.to)));
+      return `${Math.floor(from / 3)}>${Math.floor(to / 3)}`;
+    })
+    .sort()
+    .join('+');
 
   return {
     offGain,
@@ -708,6 +764,9 @@ function sequenceStats(before, after, color, sequence = []) {
     pipGain,
     riskDelta,
     distributionDelta,
+    routeTowerDelta,
+    routeTowerAfter: routeTowerRisk(after, color),
+    opponentFenceRunBefore: opponentFenceRun(before, color),
     blockadeGain,
     headGain,
     footholdGain,
@@ -728,6 +787,8 @@ function sequenceStats(before, after, color, sequence = []) {
     escapeGatewayDelta,
     bearOffMoves,
     homeShuffleMoves,
+    routeSignature,
+    maxRouteTowerAfter,
   };
 }
 
@@ -799,7 +860,10 @@ const MAX_REPLY_SEQUENCES = 8;
 const MAX_TACTICAL_CANDIDATES = 4;
 const MAX_DEEP_CANDIDATES = 3;
 const MAX_RECOVERY_SEQUENCES = 6;
-const MAX_EXPERIENCE_PENALTY = 2600000;
+const MAX_CONTINUATION_CANDIDATES = 2;
+const MAX_CONTINUATION_SEQUENCES = 6;
+const MAX_EXPERIENCE_PENALTY = 140000000;
+const MAX_EXPERIENCE_REWARD = 18000000;
 
 const TACTICAL_ROLLS = [
   { dice: [6, 5], weight: 2 },
@@ -831,6 +895,13 @@ const RECOVERY_ROLLS = [
   { dice: [4, 2], weight: 2 },
   { dice: [3, 1], weight: 2 },
   { dice: [4, 4], weight: 1 },
+];
+
+const CONTINUATION_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [6, 6], weight: 1 },
 ];
 
 function analyzeOpponentReplies(
@@ -953,6 +1024,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
     let recoveryWeight = 0;
     let worstRecovery = Infinity;
     let recoveryRolls = 0;
+    const recoveryFrontiers = [];
 
     for (const roll of RECOVERY_ROLLS) {
       if (Date.now() >= deadline) break;
@@ -962,6 +1034,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
         MAX_RECOVERY_SEQUENCES,
       );
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
+      let bestRecoveryState = recoveryState;
       for (const sequence of recoverySequences) {
         if (Date.now() >= deadline) break;
         const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
@@ -975,13 +1048,17 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
         const residualFenceRisk = fenceClosureRisk(recoveryAfter, color)
           + opponentTrapRisk(recoveryAfter, color);
         const recoveryValue = sequenceValue - residualFenceRisk * weights.trapRisk * 0.16;
-        bestRecovery = Math.max(bestRecovery, recoveryValue);
+        if (recoveryValue > bestRecovery) {
+          bestRecovery = recoveryValue;
+          bestRecoveryState = recoveryAfter;
+        }
       }
       if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
       expectedRecovery += bestRecovery * roll.weight;
       recoveryWeight += roll.weight;
       worstRecovery = Math.min(worstRecovery, bestRecovery);
       recoveryRolls += 1;
+      recoveryFrontiers.push({ value: bestRecovery, state: bestRecoveryState, weight: roll.weight });
     }
 
     if (!recoveryWeight) continue;
@@ -995,6 +1072,64 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
       recoveryRolls,
       deepAdjustment,
       plies: 3,
+    });
+    accumulator.recoveryFrontiers = recoveryFrontiers
+      .sort((left, right) => left.value - right.value)
+      .slice(0, 2);
+  }
+
+  analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline);
+}
+
+function analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline) {
+  const opponent = opponentOf(color);
+  const continuationCandidates = deepCandidates
+    .filter(accumulator => accumulator.recoveryFrontiers?.length)
+    .sort((left, right) => right.candidate.score - left.candidate.score)
+    .slice(0, MAX_CONTINUATION_CANDIDATES);
+
+  for (const accumulator of continuationCandidates) {
+    if (Date.now() >= deadline) break;
+    const frontier = accumulator.recoveryFrontiers[0];
+    let expectedImpact = 0;
+    let impactWeight = 0;
+    let worstImpact = 0;
+    let rolls = 0;
+
+    for (const roll of CONTINUATION_ROLLS) {
+      if (Date.now() >= deadline) break;
+      const replyState = prepareReplyState(frontier.state, opponent, roll.dice);
+      const beforeValue = evaluateState(replyState, color, weights);
+      const replies = sampledSequences(
+        adapter.legalSequences(replyState, opponent),
+        MAX_CONTINUATION_SEQUENCES,
+      );
+      let worstValue = beforeValue;
+      for (const reply of replies) {
+        if (Date.now() >= deadline) break;
+        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+        const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
+        const ownValue = evaluateState(replyAfter, color, weights);
+        worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
+      }
+      const impact = worstValue - beforeValue;
+      expectedImpact += impact * roll.weight;
+      impactWeight += roll.weight;
+      worstImpact = Math.min(worstImpact, impact);
+      rolls += 1;
+    }
+
+    if (!impactWeight) continue;
+    const continuationExpected = expectedImpact / impactWeight;
+    const continuationAdjustment = continuationExpected * 0.24
+      + worstImpact * 0.1 * threatPressure(frontier.state, color);
+    accumulator.candidate.score += continuationAdjustment;
+    Object.assign(accumulator.candidate.tactical, {
+      continuationExpected,
+      continuationWorst: worstImpact,
+      continuationRolls: rolls,
+      continuationAdjustment,
+      plies: 4,
     });
   }
 }
@@ -1039,7 +1174,7 @@ function experienceDescriptor(
     bucket('pd', pipDelta, [-36, -8, 9, 37]),
   ].join('|');
 
-  const actionKey = [
+  const legacyActionKey = [
     signedFlag('head', features.headGain),
     signedFlag('entry', features.outsideReduction),
     signedFlag('trap', features.trapDelta),
@@ -1049,6 +1184,8 @@ function experienceDescriptor(
     Number(features.homeShuffleMoves || 0) > 0 ? 'home:shuffle' : 'home:steady',
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
+  const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
+  const actionKey = `${familyActionKey}|route:${features.routeSignature || 'none'}`;
 
   const urgency = 1
     + opponentOff * 0.12
@@ -1058,6 +1195,7 @@ function experienceDescriptor(
   mistakeSeverity += Math.min(3, Math.max(0, Number(features.headLandingBreak) || 0)) * 0.9;
   mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
   mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
+  mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
@@ -1074,6 +1212,8 @@ function experienceDescriptor(
   return {
     contextKey,
     actionKey,
+    familyActionKey,
+    legacyActionKey,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
     phase,
   };
@@ -1112,30 +1252,47 @@ function normalizeExperiencePatterns(patterns = []) {
 function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
-  const pattern = [
-    experience.get(`${descriptor.contextKey}::${descriptor.actionKey}`),
-    experience.get(`phase:${phase}::${descriptor.actionKey}`),
-    experience.get(`*::${descriptor.actionKey}`),
-  ].find(candidate => candidate?.samples >= 2);
-  if (!pattern || pattern.samples < 2 || descriptor.mistakeSeverity <= 0) return 0;
+  const actionKeys = [
+    descriptor.actionKey,
+    descriptor.familyActionKey,
+    descriptor.legacyActionKey,
+  ].filter(Boolean);
+  const pattern = actionKeys
+    .flatMap(actionKey => [
+      experience.get(`${descriptor.contextKey}::${actionKey}`),
+      experience.get(`phase:${phase}::${actionKey}`),
+      experience.get(`*::${actionKey}`),
+    ])
+    .find(candidate => candidate?.samples >= 3);
+  if (!pattern || pattern.samples < 3) return 0;
 
   const lossRate = (pattern.losses + 1) / (pattern.samples + 2);
-  if (lossRate <= 0.55) return 0;
   const severeRate = pattern.severeLosses / Math.max(1, pattern.samples);
   const confidence = Math.min(0.88, pattern.samples / (pattern.samples + 6));
   const learnedSeverity = Math.min(
     4,
     pattern.signalWeight / Math.max(1, pattern.samples),
   );
-  const penalty = (
-    280000
-    * confidence
-    * (lossRate - 0.5)
-    * (1 + severeRate * 1.8)
-    * (1 + learnedSeverity * 0.28)
-    * Math.min(4, descriptor.mistakeSeverity)
-  );
-  return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
+  const relevance = 2.6 + Math.min(3, Math.max(0, descriptor.mistakeSeverity));
+  if (lossRate >= 0.55) {
+    const penalty = (
+      12000000
+      * confidence
+      * (lossRate - 0.48)
+      * (1 + severeRate * 1.8)
+      * (1 + learnedSeverity * 0.28)
+      * relevance
+    );
+    return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
+  }
+  if (pattern.samples >= 5 && lossRate <= 0.38 && severeRate <= 0.2) {
+    const reward = 4000000
+      * confidence
+      * (0.5 - lossRate)
+      * Math.min(2.2, relevance);
+    return Math.min(MAX_EXPERIENCE_REWARD, reward);
+  }
+  return 0;
 }
 
 function mergePattern(target, key, pattern, contextKey, actionKey) {
@@ -1202,7 +1359,7 @@ function signedFlag(name, value) {
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 2400;
+const DEFAULT_TIME_LIMIT_MS = 3600;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -1257,11 +1414,32 @@ function createLongBotEngine(adapter, options = {}) {
     const maxEntry = Math.max(...tacticallyRanked.map(
       candidate => Number(candidate.features.outsideReduction) || 0,
     ));
-    const strategicallyEligible = trapPressure > 850 && outside <= 8 && maxEntry > 0
-      ? tacticallyRanked.filter(
-        candidate => Number(candidate.features.outsideReduction) === maxEntry,
-      )
-      : tacticallyRanked;
+    const fenceRun = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
+    ));
+    const nonSevereTowerCandidates = fenceRun >= 5
+      ? tacticallyRanked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
+      : [];
+    const hasSevereTowerCandidate = tacticallyRanked.some(
+      candidate => Number(candidate.features.maxRouteTowerAfter) >= 7,
+    );
+    let strategicallyEligible = hasSevereTowerCandidate && nonSevereTowerCandidates.length
+      ? nonSevereTowerCandidates
+      : trapPressure > 850 && outside <= 8 && maxEntry > 0 && fenceRun < 4
+        ? tacticallyRanked.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxEntry,
+        )
+        : tacticallyRanked;
+    if (fenceRun >= 5) {
+      const maxSafeEntry = Math.max(...strategicallyEligible.map(
+        candidate => Number(candidate.features.outsideReduction) || 0,
+      ));
+      if (maxSafeEntry > 0) {
+        strategicallyEligible = strategicallyEligible.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxSafeEntry,
+        );
+      }
+    }
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     const requireComparableTactics = trapPressure > 850 && outside > 8;
     const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
@@ -1429,7 +1607,14 @@ function prioritizeForcedRacePlay(state, color, ranked) {
           * (9000000 + opponentOff * 2200000);
       }
     }
-    if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
+    const fenceRun = Number(features.opponentFenceRunBefore || 0);
+    if (trapPressure > 850 && fenceRun >= 4) {
+      candidate.score += Number(features.trapDelta || 0) * 2200000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2800000;
+      candidate.score += Math.max(0, Number(features.laggardDebtDelta) || 0) * 340000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 12000000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
+    } else if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
       const entry = Number(features.outsideReduction || 0);
       const trapScale = Math.min(72000000, trapPressure * 52000);
       candidate.score += entry * (18000000 + trapScale);
@@ -1492,6 +1677,17 @@ function strategicSafetyAdjustment(state, color, features) {
     score += distributionDelta
       * (150000 + Math.min(180000, Number(features.trapBefore || 0) * 120));
   }
+  const routeTowerDelta = Number(features.routeTowerDelta || 0);
+  const fenceRun = Number(features.opponentFenceRunBefore || 0);
+  if (outside > 0 && routeTowerDelta !== 0) {
+    const towerScale = 18000
+      + Math.max(0, fenceRun - 2) * 9000
+      + Math.min(45000, Number(features.trapBefore || 0) * 20);
+    score += routeTowerDelta * towerScale;
+    if (routeTowerDelta < 0 && fenceRun >= 4) {
+      score += routeTowerDelta * 75000;
+    }
+  }
   if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
     score -= Number(features.homeShuffleMoves)
       * (3800000 + Math.max(0, 6 - outside) * 1600000 + opponentOff * 1100000);
@@ -1546,7 +1742,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v11';
+const ENGINE_VERSION = 'long-analytic-v12';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -1609,6 +1805,10 @@ function decisionRecord(state, color, ranked, weights = undefined) {
       recoveryWorst: Math.round(Number(candidate.tactical.recoveryWorst) || 0),
       recoveryRolls: Number(candidate.tactical.recoveryRolls) || 0,
       deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
+      continuationExpected: Math.round(Number(candidate.tactical.continuationExpected) || 0),
+      continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
+      continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
+      continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
       plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,

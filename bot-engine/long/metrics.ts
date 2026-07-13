@@ -134,6 +134,45 @@ export function distributionPenalty(state, color) {
   }, 0);
 }
 
+export function opponentFenceRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let longest = 0;
+
+  for (let start = 0; start < path.length; start += 1) {
+    if (colorAt(state, path[start]) !== opponent) continue;
+    const ownBehind = path.slice(0, start).some(point => colorAt(state, point) === color);
+    if (!ownBehind) continue;
+    let run = 0;
+    while (start + run < path.length && colorAt(state, path[start + run]) === opponent) {
+      run += 1;
+    }
+    longest = Math.max(longest, run);
+  }
+
+  return longest;
+}
+
+export function routeTowerRisk(state, color) {
+  if (outsideHomeCount(state, color) <= 0) return 0;
+  const fenceRun = opponentFenceRun(state, color);
+  const fenceScale = 1
+    + Math.pow(Math.max(0, fenceRun - 2), 2) * 0.72
+    + Math.min(4, opponentTrapRisk(state, color) / 480);
+  const head = headPoint(color);
+
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color || Number(point) === Number(head)) return total;
+    const count = Number(stack.count) || 0;
+    const excess = Math.max(0, count - 3);
+    if (!excess) return total;
+    const severe = Math.max(0, count - 5);
+    const pos = pathPos(color, Number(point));
+    const routeWeight = pos >= 18 ? 1.45 : 1 + Math.max(0, 10 - pos) * 0.04;
+    return total + (excess * excess * 6 + severe * severe * 34) * routeWeight * fenceScale;
+  }, 0);
+}
+
 export function headLandingSupportScore(state, color) {
   const head = headPoint(color);
   const headCount = countAt(state, head, color);

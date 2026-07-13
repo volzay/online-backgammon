@@ -2796,7 +2796,12 @@ window.NarduController = (function () {
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
-          await window.NarduRooms.archiveBotTrainingGame(remoteCode, payload);
+          const expectedDecisions = payload?.analysis?.botMemory?.decisions?.length || 0;
+          if (!expectedDecisions) throw new Error('Bot training payload contains no decisions.');
+          const archived = await window.NarduRooms.archiveBotTrainingGame(remoteCode, payload);
+          if (Number(archived?.decisionCount) !== expectedDecisions) {
+            throw new Error(`Bot training archive saved ${archived?.decisionCount || 0}/${expectedDecisions} decisions.`);
+          }
           botTrainingArchiveDone = true;
           return true;
         } catch (error) {
@@ -2975,7 +2980,6 @@ window.NarduController = (function () {
             finalState: {
               ...remoteStatePayload(),
               history: undefined,
-              analysis: undefined,
             },
           },
           history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],

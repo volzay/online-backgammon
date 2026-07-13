@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v11';
+const ENGINE_VERSION = 'long-analytic-v12';
 
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -64,6 +64,10 @@ function decisionRecord(state, color, ranked, weights = undefined) {
       recoveryWorst: Math.round(Number(candidate.tactical.recoveryWorst) || 0),
       recoveryRolls: Number(candidate.tactical.recoveryRolls) || 0,
       deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
+      continuationExpected: Math.round(Number(candidate.tactical.continuationExpected) || 0),
+      continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
+      continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
+      continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
       plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
