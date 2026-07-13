@@ -78,6 +78,7 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
       className: "",
       classList: { add() {}, remove() {}, contains() { return false; } },
       addEventListener(type, handler) { listeners.set(type, handler); },
+      setAttribute(name) { if (name === "disabled") element.disabled = true; },
       async click() { return listeners.get("click")?.({ target: element }); },
       remove() { if (id) elements.delete(id); },
       set id(value) { id = value; elements.set(value, element); },
@@ -137,7 +138,11 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
       },
     },
     NarduRoom: {
-      leaveToLobby() { roomCalls.lobby += 1; location.href = "index.html"; },
+      leaveToLobby(options) {
+        roomCalls.lobby += 1;
+        roomCalls.lobbyOptions = options;
+        location.href = "index.html";
+      },
     },
   };
   const context = {
@@ -265,46 +270,54 @@ test("another bot game opens a new room code", () => {
   assert.equal(saved.difficulty, "hard");
 });
 
-test("lobby exit is not blocked by a rating request that never settles", async () => {
+test("lobby exit is immediate and shows no saving state while rating never settles", async () => {
   const { document, location, roomCalls } = finishedGameContext();
 
   await document.getElementById("go-lobby").click();
 
-  assert.ok(roomCalls.finalStates >= 1);
-  assert.equal(roomCalls.archives, 1);
   assert.equal(roomCalls.lobby, 1);
+  assert.equal(roomCalls.lobbyOptions?.immediate, true);
   assert.equal(location.href, "index.html");
+  assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
 });
 
-test("another bot game is not blocked by a rating request that never settles", async () => {
+test("another bot game starts immediately and shows no saving state while rating never settles", async () => {
   const { document, location, roomCalls } = finishedGameContext();
 
   await document.getElementById("go-again").click();
 
-  assert.ok(roomCalls.finalStates >= 1);
-  assert.equal(roomCalls.archives, 1);
   assert.match(location.href, /[?&]game=[A-Z2-9]{4}-[A-Z2-9]{4}/);
   assert.notEqual(new URL(location.href).searchParams.get("game"), "TEST-RM1");
+  assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
 });
 
-test("a saved training archive releases the lobby even if the parallel room update fails", async () => {
-  const { document, location, roomCalls } = finishedGameContext({ failFinalState: true });
+test("the first game-over action wins when lobby and another game are clicked", async () => {
+  const { document, location, roomCalls } = finishedGameContext();
+  const lobbyButton = document.getElementById("go-lobby");
+  const againButton = document.getElementById("go-again");
+
+  await lobbyButton.click();
+  await againButton.click();
+
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
+  assert.equal(lobbyButton.disabled, true);
+  assert.equal(againButton.disabled, true);
+});
+
+test("immediate lobby exit does not depend on either persistence channel", async () => {
+  const { document, location, roomCalls } = finishedGameContext({ failFinalState: true, failArchive: true });
 
   await document.getElementById("go-lobby").click();
 
-  assert.equal(roomCalls.archives, 1);
   assert.equal(roomCalls.lobby, 1);
   assert.equal(location.href, "index.html");
 });
 
-test("a saved final room state releases the lobby even if the optional training archive fails", async () => {
-  const { document, location, roomCalls } = finishedGameContext({ failArchive: true });
-
-  await document.getElementById("go-lobby").click();
-
-  assert.ok(roomCalls.finalStates >= 1);
-  assert.equal(roomCalls.lobby, 1);
-  assert.equal(location.href, "index.html");
+test("finished-game lobby navigation bypasses room cleanup network waits", () => {
+  const source = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
+  assert.match(source, /async function leaveToLobby\(\{ immediate = false \} = \{\}\)/);
+  assert.match(source, /if \(immediate\) \{\s*location\.href = 'index\.html';\s*return;/);
 });
 
 test("saving a new game reopens an archived room", async () => {

@@ -54,6 +54,7 @@ window.NarduController = (function () {
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
+  let gameOverActionStarted = null;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
   const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
   const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
@@ -126,8 +127,6 @@ window.NarduController = (function () {
       rematch_declined: 'Соперник отказался от новой партии.',
       rematch_starting: 'Начинаем новую партию...',
       preparing: 'Подготовка',
-      saving_result: 'Сохраняем результат...',
-      save_result_retry: 'Повторить сохранение',
       yes: 'Да',
       no: 'Нет',
       white_won: 'Победили Белые',
@@ -195,8 +194,6 @@ window.NarduController = (function () {
       rematch_declined: 'Opponent declined a new game.',
       rematch_starting: 'Starting a new game...',
       preparing: 'Preparing',
-      saving_result: 'Saving result...',
-      save_result_retry: 'Retry saving',
       yes: 'Yes',
       no: 'No',
       white_won: 'White won',
@@ -461,6 +458,7 @@ window.NarduController = (function () {
     botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
     rematchRestartToken = null;
+    gameOverActionStarted = null;
     if (remotePollTimer) clearInterval(remotePollTimer);
     remotePollTimer = null;
     if (waitingForOpponent) {
@@ -1637,7 +1635,7 @@ window.NarduController = (function () {
   function leaveRoomToLobby(closeRoom = true) {
     clearAll();
     if (closeRoom && window.NarduRoom?.leaveToLobby) {
-      window.NarduRoom.leaveToLobby();
+      window.NarduRoom.leaveToLobby({ immediate: Boolean(state?.winner) });
       return;
     }
     if (!closeRoom && window.NarduRoom?.closeCurrentRoom) {
@@ -3130,64 +3128,24 @@ window.NarduController = (function () {
     document.getElementById('go-again')?.addEventListener('click', requestRematchOrStart);
     document.getElementById('rematch-yes')?.addEventListener('click', acceptRematch);
     document.getElementById('rematch-no')?.addEventListener('click', declineRematch);
-    document.getElementById('go-lobby')?.addEventListener('click', async () => {
-      const button = document.getElementById('go-lobby');
-      if (!await waitForFinalPersistence(button)) return;
+    document.getElementById('go-lobby')?.addEventListener('click', () => {
+      if (!claimGameOverAction('lobby')) return;
       leaveRoomToLobby(true);
     });
   }
 
-  async function waitForFinalPersistence(button) {
-    if (mode !== 'bot') return true;
-    if (button) {
-      button.disabled = true;
-      button.textContent = tr('saving_result');
-    }
-    const persistenceAttempts = [botGameFinalizePromise.catch(() => false)];
-    if (botDifficulty === 'hard' && variant === 'long') {
-      persistenceAttempts.push(botTrainingArchivePromise.catch(() => false));
-    }
-    const firstSuccessfulPersistence = new Promise(resolve => {
-      let pendingAttempts = persistenceAttempts.length;
-      persistenceAttempts.forEach(attempt => {
-        Promise.resolve(attempt).then(saved => {
-          if (saved) {
-            resolve(true);
-            return;
-          }
-          pendingAttempts -= 1;
-          if (pendingAttempts === 0) resolve(false);
-        });
-      });
-    });
-    let timeoutId = null;
-    const saved = await Promise.race([
-      firstSuccessfulPersistence,
-      new Promise(resolve => {
-        timeoutId = setTimeout(() => resolve(false), 15000);
-      }),
-    ]);
-    if (timeoutId !== null) clearTimeout(timeoutId);
-    if (saved) return true;
-    gameOverPublishPromise = null;
-    botTrainingArchivePending = false;
-    onGameOver();
-    if (button) {
-      button.disabled = false;
-      button.textContent = tr('save_result_retry');
-    }
-    return false;
+  function claimGameOverAction(action) {
+    if (gameOverActionStarted) return false;
+    gameOverActionStarted = action;
+    document.getElementById('go-again')?.setAttribute?.('disabled', '');
+    document.getElementById('go-lobby')?.setAttribute?.('disabled', '');
+    return true;
   }
 
   async function requestRematchOrStart() {
     if (mode !== 'remote') {
-      const button = document.getElementById('go-again');
-      if (button) {
-        button.disabled = true;
-        button.textContent = tr('preparing');
-      }
+      if (!claimGameOverAction('again')) return;
       if (mode === 'bot') {
-        if (!await waitForFinalPersistence(button)) return;
         startBotGameInNewRoom();
         return;
       }

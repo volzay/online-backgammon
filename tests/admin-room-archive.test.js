@@ -182,10 +182,9 @@ test("game-over modal refreshes from the authoritative Timeweb rating result", (
   assert.match(source, /ratingRetryCount < 3/);
   assert.match(source, /ensureBotFinalStatePublished/);
   assert.match(source, /archiveBotTrainingGame\(botFinalPayload\)/);
-  assert.match(source, /waitForFinalPersistence/);
-  assert.match(source, /setTimeout\(\(\) => resolve\(false\), 15000\)/);
-  assert.match(source, /clearTimeout\(timeoutId\)/);
+  assert.doesNotMatch(source, /waitForFinalPersistence/);
+  assert.doesNotMatch(source, /saving_result/);
   assert.doesNotMatch(source, /Boolean\(saved && ratingSaved\)/);
-  assert.match(source, /firstSuccessfulPersistence/);
+  assert.match(source, /claimGameOverAction/);
   assert.doesNotMatch(source, /results\.every\(Boolean\)/);
 });

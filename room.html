@@ -401,7 +401,7 @@
 <script src="dice-engine.js"></script>
 <script src="dice-webgl.js"></script>
 <script src="board-engine.js"></script>
-<script src="game-controller.js?v=20260713-final-persistence-v2"></script>
+<script src="game-controller.js?v=20260713-immediate-game-over-actions-v3"></script>
 
 <script>
 /* ───── Long Backgammon initial state (длинные нарды) ─────
@@ -1445,9 +1445,13 @@ async function reportActiveRemoteLeave() {
   }
   return true;
 }
-async function leaveToLobby() {
+async function leaveToLobby({ immediate = false } = {}) {
   if (presenceTimer) clearInterval(presenceTimer);
   if (spectatorTimer) clearInterval(spectatorTimer);
+  if (immediate) {
+    location.href = 'index.html';
+    return;
+  }
   if (isSpectatorRoom) {
     await NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
     location.href = 'index.html';
