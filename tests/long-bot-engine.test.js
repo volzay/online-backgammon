@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { pathToFileURL } = require("node:url");
 
 const ROOT = path.join(__dirname, "..");
 let cachedBrowserEngine = null;
@@ -275,14 +276,15 @@ test("head landing anchors are preserved when the opponent can immediately occup
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
 });
 
-test("v10 reapplies learned loss penalties after tactical threats are discovered", () => {
+test("v11 reapplies learned loss penalties after tactical threats are discovered", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   engine.setExperience([], "tactical-regression");
-  const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 2000 });
-  const descriptor = baseline[0].experience;
+  const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const tacticalCandidate = baseline.find(candidate => candidate.tactical?.worstImpact < -4000000);
+  const descriptor = tacticalCandidate?.experience;
 
-  assert.ok(baseline[0].tactical?.worstImpact < -4000000);
+  assert.ok(tacticalCandidate);
   assert.ok(descriptor?.mistakeSeverity > 0);
   engine.setExperience([{
     contextKey: descriptor.contextKey,
@@ -293,7 +295,7 @@ test("v10 reapplies learned loss penalties after tactical threats are discovered
     signalWeight: 40,
   }], "tactical-regression");
 
-  const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
   const matching = learned.find(candidate => (
     candidate.experience?.contextKey === descriptor.contextKey
     && candidate.experience?.actionKey === descriptor.actionKey
@@ -302,6 +304,96 @@ test("v10 reapplies learned loss penalties after tactical threats are discovered
   assert.ok(matching);
   assert.ok(matching.experienceAdjustment < 0);
   engine.setExperience([], "tactical-regression");
+});
+
+test("v11 searches three plies through an opponent reply and its own recovery", async () => {
+  const { createLongBotEngine } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  let maxSearchDepth = 0;
+  const adapter = {
+    legalSequences(state, color) {
+      const depth = Number(state.searchDepth) || 0;
+      if (depth === 0 && color === "dark") {
+        return [
+          [{ from: 12, to: 11, die: 1 }],
+          [{ from: 12, to: 10, die: 2 }],
+        ];
+      }
+      const entry = Object.entries(state.points).find(([, stack]) => stack.color === color);
+      if (!entry || depth >= 3) return [];
+      const from = Number(entry[0]);
+      const to = color === "dark"
+        ? (from === 1 ? 24 : from - 1)
+        : (from === 24 ? 23 : from - 1);
+      return [
+        [{ from, to, die: 1 }],
+        [{ from, to, die: 2 }],
+      ];
+    },
+    applySequence(state, sequence, color) {
+      const next = JSON.parse(JSON.stringify(state));
+      sequence.forEach(move => {
+        const source = next.points[move.from];
+        source.count -= 1;
+        if (!source.count) delete next.points[move.from];
+        const target = next.points[move.to];
+        if (target?.color === color) target.count += 1;
+        else next.points[move.to] = { color, count: 1 };
+      });
+      next.searchDepth = (Number(state.searchDepth) || 0) + 1;
+      maxSearchDepth = Math.max(maxSearchDepth, next.searchDepth);
+      return next;
+    },
+  };
+  const engine = createLongBotEngine(adapter, { timeLimitMs: 1000 });
+  const state = longState({
+    12: { color: "dark", count: 15 },
+    24: { color: "white", count: 15 },
+  }, { dice: [1, 2], rolled: [1, 2], searchDepth: 0 });
+
+  const ranked = engine.rank(state, "dark", { maxCandidates: 8, timeLimitMs: 1000 });
+  const deepCandidate = ranked.find(candidate => candidate.tactical?.plies === 3);
+
+  assert.equal(maxSearchDepth, 3);
+  assert.ok(deepCandidate);
+  assert.ok(deepCandidate.tactical.recoveryRolls > 0);
+});
+
+test("SNUQ-8DQC saves the route instead of entering home and enabling a six-point fence", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    3: { color: "dark", count: 3 },
+    4: { color: "dark", count: 1 },
+    5: { color: "dark", count: 1 },
+    6: { color: "dark", count: 6 },
+    8: { color: "white", count: 2 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 1 },
+    13: { color: "white", count: 1 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    18: { color: "dark", count: 1 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "dark", count: 1 },
+    22: { color: "white", count: 2 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 1 },
+  }, { dice: [1, 3], rolled: [1, 3] });
+
+  const plan = engine.plan(state, { maxCandidates: 64, timeLimitMs: 2400 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.ok(!plan.some(move => move.from === 21));
+  assert.ok(Math.max(...Object.values(after.points)
+    .filter(stack => stack.color === "dark")
+    .map(stack => stack.count)) < 6);
 });
 
 test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one", () => {
@@ -336,7 +428,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v10");
+  assert.equal(decision.engineVersion, "long-analytic-v11");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -567,7 +659,7 @@ test("TB9N-MS4S move 5 releases the crowded head without opening either barrier"
   assert.equal(after.points[12]?.count, 11);
 });
 
-test("v10 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+test("v11 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -583,7 +675,7 @@ test("v10 releases the head instead of rushing a lone checker home in 3DAG-EQ52"
   assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
 });
 
-test("v10 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+test("v11 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     3: { color: "dark", count: 1 },

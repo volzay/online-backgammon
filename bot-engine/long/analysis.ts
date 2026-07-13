@@ -1,5 +1,6 @@
 import { evaluateState, scoreSequence } from './evaluator.ts';
 import {
+  fenceClosureRisk,
   headCheckers,
   homeReady,
   offCount,
@@ -9,16 +10,18 @@ import {
   pipsFor,
 } from './metrics.ts';
 
-const MAX_REPLY_SEQUENCES = 10;
-const MAX_TACTICAL_CANDIDATES = 6;
+const MAX_REPLY_SEQUENCES = 8;
+const MAX_TACTICAL_CANDIDATES = 4;
+const MAX_DEEP_CANDIDATES = 3;
+const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 2600000;
 
 const TACTICAL_ROLLS = [
-  { dice: [6, 6], weight: 1 },
   { dice: [6, 5], weight: 2 },
-  { dice: [5, 5], weight: 1 },
   { dice: [6, 4], weight: 2 },
+  { dice: [6, 6], weight: 1 },
   { dice: [5, 4], weight: 2 },
+  { dice: [5, 5], weight: 1 },
   { dice: [4, 4], weight: 1 },
   { dice: [6, 3], weight: 2 },
   { dice: [5, 3], weight: 2 },
@@ -37,6 +40,14 @@ const TACTICAL_ROLLS = [
   { dice: [1, 1], weight: 1 },
 ];
 
+const RECOVERY_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [4, 4], weight: 1 },
+];
+
 export function analyzeOpponentReplies(
   adapter,
   color,
@@ -44,7 +55,7 @@ export function analyzeOpponentReplies(
   weights,
   deadline,
 ) {
-  const tacticalCandidates = candidates.slice(0, MAX_TACTICAL_CANDIDATES);
+  const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
   if (tacticalCandidates.length < 2 || Date.now() >= deadline) return candidates;
 
   const opponent = opponentOf(color);
@@ -54,6 +65,7 @@ export function analyzeOpponentReplies(
     weight: 0,
     worstImpact: 0,
     rolls: 0,
+    frontiers: [],
   }));
 
   for (const roll of TACTICAL_ROLLS) {
@@ -73,24 +85,32 @@ export function analyzeOpponentReplies(
       );
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
+      let worstState = replyState;
 
       for (const reply of replySequences) {
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
-        worstValue = Math.min(worstValue, replyValue);
+        if (replyValue < worstValue) {
+          worstValue = replyValue;
+          worstState = replyAfter;
+        }
       }
-      rollResults.push(worstValue - beforeValue);
+      rollResults.push({ impact: worstValue - beforeValue, state: worstState });
     }
 
     if (!completedRoll) break;
-    rollResults.forEach((impact, index) => {
+    rollResults.forEach((result, index) => {
       const accumulator = accumulators[index];
+      const impact = result.impact;
       accumulator.expectedImpact += impact * roll.weight;
       accumulator.weight += roll.weight;
       accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
       accumulator.rolls += 1;
+      accumulator.frontiers.push({ impact, state: result.state });
+      accumulator.frontiers.sort((left, right) => left.impact - right.impact);
+      accumulator.frontiers = accumulator.frontiers.slice(0, 2);
     });
   }
 
@@ -105,10 +125,93 @@ export function analyzeOpponentReplies(
       worstImpact: accumulator.worstImpact,
       rolls: accumulator.rolls,
       adjustment: tacticalAdjustment,
+      plies: 2,
     };
   });
 
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline);
+
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function uniquePositionCandidates(candidates, limit) {
+  const selected = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = positionKey(candidate.after);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(candidate);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+function positionKey(state) {
+  const points = Object.entries(state.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
+}
+
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline) {
+  const deepCandidates = accumulators
+    .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
+    .sort((left, right) => right.candidate.score - left.candidate.score)
+    .slice(0, MAX_DEEP_CANDIDATES);
+
+  for (const accumulator of deepCandidates) {
+    if (Date.now() >= deadline) break;
+    const frontier = accumulator.frontiers[0];
+    let expectedRecovery = 0;
+    let recoveryWeight = 0;
+    let worstRecovery = Infinity;
+    let recoveryRolls = 0;
+
+    for (const roll of RECOVERY_ROLLS) {
+      if (Date.now() >= deadline) break;
+      const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
+      const recoverySequences = sampledSequences(
+        adapter.legalSequences(recoveryState, color),
+        MAX_RECOVERY_SEQUENCES,
+      );
+      let bestRecovery = recoverySequences.length ? -Infinity : 0;
+      for (const sequence of recoverySequences) {
+        if (Date.now() >= deadline) break;
+        const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
+        const sequenceValue = scoreSequence(
+          recoveryState,
+          recoveryAfter,
+          color,
+          sequence,
+          weights,
+        );
+        const residualFenceRisk = fenceClosureRisk(recoveryAfter, color)
+          + opponentTrapRisk(recoveryAfter, color);
+        const recoveryValue = sequenceValue - residualFenceRisk * weights.trapRisk * 0.16;
+        bestRecovery = Math.max(bestRecovery, recoveryValue);
+      }
+      if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
+      expectedRecovery += bestRecovery * roll.weight;
+      recoveryWeight += roll.weight;
+      worstRecovery = Math.min(worstRecovery, bestRecovery);
+      recoveryRolls += 1;
+    }
+
+    if (!recoveryWeight) continue;
+    const recoveryExpected = expectedRecovery / recoveryWeight;
+    const deepAdjustment = recoveryExpected * 0.18
+      + Math.min(0, worstRecovery) * 0.08;
+    accumulator.candidate.score += deepAdjustment;
+    Object.assign(accumulator.candidate.tactical, {
+      recoveryExpected,
+      recoveryWorst: Number.isFinite(worstRecovery) ? worstRecovery : 0,
+      recoveryRolls,
+      deepAdjustment,
+      plies: 3,
+    });
+  }
 }
 
 function threatPressure(state, color) {

@@ -795,16 +795,18 @@ function cappedTrapReward(value) {
 /* bot-engine/long/analysis.ts */
 
 
-const MAX_REPLY_SEQUENCES = 10;
-const MAX_TACTICAL_CANDIDATES = 6;
+const MAX_REPLY_SEQUENCES = 8;
+const MAX_TACTICAL_CANDIDATES = 4;
+const MAX_DEEP_CANDIDATES = 3;
+const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 2600000;
 
 const TACTICAL_ROLLS = [
-  { dice: [6, 6], weight: 1 },
   { dice: [6, 5], weight: 2 },
-  { dice: [5, 5], weight: 1 },
   { dice: [6, 4], weight: 2 },
+  { dice: [6, 6], weight: 1 },
   { dice: [5, 4], weight: 2 },
+  { dice: [5, 5], weight: 1 },
   { dice: [4, 4], weight: 1 },
   { dice: [6, 3], weight: 2 },
   { dice: [5, 3], weight: 2 },
@@ -823,6 +825,14 @@ const TACTICAL_ROLLS = [
   { dice: [1, 1], weight: 1 },
 ];
 
+const RECOVERY_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [4, 4], weight: 1 },
+];
+
 function analyzeOpponentReplies(
   adapter,
   color,
@@ -830,7 +840,7 @@ function analyzeOpponentReplies(
   weights,
   deadline,
 ) {
-  const tacticalCandidates = candidates.slice(0, MAX_TACTICAL_CANDIDATES);
+  const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
   if (tacticalCandidates.length < 2 || Date.now() >= deadline) return candidates;
 
   const opponent = opponentOf(color);
@@ -840,6 +850,7 @@ function analyzeOpponentReplies(
     weight: 0,
     worstImpact: 0,
     rolls: 0,
+    frontiers: [],
   }));
 
   for (const roll of TACTICAL_ROLLS) {
@@ -859,24 +870,32 @@ function analyzeOpponentReplies(
       );
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
+      let worstState = replyState;
 
       for (const reply of replySequences) {
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
-        worstValue = Math.min(worstValue, replyValue);
+        if (replyValue < worstValue) {
+          worstValue = replyValue;
+          worstState = replyAfter;
+        }
       }
-      rollResults.push(worstValue - beforeValue);
+      rollResults.push({ impact: worstValue - beforeValue, state: worstState });
     }
 
     if (!completedRoll) break;
-    rollResults.forEach((impact, index) => {
+    rollResults.forEach((result, index) => {
       const accumulator = accumulators[index];
+      const impact = result.impact;
       accumulator.expectedImpact += impact * roll.weight;
       accumulator.weight += roll.weight;
       accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
       accumulator.rolls += 1;
+      accumulator.frontiers.push({ impact, state: result.state });
+      accumulator.frontiers.sort((left, right) => left.impact - right.impact);
+      accumulator.frontiers = accumulator.frontiers.slice(0, 2);
     });
   }
 
@@ -891,10 +910,93 @@ function analyzeOpponentReplies(
       worstImpact: accumulator.worstImpact,
       rolls: accumulator.rolls,
       adjustment: tacticalAdjustment,
+      plies: 2,
     };
   });
 
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline);
+
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function uniquePositionCandidates(candidates, limit) {
+  const selected = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = positionKey(candidate.after);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(candidate);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+function positionKey(state) {
+  const points = Object.entries(state.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
+}
+
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline) {
+  const deepCandidates = accumulators
+    .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
+    .sort((left, right) => right.candidate.score - left.candidate.score)
+    .slice(0, MAX_DEEP_CANDIDATES);
+
+  for (const accumulator of deepCandidates) {
+    if (Date.now() >= deadline) break;
+    const frontier = accumulator.frontiers[0];
+    let expectedRecovery = 0;
+    let recoveryWeight = 0;
+    let worstRecovery = Infinity;
+    let recoveryRolls = 0;
+
+    for (const roll of RECOVERY_ROLLS) {
+      if (Date.now() >= deadline) break;
+      const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
+      const recoverySequences = sampledSequences(
+        adapter.legalSequences(recoveryState, color),
+        MAX_RECOVERY_SEQUENCES,
+      );
+      let bestRecovery = recoverySequences.length ? -Infinity : 0;
+      for (const sequence of recoverySequences) {
+        if (Date.now() >= deadline) break;
+        const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
+        const sequenceValue = scoreSequence(
+          recoveryState,
+          recoveryAfter,
+          color,
+          sequence,
+          weights,
+        );
+        const residualFenceRisk = fenceClosureRisk(recoveryAfter, color)
+          + opponentTrapRisk(recoveryAfter, color);
+        const recoveryValue = sequenceValue - residualFenceRisk * weights.trapRisk * 0.16;
+        bestRecovery = Math.max(bestRecovery, recoveryValue);
+      }
+      if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
+      expectedRecovery += bestRecovery * roll.weight;
+      recoveryWeight += roll.weight;
+      worstRecovery = Math.min(worstRecovery, bestRecovery);
+      recoveryRolls += 1;
+    }
+
+    if (!recoveryWeight) continue;
+    const recoveryExpected = expectedRecovery / recoveryWeight;
+    const deepAdjustment = recoveryExpected * 0.18
+      + Math.min(0, worstRecovery) * 0.08;
+    accumulator.candidate.score += deepAdjustment;
+    Object.assign(accumulator.candidate.tactical, {
+      recoveryExpected,
+      recoveryWorst: Number.isFinite(worstRecovery) ? worstRecovery : 0,
+      recoveryRolls,
+      deepAdjustment,
+      plies: 3,
+    });
+  }
 }
 
 function threatPressure(state, color) {
@@ -1100,7 +1202,7 @@ function signedFlag(name, value) {
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 1600;
+const DEFAULT_TIME_LIMIT_MS = 2400;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -1116,7 +1218,7 @@ function createLongBotEngine(adapter, options = {}) {
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
     const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
     const deadline = startedAt + timeLimitMs;
-    const staticDeadline = startedAt + Math.max(140, timeLimitMs * 0.42);
+    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.34);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -1130,7 +1232,7 @@ function createLongBotEngine(adapter, options = {}) {
         score: scoreSequence(state, after, color, sequence, weights),
         features: sequenceStats(state, after, color, sequence),
       });
-      if (Date.now() >= staticDeadline && ranked.length >= 12) break;
+      if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
     ranked.forEach((candidate) => {
@@ -1143,8 +1245,29 @@ function createLongBotEngine(adapter, options = {}) {
 
     const strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
       .sort((left, right) => right.score - left.score);
-    analyzeOpponentReplies(adapter, color, strategicallyRanked, weights, deadline);
-    strategicallyRanked.forEach((candidate) => {
+    const tacticallyRanked = analyzeOpponentReplies(
+      adapter,
+      color,
+      strategicallyRanked,
+      weights,
+      deadline,
+    );
+    const outside = outsideHomeCount(state, color);
+    const trapPressure = opponentTrapRisk(state, color);
+    const maxEntry = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.outsideReduction) || 0,
+    ));
+    const strategicallyEligible = trapPressure > 850 && outside <= 8 && maxEntry > 0
+      ? tacticallyRanked.filter(
+        candidate => Number(candidate.features.outsideReduction) === maxEntry,
+      )
+      : tacticallyRanked;
+    const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
+    const requireComparableTactics = trapPressure > 850 && outside > 8;
+    const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
+      ? analyzedCandidates
+      : strategicallyEligible;
+    finalCandidates.forEach((candidate) => {
       const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
         state,
@@ -1155,7 +1278,7 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
-    return strategicallyRanked.sort((left, right) => right.score - left.score);
+    return finalCandidates.sort((left, right) => right.score - left.score);
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -1306,7 +1429,7 @@ function prioritizeForcedRacePlay(state, color, ranked) {
           * (9000000 + opponentOff * 2200000);
       }
     }
-    if (trapPressure > 850 && maxEntry > 0) {
+    if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
       const entry = Number(features.outsideReduction || 0);
       const trapScale = Math.min(72000000, trapPressure * 52000);
       candidate.score += entry * (18000000 + trapScale);
@@ -1315,6 +1438,12 @@ function prioritizeForcedRacePlay(state, color, ranked) {
       }
       candidate.score -= Number(features.homeShuffleMoves || 0)
         * (12000000 + trapScale * 0.72);
+    } else if (trapPressure > 850 && outside > 8) {
+      candidate.score += Number(features.trapDelta || 0) * 1800000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2400000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 9000000;
+      candidate.score += Number(features.distributionDelta || 0) * 180000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 42000000;
     }
     if (trapPressure < 120 && headRemaining >= 7 && maxHeadRelease > 0) {
       candidate.score += Number(features.headGain || 0) * 24000000;
@@ -1346,11 +1475,22 @@ function strategicSafetyAdjustment(state, color, features) {
       score -= Math.min(24000000, Number(features.trapBefore) * 68000);
     }
   }
-  if (Number(features.fenceClosureBefore || 0) > 0) {
-    score += Number(features.fenceClosureDelta || 0) * 950000;
-    if (Number(features.fenceClosureDelta || 0) < 0) {
-      score += Number(features.fenceClosureDelta || 0) * 1800000;
-    }
+  const fenceClosureDelta = Number(features.fenceClosureDelta || 0);
+  const fenceClosureBefore = Number(features.fenceClosureBefore || 0);
+  score += fenceClosureDelta * (fenceClosureBefore > 0 ? 950000 : 620000);
+  if (fenceClosureDelta < 0) {
+    score += fenceClosureDelta
+      * (2400000 + Math.min(1800000, Number(features.trapBefore || 0) * 1100));
+  }
+  const escapeGatewayDelta = Number(features.escapeGatewayDelta || 0);
+  if (escapeGatewayDelta < 0) {
+    score += escapeGatewayDelta
+      * (1300000 + Math.min(1700000, Number(features.trapBefore || 0) * 900));
+  }
+  const distributionDelta = Number(features.distributionDelta || 0);
+  if (outside > 0 && distributionDelta < 0) {
+    score += distributionDelta
+      * (150000 + Math.min(180000, Number(features.trapBefore || 0) * 120));
   }
   if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
     score -= Number(features.homeShuffleMoves)
@@ -1406,7 +1546,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v10';
+const ENGINE_VERSION = 'long-analytic-v11';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -1465,6 +1605,11 @@ function decisionRecord(state, color, ranked, weights = undefined) {
       worstImpact: Math.round(candidate.tactical.worstImpact),
       rolls: candidate.tactical.rolls,
       adjustment: Math.round(candidate.tactical.adjustment),
+      recoveryExpected: Math.round(Number(candidate.tactical.recoveryExpected) || 0),
+      recoveryWorst: Math.round(Number(candidate.tactical.recoveryWorst) || 0),
+      recoveryRolls: Number(candidate.tactical.recoveryRolls) || 0,
+      deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
+      plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
     experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),

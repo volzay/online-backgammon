@@ -14,14 +14,16 @@ import {
   homeShuffleMoveCount,
   lateEntryPressure,
   offCount,
+  opponentOf,
   opponentHeadFreedomMoveDelta,
   opponentTrapRisk,
+  outsideHomeCount,
   pathPos,
   pipsFor,
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 1600;
+const DEFAULT_TIME_LIMIT_MS = 2400;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -37,7 +39,7 @@ export function createLongBotEngine(adapter, options = {}) {
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
     const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
     const deadline = startedAt + timeLimitMs;
-    const staticDeadline = startedAt + Math.max(140, timeLimitMs * 0.42);
+    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.34);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -51,7 +53,7 @@ export function createLongBotEngine(adapter, options = {}) {
         score: scoreSequence(state, after, color, sequence, weights),
         features: sequenceStats(state, after, color, sequence),
       });
-      if (Date.now() >= staticDeadline && ranked.length >= 12) break;
+      if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
     ranked.forEach((candidate) => {
@@ -64,8 +66,29 @@ export function createLongBotEngine(adapter, options = {}) {
 
     const strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
       .sort((left, right) => right.score - left.score);
-    analyzeOpponentReplies(adapter, color, strategicallyRanked, weights, deadline);
-    strategicallyRanked.forEach((candidate) => {
+    const tacticallyRanked = analyzeOpponentReplies(
+      adapter,
+      color,
+      strategicallyRanked,
+      weights,
+      deadline,
+    );
+    const outside = outsideHomeCount(state, color);
+    const trapPressure = opponentTrapRisk(state, color);
+    const maxEntry = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.outsideReduction) || 0,
+    ));
+    const strategicallyEligible = trapPressure > 850 && outside <= 8 && maxEntry > 0
+      ? tacticallyRanked.filter(
+        candidate => Number(candidate.features.outsideReduction) === maxEntry,
+      )
+      : tacticallyRanked;
+    const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
+    const requireComparableTactics = trapPressure > 850 && outside > 8;
+    const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
+      ? analyzedCandidates
+      : strategicallyEligible;
+    finalCandidates.forEach((candidate) => {
       const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
         state,
@@ -76,7 +99,7 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
-    return strategicallyRanked.sort((left, right) => right.score - left.score);
+    return finalCandidates.sort((left, right) => right.score - left.score);
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -227,7 +250,7 @@ function prioritizeForcedRacePlay(state, color, ranked) {
           * (9000000 + opponentOff * 2200000);
       }
     }
-    if (trapPressure > 850 && maxEntry > 0) {
+    if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
       const entry = Number(features.outsideReduction || 0);
       const trapScale = Math.min(72000000, trapPressure * 52000);
       candidate.score += entry * (18000000 + trapScale);
@@ -236,6 +259,12 @@ function prioritizeForcedRacePlay(state, color, ranked) {
       }
       candidate.score -= Number(features.homeShuffleMoves || 0)
         * (12000000 + trapScale * 0.72);
+    } else if (trapPressure > 850 && outside > 8) {
+      candidate.score += Number(features.trapDelta || 0) * 1800000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2400000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 9000000;
+      candidate.score += Number(features.distributionDelta || 0) * 180000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 42000000;
     }
     if (trapPressure < 120 && headRemaining >= 7 && maxHeadRelease > 0) {
       candidate.score += Number(features.headGain || 0) * 24000000;
@@ -267,11 +296,22 @@ function strategicSafetyAdjustment(state, color, features) {
       score -= Math.min(24000000, Number(features.trapBefore) * 68000);
     }
   }
-  if (Number(features.fenceClosureBefore || 0) > 0) {
-    score += Number(features.fenceClosureDelta || 0) * 950000;
-    if (Number(features.fenceClosureDelta || 0) < 0) {
-      score += Number(features.fenceClosureDelta || 0) * 1800000;
-    }
+  const fenceClosureDelta = Number(features.fenceClosureDelta || 0);
+  const fenceClosureBefore = Number(features.fenceClosureBefore || 0);
+  score += fenceClosureDelta * (fenceClosureBefore > 0 ? 950000 : 620000);
+  if (fenceClosureDelta < 0) {
+    score += fenceClosureDelta
+      * (2400000 + Math.min(1800000, Number(features.trapBefore || 0) * 1100));
+  }
+  const escapeGatewayDelta = Number(features.escapeGatewayDelta || 0);
+  if (escapeGatewayDelta < 0) {
+    score += escapeGatewayDelta
+      * (1300000 + Math.min(1700000, Number(features.trapBefore || 0) * 900));
+  }
+  const distributionDelta = Number(features.distributionDelta || 0);
+  if (outside > 0 && distributionDelta < 0) {
+    score += distributionDelta
+      * (150000 + Math.min(180000, Number(features.trapBefore || 0) * 120));
   }
   if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
     score -= Number(features.homeShuffleMoves)
