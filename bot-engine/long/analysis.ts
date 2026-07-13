@@ -9,31 +9,31 @@ import {
   pipsFor,
 } from './metrics.ts';
 
-const MAX_REPLY_SEQUENCES = 8;
-const MAX_TACTICAL_CANDIDATES = 5;
+const MAX_REPLY_SEQUENCES = 10;
+const MAX_TACTICAL_CANDIDATES = 6;
 const MAX_EXPERIENCE_PENALTY = 2600000;
 
 const TACTICAL_ROLLS = [
+  { dice: [6, 6], weight: 1 },
   { dice: [6, 5], weight: 2 },
+  { dice: [5, 5], weight: 1 },
   { dice: [6, 4], weight: 2 },
   { dice: [5, 4], weight: 2 },
+  { dice: [4, 4], weight: 1 },
   { dice: [6, 3], weight: 2 },
   { dice: [5, 3], weight: 2 },
   { dice: [4, 3], weight: 2 },
+  { dice: [3, 3], weight: 1 },
   { dice: [6, 2], weight: 2 },
   { dice: [5, 2], weight: 2 },
   { dice: [4, 2], weight: 2 },
   { dice: [3, 2], weight: 2 },
+  { dice: [2, 2], weight: 1 },
   { dice: [6, 1], weight: 2 },
   { dice: [5, 1], weight: 2 },
   { dice: [4, 1], weight: 2 },
   { dice: [3, 1], weight: 2 },
   { dice: [2, 1], weight: 2 },
-  { dice: [6, 6], weight: 1 },
-  { dice: [5, 5], weight: 1 },
-  { dice: [4, 4], weight: 1 },
-  { dice: [3, 3], weight: 1 },
-  { dice: [2, 2], weight: 1 },
   { dice: [1, 1], weight: 1 },
 ];
 
@@ -97,7 +97,8 @@ export function analyzeOpponentReplies(
   accumulators.forEach((accumulator) => {
     if (!accumulator.weight) return;
     const expectedImpact = accumulator.expectedImpact / accumulator.weight;
-    const tacticalAdjustment = expectedImpact * 0.38 + accumulator.worstImpact * 0.08;
+    const tacticalAdjustment = expectedImpact * 0.42
+      + accumulator.worstImpact * 0.14 * threatPressure(accumulator.candidate.after, color);
     accumulator.candidate.score += tacticalAdjustment;
     accumulator.candidate.tactical = {
       expectedImpact,
@@ -108,6 +109,15 @@ export function analyzeOpponentReplies(
   });
 
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function threatPressure(state, color) {
+  const opponent = opponentOf(color);
+  const raceLead = Math.max(0, pipsFor(state, opponent) - pipsFor(state, color));
+  return Math.min(3.4, 1
+    + Math.min(1.2, raceLead / 42)
+    + offCount(state, opponent) * 0.12
+    + (homeReady(state, opponent) ? 0.75 : 0));
 }
 
 export function experienceDescriptor(

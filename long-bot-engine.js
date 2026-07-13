@@ -795,31 +795,31 @@ function cappedTrapReward(value) {
 /* bot-engine/long/analysis.ts */
 
 
-const MAX_REPLY_SEQUENCES = 8;
-const MAX_TACTICAL_CANDIDATES = 5;
+const MAX_REPLY_SEQUENCES = 10;
+const MAX_TACTICAL_CANDIDATES = 6;
 const MAX_EXPERIENCE_PENALTY = 2600000;
 
 const TACTICAL_ROLLS = [
+  { dice: [6, 6], weight: 1 },
   { dice: [6, 5], weight: 2 },
+  { dice: [5, 5], weight: 1 },
   { dice: [6, 4], weight: 2 },
   { dice: [5, 4], weight: 2 },
+  { dice: [4, 4], weight: 1 },
   { dice: [6, 3], weight: 2 },
   { dice: [5, 3], weight: 2 },
   { dice: [4, 3], weight: 2 },
+  { dice: [3, 3], weight: 1 },
   { dice: [6, 2], weight: 2 },
   { dice: [5, 2], weight: 2 },
   { dice: [4, 2], weight: 2 },
   { dice: [3, 2], weight: 2 },
+  { dice: [2, 2], weight: 1 },
   { dice: [6, 1], weight: 2 },
   { dice: [5, 1], weight: 2 },
   { dice: [4, 1], weight: 2 },
   { dice: [3, 1], weight: 2 },
   { dice: [2, 1], weight: 2 },
-  { dice: [6, 6], weight: 1 },
-  { dice: [5, 5], weight: 1 },
-  { dice: [4, 4], weight: 1 },
-  { dice: [3, 3], weight: 1 },
-  { dice: [2, 2], weight: 1 },
   { dice: [1, 1], weight: 1 },
 ];
 
@@ -883,7 +883,8 @@ function analyzeOpponentReplies(
   accumulators.forEach((accumulator) => {
     if (!accumulator.weight) return;
     const expectedImpact = accumulator.expectedImpact / accumulator.weight;
-    const tacticalAdjustment = expectedImpact * 0.38 + accumulator.worstImpact * 0.08;
+    const tacticalAdjustment = expectedImpact * 0.42
+      + accumulator.worstImpact * 0.14 * threatPressure(accumulator.candidate.after, color);
     accumulator.candidate.score += tacticalAdjustment;
     accumulator.candidate.tactical = {
       expectedImpact,
@@ -894,6 +895,15 @@ function analyzeOpponentReplies(
   });
 
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function threatPressure(state, color) {
+  const opponent = opponentOf(color);
+  const raceLead = Math.max(0, pipsFor(state, opponent) - pipsFor(state, color));
+  return Math.min(3.4, 1
+    + Math.min(1.2, raceLead / 42)
+    + offCount(state, opponent) * 0.12
+    + (homeReady(state, opponent) ? 0.75 : 0));
 }
 
 function experienceDescriptor(
@@ -1090,7 +1100,7 @@ function signedFlag(name, value) {
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 1200;
+const DEFAULT_TIME_LIMIT_MS = 1600;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -1135,12 +1145,15 @@ function createLongBotEngine(adapter, options = {}) {
       .sort((left, right) => right.score - left.score);
     analyzeOpponentReplies(adapter, color, strategicallyRanked, weights, deadline);
     strategicallyRanked.forEach((candidate) => {
+      const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
         state,
         color,
         candidate.features,
         candidate.tactical,
       );
+      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     return strategicallyRanked.sort((left, right) => right.score - left.score);
   }
@@ -1174,7 +1187,6 @@ function createLongBotEngine(adapter, options = {}) {
 }
 
 function prefilterSequences(state, color, sequences, maxCandidates) {
-  if (sequences.length <= maxCandidates) return sequences;
   const ready = homeReady(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
@@ -1394,7 +1406,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v9';
+const ENGINE_VERSION = 'long-analytic-v10';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

@@ -21,7 +21,7 @@ import {
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 1200;
+const DEFAULT_TIME_LIMIT_MS = 1600;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -66,12 +66,15 @@ export function createLongBotEngine(adapter, options = {}) {
       .sort((left, right) => right.score - left.score);
     analyzeOpponentReplies(adapter, color, strategicallyRanked, weights, deadline);
     strategicallyRanked.forEach((candidate) => {
+      const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
         state,
         color,
         candidate.features,
         candidate.tactical,
       );
+      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     return strategicallyRanked.sort((left, right) => right.score - left.score);
   }
@@ -105,7 +108,6 @@ export function createLongBotEngine(adapter, options = {}) {
 }
 
 function prefilterSequences(state, color, sequences, maxCandidates) {
-  if (sequences.length <= maxCandidates) return sequences;
   const ready = homeReady(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);

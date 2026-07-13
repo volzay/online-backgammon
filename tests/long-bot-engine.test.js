@@ -49,6 +49,27 @@ function longState(points, overrides = {}) {
   };
 }
 
+function tacticalThreatState() {
+  return longState({
+    4: { color: "dark", count: 1 },
+    7: { color: "dark", count: 3 },
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "dark", count: 1 },
+    12: { color: "dark", count: 8 },
+    14: { color: "white", count: 1 },
+    15: { color: "dark", count: 1 },
+    18: { color: "dark", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 9 },
+  }, {
+    dice: [6, 5],
+    rolled: [6, 5],
+  });
+}
+
 test("hard long engine is installed in browser bundle", () => {
   const { engine } = loadBrowserEngine();
   assert.equal(typeof engine.plan, "function");
@@ -247,28 +268,40 @@ test("trap risk makes the bot escape before improving home points", () => {
 
 test("head landing anchors are preserved when the opponent can immediately occupy them", () => {
   const { engine } = loadBrowserEngine();
-  const state = longState({
-    4: { color: "dark", count: 1 },
-    7: { color: "dark", count: 3 },
-    8: { color: "white", count: 1 },
-    9: { color: "white", count: 1 },
-    10: { color: "white", count: 1 },
-    11: { color: "dark", count: 1 },
-    12: { color: "dark", count: 8 },
-    14: { color: "white", count: 1 },
-    15: { color: "dark", count: 1 },
-    18: { color: "dark", count: 1 },
-    22: { color: "white", count: 1 },
-    23: { color: "white", count: 1 },
-    24: { color: "white", count: 9 },
-  }, {
-    dice: [6, 5],
-    rolled: [6, 5],
-  });
+  const state = tacticalThreatState();
 
   const plan = engine.plan(state, { maxCandidates: 300 });
   assert.ok(!plan.some(move => move.from === 11));
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
+});
+
+test("v10 reapplies learned loss penalties after tactical threats are discovered", () => {
+  const { engine } = loadBrowserEngine();
+  const state = tacticalThreatState();
+  engine.setExperience([], "tactical-regression");
+  const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const descriptor = baseline[0].experience;
+
+  assert.ok(baseline[0].tactical?.worstImpact < -4000000);
+  assert.ok(descriptor?.mistakeSeverity > 0);
+  engine.setExperience([{
+    contextKey: descriptor.contextKey,
+    actionKey: descriptor.actionKey,
+    samples: 12,
+    losses: 12,
+    severeLosses: 8,
+    signalWeight: 40,
+  }], "tactical-regression");
+
+  const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 2000 });
+  const matching = learned.find(candidate => (
+    candidate.experience?.contextKey === descriptor.contextKey
+    && candidate.experience?.actionKey === descriptor.actionKey
+    && candidate.tactical
+  ));
+  assert.ok(matching);
+  assert.ok(matching.experienceAdjustment < 0);
+  engine.setExperience([], "tactical-regression");
 });
 
 test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one", () => {
@@ -303,7 +336,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v9");
+  assert.equal(decision.engineVersion, "long-analytic-v10");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -534,7 +567,7 @@ test("TB9N-MS4S move 5 releases the crowded head without opening either barrier"
   assert.equal(after.points[12]?.count, 11);
 });
 
-test("v9 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+test("v10 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -550,7 +583,7 @@ test("v9 releases the head instead of rushing a lone checker home in 3DAG-EQ52",
   assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
 });
 
-test("v9 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+test("v10 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     3: { color: "dark", count: 1 },

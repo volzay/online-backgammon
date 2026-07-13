@@ -6,9 +6,9 @@
 window.NarduStrongBot = (function () {
   const CANDIDATE_LIMIT = 18;
   const DEEP_SEQUENCE_LIMIT = 180;
-  const PREFILTER_SEQUENCE_LIMIT = 48;
+  const PREFILTER_SEQUENCE_LIMIT = 64;
   const REPLY_LIMIT = 4;
-  const PLAN_TIME_LIMIT_MS = 1200;
+  const PLAN_TIME_LIMIT_MS = 1600;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
   const DEFAULT_PROFILE = {

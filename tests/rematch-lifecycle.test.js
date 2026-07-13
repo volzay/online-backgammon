@@ -368,3 +368,52 @@ test("bot training archive does not overwrite a live rematch state", () => {
   assert.match(archiveFunction, /target_state := p_final_state;/);
   assert.doesNotMatch(archiveFunction, /game_state\s*=\s*p_final_state/);
 });
+
+test("cached server experience is applied before a slow refresh RPC finishes", async () => {
+  const localStorage = memoryStorage();
+  const pattern = {
+    contextKey: "late-entry|h0|o1|po0|tr4|pd3",
+    actionKey: "head:flat|entry:flat|trap:flat|freedom:flat|distribution:gain|support:keep|home:shuffle|off:no",
+    samples: 5,
+    losses: 5,
+    severeLosses: 2,
+    signalWeight: 20,
+  };
+  localStorage.setItem("narduh-long-bot-server-experience-v1", JSON.stringify({
+    savedAt: Date.now(),
+    patterns: [pattern],
+  }));
+  const applied = [];
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return { rpc() { return new Promise(() => {}); } };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage,
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const loaded = await context.window.NarduRooms.loadLongBotExperience();
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].contextKey, pattern.contextKey);
+  assert.equal(applied[0].source, "server-cache");
+  assert.equal(applied[0].patterns[0].actionKey, pattern.actionKey);
+});

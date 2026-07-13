@@ -3,9 +3,32 @@
   const PRESENCE_STALE_MS = 30000;
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v1";
+  const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();
   let longBotExperiencePromise = null;
+
+  function readLongBotExperienceCache() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(LONG_BOT_EXPERIENCE_CACHE_KEY) || "null");
+      if (!cached || Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) return [];
+      return Array.isArray(cached.patterns) ? cached.patterns : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeLongBotExperienceCache(patterns) {
+    try {
+      localStorage.setItem(LONG_BOT_EXPERIENCE_CACHE_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        patterns: Array.isArray(patterns) ? patterns : [],
+      }));
+    } catch {
+      // Server experience remains optional when browser storage is unavailable.
+    }
+  }
 
   function configured() {
     return Boolean(window.NarduSupabase?.configured?.());
@@ -661,18 +684,30 @@
 
   async function loadLongBotExperience({ refresh = false } = {}) {
     if (!configured() || !window.NarduLongBotEngine?.setExperience) return [];
-    if (longBotExperiencePromise && !refresh) return longBotExperiencePromise;
+    const cachedPatterns = refresh ? [] : readLongBotExperienceCache();
+    if (cachedPatterns.length) {
+      window.NarduLongBotEngine.setExperience(cachedPatterns, "server-cache");
+    }
+    if (longBotExperiencePromise && !refresh) {
+      return cachedPatterns.length ? cachedPatterns : longBotExperiencePromise;
+    }
     longBotExperiencePromise = (async () => {
       const client = await supabase();
       const { data, error } = await client.rpc("get_long_bot_experience_patterns");
       if (error) throw supabaseError(error, "Could not load long-bot experience.");
       const patterns = Array.isArray(data) ? data : [];
+      window.NarduLongBotEngine.setExperience([], "server-cache");
       window.NarduLongBotEngine.setExperience(patterns, "server");
+      writeLongBotExperienceCache(patterns);
       return patterns;
     })().catch(error => {
       longBotExperiencePromise = null;
       throw error;
     });
+    if (cachedPatterns.length && !refresh) {
+      longBotExperiencePromise.catch(() => {});
+      return cachedPatterns;
+    }
     return longBotExperiencePromise;
   }
 
