@@ -9,6 +9,16 @@
   const BOARD_STYLE_KEY = 'narduh-board-style';
   const DEFAULT_RATING = 1000;
   const GUEST_PRESENCE_MS = 30000;
+  const STORED_HISTORY_LIMIT = 50;
+  function safeStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      console.warn(`Could not persist ${key}`, error?.message || error);
+      return false;
+    }
+  }
   const ACCENTS = {
     amber: { accent: 'oklch(0.78 0.13 78)', soft: 'oklch(0.78 0.13 78 / 0.16)' },
     green: { accent: 'oklch(0.74 0.15 155)', soft: 'oklch(0.74 0.15 155 / 0.16)' },
@@ -28,7 +38,7 @@
   /* ── THEME ── */
   function applyTheme(name) {
     document.documentElement.setAttribute('data-theme', name);
-    localStorage.setItem(THEME_KEY, name);
+    safeStorageSet(THEME_KEY, name);
     document.querySelectorAll('[data-theme-set]').forEach(b =>
       b.classList.toggle('active', b.dataset.themeSet === name));
   }
@@ -46,7 +56,7 @@
     const palette = ACCENTS[key];
     document.documentElement.style.setProperty('--accent', palette.accent);
     document.documentElement.style.setProperty('--accent-soft', palette.soft);
-    localStorage.setItem(ACCENT_KEY, key);
+    safeStorageSet(ACCENT_KEY, key);
     document.querySelectorAll('[data-accent-set]').forEach(b =>
       b.classList.toggle('active', b.dataset.accentSet === key));
   }
@@ -59,7 +69,7 @@
   function applyBoardStyle(name) {
     const style = BOARD_STYLES.has(name) ? name : 'wood';
     document.documentElement.setAttribute('data-board-style', style);
-    localStorage.setItem(BOARD_STYLE_KEY, style);
+    safeStorageSet(BOARD_STYLE_KEY, style);
     document.querySelectorAll('[data-board-style-set]').forEach(b =>
       b.classList.toggle('active', b.dataset.boardStyleSet === style));
   }
@@ -783,7 +793,7 @@
   function applyLang(lang) {
     const d = dicts[lang] || dicts.ru;
     document.documentElement.lang = lang;
-    localStorage.setItem(LANG_KEY, lang);
+    safeStorageSet(LANG_KEY, lang);
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const v = d[el.dataset.i18n];
       if (v) el.textContent = v;
@@ -844,6 +854,64 @@
       nickname: String(user.nickname || name).trim(),
     };
   }
+  function compactStoredScore(score) {
+    if (!score || typeof score !== 'object' || Array.isArray(score)) return score || null;
+    const compact = {
+      white: Number(score.white) || 0,
+      dark: Number(score.dark) || 0,
+    };
+    if (score.roomCode) compact.roomCode = String(score.roomCode).slice(0, 32);
+    if (score.off && typeof score.off === 'object') {
+      compact.off = {
+        white: Number(score.off.white) || 0,
+        dark: Number(score.off.dark) || 0,
+      };
+    }
+    return compact;
+  }
+  function compactStoredHistoryEntry(entry = {}) {
+    const { history, finalState, analysis, ...compact } = entry;
+    return {
+      ...compact,
+      score: compactStoredScore(compact.score),
+      historyCount: Array.isArray(history)
+        ? history.length
+        : Math.max(0, Number(compact.historyCount) || 0),
+    };
+  }
+  function compactStoredUser(user) {
+    const compact = { ...user };
+    if (Array.isArray(user.history)) {
+      compact.history = user.history
+        .slice(0, STORED_HISTORY_LIMIT)
+        .map(compactStoredHistoryEntry);
+    }
+    return compact;
+  }
+  function persistStoredUser(user) {
+    const compact = compactStoredUser(user);
+    try {
+      localStorage.setItem(USER_KEY, JSON.stringify(compact));
+      return compact;
+    } catch (error) {
+      // Replacing an old oversized profile with the smallest valid profile
+      // frees its quota without losing the authenticated Supabase account.
+      const minimal = { ...compact, history: [] };
+      try {
+        localStorage.setItem(USER_KEY, JSON.stringify(minimal));
+        return minimal;
+      } catch (retryError) {
+        try {
+          localStorage.removeItem(USER_KEY);
+          localStorage.setItem(USER_KEY, JSON.stringify(minimal));
+          return minimal;
+        } catch (finalError) {
+          console.warn('Could not persist local user cache', finalError?.message || finalError);
+          return minimal;
+        }
+      }
+    }
+  }
   function getUser() {
     try { return normalizeStoredUser(JSON.parse(localStorage.getItem(USER_KEY) || 'null')); }
     catch { return null; }
@@ -886,8 +954,9 @@
   function setUser(u) {
     u = normalizeStoredUser(u) || createGuestUser();
     assignProfileRating(u);
-    localStorage.setItem(USER_KEY, JSON.stringify(u));
+    persistStoredUser(u);
     touchPresence({ force: true });
+    return u;
   }
   function logout() {
     if (window.NarduSupabase?.configured?.()) {
@@ -1002,10 +1071,10 @@
   /* ── SOUND TOGGLE (visual only) ── */
   function currentSound() { return localStorage.getItem(SOUND_KEY) !== '0'; }
   function setSound(on) {
-    localStorage.setItem(SOUND_KEY, on ? '1' : '0');
+    safeStorageSet(SOUND_KEY, on ? '1' : '0');
     if (on) {
       const vol = parseInt(localStorage.getItem('narduh-vol') || '70', 10);
-      if (!Number.isFinite(vol) || vol <= 0) localStorage.setItem('narduh-vol', '70');
+      if (!Number.isFinite(vol) || vol <= 0) safeStorageSet('narduh-vol', '70');
       window.NarduSound?.prime?.();
       window.NarduSound?.click?.();
     }
@@ -1085,7 +1154,7 @@
     getUser, setUser, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
-    createGuestUser, touchGuestPresence, touchProfilePresence, touchPresence,
+    createGuestUser, compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
   };

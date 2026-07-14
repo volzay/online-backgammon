@@ -377,7 +377,7 @@
 
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js"></script>
-<script src="app.js?v=presence-guest-20260624"></script>
+<script src="app.js?v=account-history-cache-v2"></script>
 <script>
 NarduApp.requireAuth();
 
@@ -874,7 +874,7 @@ async function loadAccountProfile({ silent = false } = {}) {
       ? await supabaseAccountProfile()
       : await accountApi(`/api/account/profile?${accountQuery()}`);
     const localHistory = currentUser().history || [];
-    const nextUser = { ...currentUser(), ...data.user, history: mergeGames(data.games || localHistory) };
+    const nextUser = { ...currentUser(), ...data.user, history: data.games || localHistory };
     NarduApp.setUser(nextUser);
     NarduApp.paintUser();
     accountState.profile = {
