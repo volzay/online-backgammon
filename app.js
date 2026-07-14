@@ -19,6 +19,34 @@
       return false;
     }
   }
+  function pruneBotGameConfigs(keepGameCode = '') {
+    const keepKey = keepGameCode ? `narduh-bot-game:${keepGameCode}` : '';
+    const staleKeys = [];
+    try {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key?.startsWith('narduh-bot-game:') && key !== keepKey) staleKeys.push(key);
+      }
+      staleKeys.forEach(key => localStorage.removeItem(key));
+    } catch (error) {
+      console.warn('Could not prune stale bot game settings', error?.message || error);
+    }
+    return staleKeys.length;
+  }
+  function persistBotGameConfig(config) {
+    const gameCode = String(config?.game || '').trim().toUpperCase();
+    if (!gameCode) return false;
+    const value = JSON.stringify({ ...config, game: gameCode });
+    const gameKey = `narduh-bot-game:${gameCode}`;
+    let gameSaved = safeStorageSet(gameKey, value);
+    let recentSaved = safeStorageSet('narduh-created-game', value);
+    if (gameSaved && recentSaved) return true;
+
+    pruneBotGameConfigs(gameCode);
+    if (!gameSaved) gameSaved = safeStorageSet(gameKey, value);
+    if (!recentSaved) recentSaved = safeStorageSet('narduh-created-game', value);
+    return gameSaved || recentSaved;
+  }
   const ACCENTS = {
     amber: { accent: 'oklch(0.78 0.13 78)', soft: 'oklch(0.78 0.13 78 / 0.16)' },
     green: { accent: 'oklch(0.74 0.15 155)', soft: 'oklch(0.74 0.15 155 / 0.16)' },
@@ -1155,6 +1183,7 @@
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
     createGuestUser, compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
+    safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
   };

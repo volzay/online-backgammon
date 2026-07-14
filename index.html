@@ -484,8 +484,8 @@
     if (isHost) params.set('host', '1');
     else params.set('guest', '1');
     if (room.status === 'waiting' && isHost) params.set('waiting', '1');
-    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: isHost ? 'host' : 'guest' }));
-    if (isHost) localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(room));
+    NarduApp.safeStorageSet(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: isHost ? 'host' : 'guest' }));
+    if (isHost) NarduApp.safeStorageSet(CREATE_GAME_KEY, JSON.stringify(room));
     location.href = 'room.html?' + params.toString();
     return true;
   }
@@ -698,7 +698,6 @@
     location.href = 'room.html?' + params.toString();
   });
 
-  const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
   const createGamePanel = document.getElementById('create-game-panel');
   const createGameForm = document.getElementById('create-game-form');
   const createPassword = document.getElementById('create-password');
@@ -831,8 +830,7 @@
         password: '',
         createdAt: new Date().toISOString(),
       };
-      localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(settings));
-      localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${gameCode}`, JSON.stringify(settings));
+      NarduApp.persistBotGameConfig(settings);
 
       const params = new URLSearchParams({
         mode: 'bot',
@@ -876,8 +874,8 @@
       return;
     }
 
-    localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(room));
-    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'host' }));
+    NarduApp.safeStorageSet(CREATE_GAME_KEY, JSON.stringify(room));
+    NarduApp.safeStorageSet(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'host' }));
 
     const params = new URLSearchParams({
       mode: 'remote',
@@ -931,7 +929,7 @@
       opponent: 'player',
       access: room.access,
     });
-    localStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'guest' }));
+    NarduApp.safeStorageSet(ACTIVE_ROOM_KEY, JSON.stringify({ ...room, role: 'guest' }));
     location.href = 'room.html?' + params.toString();
     return { ok: true };
   }
@@ -959,8 +957,7 @@
           access: 'open',
           createdAt: new Date().toISOString(),
         };
-        localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(settings));
-        localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${gameCode}`, JSON.stringify(settings));
+        NarduApp.persistBotGameConfig(settings);
         params = new URLSearchParams({
           mode: 'bot',
           opp: tt('room_opponent'),

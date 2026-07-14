@@ -9,6 +9,8 @@ const ROOT = path.join(__dirname, '..');
 function quotaStorage(initial = {}, limit = 8000) {
   const values = new Map(Object.entries(initial));
   return {
+    get length() { return values.size; },
+    key(index) { return [...values.keys()][index] || null; },
     getItem(key) { return values.get(key) || null; },
     setItem(key, value) {
       const next = new Map(values);
@@ -80,4 +82,36 @@ test('oversized match logs are compacted before a profile reaches localStorage q
   assert.equal(stored.history[0].history, undefined);
   assert.equal(stored.history[0].score.finalState, undefined);
   assert.equal(stored.history[0].historyCount, 240);
+});
+
+test('bot game creation survives quota errors and prunes stale bot settings', () => {
+  const storage = quotaStorage({
+    'narduh-bot-game:OLD1-ROOM': 'x'.repeat(500),
+    'narduh-theme': 'night',
+  }, 700);
+  const app = loadApp(storage);
+
+  assert.equal(app.persistBotGameConfig({
+    game: 'NEW1-ROOM',
+    opponent: 'bot',
+    difficulty: 'hard',
+    variant: 'long',
+  }), true);
+
+  assert.equal(storage.getItem('narduh-bot-game:OLD1-ROOM'), null);
+  assert.equal(JSON.parse(storage.getItem('narduh-bot-game:NEW1-ROOM')).difficulty, 'hard');
+  assert.equal(JSON.parse(storage.getItem('narduh-created-game')).game, 'NEW1-ROOM');
+});
+
+test('bot game persistence never throws when quota cannot be recovered', () => {
+  const storage = quotaStorage({ 'narduh-user': 'x'.repeat(1000) }, 200);
+  const app = loadApp(storage);
+
+  assert.doesNotThrow(() => app.persistBotGameConfig({
+    game: 'FULL-ROOM',
+    opponent: 'bot',
+    difficulty: 'hard',
+    variant: 'long',
+  }));
+  assert.equal(app.persistBotGameConfig({ game: 'FULL-ROOM' }), false);
 });

@@ -582,10 +582,14 @@ window.NarduController = (function () {
       botRating: opponentRating,
       updatedAt: new Date().toISOString(),
     };
-    try {
-      localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${roomCode}`, JSON.stringify(config));
-      localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(config));
-    } catch {}
+    if (window.NarduApp?.persistBotGameConfig) {
+      window.NarduApp.persistBotGameConfig(config);
+    } else {
+      try {
+        localStorage.setItem(`${BOT_GAME_CONFIG_PREFIX}${roomCode}`, JSON.stringify(config));
+        localStorage.setItem(CREATE_GAME_KEY, JSON.stringify(config));
+      } catch {}
+    }
     if (!url) return;
     url.searchParams.set('difficulty', botDifficulty);
     url.searchParams.set('opp', opponentName);
