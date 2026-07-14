@@ -1209,12 +1209,33 @@ function experienceDescriptor(
     mistakeSeverity += Math.min(2.2, Math.abs(Number(tactical.worstImpact)) / 16000000);
   }
 
+  const structuralRisk = Math.max(
+    Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 90,
+    Number(features.maxRouteTowerAfter || 0) >= 6
+      ? (Number(features.maxRouteTowerAfter) - 5) * 0.85
+      : 0,
+    Number(features.trapBefore || 0) >= 600 && Number(features.trapDelta || 0) <= 0
+      ? Math.min(4, Number(features.trapBefore) / 900)
+      : 0,
+    Number(features.escapeGatewayDelta || 0) < 0 && Number(features.trapBefore || 0) >= 180
+      ? Math.min(3, Math.abs(Number(features.escapeGatewayDelta)) / 3)
+      : 0,
+    Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
+      ? 1.4 + Math.min(2.2, outside / 5)
+      : 0,
+  );
+  const tacticalRisk = tactical
+    ? Math.min(6, Math.abs(Math.min(0, Number(tactical.worstImpact) || 0)) / 12000000)
+    : 0;
+  const riskSignal = Math.min(10, Math.max(mistakeSeverity * urgency, structuralRisk, tacticalRisk));
+
   return {
     contextKey,
     actionKey,
     familyActionKey,
     legacyActionKey,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
+    riskSignal,
     phase,
   };
 }
@@ -1231,6 +1252,10 @@ function normalizeExperiencePatterns(patterns = []) {
       actionKey,
       samples: Math.max(0, Number(pattern.samples) || 0),
       losses: Math.max(0, Number(pattern.losses) || 0),
+      lossWeight: Math.max(
+        0,
+        Number(pattern.lossWeight ?? pattern.loss_weight ?? pattern.losses) || 0,
+      ),
       severeLosses: Math.max(
         0,
         Number(pattern.severeLosses ?? pattern.severe_losses) || 0,
@@ -1243,6 +1268,8 @@ function normalizeExperiencePatterns(patterns = []) {
     mergePattern(normalized, key, contribution, contextKey, actionKey);
 
     const phase = contextKey.split('|')[0] || 'route';
+    const strategic = strategicContextKey(contextKey);
+    mergePattern(normalized, `strategy:${strategic}::${actionKey}`, contribution, strategic, actionKey);
     mergePattern(normalized, `phase:${phase}::${actionKey}`, contribution, phase, actionKey);
     mergePattern(normalized, `*::${actionKey}`, contribution, '*', actionKey);
   });
@@ -1252,44 +1279,79 @@ function normalizeExperiencePatterns(patterns = []) {
 function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
+  const strategic = strategicContextKey(descriptor.contextKey);
   const actionKeys = [
     descriptor.actionKey,
     descriptor.familyActionKey,
     descriptor.legacyActionKey,
   ].filter(Boolean);
-  const pattern = actionKeys
-    .flatMap(actionKey => [
-      experience.get(`${descriptor.contextKey}::${actionKey}`),
-      experience.get(`phase:${phase}::${actionKey}`),
-      experience.get(`*::${actionKey}`),
-    ])
-    .find(candidate => candidate?.samples >= 3);
-  if (!pattern || pattern.samples < 3) return 0;
 
-  const lossRate = (pattern.losses + 1) / (pattern.samples + 2);
-  const severeRate = pattern.severeLosses / Math.max(1, pattern.samples);
-  const confidence = Math.min(0.88, pattern.samples / (pattern.samples + 6));
-  const learnedSeverity = Math.min(
-    4,
-    pattern.signalWeight / Math.max(1, pattern.samples),
-  );
-  const relevance = 2.6 + Math.min(3, Math.max(0, descriptor.mistakeSeverity));
-  if (lossRate >= 0.55) {
+  const contextLevels = [
+    { key: descriptor.contextKey, minimum: 3, weight: 1 },
+    { key: `strategy:${strategic}`, minimum: 5, weight: 0.78 },
+    { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
+    { key: '*', minimum: 16, weight: 0.28 },
+  ];
+  const actionWeights = [1, 0.76, 0.56];
+  const matches = [];
+  const seen = new Set();
+  actionKeys.forEach((actionKey, index) => {
+    const level = contextLevels.find((candidate) => {
+      const pattern = experience.get(`${candidate.key}::${actionKey}`);
+      if (!pattern) return false;
+      const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
+      return pattern.samples >= candidate.minimum || severeEvidence;
+    });
+    if (!level) return;
+    const mapKey = `${level.key}::${actionKey}`;
+    if (seen.has(mapKey)) return;
+    seen.add(mapKey);
+    matches.push({
+      pattern: experience.get(mapKey),
+      weight: level.weight * (actionWeights[index] || 0.4),
+    });
+  });
+  if (!matches.length) return 0;
+
+  let evidenceWeight = 0;
+  let weightedLossRate = 0;
+  let weightedSevereRate = 0;
+  let weightedSeverity = 0;
+  let weightedSamples = 0;
+  matches.forEach(({ pattern, weight }) => {
+    const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
+    const evidence = weight * confidence;
+    evidenceWeight += evidence;
+    weightedLossRate += Math.min(0.98, (pattern.lossWeight + 0.5) / (pattern.samples + 1.5)) * evidence;
+    weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
+    weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
+    weightedSamples += pattern.samples * weight;
+  });
+  if (!evidenceWeight) return 0;
+  const lossRate = weightedLossRate / evidenceWeight;
+  const severeRate = weightedSevereRate / evidenceWeight;
+  const learnedSeverity = weightedSeverity / evidenceWeight;
+  const confidence = Math.min(0.9, weightedSamples / (weightedSamples + 9));
+  const relevance = 1.35 + Math.min(3.2, Math.max(
+    Number(descriptor.riskSignal) || 0,
+    Number(descriptor.mistakeSeverity) || 0,
+  ));
+  if (lossRate >= 0.42) {
     const penalty = (
-      12000000
+      18000000
       * confidence
-      * (lossRate - 0.48)
-      * (1 + severeRate * 1.8)
-      * (1 + learnedSeverity * 0.28)
+      * (lossRate - 0.28)
+      * (1 + severeRate * 1.5)
+      * (1 + learnedSeverity * 0.2)
       * relevance
     );
     return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
   }
-  if (pattern.samples >= 5 && lossRate <= 0.38 && severeRate <= 0.2) {
-    const reward = 4000000
+  if (weightedSamples >= 8 && lossRate <= 0.16 && severeRate <= 0.08) {
+    const reward = 3000000
       * confidence
-      * (0.5 - lossRate)
-      * Math.min(2.2, relevance);
+      * (0.24 - lossRate)
+      * Math.min(1.8, relevance);
     return Math.min(MAX_EXPERIENCE_REWARD, reward);
   }
   return 0;
@@ -1301,14 +1363,25 @@ function mergePattern(target, key, pattern, contextKey, actionKey) {
     actionKey,
     samples: 0,
     losses: 0,
+    lossWeight: 0,
     severeLosses: 0,
     signalWeight: 0,
   };
   current.samples += pattern.samples;
   current.losses += pattern.losses;
+  current.lossWeight += pattern.lossWeight;
   current.severeLosses += pattern.severeLosses;
   current.signalWeight += pattern.signalWeight;
   target.set(key, current);
+}
+
+function strategicContextKey(contextKey) {
+  const parts = String(contextKey || '').split('|').filter(Boolean);
+  const phase = parts[0] || 'route';
+  const dimensions = ['o', 'po', 'tr']
+    .map(prefix => parts.find(part => part.startsWith(prefix)))
+    .filter(Boolean);
+  return [phase, ...dimensions].join('|');
 }
 
 function prepareReplyState(state, color, dice) {
@@ -1742,7 +1815,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v12';
+const ENGINE_VERSION = 'long-analytic-v13';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

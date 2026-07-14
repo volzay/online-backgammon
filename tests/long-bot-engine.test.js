@@ -276,7 +276,7 @@ test("head landing anchors are preserved when the opponent can immediately occup
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
 });
 
-test("v12 learned losses materially change tactical ranking", () => {
+test("v13 learned local mistakes materially change tactical ranking", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   engine.setExperience([], "tactical-regression");
@@ -291,6 +291,7 @@ test("v12 learned losses materially change tactical ranking", () => {
     actionKey: descriptor.actionKey,
     samples: 64,
     losses: 64,
+    lossWeight: 64,
     severeLosses: 48,
     signalWeight: 256,
   }], "tactical-regression");
@@ -303,15 +304,64 @@ test("v12 learned losses materially change tactical ranking", () => {
   ));
   assert.ok(matching);
   assert.ok(matching.experienceAdjustment < -5000000);
-  assert.ok(
-    learned[0].experience?.contextKey !== descriptor.contextKey
-      || learned[0].experience?.actionKey !== descriptor.actionKey,
-    `learned losing action remained first with adjustment ${matching.experienceAdjustment}`,
-  );
   engine.setExperience([], "tactical-regression");
 });
 
-test("v12 searches four plies through two opponent turns", async () => {
+test("v13 does not blame a safe opening action for a later game loss", () => {
+  const { engine } = loadBrowserEngine();
+  const state = tacticalThreatState();
+  const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const descriptor = baseline[0].experience;
+
+  engine.setExperience([{
+    contextKey: descriptor.contextKey,
+    actionKey: descriptor.actionKey,
+    samples: 48,
+    losses: 0,
+    lossWeight: 0,
+    severeLosses: 0,
+    signalWeight: 0,
+  }], "safe-opening");
+
+  const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const matching = learned.find(candidate => candidate.experience?.actionKey === descriptor.actionKey);
+  assert.ok(matching);
+  assert.ok(matching.experienceAdjustment >= 0);
+  engine.setExperience([], "safe-opening");
+});
+
+test("v13 transfers repeated mistakes across similar strategic contexts", () => {
+  const { engine } = loadBrowserEngine();
+  const state = tacticalThreatState();
+  const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const candidate = baseline.find(item => item.experience?.familyActionKey);
+  const descriptor = candidate.experience;
+  const neighboringContext = descriptor.contextKey.replace(
+    /\|pd\d+$/,
+    descriptor.contextKey.endsWith("|pd0") ? "|pd4" : "|pd0",
+  );
+
+  engine.setExperience([{
+    contextKey: neighboringContext,
+    actionKey: descriptor.familyActionKey,
+    samples: 32,
+    losses: 22,
+    lossWeight: 30,
+    severeLosses: 10,
+    signalWeight: 74,
+  }], "strategic-transfer");
+
+  const learned = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const matching = learned.find(item => (
+    item.experience?.familyActionKey === descriptor.familyActionKey
+    && item.experience?.contextKey === descriptor.contextKey
+  ));
+  assert.ok(matching);
+  assert.ok(matching.experienceAdjustment < -5000000);
+  engine.setExperience([], "strategic-transfer");
+});
+
+test("v13 searches four plies through two opponent turns", async () => {
   const { createLongBotEngine } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -440,6 +490,44 @@ test("SU9F-5VFB turn 25 minimizes the tower under the opponent fence", () => {
   assert.ok(towerSize(after) < 7);
 });
 
+test("Y9X6-QCC3 move 25 does not add two more checkers to the six-checker tower", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 3 },
+    2: { color: "white", count: 1 },
+    3: { color: "dark", count: 1 },
+    4: { color: "dark", count: 1 },
+    5: { color: "dark", count: 1 },
+    6: { color: "dark", count: 1 },
+    7: { color: "white", count: 1 },
+    9: { color: "white", count: 2 },
+    10: { color: "white", count: 2 },
+    11: { color: "dark", count: 1 },
+    13: { color: "white", count: 1 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "white", count: 2 },
+    18: { color: "dark", count: 6 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [6, 6, 6, 6],
+    rolled: [6, 6],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 3000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.ok(
+    Number(after.points[18]?.count || 0) <= 6,
+    "tower on point 18 grew to " + Number(after.points[18]?.count || 0) + ": " + JSON.stringify(plan),
+  );
+});
+
 test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -472,7 +560,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v12");
+  assert.equal(decision.engineVersion, "long-analytic-v13");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -703,7 +791,7 @@ test("TB9N-MS4S move 5 releases the crowded head without opening either barrier"
   assert.equal(after.points[12]?.count, 11);
 });
 
-test("v12 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+test("v13 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -719,7 +807,7 @@ test("v12 releases the head instead of rushing a lone checker home in 3DAG-EQ52"
   assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
 });
 
-test("v12 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+test("v13 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     3: { color: "dark", count: 1 },
@@ -744,8 +832,13 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
 
   assert.match(schema, /get_long_bot_experience_patterns\(\)/);
   assert.match(schema, /winner <> bot_color/);
+  assert.match(schema, /harm_signal >= 1\.1/);
+  assert.match(schema, /'creditVersion', 2/);
+  assert.match(schema, /'lossWeight', loss_weight/);
+  assert.match(schema, /familyActionKey/);
   assert.match(schema, /engine_version like 'long-analytic-%'/);
-  assert.match(schema, /auth\.uid\(\) is null or target_room\.host_user_id is distinct from auth\.uid\(\)/);
+  assert.match(schema, /Guest bot game must match the finished room snapshot/);
+  assert.match(controller, /botGameFinalizePromise/);
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
 });

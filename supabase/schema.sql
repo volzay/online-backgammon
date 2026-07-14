@@ -1437,12 +1437,36 @@ begin
   if target_room.id is null then
     raise exception 'Room not found.';
   end if;
-  if not coalesce(public.is_admin_user(), false)
-    and (auth.uid() is null or target_room.host_user_id is distinct from auth.uid()) then
-    raise exception 'Only the room player can archive this game.';
-  end if;
-
   target_state := coalesce(target_room.game_state, '{}'::jsonb);
+
+  if not coalesce(public.is_admin_user(), false) then
+    if target_room.host_user_id is not null then
+      if auth.uid() is null or target_room.host_user_id is distinct from auth.uid() then
+        raise exception 'Only the room player can archive this game.';
+      end if;
+    elsif coalesce(target_state->>'winner', '') not in ('white', 'dark')
+      or (
+        case
+        when jsonb_typeof(coalesce(target_state->'analysis'->'botMemory'->'decisions', '[]'::jsonb)) = 'array'
+          then jsonb_array_length(coalesce(target_state->'analysis'->'botMemory'->'decisions', '[]'::jsonb))
+        else 0
+        end
+      ) = 0
+      or (
+        p_final_state is not null
+        and (
+          coalesce(p_final_state->>'winner', '') <> coalesce(target_state->>'winner', '')
+          or coalesce(p_final_state->>'startedAt', '') <> coalesce(target_state->>'startedAt', '')
+          or coalesce(p_final_state->'points', '{}'::jsonb) <> coalesce(target_state->'points', '{}'::jsonb)
+          or coalesce(p_final_state->'off', '{}'::jsonb) <> coalesce(target_state->'off', '{}'::jsonb)
+          or coalesce(p_final_state->'history', '[]'::jsonb) <> coalesce(target_state->'history', '[]'::jsonb)
+          or coalesce(p_final_state->'analysis'->'botMemory'->'decisions', '[]'::jsonb)
+            <> coalesce(target_state->'analysis'->'botMemory'->'decisions', '[]'::jsonb)
+        )
+      ) then
+      raise exception 'Guest bot game must match the finished room snapshot.';
+    end if;
+  end if;
 
   if p_final_state is not null then
     if coalesce(target_state->>'mode', target_state->'analysis'->>'mode', '') not in ('', 'bot')
@@ -1568,46 +1592,121 @@ stable
 security definer
 set search_path = public
 as $$
-  with expanded as (
+  with raw_decisions as (
     select
       g.winner,
       g.bot_color,
       g.result_type,
-      coalesce(decision->'experience', decision->'selected'->'experience') as descriptor
+      coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
+      coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
+      coalesce(decision->'selected'->'tactical', '{}'::jsonb) as tactical
     from public.bot_training_games g
     cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
     where g.difficulty = 'hard'
       and g.engine_version like 'long-analytic-%'
       and g.completed_at >= now() - interval '180 days'
-  ), grouped as (
+  ), signals as (
     select
-      descriptor->>'contextKey' as context_key,
-      descriptor->>'actionKey' as action_key,
-      count(*)::integer as samples,
-      count(*) filter (where winner <> bot_color)::integer as losses,
-      count(*) filter (
-        where winner <> bot_color and result_type in ('mars', 'koks')
-      )::integer as severe_losses,
-      sum(coalesce((descriptor->>'mistakeSeverity')::numeric, 0))::double precision as signal_weight
-    from expanded
+      *,
+      coalesce(descriptor->>'phase', split_part(descriptor->>'contextKey', '|', 1), 'route') as phase,
+      greatest(
+        coalesce(nullif(descriptor->>'riskSignal', '')::numeric, 0),
+        coalesce(nullif(descriptor->>'mistakeSeverity', '')::numeric, 0),
+        least(6, abs(least(0, coalesce(nullif(tactical->>'worstImpact', '')::numeric, 0))) / 12000000),
+        case
+          when coalesce(nullif(features->>'trapBefore', '')::numeric, 0) >= 600
+            and coalesce(nullif(features->>'trapDelta', '')::numeric, 0) <= 0
+            then least(4, coalesce(nullif(features->>'trapBefore', '')::numeric, 0) / 900)
+          else 0
+        end,
+        greatest(0, -coalesce(nullif(features->>'routeTowerDelta', '')::numeric, 0) / 90),
+        case
+          when coalesce(nullif(features->>'maxRouteTowerAfter', '')::numeric, 0) >= 6
+            then (coalesce(nullif(features->>'maxRouteTowerAfter', '')::numeric, 0) - 5) * 0.85
+          else 0
+        end,
+        case
+          when coalesce(nullif(features->>'homeShuffleMoves', '')::numeric, 0) > 0
+            and coalesce(nullif(features->>'outsideReduction', '')::numeric, 0) <= 0
+            and coalesce(descriptor->>'phase', '') <> 'bearoff'
+            then 1.5
+          else 0
+        end
+      ) as harm_signal
+    from raw_decisions
     where coalesce(descriptor->>'contextKey', '') <> ''
       and coalesce(descriptor->>'actionKey', '') <> ''
-    group by descriptor->>'contextKey', descriptor->>'actionKey'
+  ), labeled as (
+    select
+      *,
+      winner <> bot_color and harm_signal >= 1.1 as harmful
+    from signals
+  ), expanded as (
+    select
+      descriptor->>'contextKey' as context_key,
+      action.action_key,
+      result_type,
+      harm_signal,
+      harmful
+    from labeled
+    cross join lateral (
+      select distinct candidate as action_key
+      from (values
+        (descriptor->>'actionKey'),
+        (coalesce(
+          nullif(descriptor->>'familyActionKey', ''),
+          regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
+        )),
+        (coalesce(
+          nullif(descriptor->>'legacyActionKey', ''),
+          regexp_replace(
+            coalesce(
+              nullif(descriptor->>'familyActionKey', ''),
+              regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
+            ),
+            '\|tower:[^|]*$',
+            ''
+          )
+        ))
+      ) choices(candidate)
+      where coalesce(candidate, '') <> ''
+    ) action
+  ), grouped as (
+    select
+      context_key,
+      action_key,
+      count(*)::integer as samples,
+      count(*) filter (where harmful)::integer as losses,
+      sum(case
+        when harmful then least(
+          4.5,
+          0.85 + harm_signal * 0.38 + case when result_type in ('mars', 'koks') then 0.75 else 0 end
+        )
+        else 0
+      end)::double precision as loss_weight,
+      count(*) filter (
+        where harmful and (result_type in ('mars', 'koks') or harm_signal >= 3.2)
+      )::integer as severe_losses,
+      sum(case when harmful then harm_signal else 0 end)::double precision as signal_weight
+    from expanded
+    group by context_key, action_key
   ), ranked as (
     select *
     from grouped
-    order by samples desc, signal_weight desc
-    limit 240
+    order by samples desc, loss_weight desc, signal_weight desc
+    limit 480
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
+      'creditVersion', 2,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,
       'losses', losses,
+      'lossWeight', loss_weight,
       'severeLosses', severe_losses,
       'signalWeight', signal_weight
-    ) order by samples desc, signal_weight desc),
+    ) order by samples desc, loss_weight desc, signal_weight desc),
     '[]'::jsonb
   )
   from ranked

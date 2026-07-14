@@ -202,7 +202,7 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
   state.history = [{ color: "white", roll: "6:6", at: new Date().toISOString() }];
   state.analysis = {
     botMemory: {
-      engineVersion: "long-analytic-v12",
+      engineVersion: "long-analytic-v13",
       decisions: [{ id: "lb4-test", experience: { actionKey: "route:test" } }],
     },
   };

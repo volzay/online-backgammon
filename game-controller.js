@@ -2793,6 +2793,9 @@ window.NarduController = (function () {
     botTrainingArchivePending = true;
     const payload = finalPayload || botAnalysisPayload();
     botTrainingArchivePromise = (async () => {
+      // Guest games can be archived only after the authoritative room snapshot
+      // contains the same finished decision log.
+      await Promise.resolve(botGameFinalizePromise).catch(() => false);
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
