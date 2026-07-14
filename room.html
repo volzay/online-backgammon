@@ -1070,7 +1070,9 @@ async function startRec() {
     paintRecording(true);
     recTime.textContent = '0:00';
     recTimer = setInterval(() => { recTime.textContent = fmtRec(Date.now() - recStart); }, 200);
-    mediaRecorder.start(1000);
+    // Timed chunks can become independently muxed MP4 fragments in Safari.
+    // Keep one container so every recorded second remains playable.
+    mediaRecorder.start();
     if (pendingMicStopAfterStart !== null) {
       const shouldSend = pendingMicStopAfterStart;
       pendingMicStopAfterStart = null;
@@ -1090,7 +1092,6 @@ async function startRec() {
 function stopRec(send = true) {
   if (!recording) return;
   sendRecordingOnStop = send;
-  try { mediaRecorder?.requestData?.(); } catch (err) {}
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }

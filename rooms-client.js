@@ -3,6 +3,7 @@
   const PRESENCE_STALE_MS = 30000;
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
+  const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
   const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v1";
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
@@ -1020,6 +1021,10 @@
     const roomId = await roomIdForCode(normalizedCode);
     const kind = message.kind === "voice" ? "voice" : (message.kind === "emoji" ? "emoji" : "text");
     const text = kind === "voice" ? "Голосовое сообщение" : String(message.text || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    const audioData = kind === "voice" ? String(message.audioData || "") : null;
+    if (kind === "voice" && (!audioData.startsWith("data:audio/") || audioData.length > MAX_VOICE_DATA_URL_CHARS)) {
+      throw roomError("Голосовое сообщение слишком длинное или повреждено.", 400);
+    }
     const row = {
       room_id: roomId,
       sender_user_id: authUser.id,
@@ -1027,7 +1032,7 @@
       color: message.color === "dark" ? "dark" : "white",
       kind,
       text,
-      audio_data: kind === "voice" ? String(message.audioData || "") : null,
+      audio_data: audioData,
       mime_type: kind === "voice" ? String(message.mimeType || "").slice(0, 80) : null,
       duration: kind === "voice" ? Math.max(0, Math.min(180000, Number(message.duration || 0))) : 0,
     };

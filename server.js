@@ -23,6 +23,8 @@ const ADMIN_ARCHIVE_HOURS = Number.isFinite(configuredArchiveHours) && configure
 const ADMIN_ARCHIVE_TTL_MS = ADMIN_ARCHIVE_HOURS * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_RATING = 1000;
+const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
 const RATING_TIERS = [
   { name: "Diamond", min: 2100 },
   { name: "Platinum", min: 1800 },
@@ -363,6 +365,12 @@ function normalizeChatText(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 300);
+}
+
+function validVoiceDataUrl(value) {
+  return typeof value === "string"
+    && value.startsWith("data:audio/")
+    && value.length <= MAX_VOICE_DATA_URL_CHARS;
 }
 
 function normalizePlayerName(value) {
@@ -1439,7 +1447,7 @@ function readJsonBody(req) {
     let body = "";
     req.on("data", chunk => {
       body += chunk;
-      if (body.length > 2 * 1024 * 1024) {
+      if (body.length > MAX_JSON_BODY_BYTES) {
         req.destroy();
         reject(new Error("Request body too large"));
       }
@@ -2061,8 +2069,13 @@ async function handleApi(req, res, url) {
         }
         const kind = body.kind === "voice" ? "voice" : (body.kind === "emoji" ? "emoji" : "text");
         const text = kind === "voice" ? "Голосовое сообщение" : normalizeChatText(body.text);
+        const audioData = kind === "voice" ? String(body.audioData || "") : "";
         if (!text && kind !== "voice") {
           sendJson(res, 400, { error: "Сообщение не может быть пустым." });
+          return;
+        }
+        if (kind === "voice" && !validVoiceDataUrl(audioData)) {
+          sendJson(res, 400, { error: "Голосовое сообщение слишком длинное или повреждено." });
           return;
         }
         const message = {
@@ -2074,7 +2087,7 @@ async function handleApi(req, res, url) {
           toName: friendUser.nickname,
           text,
           kind,
-          audioData: kind === "voice" ? String(body.audioData || "") : "",
+          audioData,
           mimeType: kind === "voice" ? String(body.mimeType || "").slice(0, 80) : "",
           duration: kind === "voice" ? Math.max(0, Math.min(180000, Number(body.duration || 0))) : 0,
           at: now(),
@@ -2241,7 +2254,7 @@ async function handleApi(req, res, url) {
       const audioData = kind === "voice" ? String(body.audioData || "") : "";
       const mimeType = kind === "voice" ? String(body.mimeType || "").slice(0, 80) : "";
       const duration = kind === "voice" ? Math.max(0, Math.min(180000, Number(body.duration || 0))) : 0;
-      if (!text || (kind === "voice" && (!audioData.startsWith("data:audio/") || audioData.length > 1500000))) {
+      if (!text || (kind === "voice" && !validVoiceDataUrl(audioData))) {
         sendJson(res, 400, { error: "Сообщение не может быть пустым." });
         return;
       }

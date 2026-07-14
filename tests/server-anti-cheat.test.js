@@ -123,3 +123,26 @@ test("accepts a borne-off win and a resignation", async () => {
   resignation.history = [{ resign: true, color: "dark" }];
   assert.equal((await putGame(resignationCode, resignation)).status, 200);
 });
+
+test("preserves a complete voice chat payload beyond the former 1.5 MB limit", async () => {
+  const code = await createRoom();
+  const audioData = `data:audio/webm;base64,${"A".repeat(5 * 1024 * 1024)}`;
+  const response = await fetch(`${BASE}/api/rooms/${code}/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      senderId: "voice-test",
+      senderName: "Voice test",
+      color: "white",
+      kind: "voice",
+      audioData,
+      mimeType: "audio/webm",
+      duration: 60_000,
+    }),
+  });
+
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  assert.equal(body.message.audioData.length, audioData.length);
+  assert.equal(body.message.audioData, audioData);
+});

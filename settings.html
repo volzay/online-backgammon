@@ -1751,8 +1751,12 @@ async function sendSupabaseFriendMessage(friendId, payload = {}) {
     text,
   };
   if (kind === 'voice') {
+    const audioData = String(payload.audioData || '');
+    if (!audioData.startsWith('data:audio/') || audioData.length > FRIEND_VOICE_MAX_DATA_URL_CHARS) {
+      throw new Error(tr('voice_too_long', 'Голосовое сообщение слишком длинное'));
+    }
     row.kind = kind;
-    row.audio_data = String(payload.audioData || '');
+    row.audio_data = audioData;
     row.mime_type = String(payload.mimeType || '').slice(0, 80);
     row.duration = Math.max(0, Math.min(180000, Number(payload.duration || 0)));
   }
@@ -1784,6 +1788,7 @@ let friendSuppressMicClickUntil = 0;
 let friendPendingStopAfterStart = null;
 const friendMobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
 const FRIEND_VOICE_MAX_BYTES = 4 * 1024 * 1024;
+const FRIEND_VOICE_MAX_DATA_URL_CHARS = 6 * 1024 * 1024;
 
 function bestFriendAudioMimeType() {
   if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') return '';
@@ -1869,7 +1874,9 @@ async function startFriendRecording() {
     friendRecTimer = setInterval(() => {
       if (friendRecTime) friendRecTime.textContent = formatRecordingTime(Date.now() - friendRecStart);
     }, 200);
-    friendMediaRecorder.start(1000);
+    // Avoid independently muxed fragments: some browsers only play the first
+    // fragment after a timed recording is combined into a single Blob.
+    friendMediaRecorder.start();
     if (friendPendingStopAfterStart !== null) {
       const shouldSend = friendPendingStopAfterStart;
       friendPendingStopAfterStart = null;
@@ -1889,7 +1896,6 @@ async function startFriendRecording() {
 function stopFriendRecording(send = true) {
   if (!friendRecording) return;
   friendSendRecordingOnStop = send;
-  try { friendMediaRecorder?.requestData?.(); } catch (err) {}
   if (friendMediaRecorder && friendMediaRecorder.state !== 'inactive') friendMediaRecorder.stop();
 }
 
@@ -1903,6 +1909,10 @@ async function sendFriendVoiceBlob(blob, duration) {
     return;
   }
   const audioData = await blobToDataUrl(blob);
+  if (audioData.length > FRIEND_VOICE_MAX_DATA_URL_CHARS) {
+    if (friendMessageInput) friendMessageInput.placeholder = tr('voice_too_long', 'Голосовое сообщение слишком длинное');
+    return;
+  }
   await sendFriendMessage({
     kind: 'voice',
     text: tr('voice_message', 'Голосовое сообщение'),
