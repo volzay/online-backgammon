@@ -141,10 +141,15 @@
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
   (async () => {
+    const reauth = NarduApp.reauthContext?.();
+    const sessionExpired = new URL(location.href).searchParams.get('reason') === 'session-expired';
+    if (reauth?.identifier) document.getElementById('login-nick').value = reauth.identifier;
+    if (sessionExpired) setMessage('login-message', reauth?.message || NarduApp.t('account_login_again'), 'error');
     try {
       const redirect = await NarduAuth.handleAuthRedirect();
       if (redirect?.user) {
         NarduApp.setUser(redirect.user);
+        NarduApp.clearReauthContext?.();
         location.replace('index.html');
         return;
       }
@@ -184,6 +189,7 @@
     try {
       const data = await NarduAuth.login({ identifier, password });
       NarduApp.setUser(data.user);
+      NarduApp.clearReauthContext?.();
       location.href = 'index.html';
     } catch (error) {
       setMessage('login-message', error.message, 'error');
@@ -193,6 +199,7 @@
   document.getElementById('guest-btn').addEventListener('click', () => {
     const n = 'Guest' + (1000 + Math.floor(Math.random() * 9000));
     NarduApp.setUser({ name: n, rating: null, tier: '', ratingEligible: false, guest: true });
+    NarduApp.clearReauthContext?.();
     location.href = 'index.html';
   });
 

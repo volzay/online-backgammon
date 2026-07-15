@@ -55,6 +55,14 @@ test("lobby closes every waiting room owned by the authenticated player", async 
 
   const client = {
     auth: {
+      getSession: async () => ({
+        data: { session: null },
+        error: null,
+      }),
+      refreshSession: async () => ({
+        data: { session: { user: { id: "user-1" } } },
+        error: null,
+      }),
       getUser: async () => ({
         data: {
           user: {
@@ -124,6 +132,43 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(lobby, /await lobbyCleanupPromise;/);
   assert.match(lobby, /window\.addEventListener\('pageshow', event => \{/);
   assert.match(lobby, /if \(!event\.persisted\) return;/);
+  assert.match(lobby, /redirectForRoomAuthError\(err\)/);
   assert.match(schema, /rooms_one_waiting_room_per_host_idx/);
   assert.match(schema, /where host_user_id is not null\s+and guest_user_id is null\s+and status = 'waiting'/);
+});
+
+test("a registered profile without a Supabase session receives a normalized re-login error", async () => {
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error: null }),
+      refreshSession: async () => ({ data: { session: null }, error: { message: "Auth session missing!" } }),
+      getUser: async () => ({ data: { user: null }, error: { message: "Auth session missing!" } }),
+    },
+  };
+  const context = {
+    window: {
+      NarduSupabase: { configured: () => true, client: async () => client },
+      NarduApp: {
+        getUser: () => ({ id: "user-1", name: "warlord", guest: false }),
+        shouldShowRatingToOthers: () => true,
+        ratingTierFor: () => "Gold",
+      },
+      crypto: globalThis.crypto,
+    },
+    console,
+    Date,
+    Map,
+    Set,
+    TextEncoder,
+    Uint8Array,
+    fetch,
+  };
+  context.globalThis = context.window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, { filename: "rooms-client.js" });
+
+  await assert.rejects(
+    context.window.NarduRooms.createRoom({ variant: "long" }),
+    error => error.code === "AUTH_SESSION_MISSING" && error.status === 401 && /Войдите/.test(error.message),
+  );
 });

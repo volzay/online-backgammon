@@ -454,6 +454,10 @@
     return NarduApp.getUser()?.name || 'Guest';
   }
 
+  function redirectForRoomAuthError(error) {
+    return NarduApp.redirectForAuthError?.(error) === true;
+  }
+
   function normalizedName(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
@@ -866,6 +870,7 @@
       });
       room = data.room;
     } catch (err) {
+      if (redirectForRoomAuthError(err)) return;
       if (err.data?.room && goToExistingPlayerRoom(err.data.room)) return;
       createError.textContent = err.message || tt('err_create_session');
       createRequestPending = false;
@@ -909,6 +914,7 @@
       });
       room = data.room;
     } catch (err) {
+      if (redirectForRoomAuthError(err)) return { ok: false, redirected: true, message: '' };
       await refreshPlayerRooms();
       return { ok: false, message: err.message || tt('err_join_room') };
     }

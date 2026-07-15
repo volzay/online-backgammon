@@ -27,7 +27,13 @@ function quotaStorage(initial = {}, limit = 8000) {
   };
 }
 
-function loadApp(storage) {
+function loadApp(storage, { withContext = false } = {}) {
+  const sessionValues = new Map();
+  const sessionStorage = {
+    getItem(key) { return sessionValues.get(key) || null; },
+    setItem(key, value) { sessionValues.set(key, String(value)); },
+    removeItem(key) { sessionValues.delete(key); },
+  };
   const document = {
     readyState: 'loading',
     documentElement: { setAttribute() {}, style: { setProperty() {} } },
@@ -38,6 +44,7 @@ function loadApp(storage) {
     window: { addEventListener() {} },
     document,
     localStorage: storage,
+    sessionStorage,
     location: { href: '' },
     console,
     Date,
@@ -49,7 +56,7 @@ function loadApp(storage) {
   context.globalThis = context.window;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), context, { filename: 'app.js' });
-  return context.window.NarduApp;
+  return withContext ? { app: context.window.NarduApp, context, sessionStorage } : context.window.NarduApp;
 }
 
 test('oversized match logs are compacted before a profile reaches localStorage quota', () => {
@@ -114,4 +121,23 @@ test('bot game persistence never throws when quota cannot be recovered', () => {
     variant: 'long',
   }));
   assert.equal(app.persistBotGameConfig({ game: 'FULL-ROOM' }), false);
+});
+
+test('a missing Supabase session clears the false login and preserves the re-login identity', () => {
+  const storage = quotaStorage({
+    'narduh-user': JSON.stringify({
+      id: 'user-1',
+      name: 'warlord',
+      nickname: 'warlord',
+      rating: 1566,
+      registered: true,
+      guest: false,
+    }),
+  });
+  const { app, context, sessionStorage } = loadApp(storage, { withContext: true });
+
+  assert.equal(app.redirectForAuthError({ message: 'Auth session missing!', status: 401 }), true);
+  assert.equal(storage.getItem('narduh-user'), null);
+  assert.equal(JSON.parse(sessionStorage.getItem('narduh-reauth-context')).identifier, 'warlord');
+  assert.equal(context.location.href, 'login.html?reason=session-expired');
 });

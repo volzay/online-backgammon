@@ -10,6 +10,7 @@
   const DEFAULT_RATING = 1000;
   const GUEST_PRESENCE_MS = 30000;
   const STORED_HISTORY_LIMIT = 50;
+  const REAUTH_CONTEXT_KEY = 'narduh-reauth-context';
   function safeStorageSet(key, value) {
     try {
       localStorage.setItem(key, value);
@@ -814,8 +815,39 @@
   }
 
   function translateServerMessage(message) {
+    if (isAuthSessionError(message)) return t('account_login_again');
     const lang = currentLang();
     return serverMessageTranslations[lang]?.[message] || message;
+  }
+
+  function isAuthSessionError(error) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || error || '');
+    return code === 'AUTH_SESSION_MISSING' || /auth session missing|refresh token.*(?:missing|not found|invalid)|jwt.*(?:expired|invalid)|invalid jwt/i.test(message);
+  }
+
+  function reauthContext() {
+    try { return JSON.parse(sessionStorage.getItem(REAUTH_CONTEXT_KEY) || 'null'); }
+    catch { return null; }
+  }
+
+  function clearReauthContext() {
+    try { sessionStorage.removeItem(REAUTH_CONTEXT_KEY); } catch {}
+  }
+
+  function redirectForAuthError(error) {
+    if (!isAuthSessionError(error)) return false;
+    const user = getUser();
+    try {
+      sessionStorage.setItem(REAUTH_CONTEXT_KEY, JSON.stringify({
+        identifier: user?.nickname || user?.name || user?.email || '',
+        returnTo: 'index.html',
+        message: t('account_login_again'),
+      }));
+    } catch {}
+    try { localStorage.removeItem(USER_KEY); } catch {}
+    location.href = 'login.html?reason=session-expired';
+    return true;
   }
 
   function applyLang(lang) {
@@ -1186,6 +1218,7 @@
     safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,
     paintUser, currentSound, setSound, paintSound,
     wirePasswordToggles, t, translateServerMessage,
+    isAuthSessionError, redirectForAuthError, reauthContext, clearReauthContext,
   };
 
   if (document.readyState === 'loading') {

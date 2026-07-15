@@ -4,6 +4,91 @@
     "https://unpkg.com/@supabase/supabase-js@2",
   ];
   let clientPromise = null;
+  const AUTH_RECLAIM_EXACT_KEYS = new Set([
+    "narduh-long-bot-server-experience-v2",
+    "narduh-long-bot-experience-v1",
+    "narduh-room-reload-snapshot",
+  ]);
+  const AUTH_RECLAIM_PREFIXES = [
+    "narduh-bot-game:",
+    "narduh-room-state:",
+  ];
+
+  function storageKeys() {
+    const keys = [];
+    try {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key) keys.push(key);
+      }
+    } catch {}
+    return keys;
+  }
+
+  function reclaimAuthStorage() {
+    let removed = 0;
+    storageKeys().forEach(key => {
+      if (!AUTH_RECLAIM_EXACT_KEYS.has(key) && !AUTH_RECLAIM_PREFIXES.some(prefix => key.startsWith(prefix))) return;
+      try {
+        localStorage.removeItem(key);
+        removed += 1;
+      } catch {}
+    });
+    return removed;
+  }
+
+  function compactLocalProfileCache() {
+    try {
+      const key = "narduh-user";
+      const profile = JSON.parse(localStorage.getItem(key) || "null");
+      if (!profile || typeof profile !== "object") return false;
+      const compact = {
+        id: profile.id || "",
+        name: profile.name || profile.nickname || "Player",
+        nickname: profile.nickname || profile.name || "Player",
+        email: profile.email || "",
+        rating: profile.rating,
+        tier: profile.tier || "",
+        ratingEligible: profile.ratingEligible !== false,
+        registered: profile.registered !== false,
+        guest: profile.guest === true,
+        history: [],
+      };
+      localStorage.removeItem(key);
+      localStorage.setItem(key, JSON.stringify(compact));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const authStorage = {
+    getItem(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    },
+    setItem(key, value) {
+      try {
+        localStorage.setItem(key, value);
+        return;
+      } catch (initialError) {
+        reclaimAuthStorage();
+        try {
+          localStorage.setItem(key, value);
+          return;
+        } catch {}
+        compactLocalProfileCache();
+        try {
+          localStorage.setItem(key, value);
+          return;
+        } catch {
+          throw initialError;
+        }
+      }
+    },
+    removeItem(key) {
+      try { localStorage.removeItem(key); } catch {}
+    },
+  };
 
   function config() {
     const env = window.NARDU_ENV || {};
@@ -66,6 +151,7 @@
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: true,
+            storage: authStorage,
           },
           realtime: {
             params: { eventsPerSecond: 20 },
@@ -84,6 +170,7 @@
     client,
     config,
     configured,
+    reclaimAuthStorage,
     roomTopic,
   };
 })();

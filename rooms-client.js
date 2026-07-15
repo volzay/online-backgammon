@@ -90,6 +90,17 @@
     return err;
   }
 
+  function isMissingAuthSession(error) {
+    const message = String(error?.message || error || "");
+    return /auth session missing|refresh token.*(?:missing|not found|invalid)|jwt.*(?:expired|invalid)|invalid jwt/i.test(message);
+  }
+
+  function missingAuthSessionError() {
+    const error = roomError("Сессия аккаунта истекла. Войдите в аккаунт заново.", 401);
+    error.code = "AUTH_SESSION_MISSING";
+    return error;
+  }
+
   async function sha256Hex(value) {
     const text = String(value || "");
     if (!text) return "";
@@ -197,12 +208,34 @@
 
   async function currentAuthContext() {
     const client = await supabase();
-    const { data: authData, error: authError } = await client.auth.getUser();
-    if (authError) throw supabaseError(authError, "Supabase auth failed.");
-    const authUser = authData?.user;
-    if (!authUser?.id) {
-      throw roomError("Для онлайн-комнаты войдите через Supabase.", 401);
+    let session = null;
+    if (client.auth.getSession) {
+      const { data: sessionData, error: sessionError } = await client.auth.getSession();
+      if (sessionError) {
+        if (isMissingAuthSession(sessionError)) throw missingAuthSessionError();
+        throw supabaseError(sessionError, "Supabase auth failed.");
+      }
+      session = sessionData?.session || null;
+      if (!session?.user?.id && client.auth.refreshSession) {
+        const { data: refreshData, error: refreshError } = await client.auth.refreshSession();
+        if (refreshError && !isMissingAuthSession(refreshError)) throw supabaseError(refreshError, "Supabase auth refresh failed.");
+        session = refreshData?.session || null;
+      }
+      if (!session?.user?.id) throw missingAuthSessionError();
     }
+    let { data: authData, error: authError } = await client.auth.getUser();
+    if (authError && isMissingAuthSession(authError) && client.auth.refreshSession) {
+      const { data: refreshData, error: refreshError } = await client.auth.refreshSession();
+      if (!refreshError && refreshData?.session?.user?.id) {
+        ({ data: authData, error: authError } = await client.auth.getUser());
+      }
+    }
+    if (authError) {
+      if (isMissingAuthSession(authError)) throw missingAuthSessionError();
+      throw supabaseError(authError, "Supabase auth failed.");
+    }
+    const authUser = authData?.user;
+    if (!authUser?.id) throw missingAuthSessionError();
 
     let { data: profile, error: profileError } = await client
       .from("profiles")
