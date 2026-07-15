@@ -66,7 +66,13 @@ function controllerContext() {
   return context;
 }
 
-function finishedGameContext({ failFinalState = false, failArchive = false } = {}) {
+function finishedGameContext({
+  failFinalState = false,
+  failArchive = false,
+  mode = "bot",
+  deferFinalState = false,
+  autoFinish = true,
+} = {}) {
   const elements = new Map();
   const makeElement = initialId => {
     const listeners = new Map();
@@ -106,14 +112,21 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
   };
   const localStorage = memoryStorage();
   const sessionStorage = memoryStorage();
+  const search = mode === "remote"
+    ? "?mode=remote&room=TEST-RM1&host=1&variant=long"
+    : "?mode=bot&game=TEST-RM1&variant=long&difficulty=hard";
   const location = {
-    href: "https://example.test/room.html?mode=bot&game=TEST-RM1&variant=long&difficulty=hard",
+    href: `https://example.test/room.html${search}`,
     pathname: "/room.html",
-    search: "?mode=bot&game=TEST-RM1&variant=long&difficulty=hard",
+    search,
     hostname: "example.test",
   };
   const roomCalls = { finalStates: 0, archives: 0, lobby: 0 };
   const never = new Promise(() => {});
+  let releaseFinalState = () => {};
+  const finalStateGate = deferFinalState
+    ? new Promise(resolve => { releaseFinalState = resolve; })
+    : Promise.resolve();
   const window = {
     addEventListener() {},
     setTimeout(callback, ms) { return setTimeout(callback, Math.min(Number(ms) || 0, 5)); },
@@ -130,6 +143,13 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
         roomCalls.finalStates += 1;
         if (failFinalState) throw new Error("final state unavailable");
         return { version: roomCalls.finalStates };
+      },
+      async finishRoomGame(_code, payload) {
+        roomCalls.finalStates += 1;
+        roomCalls.finalStatePayload = payload;
+        if (failFinalState) throw new Error("final state unavailable");
+        await finalStateGate;
+        return { ok: true, version: roomCalls.finalStates };
       },
       async archiveBotTrainingGame(_code, payload) {
         roomCalls.archives += 1;
@@ -181,24 +201,24 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
   vm.runInContext(fs.readFileSync(path.join(ROOT, "game.js"), "utf8"), context, { filename: "game.js" });
   context.NarduGame = window.NarduGame;
   const source = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8")
-    .replace("    preferredMoveAction,\n  };", "    preferredMoveAction,\n    __test: { onGameOver },\n  };");
+    .replace("    preferredMoveAction,\n  };", "    preferredMoveAction,\n    __test: { onGameOver, resignGame },\n  };");
   vm.runInContext(source, context, { filename: "game-controller.js" });
 
   const controller = window.NarduController;
   controller.init({
-    mode: "bot",
+    mode,
     roomCode: "TEST-RM1",
     variant: "long",
     difficulty: "hard",
-    opponent: "Hard bot",
+    opponent: mode === "remote" ? "Opponent" : "Hard bot",
     opponentRating: 1500,
     skipAutoStart: true,
   });
   const state = controller.getState();
-  state.phase = "over";
-  state.winner = "white";
-  state.off = { white: 15, dark: 5 };
-  state.finishedAt = Date.now();
+  state.phase = autoFinish ? "over" : "move";
+  state.winner = autoFinish ? "white" : null;
+  state.off = autoFinish ? { white: 15, dark: 5 } : { white: 0, dark: 0 };
+  state.finishedAt = autoFinish ? Date.now() : null;
   state.history = [{ color: "white", roll: "6:6", at: new Date().toISOString() }];
   state.analysis = {
     botMemory: {
@@ -206,8 +226,8 @@ function finishedGameContext({ failFinalState = false, failArchive = false } = {
       decisions: [{ id: "lb4-test", experience: { actionKey: "route:test" } }],
     },
   };
-  controller.__test.onGameOver();
-  return { context, controller, document, location, roomCalls };
+  if (autoFinish) controller.__test.onGameOver();
+  return { context, controller, document, location, roomCalls, releaseFinalState };
 }
 
 test("an internal round restart ignores the completed room snapshot and keeps match score", async () => {
@@ -292,6 +312,37 @@ test("lobby exit is immediate and shows no saving state while rating never settl
   assert.equal(roomCalls.lobbyOptions?.immediate, true);
   assert.equal(location.href, "index.html");
   assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
+});
+
+test("remote resignation is persisted through the atomic room finalizer", async () => {
+  const { controller, roomCalls } = finishedGameContext({ mode: "remote", autoFinish: false });
+
+  controller.__test.resignGame();
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(roomCalls.finalStates, 1);
+  assert.equal(roomCalls.finalStatePayload.phase, "over");
+  assert.equal(roomCalls.finalStatePayload.winner, "dark");
+  assert.equal(roomCalls.finalStatePayload.history[0].resign, true);
+  assert.equal(roomCalls.finalStatePayload.history[0].color, "white");
+});
+
+test("remote lobby navigation waits for the atomic final state without showing saving text", async () => {
+  const { document, location, roomCalls, releaseFinalState } = finishedGameContext({
+    mode: "remote",
+    deferFinalState: true,
+  });
+  const modal = document.getElementById("game-over");
+  const navigation = document.getElementById("go-lobby").click();
+  await Promise.resolve();
+
+  assert.equal(roomCalls.lobby, 0);
+  assert.doesNotMatch(modal.innerHTML, /Сохраняем результат/);
+
+  releaseFinalState();
+  await navigation;
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
 });
 
 test("another bot game starts immediately and shows no saving state while rating never settles", async () => {

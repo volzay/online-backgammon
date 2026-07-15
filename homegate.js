@@ -640,7 +640,7 @@ function supabaseRoomMessages(room) {
   })).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
 }
 
-function supabaseRoomSummary(room) {
+function supabaseRoomSummary(room, options = {}) {
   const { game, liveGame, archive: latestArchive, archived } = window.NarduAdminRoomData.displayedGame(room);
   const chatMessages = supabaseRoomMessages(room);
   const players = supabasePlayersForRoom(room);
@@ -648,10 +648,11 @@ function supabaseRoomSummary(room) {
   const winnerColor = game.winner || latestArchive?.winner || null;
   const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
   const borneOff = normalizedBorneOff(game);
+  const source = options.source || (room.status === "closed" ? "archive" : "active");
   return {
     id: room.id,
-    archiveId: null,
-    source: "active",
+    archiveId: source === "archive" ? room.id : null,
+    source,
     code: room.code,
     name: `${room.host_name || t("host")}${room.guest_name ? ` vs ${room.guest_name}` : ""}`,
     variant: room.variant,
@@ -1049,9 +1050,7 @@ function adminPasswordPanelHtml() {
 
 function roomsDashboardHtml() {
   const watched = state.watch.map(monitorCard).join("") || `<p class="admin-empty">${t("no_watched_rooms")}</p>`;
-  const archiveEmpty = state.backend === "supabase"
-    ? t("closed_archive_unavailable")
-    : t("no_archive");
+  const archiveEmpty = t("no_archive");
   return `
     <section class="admin-grid">
       <div class="admin-column">
@@ -1221,14 +1220,25 @@ async function refresh() {
       max_age_hours: ROOM_ARCHIVE_RETENTION_HOURS,
     });
     if (pruneError && !/function .*admin_prune_room_archive|Could not find the function/i.test(pruneError.message || "")) throw pruneError;
-    const { data: rooms, error: roomsError } = await client
-      .from("rooms")
-      .select(SUPABASE_ROOM_SELECT)
-      .neq("status", "closed")
-      .order("updated_at", { ascending: false });
-    if (roomsError) throw roomsError;
-    state.active = (rooms || []).map(supabaseRoomSummary);
-    state.archive = [];
+    const archiveCutoff = new Date(Date.now() - ROOM_ARCHIVE_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
+    const [activeResponse, archiveResponse] = await Promise.all([
+      client
+        .from("rooms")
+        .select(SUPABASE_ROOM_SELECT)
+        .neq("status", "closed")
+        .order("updated_at", { ascending: false }),
+      client
+        .from("rooms")
+        .select(SUPABASE_ROOM_SELECT)
+        .eq("status", "closed")
+        .gte("archived_at", archiveCutoff)
+        .order("archived_at", { ascending: false }),
+    ]);
+    if (activeResponse.error) throw activeResponse.error;
+    if (archiveResponse.error) throw archiveResponse.error;
+    const rooms = activeResponse.data || [];
+    state.active = rooms.map(room => supabaseRoomSummary(room, { source: "active" }));
+    state.archive = (archiveResponse.data || []).map(room => supabaseRoomSummary(room, { source: "archive" }));
     state.audit = [];
     state.retentionHours = ROOM_ARCHIVE_RETENTION_HOURS;
     try {

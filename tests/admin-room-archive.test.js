@@ -155,6 +155,9 @@ test("database schema archives every finished room state", () => {
   assert.match(schema, /game_state = target_state/);
   assert.match(schema, /target_room\.game_state->>'startedAt' = target_state->>'startedAt'/);
   assert.match(schema, /resolved_result_key := concat\(/);
+  assert.match(schema, /create or replace function public\.finish_room_game/);
+  assert.match(schema, /for update;/);
+  assert.match(schema, /grant execute on function public\.finish_room_game\(text, jsonb\) to authenticated/);
 });
 
 test("admin history auto-refresh pauses while the operator is scrolling", () => {
@@ -165,6 +168,10 @@ test("admin history auto-refresh pauses while the operator is scrolling", () => 
   assert.match(source, /Timeweb мониторинг/);
   assert.match(source, /room_game_archives\([^)]*final_state/);
   assert.match(source, /bot_training_games\([^)]*final_state/);
+  assert.match(source, /\.eq\("status", "closed"\)/);
+  assert.match(source, /state\.archive = \(archiveResponse\.data \|\| \[\]\)/);
+  const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
+  assert.match(schema, /create policy "admins can see all rooms"/);
 });
 
 test("rating client persists a result through the atomic server RPC", () => {

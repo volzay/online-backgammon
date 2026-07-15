@@ -834,6 +834,32 @@ window.NarduController = (function () {
     return gameOverPublishPromise;
   }
 
+  function ensureRemoteFinalStatePublished() {
+    if (mode !== 'remote' || !remoteCode || !state?.winner || state.phase !== 'over') return Promise.resolve(false);
+    if (state.gameOverPublishedAt) return Promise.resolve(true);
+    if (gameOverPublishPromise) return gameOverPublishPromise;
+    const payload = remoteStatePayload();
+    gameOverPublishPromise = (async () => {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const saved = await window.NarduRooms.finishRoomGame(remoteCode, payload, remoteVersion);
+          if (Number.isFinite(saved?.version)) remoteVersion = saved.version;
+          state.gameOverPublishedAt = new Date().toISOString();
+          return true;
+        } catch (error) {
+          lastError = error;
+          await wait(250 * attempt);
+        }
+      }
+      console.warn('Could not persist finished remote game', lastError?.message || lastError);
+      return false;
+    })().finally(() => {
+      if (!state?.gameOverPublishedAt) gameOverPublishPromise = null;
+    });
+    return gameOverPublishPromise;
+  }
+
   async function publishRemoteState() {
     if (mode === 'bot') return publishBotAnalysisState();
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
@@ -2720,8 +2746,7 @@ window.NarduController = (function () {
     const changed = finishGameByPlayerLeave(playerColor);
     if (!changed) return false;
     render();
-    await publishRemoteState();
-    return true;
+    return ensureRemoteFinalStatePublished();
   }
 
   /* ── bot ─────────────────────────────────── */
@@ -2955,7 +2980,7 @@ window.NarduController = (function () {
       let botPublishPromise = botAnalysisPublishQueue;
       let botFinalPayload = null;
       if (mode === 'remote' && !state.gameOverPublishedAt) {
-        publishRemoteState();
+        ensureRemoteFinalStatePublished();
       }
       if (mode === 'bot') {
         botFinalPayload = safeStep('Build final bot analysis payload', botAnalysisPayload, null);
@@ -3141,8 +3166,13 @@ window.NarduController = (function () {
     document.getElementById('go-again')?.addEventListener('click', requestRematchOrStart);
     document.getElementById('rematch-yes')?.addEventListener('click', acceptRematch);
     document.getElementById('rematch-no')?.addEventListener('click', declineRematch);
-    document.getElementById('go-lobby')?.addEventListener('click', () => {
+    document.getElementById('go-lobby')?.addEventListener('click', async () => {
       if (!claimGameOverAction('lobby')) return;
+      if (mode === 'remote' && !(await ensureRemoteFinalStatePublished())) {
+        gameOverActionStarted = null;
+        renderGameOverModal();
+        return;
+      }
       leaveRoomToLobby(true);
     });
   }
@@ -3165,6 +3195,7 @@ window.NarduController = (function () {
       startNextGame({ publish: false });
       return;
     }
+    if (!(await ensureRemoteFinalStatePublished())) return;
     state.rematch = {
       id: `${Date.now()}-${Math.random()}`,
       status: 'pending',
@@ -3177,6 +3208,7 @@ window.NarduController = (function () {
 
   async function acceptRematch() {
     if (mode !== 'remote') return;
+    if (!(await ensureRemoteFinalStatePublished())) return;
     const id = state.rematch?.id || `${Date.now()}-${Math.random()}`;
     state.rematch = {
       ...(state.rematch || {}),
@@ -3195,6 +3227,7 @@ window.NarduController = (function () {
 
   async function declineRematch() {
     if (mode === 'remote') {
+      if (!(await ensureRemoteFinalStatePublished())) return;
       state.rematch = {
         ...(state.rematch || {}),
         status: 'declined',

@@ -708,6 +708,23 @@
     return { ok: true, version: nextVersion };
   }
 
+  async function finishRoomGame(code, finalState, version = 0) {
+    const normalizedCode = normalizeCode(code);
+    if (!configured()) {
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
+        method: "PUT",
+        body: JSON.stringify({ state: finalState, version: Number(version) || 0 }),
+      });
+    }
+    const { client } = await roomClientContext();
+    const { data, error } = await client.rpc("finish_room_game", {
+      p_room_code: normalizedCode,
+      p_final_state: JSON.parse(JSON.stringify(finalState || {})),
+    });
+    if (error) throw supabaseError(error, "Could not finish room game.");
+    return data || { ok: true };
+  }
+
   async function archiveBotTrainingGame(code, finalState = null) {
     if (!configured()) return { skipped: true };
     const client = await supabase();
@@ -1103,6 +1120,7 @@
     closeOwnWaitingRooms,
     getGameState,
     putGameState,
+    finishRoomGame,
     archiveBotTrainingGame,
     loadLongBotExperience,
     updatePresence,

@@ -338,6 +338,75 @@ $$;
 revoke all on function public.close_own_lobby_rooms() from public;
 grant execute on function public.close_own_lobby_rooms() to authenticated;
 
+create or replace function public.finish_room_game(
+  p_room_code text,
+  p_final_state jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  player_id uuid := auth.uid();
+  target public.rooms%rowtype;
+  next_version bigint;
+begin
+  if player_id is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+  if coalesce(p_final_state->>'phase', '') <> 'over'
+     or coalesce(p_final_state->>'winner', '') not in ('white', 'dark') then
+    raise exception 'A finished game state is required.' using errcode = '22023';
+  end if;
+
+  select *
+  into target
+  from public.rooms
+  where code = upper(trim(coalesce(p_room_code, '')))
+  for update;
+
+  if not found then
+    raise exception 'Room not found.' using errcode = 'P0002';
+  end if;
+  if target.host_user_id is distinct from player_id
+     and target.guest_user_id is distinct from player_id then
+    raise exception 'Only room players can finish the game.' using errcode = '42501';
+  end if;
+
+  if coalesce(target.game_state->>'winner', '') in ('white', 'dark') then
+    if target.game_state->>'winner' = p_final_state->>'winner'
+       and coalesce(target.game_state->>'finishedAt', '') = coalesce(p_final_state->>'finishedAt', '') then
+      return jsonb_build_object('ok', true, 'version', target.game_version, 'alreadyFinished', true);
+    end if;
+    raise exception 'Room already contains a different finished game.' using errcode = '23505';
+  end if;
+
+  if target.status = 'closed'
+     and coalesce(target.closed_reason, '') not in ('lobby_exit', 'lobby_exit_repair', 'left', 'removed') then
+    raise exception 'Room was closed by an administrator.' using errcode = '55000';
+  end if;
+  if target.status not in ('joined', 'over', 'closed') then
+    raise exception 'Room has no active game.' using errcode = '55000';
+  end if;
+
+  next_version := target.game_version + 1;
+  update public.rooms
+  set
+    game_state = p_final_state,
+    game_version = next_version,
+    status = 'over',
+    archived_at = now(),
+    closed_reason = 'finished'
+  where id = target.id;
+
+  return jsonb_build_object('ok', true, 'version', next_version, 'alreadyFinished', false);
+end;
+$$;
+
+revoke all on function public.finish_room_game(text, jsonb) from public;
+grant execute on function public.finish_room_game(text, jsonb) to authenticated;
+
 create table if not exists public.room_messages (
   id bigserial primary key,
   room_id uuid not null references public.rooms(id) on delete cascade,
@@ -768,6 +837,12 @@ create policy "authenticated users can see non-closed rooms"
 on public.rooms for select
 to authenticated
 using (status <> 'closed');
+
+drop policy if exists "admins can see all rooms" on public.rooms;
+create policy "admins can see all rooms"
+on public.rooms for select
+to authenticated
+using (public.is_admin_user());
 
 drop policy if exists "anonymous users can see non-closed rooms" on public.rooms;
 create policy "anonymous users can see non-closed rooms"
