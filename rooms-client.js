@@ -1096,13 +1096,28 @@
       audio_data: audioData,
       mime_type: kind === "voice" ? String(message.mimeType || "").slice(0, 80) : null,
       duration: kind === "voice" ? Math.max(0, Math.min(180000, Number(message.duration || 0))) : 0,
+      client_message_id: String(message.clientMessageId || "").slice(0, 100) || null,
     };
     if (!row.text && kind !== "voice") throw roomError("Сообщение не может быть пустым.", 400);
-    const { data, error } = await client
+    const insertMessage = () => client
       .from("room_messages")
       .insert(row)
       .select("id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at")
       .single();
+    let { data, error } = await insertMessage();
+    if (error && /client_message_id/i.test(error.message || "")) {
+      delete row.client_message_id;
+      ({ data, error } = await insertMessage());
+    }
+    if (error?.code === "23505" && row.client_message_id) {
+      const { data: existing, error: existingError } = await client
+        .from("room_messages")
+        .select("id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at")
+        .eq("sender_user_id", authUser.id)
+        .eq("client_message_id", row.client_message_id)
+        .maybeSingle();
+      if (!existingError && existing) return { message: { ...publicChatMessage(existing), roomCode: normalizedCode } };
+    }
     if (error) throw supabaseError(error, "Could not send chat message.");
     return { message: { ...publicChatMessage(data), roomCode: normalizedCode } };
   }

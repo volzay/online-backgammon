@@ -111,6 +111,7 @@ create table if not exists public.friend_messages (
   audio_data text,
   mime_type text,
   duration integer not null default 0,
+  client_message_id text,
   read_at timestamptz,
   created_at timestamptz not null default now()
 );
@@ -119,7 +120,8 @@ alter table public.friend_messages
   add column if not exists kind text not null default 'text',
   add column if not exists audio_data text,
   add column if not exists mime_type text,
-  add column if not exists duration integer not null default 0;
+  add column if not exists duration integer not null default 0,
+  add column if not exists client_message_id text;
 
 do $$
 begin
@@ -136,6 +138,59 @@ $$;
 
 create index if not exists friend_messages_thread_created_idx
 on public.friend_messages (thread_id, created_at);
+
+create unique index if not exists friend_messages_sender_client_unique
+on public.friend_messages (from_user_id, client_message_id)
+where client_message_id is not null;
+
+create or replace function public.sync_friendship_pair()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  left_id uuid := coalesce(new.from_user_id, old.from_user_id);
+  right_id uuid := coalesce(new.to_user_id, old.to_user_id);
+begin
+  if exists (
+    select 1
+    from public.friend_requests request
+    where request.status = 'accepted'
+      and (
+        (request.from_user_id = left_id and request.to_user_id = right_id)
+        or (request.from_user_id = right_id and request.to_user_id = left_id)
+      )
+  ) then
+    insert into public.friendships (user_id, friend_user_id)
+    values (left_id, right_id), (right_id, left_id)
+    on conflict (user_id, friend_user_id) do nothing;
+  else
+    delete from public.friendships
+    where (user_id = left_id and friend_user_id = right_id)
+       or (user_id = right_id and friend_user_id = left_id);
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists friend_requests_sync_friendships on public.friend_requests;
+create trigger friend_requests_sync_friendships
+after insert or update of status or delete on public.friend_requests
+for each row execute function public.sync_friendship_pair();
+
+insert into public.friendships (user_id, friend_user_id)
+select request.from_user_id, request.to_user_id
+from public.friend_requests request
+where request.status = 'accepted'
+union
+select request.to_user_id, request.from_user_id
+from public.friend_requests request
+where request.status = 'accepted'
+on conflict (user_id, friend_user_id) do nothing;
 
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
@@ -418,11 +473,19 @@ create table if not exists public.room_messages (
   audio_data text,
   mime_type text,
   duration integer not null default 0,
+  client_message_id text,
   created_at timestamptz not null default now()
 );
 
+alter table public.room_messages
+add column if not exists client_message_id text;
+
 create index if not exists room_messages_room_created_idx
 on public.room_messages (room_id, created_at);
+
+create unique index if not exists room_messages_sender_client_unique
+on public.room_messages (sender_user_id, client_message_id)
+where client_message_id is not null;
 
 create table if not exists public.rating_events (
   id uuid primary key default gen_random_uuid(),

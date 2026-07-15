@@ -588,16 +588,25 @@ async function unreadCountsByFriend(client, myId, friendIds) {
 }
 
 async function loadSupabaseSocial(client, myId) {
-  const { data: requests, error } = await client
-    .from('friend_requests')
-    .select('id,from_user_id,to_user_id,status,created_at,responded_at')
-    .or(`from_user_id.eq.${myId},to_user_id.eq.${myId}`)
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
+  const [requestResult, friendshipResult] = await Promise.all([
+    client
+      .from('friend_requests')
+      .select('id,from_user_id,to_user_id,status,created_at,responded_at')
+      .or(`from_user_id.eq.${myId},to_user_id.eq.${myId}`)
+      .order('created_at', { ascending: false }),
+    client
+      .from('friendships')
+      .select('friend_user_id')
+      .eq('user_id', myId),
+  ]);
+  if (requestResult.error) throw new Error(requestResult.error.message);
 
-  const rows = requests || [];
+  const rows = requestResult.data || [];
   const accepted = rows.filter(row => row.status === 'accepted');
-  const friendIds = accepted.map(row => row.from_user_id === myId ? row.to_user_id : row.from_user_id);
+  const friendIds = [...new Set([
+    ...accepted.map(row => row.from_user_id === myId ? row.to_user_id : row.from_user_id),
+    ...(friendshipResult.error ? [] : (friendshipResult.data || []).map(row => row.friend_user_id)),
+  ])];
   const profiles = await profilesByIds(client, [
     ...friendIds,
     ...rows.map(row => row.from_user_id),
@@ -609,6 +618,10 @@ async function loadSupabaseSocial(client, myId) {
     const id = row.from_user_id === myId ? row.to_user_id : row.from_user_id;
     const profile = profiles.get(id);
     if (profile) friendMap.set(id, { ...profile, unread: unread.get(id) || 0 });
+  });
+  friendIds.forEach(id => {
+    const profile = profiles.get(id);
+    if (profile && !friendMap.has(id)) friendMap.set(id, { ...profile, unread: unread.get(id) || 0 });
   });
 
   return {
@@ -884,7 +897,8 @@ async function loadAccountProfile({ silent = false } = {}) {
     showAccountNotice(data.supabaseMode ? tr('account_supabase_notice', 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.') : '');
     renderAccount();
   } catch (err) {
-    accountState.profile = fallbackProfile();
+    // A transient Supabase/read failure must not make friends or history vanish.
+    if (!accountState.profile) accountState.profile = fallbackProfile();
     showAccountNotice(err.message || tr('account_profile_load_failed', 'Не удалось загрузить профиль. Показаны локальные данные.'), 'warn');
     renderAccount();
     if (!silent) flash(err.message || tr('account_profile_load_failed', 'Не удалось загрузить профиль. Показаны локальные данные.'));
@@ -1279,7 +1293,12 @@ function buildFriendVoiceBubble(message) {
 
   const audio = document.createElement('audio');
   audio.preload = 'metadata';
-  audio.src = message.audioData;
+  let voiceObjectUrl = '';
+  const ensureAudioSource = () => {
+    if (audio.src) return;
+    voiceObjectUrl = audioDataObjectUrl(message.audioData, message.mimeType);
+    audio.src = voiceObjectUrl || message.audioData;
+  };
 
   const duration = document.createElement('div');
   duration.className = 'dur';
@@ -1290,6 +1309,7 @@ function buildFriendVoiceBubble(message) {
       if (item !== audio) item.pause();
     });
     if (audio.paused) {
+      ensureAudioSource();
       await audio.play().catch(() => {});
     } else {
       audio.pause();
@@ -1306,6 +1326,11 @@ function buildFriendVoiceBubble(message) {
   audio.addEventListener('ended', () => {
     bubble.classList.remove('playing');
     play.innerHTML = playIcon;
+    if (voiceObjectUrl) {
+      URL.revokeObjectURL(voiceObjectUrl);
+      voiceObjectUrl = '';
+      audio.removeAttribute('src');
+    }
   });
 
   bubble.append(play, friendVoiceBars(Number(message.duration || 0)), duration, audio);
@@ -1719,21 +1744,29 @@ async function sendFriendMessage(payload = null) {
   const message = payload || { text: input.value.trim(), kind: 'text' };
   const text = String(message.text || '').trim();
   const friendId = accountState.selectedFriendId;
-  if ((!text && message.kind !== 'voice') || !friendId) return;
+  if ((!text && message.kind !== 'voice') || !friendId || friendMessageSending) return;
+  const clientMessageId = message.clientMessageId || newChatMessageId('friend');
+  const originalText = payload ? '' : input.value;
+  friendMessageSending = true;
+  if (!payload) input.value = '';
+  paintFriendSending(true);
   try {
     if (supabaseAccountMode()) {
-      await sendSupabaseFriendMessage(friendId, { ...message, text });
+      await sendSupabaseFriendMessage(friendId, { ...message, text, clientMessageId });
     } else {
       await accountApi('/api/account/messages', {
         method: 'POST',
         body: JSON.stringify({ userId: currentUser().id, friendId, text, kind: message.kind || 'text' }),
       });
     }
-    if (!payload) input.value = '';
     await loadMessages(friendId);
     await loadAccountProfile({ silent: true });
   } catch (err) {
+    if (!payload && !input.value) input.value = originalText;
     flash(err.message || tr('message_send_failed', 'Не удалось отправить сообщение'));
+  } finally {
+    friendMessageSending = false;
+    paintFriendSending(false);
   }
 }
 
@@ -1749,6 +1782,7 @@ async function sendSupabaseFriendMessage(friendId, payload = {}) {
     from_user_id: profile.id,
     to_user_id: friendId,
     text,
+    client_message_id: String(payload.clientMessageId || '').slice(0, 100) || null,
   };
   if (kind === 'voice') {
     const audioData = String(payload.audioData || '');
@@ -1760,13 +1794,17 @@ async function sendSupabaseFriendMessage(friendId, payload = {}) {
     row.mime_type = String(payload.mimeType || '').slice(0, 80);
     row.duration = Math.max(0, Math.min(180000, Number(payload.duration || 0)));
   }
-  const { error } = await client
+  let { error } = await client
     .from('friend_messages')
     .insert(row);
+  if (error && /client_message_id/i.test(error.message || '')) {
+    delete row.client_message_id;
+    ({ error } = await client.from('friend_messages').insert(row));
+  }
   if (error && /column .*kind|column .*audio_data|column .*mime_type|column .*duration/i.test(error.message || '')) {
     throw new Error(tr('friend_voice_schema_missing', 'Голосовые сообщения ещё не включены в Supabase. Выполните обновлённый supabase/schema.sql.'));
   }
-  if (error) throw new Error(error.message);
+  if (error && error.code !== '23505') throw new Error(error.message);
 }
 
 const friendMessageInput = document.getElementById('friend-message-input');
@@ -1786,6 +1824,7 @@ let friendSendRecordingOnStop = true;
 let friendMicPointerId = null;
 let friendSuppressMicClickUntil = 0;
 let friendPendingStopAfterStart = null;
+let friendMessageSending = false;
 const friendMobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
 const FRIEND_VOICE_MAX_BYTES = 4 * 1024 * 1024;
 const FRIEND_VOICE_MAX_DATA_URL_CHARS = 6 * 1024 * 1024;
@@ -1807,6 +1846,35 @@ function blobToDataUrl(blob) {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+function audioContainerMime(mimeType = '') {
+  const mime = String(mimeType).split(';')[0].trim().toLowerCase();
+  return /^audio\/(webm|mp4|ogg|mpeg|wav)$/.test(mime) ? mime : 'audio/webm';
+}
+
+function audioDataObjectUrl(dataUrl, mimeType = '') {
+  try {
+    const comma = String(dataUrl || '').indexOf(',');
+    if (comma < 0) return '';
+    const binary = atob(String(dataUrl).slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return URL.createObjectURL(new Blob([bytes], { type: audioContainerMime(mimeType) }));
+  } catch {
+    return '';
+  }
+}
+
+function newChatMessageId(scope = 'message') {
+  return `${scope}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+function paintFriendSending(active) {
+  const submit = document.querySelector('#friend-message-form button[type="submit"]');
+  if (submit) submit.disabled = active || friendRecording || !accountState.selectedFriendId;
+  if (friendMicButton) friendMicButton.disabled = active || friendRecording || !accountState.selectedFriendId;
+  if (friendEmojiButton) friendEmojiButton.disabled = active || friendRecording || !accountState.selectedFriendId;
 }
 
 function paintFriendRecording(active) {
@@ -1864,8 +1932,8 @@ async function startFriendRecording() {
       stream?.getTracks().forEach(track => track.stop());
 
       if (!shouldSend || duration <= 300 || !chunks.length) return;
-      const blob = new Blob(chunks, { type: recorderMime });
-      await sendFriendVoiceBlob(blob, duration);
+      const blob = new Blob(chunks, { type: audioContainerMime(recorderMime) });
+      await sendFriendVoiceBlob(blob, duration, recorderMime);
     });
 
     friendRecStart = Date.now();
@@ -1899,7 +1967,7 @@ function stopFriendRecording(send = true) {
   if (friendMediaRecorder && friendMediaRecorder.state !== 'inactive') friendMediaRecorder.stop();
 }
 
-async function sendFriendVoiceBlob(blob, duration) {
+async function sendFriendVoiceBlob(blob, duration, recorderMime = blob.type) {
   if (!supabaseAccountMode()) {
     flash(tr('voice_supabase_only', 'Голосовые сообщения доступны на публичном сайте через Supabase.'));
     return;
@@ -1917,7 +1985,7 @@ async function sendFriendVoiceBlob(blob, duration) {
     kind: 'voice',
     text: tr('voice_message', 'Голосовое сообщение'),
     audioData,
-    mimeType: blob.type || 'audio/webm',
+    mimeType: recorderMime || blob.type || 'audio/webm',
     duration,
   });
 }

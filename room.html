@@ -722,7 +722,9 @@ const chatPlayerColor = chatUrl.searchParams.get('color') || (chatUrl.searchPara
 const chatRemote = chatUrl.searchParams.get('mode') === 'remote' && chatRoomCode;
 const CHAT_CLIENT_KEY = 'narduh-chat-client-id';
 let chatClientId = sessionStorage.getItem(CHAT_CLIENT_KEY);
-let chatLastId = 0;
+let chatPollAfterId = 0;
+let chatSendPending = false;
+const chatSeenIds = new Set();
 let chatPollBusy = false;
 let chatPollTimer = null;
 const CHAT_BOTTOM_EPS = 18;
@@ -808,7 +810,12 @@ function buildVoiceBubble(message) {
 
   const audio = document.createElement('audio');
   audio.preload = 'metadata';
-  audio.src = message.audioData;
+  let voiceObjectUrl = '';
+  const ensureAudioSource = () => {
+    if (audio.src) return;
+    voiceObjectUrl = audioDataObjectUrl(message.audioData, message.mimeType);
+    audio.src = voiceObjectUrl || message.audioData;
+  };
 
   const dur = document.createElement('div');
   dur.className = 'dur';
@@ -819,6 +826,7 @@ function buildVoiceBubble(message) {
       if (item !== audio) item.pause();
     });
     if (audio.paused) {
+      ensureAudioSource();
       await audio.play().catch(() => {});
     } else {
       audio.pause();
@@ -835,6 +843,11 @@ function buildVoiceBubble(message) {
   audio.addEventListener('ended', () => {
     bubble.classList.remove('playing');
     play.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+    if (voiceObjectUrl) {
+      URL.revokeObjectURL(voiceObjectUrl);
+      voiceObjectUrl = '';
+      audio.removeAttribute('src');
+    }
   });
 
   bubble.append(play, voiceBars(Number(message.duration || message.id || 0)), dur, audio);
@@ -842,10 +855,10 @@ function buildVoiceBubble(message) {
 }
 
 function appendChatMessage(message) {
-  appendChatMessages([message]);
+  appendChatMessages([message], { advanceCursor: false });
 }
 
-function appendChatMessages(messages) {
+function appendChatMessages(messages, { advanceCursor = false } = {}) {
   if (!stream || !Array.isArray(messages) || messages.length === 0) return;
   const shouldStayAtBottom = chatNearBottom();
   const previousTop = stream.scrollTop;
@@ -854,8 +867,10 @@ function appendChatMessages(messages) {
 
   messages.forEach(message => {
     if (!message?.text && message?.kind !== 'voice') return;
-    if (message.id && message.id <= chatLastId) return;
-    if (message.id) chatLastId = Math.max(chatLastId, message.id);
+    const id = Number(message.id || 0);
+    if (advanceCursor && id) chatPollAfterId = Math.max(chatPollAfterId, id);
+    if (id && chatSeenIds.has(id)) return;
+    if (id) chatSeenIds.add(id);
     fragment.appendChild(buildChatMessage(message));
     added += 1;
   });
@@ -871,8 +886,8 @@ async function pollChat() {
   if (!chatRemote || chatPollBusy) return;
   chatPollBusy = true;
   try {
-    const data = await NarduRooms.listChatMessages(chatRoomCode, chatLastId);
-    appendChatMessages(data.messages || []);
+    const data = await NarduRooms.listChatMessages(chatRoomCode, chatPollAfterId);
+    appendChatMessages(data.messages || [], { advanceCursor: true });
   } catch {
     /* next poll retries */
   } finally {
@@ -882,11 +897,12 @@ async function pollChat() {
 
 async function sendChatPayload(payload, { clearInput = false } = {}) {
   if (chatSpectator) return;
-  if (!payload?.text && payload?.kind !== 'voice') return;
+  if ((!payload?.text && payload?.kind !== 'voice') || chatSendPending) return;
   const message = {
     senderId: chatClientId,
     senderName: chatUserName(),
     color: chatPlayerColor,
+    clientMessageId: payload.clientMessageId || newChatMessageId(),
     ...payload,
   };
   if (clearInput) input.value = '';
@@ -897,14 +913,17 @@ async function sendChatPayload(payload, { clearInput = false } = {}) {
     return;
   }
 
+  chatSendPending = true;
   sendBtn.disabled = true;
   mic.disabled = true;
   try {
     const data = await NarduRooms.sendChatMessage(chatRoomCode, message);
     appendChatMessage(data.message);
   } catch {
-    appendChatMessage({ ...message, at: new Date().toISOString() });
+    if (clearInput && !input.value) input.value = String(payload.text || '');
+    input.placeholder = t('network_loss_text');
   } finally {
+    chatSendPending = false;
     sendBtn.disabled = false;
     mic.disabled = false;
   }
@@ -917,7 +936,11 @@ async function sendMessage(text, kind = 'text') {
 }
 
 sendBtn.addEventListener('click', () => sendMessage(input.value));
-input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(input.value); });
+input.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  sendMessage(input.value);
+});
 document.querySelectorAll('.quick .chip').forEach(c => {
   c.addEventListener('click', () => sendMessage(t(c.dataset.msgKey)));
 });
@@ -1010,6 +1033,28 @@ function blobToDataUrl(blob) {
   });
 }
 
+function audioContainerMime(mimeType = '') {
+  const mime = String(mimeType).split(';')[0].trim().toLowerCase();
+  return /^audio\/(webm|mp4|ogg|mpeg|wav)$/.test(mime) ? mime : 'audio/webm';
+}
+
+function audioDataObjectUrl(dataUrl, mimeType = '') {
+  try {
+    const comma = String(dataUrl || '').indexOf(',');
+    if (comma < 0) return '';
+    const binary = atob(String(dataUrl).slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return URL.createObjectURL(new Blob([bytes], { type: audioContainerMime(mimeType) }));
+  } catch {
+    return '';
+  }
+}
+
+function newChatMessageId() {
+  return `room-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
 function paintRecording(active) {
   recording = active;
   chatWrap.classList.toggle('recording', active);
@@ -1061,8 +1106,8 @@ async function startRec() {
       stream?.getTracks().forEach(track => track.stop());
 
       if (!shouldSend || duration <= 300 || !chunks.length) return;
-      const blob = new Blob(chunks, { type: recorderMime });
-      await sendVoiceBlob(blob, duration);
+      const blob = new Blob(chunks, { type: audioContainerMime(recorderMime) });
+      await sendVoiceBlob(blob, duration, recorderMime);
     });
 
     recStart = Date.now();
@@ -1097,7 +1142,7 @@ function stopRec(send = true) {
   }
 }
 
-async function sendVoiceBlob(blob, duration) {
+async function sendVoiceBlob(blob, duration, recorderMime = blob.type) {
   if (blob.size > VOICE_MAX_BYTES) {
     inputEl.placeholder = t('voice_too_long');
     return;
@@ -1107,7 +1152,7 @@ async function sendVoiceBlob(blob, duration) {
     kind: 'voice',
     text: t('voice_message'),
     audioData,
-    mimeType: blob.type || 'audio/webm',
+    mimeType: recorderMime || blob.type || 'audio/webm',
     duration,
   });
 }
