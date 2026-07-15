@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
 
-test("lobby closes every waiting room owned by the authenticated player", async () => {
+test("lobby atomically closes every active room owned by the authenticated player", async () => {
   const operations = [];
 
   function query(table) {
@@ -74,6 +74,10 @@ test("lobby closes every waiting room owned by the authenticated player", async 
         error: null,
       }),
     },
+    rpc: async name => {
+      assert.equal(name, "close_own_lobby_rooms");
+      return { data: ["ABCD-EFGH", "JKLM-NPQR"], error: null };
+    },
     from: query,
   };
   const context = {
@@ -109,18 +113,9 @@ test("lobby closes every waiting room owned by the authenticated player", async 
     filename: "rooms-client.js",
   });
 
-  const result = await context.window.NarduRooms.closeOwnWaitingRooms();
+  const result = await context.window.NarduRooms.closeOwnLobbyRooms();
   assert.deepEqual(Array.from(result.closedCodes), ["ABCD-EFGH", "JKLM-NPQR"]);
-
-  const closeOperation = operations.find(item => item.table === "rooms" && item.update);
-  assert.ok(closeOperation);
-  assert.equal(closeOperation.update.status, "closed");
-  assert.equal(closeOperation.update.closed_reason, "lobby_exit");
-  assert.deepEqual(closeOperation.filters, [
-    ["eq", "host_user_id", "user-1"],
-    ["eq", "status", "waiting"],
-    ["is", "guest_user_id", null],
-  ]);
+  assert.equal(operations.some(item => item.table === "rooms" && item.update), false);
 });
 
 test("room creation has client and database duplicate protection", () => {
@@ -129,11 +124,19 @@ test("room creation has client and database duplicate protection", () => {
 
   assert.match(lobby, /if \(createRequestPending\) return;/);
   assert.match(lobby, /createSubmit\.disabled = true;/);
-  assert.match(lobby, /await lobbyCleanupPromise;/);
+  assert.match(lobby, /lobbyCleanupPromise = closeOwnRoomsOnLobbyEntry\(\)/);
+  assert.match(lobby, /runLobbyCleanup\(\);/);
+  assert.match(lobby, /const cleanup = await lobbyCleanupPromise;/);
+  assert.match(lobby, /if \(e\.target\.closest\('\[data-room-password-input\]'\)\) return;\s+const cleanup = await lobbyCleanupPromise;/);
+  assert.match(lobby, /if \(a === 'quick'\) \{\s+const cleanup = await lobbyCleanupPromise;/);
+  assert.match(lobby, /if \(joinRequestPending\) return/);
+  assert.match(lobby, /joinRequestPending = false;/);
   assert.match(lobby, /window\.addEventListener\('pageshow', event => \{/);
   assert.match(lobby, /if \(!event\.persisted\) return;/);
   assert.match(lobby, /redirectForRoomAuthError\(err\)/);
   assert.match(schema, /rooms_one_waiting_room_per_host_idx/);
+  assert.match(schema, /create or replace function public\.close_own_lobby_rooms\(\)/);
+  assert.match(schema, /status in \('waiting', 'joined'\)/);
   assert.match(schema, /where host_user_id is not null\s+and guest_user_id is null\s+and status = 'waiting'/);
 });
 

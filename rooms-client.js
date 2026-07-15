@@ -601,7 +601,7 @@
     return { ok: true, removed: Boolean(data), code: normalizedCode };
   }
 
-  async function closeOwnWaitingRooms(payload = {}) {
+  async function closeOwnLobbyRooms(payload = {}) {
     const codes = [...new Set((payload.codes || []).map(normalizeCode).filter(Boolean))];
     if (!configured()) {
       const closed = [];
@@ -612,8 +612,18 @@
       return { ok: true, closedCodes: closed };
     }
 
-    const { client, authUser } = await roomClientContext({ allowLocalFallback: true });
+    const { client, authUser } = await roomClientContext();
     if (authUser?.id) {
+      const { data: rpcData, error: rpcError } = await client.rpc("close_own_lobby_rooms");
+      if (!rpcError) {
+        return {
+          ok: true,
+          closedCodes: (rpcData || []).map(normalizeCode).filter(Boolean),
+        };
+      }
+      if (!/function .*close_own_lobby_rooms|Could not find the function|schema cache/i.test(rpcError.message || "")) {
+        throw supabaseError(rpcError, "Could not close rooms on lobby entry.");
+      }
       const { data, error } = await client
         .from("rooms")
         .update({
@@ -622,8 +632,7 @@
           closed_reason: "lobby_exit",
         })
         .eq("host_user_id", authUser.id)
-        .eq("status", "waiting")
-        .is("guest_user_id", null)
+        .in("status", ["waiting", "joined"])
         .select("code");
       if (error) throw supabaseError(error, "Could not close waiting rooms.");
       return {
@@ -639,6 +648,8 @@
     }
     return { ok: true, closedCodes: closed };
   }
+
+  const closeOwnWaitingRooms = closeOwnLobbyRooms;
 
   function finalGameState(state) {
     return Boolean(state && (state.phase === "over" || state.winner));
@@ -1088,6 +1099,7 @@
     getRoom,
     joinRoom,
     deleteRoom,
+    closeOwnLobbyRooms,
     closeOwnWaitingRooms,
     getGameState,
     putGameState,

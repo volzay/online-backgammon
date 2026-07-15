@@ -303,6 +303,41 @@ where host_user_id is not null
   and guest_user_id is null
   and status = 'waiting';
 
+create or replace function public.close_own_lobby_rooms()
+returns text[]
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  player_id uuid := auth.uid();
+  closed_codes text[] := array[]::text[];
+begin
+  if player_id is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+
+  with closed as (
+    update public.rooms
+    set
+      status = 'closed',
+      archived_at = now(),
+      closed_reason = 'lobby_exit'
+    where host_user_id = player_id
+      and status in ('waiting', 'joined')
+    returning code
+  )
+  select coalesce(array_agg(code order by code), array[]::text[])
+  into closed_codes
+  from closed;
+
+  return closed_codes;
+end;
+$$;
+
+revoke all on function public.close_own_lobby_rooms() from public;
+grant execute on function public.close_own_lobby_rooms() to authenticated;
+
 create table if not exists public.room_messages (
   id bigserial primary key,
   room_id uuid not null references public.rooms(id) on delete cascade,

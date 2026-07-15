@@ -1643,7 +1643,9 @@ window.NarduController = (function () {
       return;
     }
     if (!closeRoom && window.NarduRoom?.closeCurrentRoom) {
-      window.NarduRoom.closeCurrentRoom().finally(() => { location.href = 'index.html'; });
+      window.NarduRoom.closeCurrentRoom()
+        .then(() => { location.href = 'index.html'; })
+        .catch(error => console.warn('Could not close room before lobby navigation', error?.message || error));
       return;
     }
     location.href = 'index.html';

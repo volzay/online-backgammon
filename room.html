@@ -1249,16 +1249,12 @@ async function activeRoom() {
 }
 
 async function removeCurrentWaitingRoom() {
-  if (!roomCode) return false;
-  let removed = false;
-  try {
-    const result = await NarduRooms.deleteRoom(roomCode);
-    removed = result.removed === true;
-  } catch (error) {
-    console.warn('Could not close current waiting room', error?.message || error);
-    return false;
+  if (!roomCode) return true;
+  if (isWaitingHost && NarduRooms.closeOwnLobbyRooms) {
+    await NarduRooms.closeOwnLobbyRooms({ codes: [roomCode] });
+  } else {
+    await NarduRooms.deleteRoom(roomCode);
   }
-  if (!removed) return false;
   try {
     const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
     if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
@@ -1436,7 +1432,7 @@ async function reportActiveRemoteLeave() {
   await NarduRooms.leaveRoom(roomCode, {
     color: localPlayerColor,
     name: NarduApp.getUser()?.name || earlyRoomText('guest'),
-  }).catch(() => {});
+  });
 
   try {
     const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
@@ -1458,9 +1454,18 @@ async function leaveToLobby({ immediate = false } = {}) {
     location.href = 'index.html';
     return;
   }
-  const remoteLeaveReported = await reportActiveRemoteLeave();
-  if (!remoteLeaveReported) await removeCurrentWaitingRoom();
-  location.href = 'index.html';
+  try {
+    const remoteLeaveReported = await reportActiveRemoteLeave();
+    if (!remoteLeaveReported) await removeCurrentWaitingRoom();
+    location.href = 'index.html';
+  } catch (error) {
+    if (NarduApp.redirectForAuthError?.(error)) return;
+    console.warn('Could not close room on lobby exit', error?.message || error);
+    showNetworkPanel({
+      title: t('network_loss_title'),
+      text: t('server_unreachable_text'),
+    });
+  }
 }
 window.NarduRoom = { leaveToLobby, closeCurrentRoom: removeCurrentWaitingRoom };
 function paintRoomCode() {

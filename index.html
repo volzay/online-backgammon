@@ -425,13 +425,14 @@
     });
   }
 
-  async function closeWaitingRoomsOnLobbyEntry() {
+  async function closeOwnRoomsOnLobbyEntry() {
     try {
-      const data = await NarduRooms.closeOwnWaitingRooms({ codes: storedRoomCodes() });
+      const data = await NarduRooms.closeOwnLobbyRooms({ codes: storedRoomCodes() });
       clearClosedRoomStorage(data.closedCodes || []);
       return data;
     } catch (error) {
-      console.warn('Could not close waiting rooms after lobby entry', error?.message || error);
+      if (redirectForRoomAuthError(error)) return { ok: false, redirected: true, closedCodes: [] };
+      console.warn('Could not close owned rooms after lobby entry', error?.message || error);
       return { ok: false, closedCodes: [] };
     }
   }
@@ -631,11 +632,16 @@
       : `<div class="sessions-empty">${escapeHtml(tt('no_sessions'))}</div>`;
   }
   renderTables();
-  const lobbyCleanupPromise = closeWaitingRoomsOnLobbyEntry()
-    .finally(refreshPlayerRooms);
+  let lobbyCleanupPromise;
+  function runLobbyCleanup() {
+    lobbyCleanupPromise = closeOwnRoomsOnLobbyEntry()
+      .finally(refreshPlayerRooms);
+    return lobbyCleanupPromise;
+  }
+  runLobbyCleanup();
   window.addEventListener('pageshow', event => {
     if (!event.persisted) return;
-    closeWaitingRoomsOnLobbyEntry().finally(refreshPlayerRooms);
+    runLobbyCleanup();
   });
   setInterval(refreshPlayerRooms, 2500);
 
@@ -659,6 +665,8 @@
     const row = e.target.closest('.table-row');
     if (!row) return;
     if (e.target.closest('[data-room-password-input]')) return;
+    const cleanup = await lobbyCleanupPromise;
+    if (!cleanup?.ok) return;
     if (watchBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -713,6 +721,7 @@
   const joinCodeInput = document.getElementById('join-code');
   const joinPasswordInput = document.getElementById('join-password');
   const joinCodeError = document.getElementById('join-code-error');
+  let joinRequestPending = false;
   const createState = {
     opponent: 'player',
     difficulty: 'easy',
@@ -821,6 +830,23 @@
       return;
     }
 
+    if (createRequestPending) return;
+    createRequestPending = true;
+    createSubmit.disabled = true;
+    createGameForm.setAttribute('aria-busy', 'true');
+
+    try {
+      const cleanup = await lobbyCleanupPromise;
+      if (!cleanup?.ok) throw new Error(tt('err_session'));
+    } catch (err) {
+      if (redirectForRoomAuthError(err)) return;
+      createError.textContent = err.message || tt('err_session');
+      createRequestPending = false;
+      createSubmit.disabled = false;
+      createGameForm.removeAttribute('aria-busy');
+      return;
+    }
+
     if (createState.opponent === 'bot') {
       const selectedDifficulty = document.querySelector('[data-create-option="difficulty"].active')?.dataset.value;
       if (['easy', 'medium', 'hard'].includes(selectedDifficulty)) {
@@ -850,14 +876,8 @@
       return;
     }
 
-    if (createRequestPending) return;
-    createRequestPending = true;
-    createSubmit.disabled = true;
-    createGameForm.setAttribute('aria-busy', 'true');
-
     let room;
     try {
-      await lobbyCleanupPromise;
       const data = await NarduRooms.createRoom({
         hostName: userName(),
         hostRating: userRating(),
@@ -902,9 +922,13 @@
   async function joinPlayerRoom(code, password) {
     const normalizedCode = code.trim().toUpperCase();
     if (!normalizedCode) return { ok: false, message: tt('err_enter_room_code') };
+    if (joinRequestPending) return { ok: false, message: tt('err_session') };
 
+    joinRequestPending = true;
     let room;
     try {
+      const cleanup = await lobbyCleanupPromise;
+      if (!cleanup?.ok) return { ok: false, redirected: cleanup?.redirected === true, message: tt('err_session') };
       const data = await NarduRooms.joinRoom(normalizedCode, {
         guestName: userName(),
         guestRating: userRating(),
@@ -917,6 +941,8 @@
       if (redirectForRoomAuthError(err)) return { ok: false, redirected: true, message: '' };
       await refreshPlayerRooms();
       return { ok: false, message: err.message || tt('err_join_room') };
+    } finally {
+      joinRequestPending = false;
     }
 
     if (room?.status === 'joined' && isRoomParticipant(room)) {
@@ -950,10 +976,16 @@
   });
 
   document.querySelectorAll('[data-action]').forEach(b => {
-    const runAction = () => {
+    const runAction = async () => {
       const a = b.dataset.action;
       let params;
       if (a === 'quick') {
+        const cleanup = await lobbyCleanupPromise;
+        if (!cleanup?.ok) {
+          showCreatePanel();
+          createError.textContent = tt('err_session');
+          return;
+        }
         const gameCode = createLocalGameCode();
         const settings = {
           game: gameCode,
