@@ -74,9 +74,15 @@ test("room chat polling cannot skip a concurrent message after a local send", ()
 test("accepted requests are materialized and transient reads keep the displayed friends", () => {
   const settings = source("settings.html");
   const schema = source("supabase/schema.sql");
+  const migration = source("supabase/chat-durability.sql");
 
   assert.match(settings, /\.from\('friendships'\)/);
   assert.match(settings, /if \(!accountState\.profile\) accountState\.profile = fallbackProfile\(\)/);
   assert.match(schema, /friend_requests_sync_friendships/);
   assert.match(schema, /insert into public\.friendships/);
+  assert.match(migration, /begin;/);
+  assert.match(migration, /friend_messages_sender_client_unique/);
+  assert.match(migration, /room_messages_sender_client_unique/);
+  assert.match(migration, /friend_requests_sync_friendships/);
+  assert.match(migration, /commit;/);
 });
