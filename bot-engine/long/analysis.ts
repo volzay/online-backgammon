@@ -308,6 +308,7 @@ export function experienceDescriptor(
   const outside = outsideHomeCount(state, color);
   const opponentOff = offCount(state, opponent);
   const ownOff = offCount(state, color);
+  const startZone = Number(features.startZoneBefore) || 0;
   const trap = opponentTrapRisk(state, color);
   const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
   const phase = homeReady(state, color)
@@ -324,6 +325,7 @@ export function experienceDescriptor(
     bucket('h', ownHead, [0, 1, 3, 7]),
     bucket('o', outside, [0, 2, 5, 9]),
     bucket('po', opponentOff, [0, 1, 5, 10]),
+    bucket('sz', startZone, [0, 1, 3, 6]),
     bucket('tr', trap, [0, 40, 180, 600]),
     bucket('pd', pipDelta, [-36, -8, 9, 37]),
   ].join('|');
@@ -339,7 +341,12 @@ export function experienceDescriptor(
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
-  const actionKey = `${familyActionKey}|route:${features.routeSignature || 'none'}`;
+  const rescueAction = Number(features.missedKoksRescue || 0) > 0
+    ? 'koks:miss'
+    : Number(features.startZoneReduction || 0) > 0
+      ? 'koks:gain'
+      : 'koks:flat';
+  const actionKey = `${familyActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
 
   const urgency = 1
     + opponentOff * 0.12
@@ -358,6 +365,12 @@ export function experienceDescriptor(
   }
   if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
     mistakeSeverity += 1.4;
+  }
+  if (phase === 'koks-rescue' && Number(features.missedKoksRescue || 0) > 0) {
+    mistakeSeverity += Math.min(
+      4,
+      Number(features.missedKoksRescue) * (1.2 + opponentOff * 0.12),
+    );
   }
   if (tactical && Number(tactical.worstImpact) < -4000000) {
     mistakeSeverity += Math.min(2.2, Math.abs(Number(tactical.worstImpact)) / 16000000);
@@ -558,13 +571,22 @@ function sampledSequences(sequences, limit) {
   if (legal.length <= limit) return legal;
   const sampled = [];
   const seen = new Set();
-  for (let index = 0; index < limit; index += 1) {
-    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
-    const sequence = legal[sourceIndex];
+  const add = (sequence) => {
+    if (!sequence || sampled.length >= limit) return;
     const key = sequence.map(move => `${move.from}:${move.die}`).join(',');
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     sampled.push(sequence);
+  };
+  const bestBearOff = legal.reduce((best, sequence) => {
+    const offMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
+    const bestOffMoves = best.filter(move => move.bearOff || move.to === 0).length;
+    return offMoves > bestOffMoves ? sequence : best;
+  }, legal[0]);
+  if (bestBearOff.some(move => move.bearOff || move.to === 0)) add(bestBearOff);
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
+    add(legal[sourceIndex]);
   }
   return sampled;
 }

@@ -1356,6 +1356,11 @@ window.NarduStrongBot = (function () {
     const decisions = Array.isArray(state.analysis?.botMemory?.decisions)
       ? state.analysis.botMemory.decisions
       : [];
+    const resultLossBonus = state.resultType === 'koks'
+      ? 1.5
+      : state.resultType === 'mars'
+        ? 0.75
+        : 0;
     const severeLoss = !botWon && (state.resultType === 'mars' || state.resultType === 'koks');
 
     decisions.forEach((decision) => {
@@ -1368,11 +1373,17 @@ window.NarduStrongBot = (function () {
         actionKey: descriptor.actionKey,
         samples: 0,
         losses: 0,
+        lossWeight: 0,
         severeLosses: 0,
         signalWeight: 0,
       };
       pattern.samples += 1;
-      if (!botWon) pattern.losses += 1;
+      if (!botWon) {
+        pattern.losses += 1;
+        pattern.lossWeight = (Number(pattern.lossWeight) || 0)
+          + Math.min(3.75, 0.85 + severity * 0.38)
+          + resultLossBonus;
+      }
       if (severeLoss) pattern.severeLosses += 1;
       pattern.signalWeight += severity;
       pattern.updatedAt = new Date().toISOString();
@@ -1382,6 +1393,7 @@ window.NarduStrongBot = (function () {
     const learnedPatterns = Array.from(byKey.values())
       .sort((left, right) => (
         Number(right.samples || 0) - Number(left.samples || 0)
+        || Number(right.lossWeight || 0) - Number(left.lossWeight || 0)
         || Number(right.signalWeight || 0) - Number(left.signalWeight || 0)
       ))
       .slice(0, 120);

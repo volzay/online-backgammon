@@ -50,6 +50,30 @@ export function checkersInTrackRange(state, color, start, end) {
   }, 0);
 }
 
+export function startZoneCount(state, color) {
+  return checkersInTrackRange(state, color, 0, 5);
+}
+
+export function startZoneExitMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos <= 5 && toPos > 5 ? 1 : 0);
+  }, 0);
+}
+
+export function koksRescuePressure(state, color) {
+  if (offCount(state, color) > 0 || startZoneCount(state, color) === 0) return 0;
+  const opponent = opponentOf(color);
+  const opponentOff = offCount(state, opponent);
+  if (opponentOff <= 0 && !homeReady(state, opponent)) return 0;
+  const finishProximity = Math.max(0, 84 - pipsFor(state, opponent)) / 21;
+  return Math.min(
+    18,
+    1 + opponentOff * 0.85 + (homeReady(state, opponent) ? 2.4 : 0) + finishProximity,
+  );
+}
+
 export function occupiedInTrackRange(state, color, start, end) {
   return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
     if (stack.color !== color) return total;

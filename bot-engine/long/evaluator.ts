@@ -37,6 +37,8 @@ import {
   routeCompletionPressure,
   routeTowerRisk,
   stuckRisk,
+  startZoneCount,
+  koksRescuePressure,
   tempoValue,
 } from './metrics.ts';
 
@@ -57,6 +59,7 @@ export const DEFAULT_LONG_BOT_WEIGHTS = {
   headLandingExposure: 62000,
   opponentHeadFreedom: 48000,
   escapeGatewayRisk: 800000,
+  koksRescue: 3000000,
 };
 
 export function mergeWeights(weights = {}) {
@@ -65,6 +68,14 @@ export function mergeWeights(weights = {}) {
 
 export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
   const opponent = opponentOf(color);
+  if (state?.winner) {
+    const resultMultiplier = state.resultType === 'koks'
+      ? 3
+      : state.resultType === 'mars'
+        ? 2
+        : 1;
+    return (state.winner === color ? 1 : -1) * resultMultiplier * 1000000000000;
+  }
   const ownPips = pipsFor(state, color);
   const opponentPips = pipsFor(state, opponent);
   const ownOff = offCount(state, color);
@@ -74,6 +85,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
   const ownTrapRisk = opponentTrapRisk(state, color);
   const ownFenceClosureRisk = fenceClosureRisk(state, color);
   const opponentTrapReward = cappedTrapReward(opponentTrapRisk(state, opponent));
+  const ownKoksPressure = koksRescuePressure(state, color);
 
   return (opponentPips - ownPips) * weights.progress
     + homeTotalCount(state, color) * weights.homeCheckers
@@ -102,7 +114,8 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - ownFenceClosureRisk * weights.trapRisk * 1.45
     + opponentTrapReward * weights.trapRisk * 0.055
     - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
-    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12;
+    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12
+    - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
 export function sequenceStats(before, after, color, sequence = []) {
@@ -135,6 +148,11 @@ export function sequenceStats(before, after, color, sequence = []) {
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
+  const startZoneBefore = startZoneCount(before, color);
+  const startZoneAfter = startZoneCount(after, color);
+  const startZoneReduction = Math.max(0, startZoneBefore - startZoneAfter);
+  const resultSafetyBefore = offCount(before, color) > 0 ? 2 : startZoneBefore === 0 ? 1 : 0;
+  const resultSafetyAfter = offCount(after, color) > 0 ? 2 : startZoneAfter === 0 ? 1 : 0;
   const maxRouteTowerAfter = Object.entries(after.points || {}).reduce((maximum, [point, stack]) => (
     stack.color === color && Number(point) !== Number(headPoint(color))
       ? Math.max(maximum, Number(stack.count) || 0)
@@ -182,6 +200,12 @@ export function sequenceStats(before, after, color, sequence = []) {
     homeShuffleMoves,
     routeSignature,
     maxRouteTowerAfter,
+    startZoneBefore,
+    startZoneAfter,
+    startZoneReduction,
+    resultSafetyBefore,
+    resultSafetyAfter,
+    resultSafetyGain: Math.max(0, resultSafetyAfter - resultSafetyBefore),
   };
 }
 
@@ -193,6 +217,7 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   const development = developmentPressure(before, color);
   const outside = outsideHomeCount(before, color);
   const headRemaining = headCheckers(before, color);
+  const rescuePressure = koksRescuePressure(before, color);
   const earlyEntryScale = headRemaining >= 5 && outside >= 9
     ? 0.18
     : outside >= 7
@@ -221,6 +246,13 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
+  if (rescuePressure > 0) {
+    score += stats.startZoneReduction * weights.koksRescue * rescuePressure * 1.25;
+    score += stats.resultSafetyGain * weights.koksRescue * rescuePressure * 3;
+    if (stats.startZoneReduction <= 0) {
+      score -= stats.startZoneAfter * weights.koksRescue * rescuePressure * 0.35;
+    }
+  }
   if (stats.homeEntryMoves > 0 && headRemaining >= 5 && outside >= 8 && stats.headGain <= 0) {
     score -= stats.homeEntryMoves * (9000000 + headRemaining * 900000);
   }

@@ -1977,10 +1977,13 @@ as $$
       count(*)::integer as samples,
       count(*) filter (where harmful)::integer as losses,
       sum(case
-        when harmful then least(
-          4.5,
-          0.85 + harm_signal * 0.38 + case when result_type in ('mars', 'koks') then 0.75 else 0 end
-        )
+        when harmful then
+          least(3.75, 0.85 + harm_signal * 0.38)
+          + case
+            when result_type = 'koks' then 1.5
+            when result_type = 'mars' then 0.75
+            else 0
+          end
         else 0
       end)::double precision as loss_weight,
       count(*) filter (

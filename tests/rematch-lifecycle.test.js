@@ -452,7 +452,7 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v1", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v4", JSON.stringify({
     savedAt: Date.now(),
     patterns: [pattern],
   }));

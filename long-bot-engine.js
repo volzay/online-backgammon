@@ -54,6 +54,30 @@ function checkersInTrackRange(state, color, start, end) {
   }, 0);
 }
 
+function startZoneCount(state, color) {
+  return checkersInTrackRange(state, color, 0, 5);
+}
+
+function startZoneExitMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos <= 5 && toPos > 5 ? 1 : 0);
+  }, 0);
+}
+
+function koksRescuePressure(state, color) {
+  if (offCount(state, color) > 0 || startZoneCount(state, color) === 0) return 0;
+  const opponent = opponentOf(color);
+  const opponentOff = offCount(state, opponent);
+  if (opponentOff <= 0 && !homeReady(state, opponent)) return 0;
+  const finishProximity = Math.max(0, 84 - pipsFor(state, opponent)) / 21;
+  return Math.min(
+    18,
+    1 + opponentOff * 0.85 + (homeReady(state, opponent) ? 2.4 : 0) + finishProximity,
+  );
+}
+
 function occupiedInTrackRange(state, color, start, end) {
   return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
     if (stack.color !== color) return total;
@@ -664,6 +688,7 @@ const DEFAULT_LONG_BOT_WEIGHTS = {
   headLandingExposure: 62000,
   opponentHeadFreedom: 48000,
   escapeGatewayRisk: 800000,
+  koksRescue: 3000000,
 };
 
 function mergeWeights(weights = {}) {
@@ -672,6 +697,14 @@ function mergeWeights(weights = {}) {
 
 function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
   const opponent = opponentOf(color);
+  if (state?.winner) {
+    const resultMultiplier = state.resultType === 'koks'
+      ? 3
+      : state.resultType === 'mars'
+        ? 2
+        : 1;
+    return (state.winner === color ? 1 : -1) * resultMultiplier * 1000000000000;
+  }
   const ownPips = pipsFor(state, color);
   const opponentPips = pipsFor(state, opponent);
   const ownOff = offCount(state, color);
@@ -681,6 +714,7 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
   const ownTrapRisk = opponentTrapRisk(state, color);
   const ownFenceClosureRisk = fenceClosureRisk(state, color);
   const opponentTrapReward = cappedTrapReward(opponentTrapRisk(state, opponent));
+  const ownKoksPressure = koksRescuePressure(state, color);
 
   return (opponentPips - ownPips) * weights.progress
     + homeTotalCount(state, color) * weights.homeCheckers
@@ -709,7 +743,8 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     - ownFenceClosureRisk * weights.trapRisk * 1.45
     + opponentTrapReward * weights.trapRisk * 0.055
     - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
-    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12;
+    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12
+    - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
 function sequenceStats(before, after, color, sequence = []) {
@@ -742,6 +777,11 @@ function sequenceStats(before, after, color, sequence = []) {
   const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
   const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
   const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
+  const startZoneBefore = startZoneCount(before, color);
+  const startZoneAfter = startZoneCount(after, color);
+  const startZoneReduction = Math.max(0, startZoneBefore - startZoneAfter);
+  const resultSafetyBefore = offCount(before, color) > 0 ? 2 : startZoneBefore === 0 ? 1 : 0;
+  const resultSafetyAfter = offCount(after, color) > 0 ? 2 : startZoneAfter === 0 ? 1 : 0;
   const maxRouteTowerAfter = Object.entries(after.points || {}).reduce((maximum, [point, stack]) => (
     stack.color === color && Number(point) !== Number(headPoint(color))
       ? Math.max(maximum, Number(stack.count) || 0)
@@ -789,6 +829,12 @@ function sequenceStats(before, after, color, sequence = []) {
     homeShuffleMoves,
     routeSignature,
     maxRouteTowerAfter,
+    startZoneBefore,
+    startZoneAfter,
+    startZoneReduction,
+    resultSafetyBefore,
+    resultSafetyAfter,
+    resultSafetyGain: Math.max(0, resultSafetyAfter - resultSafetyBefore),
   };
 }
 
@@ -800,6 +846,7 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   const development = developmentPressure(before, color);
   const outside = outsideHomeCount(before, color);
   const headRemaining = headCheckers(before, color);
+  const rescuePressure = koksRescuePressure(before, color);
   const earlyEntryScale = headRemaining >= 5 && outside >= 9
     ? 0.18
     : outside >= 7
@@ -828,6 +875,13 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
+  if (rescuePressure > 0) {
+    score += stats.startZoneReduction * weights.koksRescue * rescuePressure * 1.25;
+    score += stats.resultSafetyGain * weights.koksRescue * rescuePressure * 3;
+    if (stats.startZoneReduction <= 0) {
+      score -= stats.startZoneAfter * weights.koksRescue * rescuePressure * 0.35;
+    }
+  }
   if (stats.homeEntryMoves > 0 && headRemaining >= 5 && outside >= 8 && stats.headGain <= 0) {
     score -= stats.homeEntryMoves * (9000000 + headRemaining * 900000);
   }
@@ -1164,6 +1218,7 @@ function experienceDescriptor(
   const outside = outsideHomeCount(state, color);
   const opponentOff = offCount(state, opponent);
   const ownOff = offCount(state, color);
+  const startZone = Number(features.startZoneBefore) || 0;
   const trap = opponentTrapRisk(state, color);
   const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
   const phase = homeReady(state, color)
@@ -1180,6 +1235,7 @@ function experienceDescriptor(
     bucket('h', ownHead, [0, 1, 3, 7]),
     bucket('o', outside, [0, 2, 5, 9]),
     bucket('po', opponentOff, [0, 1, 5, 10]),
+    bucket('sz', startZone, [0, 1, 3, 6]),
     bucket('tr', trap, [0, 40, 180, 600]),
     bucket('pd', pipDelta, [-36, -8, 9, 37]),
   ].join('|');
@@ -1195,7 +1251,12 @@ function experienceDescriptor(
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
-  const actionKey = `${familyActionKey}|route:${features.routeSignature || 'none'}`;
+  const rescueAction = Number(features.missedKoksRescue || 0) > 0
+    ? 'koks:miss'
+    : Number(features.startZoneReduction || 0) > 0
+      ? 'koks:gain'
+      : 'koks:flat';
+  const actionKey = `${familyActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
 
   const urgency = 1
     + opponentOff * 0.12
@@ -1214,6 +1275,12 @@ function experienceDescriptor(
   }
   if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
     mistakeSeverity += 1.4;
+  }
+  if (phase === 'koks-rescue' && Number(features.missedKoksRescue || 0) > 0) {
+    mistakeSeverity += Math.min(
+      4,
+      Number(features.missedKoksRescue) * (1.2 + opponentOff * 0.12),
+    );
   }
   if (tactical && Number(tactical.worstImpact) < -4000000) {
     mistakeSeverity += Math.min(2.2, Math.abs(Number(tactical.worstImpact)) / 16000000);
@@ -1414,13 +1481,22 @@ function sampledSequences(sequences, limit) {
   if (legal.length <= limit) return legal;
   const sampled = [];
   const seen = new Set();
-  for (let index = 0; index < limit; index += 1) {
-    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
-    const sequence = legal[sourceIndex];
+  const add = (sequence) => {
+    if (!sequence || sampled.length >= limit) return;
     const key = sequence.map(move => `${move.from}:${move.die}`).join(',');
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     sampled.push(sequence);
+  };
+  const bestBearOff = legal.reduce((best, sequence) => {
+    const offMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
+    const bestOffMoves = best.filter(move => move.bearOff || move.to === 0).length;
+    return offMoves > bestOffMoves ? sequence : best;
+  }, legal[0]);
+  if (bestBearOff.some(move => move.bearOff || move.to === 0)) add(bestBearOff);
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
+    add(legal[sourceIndex]);
   }
   return sampled;
 }
@@ -1475,7 +1551,15 @@ function createLongBotEngine(adapter, options = {}) {
       if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
+    const maxKoksRescue = Math.max(...ranked.map(
+      candidate => Number(candidate.features.startZoneReduction) || 0,
+    ));
     ranked.forEach((candidate) => {
+      candidate.features.koksRescueOpportunity = maxKoksRescue;
+      candidate.features.missedKoksRescue = Math.max(
+        0,
+        maxKoksRescue - (Number(candidate.features.startZoneReduction) || 0),
+      );
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
       candidate.experience = experienceDescriptor(state, color, candidate.features);
@@ -1486,8 +1570,29 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.score += candidate.experienceAdjustment;
     });
 
-    const strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+    let strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
       .sort((left, right) => right.score - left.score);
+    const opponentOffBeforeMove = offCount(state, opponentOf(color));
+    if (
+      opponentOffBeforeMove >= 3
+      && offCount(state, color) === 0
+      && startZoneCount(state, color) > 0
+    ) {
+      const bestResultSafety = Math.max(...strategicallyRanked.map(
+        candidate => Number(candidate.features.resultSafetyAfter) || 0,
+      ));
+      const safest = strategicallyRanked.filter(
+        candidate => Number(candidate.features.resultSafetyAfter) === bestResultSafety,
+      );
+      const maxStartExit = Math.max(...safest.map(
+        candidate => Number(candidate.features.startZoneReduction) || 0,
+      ));
+      if (maxStartExit > 0) {
+        strategicallyRanked = safest.filter(
+          candidate => Number(candidate.features.startZoneReduction) === maxStartExit,
+        );
+      }
+    }
     const tacticallyRanked = analyzeOpponentReplies(
       adapter,
       color,
@@ -1607,6 +1712,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
+  const rescuePressure = koksRescuePressure(state, color);
 
   const head = headPoint(color);
   const scored = sequences
@@ -1622,6 +1728,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         0,
       );
       const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
+      const startZoneExits = startZoneExitMoveCount(sequence, color);
       return {
         sequence,
         offMoves,
@@ -1629,6 +1736,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         outsideMoves,
         headMoves,
         homeShuffle: insideHomeMoves,
+        startZoneExits,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
@@ -1641,6 +1749,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
                 : 95000
           )
           + opponentHeadControlGain * 18000
+          + startZoneExits * 3000000 * rescuePressure
           + roughPips * 120
           + offCount(state, color) * 10
           - pipsFor(state, color) * 0.01,
@@ -1660,6 +1769,9 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
 
   add(bestBy(item => item.headMoves > 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.startZoneExits > 0, (a, b) => (
+    b.startZoneExits - a.startZoneExits || b.priority - a.priority
+  )));
   add(bestBy(item => item.homeEntries > 0, (a, b) => (
     b.homeEntries - a.homeEntries || b.priority - a.priority
   )));
@@ -1857,7 +1969,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v14';
+const ENGINE_VERSION = 'long-analytic-v15';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

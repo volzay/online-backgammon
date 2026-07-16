@@ -14,6 +14,8 @@ export interface LongBotState {
   rolled?: number[];
   turn?: LongBotColor | null;
   phase?: string;
+  winner?: LongBotColor | null;
+  resultType?: 'normal' | 'mars' | 'koks' | string | null;
 }
 
 export interface LongBotMove {
@@ -48,6 +50,7 @@ export interface LongBotWeights {
   headLandingExposure: number;
   opponentHeadFreedom: number;
   escapeGatewayRisk: number;
+  koksRescue: number;
 }
 
 export interface LongBotEngineOptions {

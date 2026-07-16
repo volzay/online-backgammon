@@ -560,7 +560,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v14");
+  assert.equal(decision.engineVersion, "long-analytic-v15");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -826,6 +826,85 @@ test("v14 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   assert.ok(plan.some(move => move.from === 12 && move.die === 5));
 });
 
+test("v15 values a Mars loss above a Koks loss and a Koks win above a Mars win", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 15 },
+    24: { color: "white", count: 15 },
+  });
+
+  const normalLoss = engine.evaluateState({ ...state, winner: "white", resultType: "normal" }, "dark");
+  const marsLoss = engine.evaluateState({ ...state, winner: "white", resultType: "mars" }, "dark");
+  const koksLoss = engine.evaluateState({ ...state, winner: "white", resultType: "koks" }, "dark");
+  assert.ok(normalLoss > marsLoss);
+  assert.ok(marsLoss > koksLoss);
+
+  const normalWin = engine.evaluateState({ ...state, winner: "dark", resultType: "normal" }, "dark");
+  const marsWin = engine.evaluateState({ ...state, winner: "dark", resultType: "mars" }, "dark");
+  const koksWin = engine.evaluateState({ ...state, winner: "dark", resultType: "koks" }, "dark");
+  assert.ok(koksWin > marsWin);
+  assert.ok(marsWin > normalWin);
+});
+
+test("v15 clears the last start-zone checker when that changes Koks to Mars", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 4 },
+    4: { color: "dark", count: 1 },
+    5: { color: "white", count: 1 },
+    10: { color: "dark", count: 1 },
+    15: { color: "dark", count: 1 },
+    18: { color: "dark", count: 1 },
+    21: { color: "dark", count: 3 },
+    23: { color: "dark", count: 2 },
+    24: { color: "dark", count: 2 },
+  }, {
+    dice: [6, 6, 6, 6],
+    rolled: [6, 6, 6, 6],
+    off: { white: 14, dark: 0 },
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 128, timeLimitMs: 3000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(game.resultTypeFor({ ...state, off: { white: 15, dark: 0 } }, "white"), "koks");
+  assert.ok(plan.some(move => move.from === 10 && move.die === 6), JSON.stringify(plan));
+  assert.equal(countStartZone(after, "dark"), 0);
+  assert.equal(game.resultTypeFor({ ...after, off: { white: 15, dark: 0 } }, "white"), "mars");
+});
+
+test("N7C6-M3SL final bot turn clears both Koks checkers with 1:5", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    4: { color: "dark", count: 1 },
+    6: { color: "dark", count: 2 },
+    7: { color: "dark", count: 1 },
+    10: { color: "dark", count: 1 },
+    13: { color: "dark", count: 3 },
+    14: { color: "dark", count: 2 },
+    15: { color: "dark", count: 3 },
+    18: { color: "dark", count: 1 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [1, 5],
+    rolled: [1, 5],
+    off: { white: 14, dark: 0 },
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 128, timeLimitMs: 3000 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 7, die: 1 },
+    { from: 10, die: 5 },
+  ]);
+  assert.equal(countStartZone(after, "dark"), 0);
+  assert.equal(game.resultTypeFor({ ...after, off: { white: 15, dark: 0 } }, "white"), "mars");
+});
+
 test("WCVN-9VRM roll 27 releases the head under a five-point fence", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -907,7 +986,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(controller, /botGameFinalizePromise/);
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v3/);
+  assert.match(client, /narduh-long-bot-server-experience-v4/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);
@@ -960,4 +1039,14 @@ function countHome(state, color) {
 
 function countOutsideHome(state, color) {
   return 15 - countHome(state, color);
+}
+
+function countStartZone(state, color) {
+  const start = color === "white"
+    ? [24, 23, 22, 21, 20, 19]
+    : [12, 11, 10, 9, 8, 7];
+  return start.reduce((total, point) => {
+    const stack = state.points?.[point];
+    return total + (stack?.color === color ? stack.count : 0);
+  }, 0);
 }

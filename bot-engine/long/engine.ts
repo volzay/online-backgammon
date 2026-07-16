@@ -20,6 +20,9 @@ import {
   outsideHomeCount,
   pathPos,
   pipsFor,
+  koksRescuePressure,
+  startZoneCount,
+  startZoneExitMoveCount,
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
@@ -56,7 +59,15 @@ export function createLongBotEngine(adapter, options = {}) {
       if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
+    const maxKoksRescue = Math.max(...ranked.map(
+      candidate => Number(candidate.features.startZoneReduction) || 0,
+    ));
     ranked.forEach((candidate) => {
+      candidate.features.koksRescueOpportunity = maxKoksRescue;
+      candidate.features.missedKoksRescue = Math.max(
+        0,
+        maxKoksRescue - (Number(candidate.features.startZoneReduction) || 0),
+      );
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
       candidate.experience = experienceDescriptor(state, color, candidate.features);
@@ -67,8 +78,29 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate.score += candidate.experienceAdjustment;
     });
 
-    const strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+    let strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
       .sort((left, right) => right.score - left.score);
+    const opponentOffBeforeMove = offCount(state, opponentOf(color));
+    if (
+      opponentOffBeforeMove >= 3
+      && offCount(state, color) === 0
+      && startZoneCount(state, color) > 0
+    ) {
+      const bestResultSafety = Math.max(...strategicallyRanked.map(
+        candidate => Number(candidate.features.resultSafetyAfter) || 0,
+      ));
+      const safest = strategicallyRanked.filter(
+        candidate => Number(candidate.features.resultSafetyAfter) === bestResultSafety,
+      );
+      const maxStartExit = Math.max(...safest.map(
+        candidate => Number(candidate.features.startZoneReduction) || 0,
+      ));
+      if (maxStartExit > 0) {
+        strategicallyRanked = safest.filter(
+          candidate => Number(candidate.features.startZoneReduction) === maxStartExit,
+        );
+      }
+    }
     const tacticallyRanked = analyzeOpponentReplies(
       adapter,
       color,
@@ -188,6 +220,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
+  const rescuePressure = koksRescuePressure(state, color);
 
   const head = headPoint(color);
   const scored = sequences
@@ -203,6 +236,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         0,
       );
       const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
+      const startZoneExits = startZoneExitMoveCount(sequence, color);
       return {
         sequence,
         offMoves,
@@ -210,6 +244,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
         outsideMoves,
         headMoves,
         homeShuffle: insideHomeMoves,
+        startZoneExits,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
@@ -222,6 +257,7 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
                 : 95000
           )
           + opponentHeadControlGain * 18000
+          + startZoneExits * 3000000 * rescuePressure
           + roughPips * 120
           + offCount(state, color) * 10
           - pipsFor(state, color) * 0.01,
@@ -241,6 +277,9 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
 
   add(bestBy(item => item.headMoves > 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.startZoneExits > 0, (a, b) => (
+    b.startZoneExits - a.startZoneExits || b.priority - a.priority
+  )));
   add(bestBy(item => item.homeEntries > 0, (a, b) => (
     b.homeEntries - a.homeEntries || b.priority - a.priority
   )));
