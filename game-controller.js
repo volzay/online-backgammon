@@ -520,7 +520,7 @@ window.NarduController = (function () {
     }
     Promise.race([
       load.catch(error => console.warn('Could not load shared bot experience', error?.message || error)),
-      new Promise(resolve => setTimeout(resolve, 1800)),
+      new Promise(resolve => setTimeout(resolve, 4500)),
     ]).finally(() => ensureAutoProgress(delay));
   }
 

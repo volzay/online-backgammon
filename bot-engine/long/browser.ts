@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v13';
+const ENGINE_VERSION = 'long-analytic-v14';
 
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -13,7 +13,13 @@ export function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const ranked = engine.rank(state, color, runtimeOptions);
-      lastDecision = decisionRecord(state, color, ranked, runtimeOptions.weights);
+      lastDecision = decisionRecord(
+        state,
+        color,
+        ranked,
+        runtimeOptions.weights,
+        engine.experienceSize(),
+      );
       return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
     },
 
@@ -46,7 +52,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
   };
 }
 
-function decisionRecord(state, color, ranked, weights = undefined) {
+function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
   const candidates = ranked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
@@ -79,6 +85,7 @@ function decisionRecord(state, color, ranked, weights = undefined) {
     id: positionFingerprint(state, color),
     at: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
+    experienceSize: Math.max(0, Number(experienceSize) || 0),
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
       : {},

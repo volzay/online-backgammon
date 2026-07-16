@@ -60,7 +60,10 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
       candidate.experience = experienceDescriptor(state, color, candidate.features);
-      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.experienceAdjustment = boundedExperienceAdjustment(
+        experienceAdjustment(candidate.experience, experience),
+        candidate.score,
+      );
       candidate.score += candidate.experienceAdjustment;
     });
 
@@ -94,6 +97,22 @@ export function createLongBotEngine(adapter, options = {}) {
           candidate => Number(candidate.features.outsideReduction) === maxEntry,
         )
         : tacticallyRanked;
+    const headRemaining = headCheckers(state, color);
+    const maxHeadRelease = Math.max(...strategicallyEligible.map(
+      candidate => Number(candidate.features.headGain) || 0,
+    ));
+    const opponentOff = offCount(state, opponentOf(color));
+    const headReleaseIsCritical = maxHeadRelease > 0 && (
+      headRemaining >= 7
+      || trapPressure >= 600
+      || fenceRun >= 4
+      || opponentOff > 0
+    );
+    if (headReleaseIsCritical) {
+      strategicallyEligible = strategicallyEligible.filter(
+        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease,
+      );
+    }
     if (fenceRun >= 5) {
       const maxSafeEntry = Math.max(...strategicallyEligible.map(
         candidate => Number(candidate.features.outsideReduction) || 0,
@@ -105,8 +124,9 @@ export function createLongBotEngine(adapter, options = {}) {
       }
     }
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
-    const requireComparableTactics = trapPressure > 850 && outside > 8;
-    const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
+    // Never promote an unchecked move merely because analyzed candidates
+    // received realistic reply penalties.
+    const finalCandidates = analyzedCandidates.length >= 2
       ? analyzedCandidates
       : strategicallyEligible;
     finalCandidates.forEach((candidate) => {
@@ -117,7 +137,10 @@ export function createLongBotEngine(adapter, options = {}) {
         candidate.features,
         candidate.tactical,
       );
-      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.experienceAdjustment = boundedExperienceAdjustment(
+        experienceAdjustment(candidate.experience, experience),
+        candidate.score - previousExperienceAdjustment,
+      );
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     return finalCandidates.sort((left, right) => right.score - left.score);
@@ -149,6 +172,15 @@ export function createLongBotEngine(adapter, options = {}) {
       return experience.size;
     },
   };
+}
+
+function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
+  const raw = Number(rawAdjustment) || 0;
+  const budget = Math.min(
+    18000000,
+    Math.max(6000000, Math.abs(Number(immediateScore) || 0) * 0.06),
+  );
+  return Math.max(-budget, Math.min(Math.min(6000000, budget), raw));
 }
 
 function prefilterSequences(state, color, sequences, maxCandidates) {

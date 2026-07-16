@@ -191,6 +191,13 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   const entryPressure = lateEntryPressure(before, color);
   const completionPressure = routeCompletionPressure(before, color);
   const development = developmentPressure(before, color);
+  const outside = outsideHomeCount(before, color);
+  const headRemaining = headCheckers(before, color);
+  const earlyEntryScale = headRemaining >= 5 && outside >= 9
+    ? 0.18
+    : outside >= 7
+      ? 0.48
+      : 1;
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
 
   score += tempoValue(before, after, color) * weights.tempo * pressure;
@@ -200,7 +207,7 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.offGain * weights.borneOff * 2.3;
   score += Math.max(0, stats.headGain) * weights.headRelease * (homeReady(before, color) ? 0.12 : 1.15);
   score += stats.footholdGain * weights.foothold * 1.2;
-  score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure;
+  score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure * earlyEntryScale;
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
   score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
@@ -214,6 +221,9 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
+  if (stats.homeEntryMoves > 0 && headRemaining >= 5 && outside >= 8 && stats.headGain <= 0) {
+    score -= stats.homeEntryMoves * (9000000 + headRemaining * 900000);
+  }
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }

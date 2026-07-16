@@ -12,7 +12,7 @@ window.NarduStrongBot = (function () {
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
   const DEFAULT_PROFILE = {
-    version: 4,
+    version: 5,
     games: 0,
     losses: 0,
     headBlock: 1.18,

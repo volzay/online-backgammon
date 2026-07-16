@@ -276,7 +276,7 @@ test("head landing anchors are preserved when the opponent can immediately occup
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
 });
 
-test("v13 learned local mistakes materially change tactical ranking", () => {
+test("v14 learned local mistakes materially change tactical ranking", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   engine.setExperience([], "tactical-regression");
@@ -307,7 +307,7 @@ test("v13 learned local mistakes materially change tactical ranking", () => {
   engine.setExperience([], "tactical-regression");
 });
 
-test("v13 does not blame a safe opening action for a later game loss", () => {
+test("v14 does not blame a safe opening action for a later game loss", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
@@ -330,7 +330,7 @@ test("v13 does not blame a safe opening action for a later game loss", () => {
   engine.setExperience([], "safe-opening");
 });
 
-test("v13 transfers repeated mistakes across similar strategic contexts", () => {
+test("v14 transfers repeated mistakes across similar strategic contexts", () => {
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
   const baseline = engine.rank(state, { maxCandidates: 300, timeLimitMs: 3000 });
@@ -361,7 +361,7 @@ test("v13 transfers repeated mistakes across similar strategic contexts", () => 
   engine.setExperience([], "strategic-transfer");
 });
 
-test("v13 searches four plies through two opponent turns", async () => {
+test("v14 searches four plies through two opponent turns", async () => {
   const { createLongBotEngine } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -560,7 +560,8 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v13");
+  assert.equal(decision.engineVersion, "long-analytic-v14");
+  assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
   assert.ok(decision.alternatives.length > 0);
@@ -791,7 +792,7 @@ test("TB9N-MS4S move 5 releases the crowded head without opening either barrier"
   assert.equal(after.points[12]?.count, 11);
 });
 
-test("v13 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
+test("v14 releases the head instead of rushing a lone checker home in 3DAG-EQ52", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -807,7 +808,7 @@ test("v13 releases the head instead of rushing a lone checker home in 3DAG-EQ52"
   assert.ok(!plan.some(move => move.from === 22 && move.die === 5));
 });
 
-test("v13 keeps developing the head in the NCEQ-MBAK Mars position", () => {
+test("v14 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     3: { color: "dark", count: 1 },
@@ -825,8 +826,71 @@ test("v13 keeps developing the head in the NCEQ-MBAK Mars position", () => {
   assert.ok(plan.some(move => move.from === 12 && move.die === 5));
 });
 
+test("WCVN-9VRM roll 27 releases the head under a five-point fence", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "white", count: 1 },
+    3: { color: "white", count: 1 },
+    4: { color: "white", count: 1 },
+    5: { color: "white", count: 1 },
+    6: { color: "dark", count: 2 },
+    7: { color: "white", count: 2 },
+    8: { color: "white", count: 2 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 2 },
+    11: { color: "white", count: 2 },
+    12: { color: "dark", count: 5 },
+    13: { color: "white", count: 1 },
+    14: { color: "dark", count: 4 },
+    15: { color: "dark", count: 2 },
+    17: { color: "dark", count: 2 },
+  }, {
+    dice: [6, 6, 6, 6],
+    rolled: [6, 6, 6, 6],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 128, timeLimitMs: 3000 });
+  assert.ok(plan.some(move => move.from === 12), JSON.stringify(plan));
+});
+
+test("v14 only compares reply-analyzed candidates when analysis is available", () => {
+  const { engine } = loadBrowserEngine();
+  engine.setExperience([], "analysis-comparability");
+  const ranked = engine.rank(tacticalThreatState(), { maxCandidates: 128, timeLimitMs: 3000 });
+
+  assert.ok(ranked.length >= 2);
+  assert.ok(ranked[0].tactical, JSON.stringify(ranked[0].sequence));
+  assert.ok(ranked.every(candidate => candidate.tactical));
+});
+
+test("v14 experience corrects but cannot overpower immediate position analysis", () => {
+  const { engine } = loadBrowserEngine();
+  const state = tacticalThreatState();
+  engine.setExperience([], "bounded-experience");
+  const baseline = engine.rank(state, { maxCandidates: 128, timeLimitMs: 3000 });
+  const descriptor = baseline[0].experience;
+  engine.setExperience([{
+    contextKey: descriptor.contextKey,
+    actionKey: descriptor.actionKey,
+    samples: 200,
+    losses: 200,
+    lossWeight: 800,
+    severeLosses: 200,
+    signalWeight: 1000,
+  }], "bounded-experience");
+
+  const learned = engine.rank(state, { maxCandidates: 128, timeLimitMs: 3000 });
+  const matching = learned.find(candidate => candidate.experience?.actionKey === descriptor.actionKey);
+  assert.ok(matching);
+  assert.ok(matching.experienceAdjustment <= -5000000);
+  assert.ok(matching.experienceAdjustment >= -18000000);
+  engine.setExperience([], "bounded-experience");
+});
+
 test("shared long-bot experience is exposed by a read-only aggregate RPC", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
+  const durability = fs.readFileSync(path.join(ROOT, "supabase/bot-training-durability.sql"), "utf8");
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
   const controller = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8");
 
@@ -838,9 +902,16 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /familyActionKey/);
   assert.match(schema, /engine_version like 'long-analytic-%'/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
+  assert.match(schema, /rooms_archive_finished_bot_training/);
+  assert.match(schema, /archive_finished_bot_training_game/);
   assert.match(controller, /botGameFinalizePromise/);
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
+  assert.match(client, /narduh-long-bot-server-experience-v3/);
+  assert.match(durability, /begin;/);
+  assert.match(durability, /rooms_archive_finished_bot_training/);
+  assert.match(durability, /on conflict \(room_code\) do update/);
+  assert.match(durability, /commit;/);
 });
 
 test("U3DQ-PGZX move 11 keeps the point that prevents a head-built fence", () => {

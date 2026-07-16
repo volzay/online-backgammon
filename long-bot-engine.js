@@ -798,6 +798,13 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   const entryPressure = lateEntryPressure(before, color);
   const completionPressure = routeCompletionPressure(before, color);
   const development = developmentPressure(before, color);
+  const outside = outsideHomeCount(before, color);
+  const headRemaining = headCheckers(before, color);
+  const earlyEntryScale = headRemaining >= 5 && outside >= 9
+    ? 0.18
+    : outside >= 7
+      ? 0.48
+      : 1;
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
 
   score += tempoValue(before, after, color) * weights.tempo * pressure;
@@ -807,7 +814,7 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.offGain * weights.borneOff * 2.3;
   score += Math.max(0, stats.headGain) * weights.headRelease * (homeReady(before, color) ? 0.12 : 1.15);
   score += stats.footholdGain * weights.foothold * 1.2;
-  score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure;
+  score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure * earlyEntryScale;
   score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
   score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
   score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
@@ -821,6 +828,9 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
   score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
   score += stats.entryContinuationMoves * weights.tempo * 0.42;
+  if (stats.homeEntryMoves > 0 && headRemaining >= 5 && outside >= 8 && stats.headGain <= 0) {
+    score -= stats.homeEntryMoves * (9000000 + headRemaining * 900000);
+  }
   if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
     score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
   }
@@ -1469,7 +1479,10 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
       candidate.experience = experienceDescriptor(state, color, candidate.features);
-      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.experienceAdjustment = boundedExperienceAdjustment(
+        experienceAdjustment(candidate.experience, experience),
+        candidate.score,
+      );
       candidate.score += candidate.experienceAdjustment;
     });
 
@@ -1503,6 +1516,22 @@ function createLongBotEngine(adapter, options = {}) {
           candidate => Number(candidate.features.outsideReduction) === maxEntry,
         )
         : tacticallyRanked;
+    const headRemaining = headCheckers(state, color);
+    const maxHeadRelease = Math.max(...strategicallyEligible.map(
+      candidate => Number(candidate.features.headGain) || 0,
+    ));
+    const opponentOff = offCount(state, opponentOf(color));
+    const headReleaseIsCritical = maxHeadRelease > 0 && (
+      headRemaining >= 7
+      || trapPressure >= 600
+      || fenceRun >= 4
+      || opponentOff > 0
+    );
+    if (headReleaseIsCritical) {
+      strategicallyEligible = strategicallyEligible.filter(
+        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease,
+      );
+    }
     if (fenceRun >= 5) {
       const maxSafeEntry = Math.max(...strategicallyEligible.map(
         candidate => Number(candidate.features.outsideReduction) || 0,
@@ -1514,8 +1543,9 @@ function createLongBotEngine(adapter, options = {}) {
       }
     }
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
-    const requireComparableTactics = trapPressure > 850 && outside > 8;
-    const finalCandidates = requireComparableTactics && analyzedCandidates.length >= 2
+    // Never promote an unchecked move merely because analyzed candidates
+    // received realistic reply penalties.
+    const finalCandidates = analyzedCandidates.length >= 2
       ? analyzedCandidates
       : strategicallyEligible;
     finalCandidates.forEach((candidate) => {
@@ -1526,7 +1556,10 @@ function createLongBotEngine(adapter, options = {}) {
         candidate.features,
         candidate.tactical,
       );
-      candidate.experienceAdjustment = experienceAdjustment(candidate.experience, experience);
+      candidate.experienceAdjustment = boundedExperienceAdjustment(
+        experienceAdjustment(candidate.experience, experience),
+        candidate.score - previousExperienceAdjustment,
+      );
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     return finalCandidates.sort((left, right) => right.score - left.score);
@@ -1558,6 +1591,15 @@ function createLongBotEngine(adapter, options = {}) {
       return experience.size;
     },
   };
+}
+
+function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
+  const raw = Number(rawAdjustment) || 0;
+  const budget = Math.min(
+    18000000,
+    Math.max(6000000, Math.abs(Number(immediateScore) || 0) * 0.06),
+  );
+  return Math.max(-budget, Math.min(Math.min(6000000, budget), raw));
 }
 
 function prefilterSequences(state, color, sequences, maxCandidates) {
@@ -1815,7 +1857,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v13';
+const ENGINE_VERSION = 'long-analytic-v14';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -1827,7 +1869,13 @@ function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const ranked = engine.rank(state, color, runtimeOptions);
-      lastDecision = decisionRecord(state, color, ranked, runtimeOptions.weights);
+      lastDecision = decisionRecord(
+        state,
+        color,
+        ranked,
+        runtimeOptions.weights,
+        engine.experienceSize(),
+      );
       return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
     },
 
@@ -1860,7 +1908,7 @@ function createBrowserLongBotEngine(game, options = {}) {
   };
 }
 
-function decisionRecord(state, color, ranked, weights = undefined) {
+function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
   const candidates = ranked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
@@ -1893,6 +1941,7 @@ function decisionRecord(state, color, ranked, weights = undefined) {
     id: positionFingerprint(state, color),
     at: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
+    experienceSize: Math.max(0, Number(experienceSize) || 0),
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
       : {},
