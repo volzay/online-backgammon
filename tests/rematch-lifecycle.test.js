@@ -121,7 +121,7 @@ function finishedGameContext({
     search,
     hostname: "example.test",
   };
-  const roomCalls = { finalStates: 0, archives: 0, lobby: 0 };
+  const roomCalls = { finalStates: 0, finishCalls: 0, putCalls: 0, archives: 0, lobby: 0 };
   const never = new Promise(() => {});
   let releaseFinalState = () => {};
   const finalStateGate = deferFinalState
@@ -141,11 +141,13 @@ function finishedGameContext({
       async getGameState() { const error = new Error("not found"); error.status = 404; throw error; },
       async putGameState() {
         roomCalls.finalStates += 1;
+        roomCalls.putCalls += 1;
         if (failFinalState) throw new Error("final state unavailable");
         return { version: roomCalls.finalStates };
       },
       async finishRoomGame(_code, payload) {
         roomCalls.finalStates += 1;
+        roomCalls.finishCalls += 1;
         roomCalls.finalStatePayload = payload;
         if (failFinalState) throw new Error("final state unavailable");
         await finalStateGate;
@@ -314,6 +316,24 @@ test("lobby exit is immediate and shows no saving state while rating never settl
   assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
 });
 
+test("bot lobby navigation gives the atomic finalizer a short invisible window", async () => {
+  const { document, location, roomCalls, releaseFinalState } = finishedGameContext({
+    deferFinalState: true,
+  });
+  const modal = document.getElementById("game-over");
+  const navigation = document.getElementById("go-lobby").click();
+  await Promise.resolve();
+
+  assert.equal(roomCalls.finishCalls, 1);
+  assert.equal(roomCalls.lobby, 0);
+  assert.doesNotMatch(modal.innerHTML, /Сохраняем результат/);
+
+  releaseFinalState();
+  await navigation;
+  assert.equal(roomCalls.lobby, 1);
+  assert.equal(location.href, "index.html");
+});
+
 test("remote resignation is persisted through the atomic room finalizer", async () => {
   const { controller, roomCalls } = finishedGameContext({ mode: "remote", autoFinish: false });
 
@@ -355,10 +375,28 @@ test("another bot game starts immediately and shows no saving state while rating
   assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
 });
 
+test("another bot game waits for the atomic final snapshot without showing saving text", async () => {
+  const { document, location, roomCalls, releaseFinalState } = finishedGameContext({
+    deferFinalState: true,
+  });
+  const originalUrl = location.href;
+  const navigation = document.getElementById("go-again").click();
+  await Promise.resolve();
+
+  assert.equal(roomCalls.finishCalls, 1);
+  assert.equal(location.href, originalUrl);
+  assert.doesNotMatch(document.getElementById("game-over").innerHTML, /Сохраняем результат/);
+
+  releaseFinalState();
+  await navigation;
+  assert.match(location.href, /[?&]game=[A-Z2-9]{4}-[A-Z2-9]{4}/);
+});
+
 test("finished bot analysis reaches both rating finalization and the training archive", async () => {
   const { roomCalls } = finishedGameContext();
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  assert.equal(roomCalls.finishCalls, 1);
   assert.equal(roomCalls.ratingDetails.score.finalState.analysis.botMemory.decisions.length, 1);
   assert.equal(roomCalls.archivePayload.analysis.botMemory.decisions.length, 1);
   assert.equal(roomCalls.archives, 1);

@@ -818,20 +818,35 @@ window.NarduController = (function () {
   function ensureBotFinalStatePublished() {
     if (state?.gameOverPublishedAt) return Promise.resolve(true);
     if (gameOverPublishPromise) return gameOverPublishPromise;
+    const payload = botAnalysisPayload();
     gameOverPublishPromise = (async () => {
+      let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
-        const saved = await publishBotAnalysisState({ force: true }).catch(() => false);
-        if (saved) {
+        try {
+          const saved = await window.NarduRooms.finishRoomGame(remoteCode, payload, botAnalysisVersion);
+          if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
           state.gameOverPublishedAt = new Date().toISOString();
           return true;
+        } catch (error) {
+          lastError = error;
+          await wait(500 * attempt);
         }
-        await wait(500 * attempt);
       }
+      console.warn('Could not persist finished bot game', lastError?.message || lastError);
       return false;
     })().finally(() => {
       if (!state?.gameOverPublishedAt) gameOverPublishPromise = null;
     });
     return gameOverPublishPromise;
+  }
+
+  function waitForFinishedBotPersistence(timeoutMs = 1200) {
+    if (mode !== 'bot' || !state?.winner) return Promise.resolve(true);
+    const persistence = Promise.resolve(botGameFinalizePromise).catch(() => false);
+    return Promise.race([
+      persistence,
+      wait(timeoutMs).then(() => false),
+    ]);
   }
 
   function ensureRemoteFinalStatePublished() {
@@ -3173,6 +3188,7 @@ window.NarduController = (function () {
         renderGameOverModal();
         return;
       }
+      await waitForFinishedBotPersistence();
       leaveRoomToLobby(true);
     });
   }
@@ -3189,6 +3205,7 @@ window.NarduController = (function () {
     if (mode !== 'remote') {
       if (!claimGameOverAction('again')) return;
       if (mode === 'bot') {
+        await waitForFinishedBotPersistence();
         startBotGameInNewRoom();
         return;
       }
