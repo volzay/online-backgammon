@@ -323,6 +323,76 @@ test("9TCS-H9F9 move 32 makes both available home entries", () => {
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
 });
 
+test("8KSQ-PUEY move 11 keeps developing instead of entering home early", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    5: { color: "white", count: 1 },
+    6: { color: "white", count: 1 },
+    7: { color: "dark", count: 1 },
+    8: { color: "white", count: 1 },
+    9: { color: "dark", count: 2 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 7 },
+    17: { color: "dark", count: 1 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "dark", count: 1 },
+    22: { color: "white", count: 2 },
+    23: { color: "dark", count: 2 },
+    24: { color: "white", count: 6 },
+  }, {
+    dice: [3, 5],
+    rolled: [3, 5],
+  });
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.deepEqual(JSON.parse(JSON.stringify(decision.selected.moves)), [
+    { from: 7, to: 4, die: 3 },
+    { from: 12, to: 7, die: 5 },
+  ]);
+  assert.equal(decision.selected.features.homeEntryMoves, 0);
+  assert.equal(decision.selected.features.maxRouteTowerAfter, 2);
+  assert.ok(decision.selected.features.earlyDevelopmentAdjustment > 0);
+});
+
+test("8KSQ-PUEY move 12 advances outside instead of shuffling inside home", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    5: { color: "white", count: 1 },
+    6: { color: "white", count: 1 },
+    7: { color: "dark", count: 1 },
+    8: { color: "white", count: 1 },
+    9: { color: "dark", count: 3 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 6 },
+    17: { color: "dark", count: 1 },
+    18: { color: "dark", count: 1 },
+    19: { color: "white", count: 2 },
+    20: { color: "white", count: 2 },
+    21: { color: "dark", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 5 },
+  }, {
+    dice: [1, 6],
+    rolled: [1, 6],
+  });
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.deepEqual(JSON.parse(JSON.stringify(decision.selected.moves)), [
+    { from: 9, to: 3, die: 6 },
+    { from: 3, to: 2, die: 1 },
+  ]);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+  assert.ok(decision.selected.features.preHomeDevelopmentAdjustment > 0);
+});
+
 test("ZQBE-SM3L move 37 distributes the route instead of building a six-checker tower", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -410,7 +480,7 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
   assert.ok(decision.selected.features.routeContinuityAdjustment > 0);
 });
 
-test("v17 reserves a fifth-place home entry for reply analysis", async () => {
+test("v18 reserves a fifth-place home entry for reply analysis", async () => {
   const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -777,7 +847,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v17");
+  assert.equal(decision.engineVersion, "long-analytic-v18");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);

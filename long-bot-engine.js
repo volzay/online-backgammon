@@ -1674,10 +1674,15 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
+    const developedCandidates = prioritizePreHomeDevelopment(
+      state,
+      color,
+      prioritizeSafeEarlyDevelopment(state, color, sortedCandidates),
+    );
     const distributedCandidates = prioritizeRouteDistribution(
       state,
       color,
-      sortedCandidates,
+      developedCandidates,
     );
     return prioritizeRouteContinuity(
       state,
@@ -1767,6 +1772,111 @@ function prioritizeRouteContinuity(state, color, ranked) {
     || Number(right.score) - Number(left.score)
   ));
   return promoteCandidate(ranked, continuing[0], 'routeContinuityAdjustment');
+}
+
+function prioritizeSafeEarlyDevelopment(state, color, ranked) {
+  const selected = ranked[0];
+  const headRemaining = headCheckers(state, color);
+  if (
+    !selected
+    || homeReady(state, color)
+    || headRemaining < 4
+    || opponentTrapRisk(state, color) >= 120
+    || Number(selected.features.homeEntryMoves || 0) <= 0
+  ) {
+    return ranked;
+  }
+
+  const selectedHeadGain = Number(selected.features.headGain) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedEntry = Number(selected.features.homeEntryMoves) || 0;
+  const selectedTower = Number(selected.features.maxRouteTowerAfter) || 0;
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.headGain || 0) >= selectedHeadGain
+    && Number(candidate.features.homeEntryMoves || 0) < selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) >= selectedProgress
+    && Number(candidate.features.maxRouteTowerAfter || 0) < selectedTower
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && isSaferEarlyAlternative(candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.homeEntryMoves || 0) - Number(right.features.homeEntryMoves || 0)
+    || Number(left.features.maxRouteTowerAfter || 0) - Number(right.features.maxRouteTowerAfter || 0)
+    || Number(right.tactical.worstImpact) - Number(left.tactical.worstImpact)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'earlyDevelopmentAdjustment');
+}
+
+function isSaferEarlyAlternative(candidate, selected) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - 25000000
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.tactical.expectedImpact) >= Number(selected.tactical.expectedImpact)
+    && Number(candidate.tactical.worstImpact) >= Number(selected.tactical.worstImpact);
+}
+
+function prioritizePreHomeDevelopment(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || homeReady(state, color)
+    || headCheckers(state, color) <= 0
+    || opponentTrapRisk(state, color) >= 120
+    || Number(selected.features.homeShuffleMoves || 0) <= 0
+  ) {
+    return ranked;
+  }
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.headGain || 0) >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && Number(candidate.features.outsidePipGain || 0)
+      > Number(selected.features.outsidePipGain || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && isComparablePreHomeAlternative(candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.homeShuffleMoves || 0) - Number(right.features.homeShuffleMoves || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'preHomeDevelopmentAdjustment');
+}
+
+function isComparablePreHomeAlternative(candidate, selected) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - 12000000
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= (
+      Number(selected.features.escapeGatewayDelta || 0) - 3
+    )
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 3000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 7000000
+    );
 }
 
 function prioritizeRouteDistribution(state, color, ranked) {
@@ -2188,7 +2298,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v17';
+const ENGINE_VERSION = 'long-analytic-v18';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
