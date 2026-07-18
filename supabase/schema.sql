@@ -1884,7 +1884,11 @@ $$;
 revoke all on function public.archive_bot_training_game(text, jsonb) from public;
 grant execute on function public.archive_bot_training_game(text, jsonb) to anon, authenticated;
 
-create or replace function public.get_long_bot_experience_patterns()
+drop function if exists public.get_long_bot_experience_patterns();
+
+create or replace function public.get_long_bot_experience_patterns(
+  p_player_name text default null
+)
 returns jsonb
 language sql
 stable
@@ -1896,6 +1900,7 @@ as $$
       g.winner,
       g.bot_color,
       g.result_type,
+      g.player_name,
       coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
       coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
       coalesce(decision->'selected'->'tactical', '{}'::jsonb) as tactical
@@ -1931,7 +1936,13 @@ as $$
             then 1.5
           else 0
         end
-      ) as harm_signal
+      ) as harm_signal,
+      case
+        when coalesce(trim(p_player_name), '') <> ''
+          and lower(player_name) = lower(trim(p_player_name))
+          then 3
+        else 1
+      end as player_weight
     from raw_decisions
     where coalesce(descriptor->>'contextKey', '') <> ''
       and coalesce(descriptor->>'actionKey', '') <> ''
@@ -1946,7 +1957,8 @@ as $$
       action.action_key,
       result_type,
       harm_signal,
-      harmful
+      harmful,
+      player_weight
     from labeled
     cross join lateral (
       select distinct candidate as action_key
@@ -1974,22 +1986,26 @@ as $$
     select
       context_key,
       action_key,
-      count(*)::integer as samples,
-      count(*) filter (where harmful)::integer as losses,
+      sum(player_weight)::integer as samples,
+      sum(case when harmful then player_weight else 0 end)::integer as losses,
       sum(case
         when harmful then
-          least(3.75, 0.85 + harm_signal * 0.38)
-          + case
-            when result_type = 'koks' then 1.5
-            when result_type = 'mars' then 0.75
-            else 0
-          end
+          player_weight * (
+            least(3.75, 0.85 + harm_signal * 0.38)
+            + case
+              when result_type = 'koks' then 1.5
+              when result_type = 'mars' then 0.75
+              else 0
+            end
+          )
         else 0
       end)::double precision as loss_weight,
-      count(*) filter (
-        where harmful and (result_type in ('mars', 'koks') or harm_signal >= 3.2)
-      )::integer as severe_losses,
-      sum(case when harmful then harm_signal else 0 end)::double precision as signal_weight
+      sum(case
+        when harmful and (result_type in ('mars', 'koks') or harm_signal >= 3.2)
+          then player_weight
+        else 0
+      end)::integer as severe_losses,
+      sum(case when harmful then harm_signal * player_weight else 0 end)::double precision as signal_weight
     from expanded
     group by context_key, action_key
   ), ranked as (
@@ -2014,8 +2030,8 @@ as $$
   from ranked
 $$;
 
-revoke all on function public.get_long_bot_experience_patterns() from public;
-grant execute on function public.get_long_bot_experience_patterns() to anon, authenticated;
+revoke all on function public.get_long_bot_experience_patterns(text) from public;
+grant execute on function public.get_long_bot_experience_patterns(text) to anon, authenticated;
 
 drop function if exists public.record_rating_result(text, text, integer, boolean, text, text, text, jsonb, jsonb, timestamptz);
 

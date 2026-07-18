@@ -68,27 +68,33 @@ test("local hard-bot learning prices Koks above Mars", () => {
   assert.ok(Math.abs((koks.lossWeight - mars.lossWeight) - 0.75) < 1e-9);
 });
 
-test("the isolated v15 RPC migration preserves the Koks severity ordering", () => {
+test("the v17 opponent-memory RPC preserves Koks severity ordering", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
-  const migration = fs.readFileSync(
+  const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
+  const migration = fs.readFileSync(
+    path.join(ROOT, "supabase/long-bot-opponent-memory-v17.sql"),
+    "utf8",
+  );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
-  const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\(\)[\s\S]*?\n\$\$;/;
+  const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
 
   assert.match(schema, severityOrder);
+  assert.match(severityMigration, severityOrder);
   assert.match(migration, severityOrder);
   assert.equal(migration.match(rpcDefinition)?.[0], schema.match(rpcDefinition)?.[0]);
   assert.match(migration, /^begin;/m);
-  assert.match(migration, /create or replace function public\.get_long_bot_experience_patterns\(\)/);
+  assert.match(migration, /p_player_name text default null/);
+  assert.match(migration, /then 3\s+else 1\s+end as player_weight/);
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v16 bot dependency", () => {
+test("production entry points cache-bust every v17 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260718-home-entry-v16";
+  const version = "20260718-route-memory-v17";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

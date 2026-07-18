@@ -1674,7 +1674,16 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
-    return prioritizeAvailableHomeEntry(state, color, sortedCandidates);
+    const distributedCandidates = prioritizeRouteDistribution(
+      state,
+      color,
+      sortedCandidates,
+    );
+    return prioritizeRouteContinuity(
+      state,
+      color,
+      prioritizeAvailableHomeEntry(state, color, distributedCandidates),
+    );
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -1731,6 +1740,102 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
     candidate.score += adjustment;
   });
   return [...promoted, ...ranked.filter(candidate => !promotedSet.has(candidate))];
+}
+
+function prioritizeRouteContinuity(state, color, ranked) {
+  const selected = ranked[0];
+  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedDebt = Number(selected.features.laggardDebtDelta) || 0;
+  const continuing = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.outsideReduction || 0) >= selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) > selectedProgress
+    && Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+    && isSafeRouteAlternative(candidate, selected, 8000000, 250000, 250000)
+  ));
+  if (!continuing.length) return ranked;
+
+  continuing.sort((left, right) => (
+    Number(right.features.outsideReduction || 0) - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.features.laggardDebtDelta || 0) - Number(left.features.laggardDebtDelta || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, continuing[0], 'routeContinuityAdjustment');
+}
+
+function prioritizeRouteDistribution(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || homeReady(state, color)
+    || headCheckers(state, color) > 0
+    || outsideHomeCount(state, color) > 9
+    || opponentTrapRisk(state, color) >= 120
+  ) {
+    return ranked;
+  }
+
+  const selectedTower = Number(selected.features.maxRouteTowerAfter) || 0;
+  if (selectedTower < 6) return ranked;
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const alternatives = ranked.filter(candidate => {
+    if (candidate === selected) return false;
+    const candidateEntry = Number(candidate.features.outsideReduction) || 0;
+    const candidateProgress = Number(candidate.features.outsidePipGain) || 0;
+    const keepsRouteTempo = selectedTower >= 7
+      ? candidateEntry >= selectedEntry - 1 && candidateProgress >= selectedProgress
+      : candidateEntry >= selectedEntry && candidateProgress >= selectedProgress;
+    return keepsRouteTempo
+      && Number(candidate.features.maxRouteTowerAfter || 0) < selectedTower
+      && isSafeRouteAlternative(candidate, selected, 4000000, 750000, 250000);
+  });
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.maxRouteTowerAfter || 0) - Number(right.features.maxRouteTowerAfter || 0)
+    || Number(right.features.outsideReduction || 0) - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'routeDistributionAdjustment');
+}
+
+function isSafeRouteAlternative(
+  candidate,
+  selected,
+  scoreTolerance,
+  expectedReplyTolerance,
+  worstReplyTolerance,
+) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - expectedReplyTolerance
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - worstReplyTolerance
+    );
+}
+
+function promoteCandidate(ranked, promoted, adjustmentKey) {
+  const selected = ranked[0];
+  const adjustment = Math.max(0, Number(selected.score) - Number(promoted.score) + 1);
+  promoted.features[adjustmentKey] = adjustment;
+  promoted.score += adjustment;
+  return [promoted, ...ranked.filter(candidate => candidate !== promoted)];
 }
 
 function isSafeHomeEntryAlternative(candidate, selected) {
@@ -2083,7 +2188,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v16';
+const ENGINE_VERSION = 'long-analytic-v17';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

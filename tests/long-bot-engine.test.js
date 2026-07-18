@@ -323,7 +323,94 @@ test("9TCS-H9F9 move 32 makes both available home entries", () => {
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
 });
 
-test("v16 reserves a fifth-place home entry for reply analysis", async () => {
+test("ZQBE-SM3L move 37 distributes the route instead of building a six-checker tower", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "dark", count: 1 },
+    3: { color: "white", count: 7 },
+    4: { color: "white", count: 1 },
+    5: { color: "white", count: 2 },
+    6: { color: "white", count: 3 },
+    13: { color: "white", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "dark", count: 5 },
+    17: { color: "dark", count: 3 },
+    18: { color: "dark", count: 1 },
+    22: { color: "dark", count: 2 },
+    23: { color: "dark", count: 2 },
+  }, {
+    dice: [4, 6],
+    rolled: [4, 6],
+  });
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.ok(decision.selected.features.maxRouteTowerAfter <= 5);
+  assert.ok(decision.selected.features.outsidePipGain >= 9);
+  assert.ok(!decision.selected.moves.some(move => move.to === 16));
+});
+
+test("ZQBE-SM3L move 39 advances the laggard instead of growing a seven-checker tower", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    2: { color: "dark", count: 1 },
+    3: { color: "white", count: 7 },
+    4: { color: "white", count: 2 },
+    5: { color: "white", count: 1 },
+    6: { color: "white", count: 2 },
+    14: { color: "dark", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "dark", count: 6 },
+    17: { color: "dark", count: 3 },
+    18: { color: "dark", count: 2 },
+    23: { color: "dark", count: 1 },
+  }, {
+    dice: [4, 3],
+    rolled: [4, 3],
+    off: { white: 2, dark: 0 },
+  });
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.deepEqual(JSON.parse(JSON.stringify(decision.selected.moves)), [
+    { from: 2, to: 22, die: 4 },
+    { from: 22, to: 19, die: 3 },
+  ]);
+  assert.equal(decision.selected.features.maxRouteTowerAfter, 6);
+  assert.ok(decision.selected.features.routeDistributionAdjustment > 0);
+});
+
+test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 2 },
+    2: { color: "dark", count: 1 },
+    3: { color: "white", count: 7 },
+    4: { color: "white", count: 4 },
+    14: { color: "dark", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "dark", count: 7 },
+    17: { color: "dark", count: 3 },
+    18: { color: "dark", count: 2 },
+  }, {
+    dice: [4, 1],
+    rolled: [4, 1],
+    off: { white: 2, dark: 0 },
+  });
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.deepEqual(JSON.parse(JSON.stringify(decision.selected.moves)), [
+    { from: 2, to: 22, die: 4 },
+    { from: 22, to: 21, die: 1 },
+  ]);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+  assert.ok(decision.selected.features.routeContinuityAdjustment > 0);
+});
+
+test("v17 reserves a fifth-place home entry for reply analysis", async () => {
   const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -690,7 +777,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v16");
+  assert.equal(decision.engineVersion, "long-analytic-v17");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -1103,7 +1190,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
   const controller = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8");
 
-  assert.match(schema, /get_long_bot_experience_patterns\(\)/);
+  assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
   assert.match(schema, /'creditVersion', 2/);
@@ -1115,8 +1202,9 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /archive_finished_bot_training_game/);
   assert.match(controller, /botGameFinalizePromise/);
   assert.match(client, /setExperience\(patterns, "server"\)/);
+  assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v4/);
+  assert.match(client, /narduh-long-bot-server-experience-v5/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);

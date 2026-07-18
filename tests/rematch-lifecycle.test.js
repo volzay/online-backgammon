@@ -490,17 +490,27 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v4", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v5", JSON.stringify({
     savedAt: Date.now(),
+    playerKey: "warlord",
     patterns: [pattern],
   }));
   const applied = [];
+  const rpcCalls = [];
   const context = {
     window: {
+      NarduApp: {
+        getUser() { return { nickname: "warlord" }; },
+      },
       NarduSupabase: {
         configured() { return true; },
         async client() {
-          return { rpc() { return new Promise(() => {}); } };
+          return {
+            rpc(name, args) {
+              rpcCalls.push({ name, args });
+              return new Promise(() => {});
+            },
+          };
         },
       },
       NarduLongBotEngine: {
@@ -527,4 +537,6 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
   assert.equal(loaded[0].contextKey, pattern.contextKey);
   assert.equal(applied[0].source, "server-cache");
   assert.equal(applied[0].patterns[0].actionKey, pattern.actionKey);
+  assert.equal(rpcCalls[0].name, "get_long_bot_experience_patterns");
+  assert.equal(rpcCalls[0].args.p_player_name, "warlord");
 });
