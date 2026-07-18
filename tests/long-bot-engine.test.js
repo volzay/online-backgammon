@@ -245,6 +245,136 @@ test("near-home checkers are both entered before home shuffles", () => {
   assert.equal(maxHomeGain, 2);
 });
 
+test("9TCS-H9F9 move 31 enters a checker instead of shuffling inside home", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 2 },
+    3: { color: "white", count: 5 },
+    4: { color: "white", count: 2 },
+    5: { color: "dark", count: 1 },
+    6: { color: "white", count: 3 },
+    7: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    13: { color: "dark", count: 3 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    18: { color: "dark", count: 3 },
+    22: { color: "dark", count: 2 },
+    23: { color: "dark", count: 3 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [1, 5],
+    rolled: [1, 5],
+  });
+
+  const legal = game.bestMoveSequences(state, "dark").filter(sequence => sequence.length);
+  const outsideBefore = countOutsideHome(state, "dark");
+  const maxOutsideReduction = Math.max(...legal.map(sequence => {
+    const next = JSON.parse(JSON.stringify(state));
+    sequence.forEach(move => game.applyMove(next, move.from, move.die, { autoEnd: false }));
+    return outsideBefore - countOutsideHome(next, "dark");
+  }));
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.equal(maxOutsideReduction, 1);
+  assert.equal(decision.selected.features.outsideReduction, maxOutsideReduction);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+  assert.ok(decision.selected.features.homeEntryPriorityAdjustment > 0);
+  assert.ok(decision.alternatives.some(candidate => candidate.features.homeShuffleMoves > 0));
+});
+
+test("9TCS-H9F9 move 32 makes both available home entries", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 2 },
+    3: { color: "white", count: 5 },
+    4: { color: "white", count: 2 },
+    5: { color: "dark", count: 1 },
+    6: { color: "white", count: 4 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    13: { color: "dark", count: 4 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    18: { color: "dark", count: 2 },
+    21: { color: "dark", count: 1 },
+    22: { color: "dark", count: 1 },
+    23: { color: "dark", count: 3 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [4, 3],
+    rolled: [4, 3],
+  });
+
+  const legal = game.bestMoveSequences(state, "dark").filter(sequence => sequence.length);
+  const outsideBefore = countOutsideHome(state, "dark");
+  const maxOutsideReduction = Math.max(...legal.map(sequence => {
+    const next = JSON.parse(JSON.stringify(state));
+    sequence.forEach(move => game.applyMove(next, move.from, move.die, { autoEnd: false }));
+    return outsideBefore - countOutsideHome(next, "dark");
+  }));
+
+  engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
+  const decision = engine.consumeLastDecision();
+  assert.equal(maxOutsideReduction, 2);
+  assert.equal(decision.selected.features.outsideReduction, maxOutsideReduction);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+});
+
+test("v16 reserves a fifth-place home entry for reply analysis", async () => {
+  const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = longState({
+    1: { color: "dark", count: 2 },
+    3: { color: "white", count: 5 },
+    4: { color: "white", count: 2 },
+    5: { color: "dark", count: 1 },
+    6: { color: "white", count: 3 },
+    7: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    13: { color: "dark", count: 3 },
+    14: { color: "white", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    18: { color: "dark", count: 3 },
+    22: { color: "dark", count: 2 },
+    23: { color: "dark", count: 3 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [1, 5],
+    rolled: [1, 5],
+  });
+  const candidate = (id, score, outsideReduction, homeShuffleMoves) => ({
+    id,
+    score,
+    experienceAdjustment: 0,
+    features: {
+      outsideReduction,
+      homeShuffleMoves,
+      trapDelta: 0,
+      fenceClosureDelta: 0,
+      escapeGatewayDelta: 0,
+      maxRouteTowerAfter: 3,
+    },
+  });
+  const ranked = [
+    candidate("shuffle-1", 10000000, 0, 1),
+    candidate("shuffle-2", 9700000, 0, 1),
+    candidate("shuffle-3", 9400000, 0, 1),
+    candidate("shuffle-4", 9100000, 0, 1),
+    candidate("entry", 8500000, 1, 0),
+    candidate("other", 8300000, 0, 0),
+  ];
+
+  const reserved = reserveHomeEntryForTacticalAnalysis(state, "dark", ranked, 4);
+  assert.equal(reserved.length, ranked.length);
+  assert.equal(reserved[3].id, "entry");
+  assert.deepEqual(new Set(reserved), new Set(ranked));
+});
+
 test("trap risk makes the bot escape before improving home points", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -560,7 +690,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v15");
+  assert.equal(decision.engineVersion, "long-analytic-v16");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);

@@ -847,9 +847,10 @@ function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LO
   const outside = outsideHomeCount(before, color);
   const headRemaining = headCheckers(before, color);
   const rescuePressure = koksRescuePressure(before, color);
+  const matureEntryPhase = headRemaining === 0 && outside <= 9;
   const earlyEntryScale = headRemaining >= 5 && outside >= 9
     ? 0.18
-    : outside >= 7
+    : outside >= 7 && !matureEntryPhase
       ? 0.48
       : 1;
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
@@ -1593,6 +1594,11 @@ function createLongBotEngine(adapter, options = {}) {
         );
       }
     }
+    strategicallyRanked = reserveHomeEntryForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
     const tacticallyRanked = analyzeOpponentReplies(
       adapter,
       color,
@@ -1667,7 +1673,8 @@ function createLongBotEngine(adapter, options = {}) {
       );
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
-    return finalCandidates.sort((left, right) => right.score - left.score);
+    const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
+    return prioritizeAvailableHomeEntry(state, color, sortedCandidates);
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -1696,6 +1703,113 @@ function createLongBotEngine(adapter, options = {}) {
       return experience.size;
     },
   };
+}
+
+function prioritizeAvailableHomeEntry(state, color, ranked) {
+  const selected = ranked[0];
+  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const entering = ranked.filter(candidate => (
+    Number(candidate.features.outsideReduction) > selectedEntry
+    && isSafeHomeEntryAlternative(candidate, selected)
+  ));
+  if (!entering.length) return ranked;
+
+  // With a clear head and no severe trap, shuffling inside the home board only
+  // delays home readiness when the same roll can bring another checker home.
+  const maxEntry = Math.max(...entering.map(
+    candidate => Number(candidate.features.outsideReduction) || 0,
+  ));
+  const promoted = entering.filter(
+    candidate => Number(candidate.features.outsideReduction) === maxEntry,
+  );
+  const promotedSet = new Set(promoted);
+  promoted.forEach((candidate) => {
+    const adjustment = Math.max(0, Number(selected.score) - Number(candidate.score) + 1);
+    candidate.features.homeEntryPriorityAdjustment = adjustment;
+    candidate.score += adjustment;
+  });
+  return [...promoted, ...ranked.filter(candidate => !promotedSet.has(candidate))];
+}
+
+function isSafeHomeEntryAlternative(candidate, selected) {
+  if (
+    !isPlausibleHomeEntryAlternative(candidate, selected)
+    || !candidate.tactical
+    || !selected.tactical
+  ) {
+    return false;
+  }
+  const replyTolerance = 250000;
+  return Number(candidate.tactical.expectedImpact) >= (
+    Number(selected.tactical.expectedImpact) - replyTolerance
+  )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - replyTolerance
+    );
+}
+
+function reserveHomeEntryForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (
+    ranked.length <= slotCount
+    || !hasHomeEntryPriorityContext(state, color, selected)
+  ) {
+    return ranked;
+  }
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const entering = ranked.filter(candidate => (
+    Number(candidate.features.outsideReduction) > selectedEntry
+    && isPlausibleHomeEntryAlternative(candidate, selected)
+  ));
+  if (!entering.length) return ranked;
+
+  const maxEntry = Math.max(...entering.map(
+    candidate => Number(candidate.features.outsideReduction) || 0,
+  ));
+  const reserved = entering.find(
+    candidate => Number(candidate.features.outsideReduction) === maxEntry,
+  );
+  const reservedIndex = ranked.indexOf(reserved);
+  if (reservedIndex < slotCount) return ranked;
+
+  const leading = ranked.slice(0, slotCount - 1);
+  const leadingSet = new Set(leading);
+  return [
+    ...leading,
+    reserved,
+    ...ranked.filter(candidate => candidate !== reserved && !leadingSet.has(candidate)),
+  ];
+}
+
+function hasHomeEntryPriorityContext(state, color, selected) {
+  return Boolean(selected)
+    && !homeReady(state, color)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) <= 9
+    && opponentTrapRisk(state, color) < 120
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
+}
+
+function isPlausibleHomeEntryAlternative(candidate, selected) {
+  const totalScoreTolerance = 2000000;
+  const experienceTolerance = 500000;
+  return Number(candidate.features.trapDelta || 0) >= 0
+    && Number(candidate.features.fenceClosureDelta || 0) >= 0
+    && Number(candidate.features.escapeGatewayDelta || 0) >= 0
+    && Number(candidate.features.maxRouteTowerAfter || 0) < 7
+    && Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - experienceTolerance
+    );
 }
 
 function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
@@ -1969,7 +2083,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v15';
+const ENGINE_VERSION = 'long-analytic-v16';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

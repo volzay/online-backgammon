@@ -218,9 +218,10 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
   const outside = outsideHomeCount(before, color);
   const headRemaining = headCheckers(before, color);
   const rescuePressure = koksRescuePressure(before, color);
+  const matureEntryPhase = headRemaining === 0 && outside <= 9;
   const earlyEntryScale = headRemaining >= 5 && outside >= 9
     ? 0.18
-    : outside >= 7
+    : outside >= 7 && !matureEntryPhase
       ? 0.48
       : 1;
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);

@@ -11,7 +11,7 @@ import {
 } from './metrics.ts';
 
 const MAX_REPLY_SEQUENCES = 8;
-const MAX_TACTICAL_CANDIDATES = 4;
+export const MAX_TACTICAL_CANDIDATES = 4;
 const MAX_DEEP_CANDIDATES = 3;
 const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_CONTINUATION_CANDIDATES = 2;

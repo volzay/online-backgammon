@@ -85,10 +85,10 @@ test("the isolated v15 RPC migration preserves the Koks severity ordering", () =
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v15 bot dependency", () => {
+test("production entry points cache-bust every v16 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260716-koks-v15";
+  const version = "20260718-home-entry-v16";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
