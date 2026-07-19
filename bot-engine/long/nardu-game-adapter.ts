@@ -1,13 +1,17 @@
 export function createNarduGameAdapter(game) {
   return {
-    legalSequences(state, color) {
+    legalSequences(state, color, options = {}) {
       if (!game?.bestMoveSequences) return [];
       const prepared = {
         ...state,
         turn: color || state.turn,
         phase: 'move',
       };
-      return game.bestMoveSequences(prepared, color)
+      const limit = Math.max(0, Number(options.limit) || 0);
+      const sequences = limit > 0 && game.sampledMoveSequences
+        ? game.sampledMoveSequences(prepared, color, limit)
+        : game.bestMoveSequences(prepared, color);
+      return sequences
         .filter(sequence => sequence?.length)
         .map(sequence => sequence.map(move => ({
           from: Number(move.from),

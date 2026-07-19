@@ -8,6 +8,8 @@ import {
   normalizeExperiencePatterns,
 } from './analysis.ts';
 import {
+  blockingPrimeRun,
+  blockingPrimeScore,
   developmentPressure,
   headCheckers,
   headPoint,
@@ -17,6 +19,7 @@ import {
   lateEntryPressure,
   offCount,
   opponentOf,
+  opponentMoveBlockScore,
   opponentHeadFreedomMoveDelta,
   opponentTrapRisk,
   outsideHomeCount,
@@ -49,19 +52,34 @@ export function createLongBotEngine(adapter, options = {}) {
       defaultAnalysisNodeBudget,
     );
     const budget = createAnalysisBudget(analysisNodeBudget);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v19').toLowerCase();
+    const advancedStrategy = strategyProfile !== 'v19';
+    const useExperience = advancedStrategy
+      || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(state, color, sequences, maxCandidates);
     const ranked = [];
+    const advancedBeforeMetrics = advancedStrategy
+      ? advancedStateMetrics(state, color)
+      : null;
     for (const sequence of candidates) {
       if (!budget.consume()) break;
       const after = adapter.applySequence(state, sequence, color);
+      const features = sequenceStats(state, after, color, sequence);
+      if (advancedStrategy) {
+        Object.assign(features, advancedSequenceStats(
+          advancedBeforeMetrics,
+          after,
+          color,
+        ));
+      }
       ranked.push({
         sequence,
         after,
         score: scoreSequence(state, after, color, sequence, weights),
-        features: sequenceStats(state, after, color, sequence),
+        features,
       });
     }
 
@@ -76,11 +94,22 @@ export function createLongBotEngine(adapter, options = {}) {
       );
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
+      if (advancedStrategy) {
+        candidate.features.advancedStrategyAdjustment = advancedStrategyAdjustment(
+          state,
+          color,
+          candidate.features,
+        );
+        candidate.score += candidate.features.advancedStrategyAdjustment;
+      }
+      candidate.features.strategyProfile = strategyProfile;
       candidate.experience = experienceDescriptor(state, color, candidate.features);
-      candidate.experienceAdjustment = boundedExperienceAdjustment(
-        experienceAdjustment(candidate.experience, experience),
-        candidate.score,
-      );
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score,
+        )
+        : 0;
       candidate.score += candidate.experienceAdjustment;
     });
 
@@ -118,7 +147,16 @@ export function createLongBotEngine(adapter, options = {}) {
       strategicallyRanked,
       weights,
       budget,
+      { expandDoubles: advancedStrategy },
     );
+    if (advancedStrategy) {
+      tacticallyRanked.forEach((candidate) => {
+        const adjustment = advancedTacticalAdjustment(state, color, candidate);
+        candidate.features.advancedTacticalAdjustment = adjustment;
+        candidate.score += adjustment;
+      });
+      tacticallyRanked.sort((left, right) => right.score - left.score);
+    }
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
     const maxEntry = Math.max(...tacticallyRanked.map(
@@ -181,10 +219,12 @@ export function createLongBotEngine(adapter, options = {}) {
         candidate.features,
         candidate.tactical,
       );
-      candidate.experienceAdjustment = boundedExperienceAdjustment(
-        experienceAdjustment(candidate.experience, experience),
-        candidate.score - previousExperienceAdjustment,
-      );
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score - previousExperienceAdjustment,
+        )
+        : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
@@ -215,9 +255,28 @@ export function createLongBotEngine(adapter, options = {}) {
     return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
   }
 
+  function describeSequence(state, sequence, color = state.turn, runtimeOptions = {}) {
+    if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+    const after = adapter.applySequence(state, sequence, color);
+    const features = sequenceStats(state, after, color, sequence);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v20').toLowerCase();
+    if (strategyProfile !== 'v19') {
+      Object.assign(features, advancedSequenceStats(
+        advancedStateMetrics(state, color),
+        after,
+        color,
+      ));
+    }
+    return {
+      features,
+      experience: experienceDescriptor(state, color, features),
+    };
+  }
+
   return {
     plan,
     rank,
+    describeSequence,
     evaluateState(state, color, weights = defaultWeights) {
       return evaluateState(state, color, mergeWeights(weights));
     },
@@ -242,6 +301,112 @@ function normalizeAnalysisNodeBudget(value, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.floor(fallback));
   return Math.max(1, Math.floor(number));
+}
+
+function advancedStrategyAdjustment(state, color, features) {
+  const opponent = opponentOf(color);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const opponentHead = headCheckers(state, opponent);
+  const ownHead = headCheckers(state, color);
+  const attackPressure = Math.min(3.4, 1
+    + Math.max(-0.2, Math.min(1.2, raceDebt / 70))
+    + Math.max(0, opponentHead - 3) / 8
+    + Math.max(0, ownHead - 5) / 14);
+  const primeGain = Number(features.primeScoreGain) || 0;
+  const blockGain = Number(features.opponentMoveBlockGain) || 0;
+  const primeRunBefore = Number(features.primeRunBefore) || 0;
+  const primeRunAfter = Number(features.primeRunAfter) || 0;
+  const runPowerGain = Math.pow(primeRunAfter, 4) - Math.pow(primeRunBefore, 4);
+  const trapBefore = Math.max(0, Number(features.trapBefore) || 0);
+  const safetyCompatible = trapBefore < 240 || (
+    Number(features.trapDelta || 0) >= 0
+    && Number(features.fenceClosureDelta || 0) >= 0
+    && Number(features.escapeGatewayDelta || 0) >= 0
+  );
+  const establishedPrime = primeRunAfter >= 4 || primeRunBefore >= 4;
+  const constructivePressure = attackPressure
+    * (establishedPrime ? 1 : 0.18)
+    * (safetyCompatible ? 1 : 0.12);
+  const preservationPressure = attackPressure
+    * Math.max(0.55, 1 / (1 + trapBefore / 1800));
+  let score = 0;
+
+  score += primeGain * (primeGain >= 0 ? 42000 * constructivePressure : 90000 * preservationPressure);
+  score += blockGain * (blockGain >= 0 ? 360000 * constructivePressure : 620000 * preservationPressure);
+  score += runPowerGain * 260000
+    * (runPowerGain >= 0 ? constructivePressure : preservationPressure);
+  if (primeRunBefore >= 4 && primeRunAfter < primeRunBefore) {
+    score -= (primeRunBefore - primeRunAfter)
+      * (24000000 + opponentHead * 2600000)
+      * preservationPressure;
+  }
+  if (
+    safetyCompatible
+    && primeRunAfter >= 6
+    && Number(features.primeScoreAfter || 0) > 0
+  ) {
+    score += 180000000 * constructivePressure;
+  } else if (primeRunAfter === 5 && primeRunAfter > primeRunBefore) {
+    score += 52000000 * constructivePressure;
+  }
+  if (
+    opponentHead >= 5
+    && Number(features.homeEntryMoves || 0) > 0
+    && primeGain <= 0
+    && blockGain <= 0
+  ) {
+    score -= Number(features.homeEntryMoves)
+      * (9000000 + opponentHead * 1800000);
+  }
+  if (Number(features.maxRouteTowerAfter || 0) >= 6 && primeGain <= 0) {
+    score -= Math.pow(Number(features.maxRouteTowerAfter) - 5, 2) * 18000000;
+  }
+  return score;
+}
+
+function advancedStateMetrics(state, color) {
+  return {
+    primeScore: blockingPrimeScore(state, color),
+    primeRun: blockingPrimeRun(state, color),
+    opponentMoveBlock: opponentMoveBlockScore(state, color),
+  };
+}
+
+function advancedSequenceStats(beforeMetrics, after, color) {
+  const primeScoreAfter = blockingPrimeScore(after, color);
+  const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+  return {
+    primeScoreBefore: beforeMetrics.primeScore,
+    primeScoreAfter,
+    primeScoreGain: primeScoreAfter - beforeMetrics.primeScore,
+    primeRunBefore: beforeMetrics.primeRun,
+    primeRunAfter: blockingPrimeRun(after, color),
+    opponentMoveBlockBefore: beforeMetrics.opponentMoveBlock,
+    opponentMoveBlockAfter,
+    opponentMoveBlockGain: opponentMoveBlockAfter - beforeMetrics.opponentMoveBlock,
+  };
+}
+
+function advancedTacticalAdjustment(state, color, candidate) {
+  const tactical = candidate.tactical;
+  if (!tactical) return 0;
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  const opponentOutside = outsideHomeCount(state, opponent);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const pressure = Math.min(3, 1
+    + Math.max(0, raceDebt) / 90
+    + Math.max(0, opponentHead - 3) / 10);
+  let score = 0;
+  score += (Number(tactical.blockedProbability) || 0) * 95000000 * pressure;
+  score -= (Number(tactical.expectedOpponentPipGain) || 0) * 520000 * pressure;
+  score -= (Number(tactical.expectedOpponentHeadRelease) || 0)
+    * (16000000 + opponentHead * 2400000)
+    * pressure;
+  score -= (Number(tactical.expectedOpponentOutsideReduction) || 0)
+    * (7000000 + Math.max(0, 8 - opponentOutside) * 1800000);
+  score -= Math.log1p(Number(tactical.expectedReplySequences) || 0) * 1800000 * pressure;
+  return score;
 }
 
 function prioritizeAvailableHomeEntry(state, color, ranked) {

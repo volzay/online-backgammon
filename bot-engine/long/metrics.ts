@@ -617,6 +617,128 @@ export function blockadeScore(state, color) {
   return score;
 }
 
+export function blockingPrimeScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+  let runStart = -1;
+  let runLength = 0;
+
+  const trappedBefore = (index) => path.slice(0, index).reduce((total, point) => {
+    const stack = stackAt(state, point);
+    return total + (stack?.color === opponent ? Number(stack.count) || 0 : 0);
+  }, 0);
+  const scoreRun = () => {
+    if (runLength < 2 || runStart < 0) return;
+    const trapped = trappedBefore(runStart);
+    if (!trapped) return;
+    const runPoints = path.slice(runStart, runStart + runLength);
+    const reserves = runPoints.reduce((total, point) => {
+      const count = countAt(state, point, color);
+      return total + Math.min(3, Math.max(0, count - 1));
+    }, 0);
+    const zone = runStart < 7 ? 1.5 : runStart < 13 ? 1.2 : 0.82;
+    const closure = runLength >= 6
+      ? 520 + (runLength - 6) * 180
+      : Math.pow(runLength, 3) * (1 + reserves / Math.max(4, runLength * 2));
+    score += trapped * closure * zone;
+  };
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!runLength) runStart = index;
+      runLength += 1;
+      return;
+    }
+    scoreRun();
+    runStart = -1;
+    runLength = 0;
+  });
+  scoreRun();
+
+  for (let start = 1; start <= path.length - 6; start += 1) {
+    const trapped = trappedBefore(start);
+    if (!trapped) continue;
+    const window = path.slice(start, start + 6);
+    const ownPoints = window.filter(point => colorAt(state, point) === color).length;
+    const opponentPoints = window.filter(point => colorAt(state, point) === opponent).length;
+    if (ownPoints < 3 || ownPoints >= 6 || opponentPoints > 0) continue;
+    const madePoints = window.filter(point => countAt(state, point, color) >= 2).length;
+    const longest = longestColorRun(state, window, color);
+    const zone = start < 7 ? 1.35 : start < 13 ? 1.08 : 0.72;
+    const completion = Math.pow(ownPoints - 2, 2)
+      * (1 + longest * 0.3)
+      * (1 + madePoints * 0.1);
+    score += trapped * completion * zone;
+  }
+
+  return score;
+}
+
+export function opponentMoveBlockScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== opponent) return;
+    const pos = pathPos(opponent, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const checkerWeight = Math.min(5, Number(stack.count) || 0);
+    const routePressure = 1 + Math.max(0, 11 - pos) * 0.06;
+    let open = 0;
+    let blockedWeight = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const target = path[pos + die];
+      if (!target) continue;
+      if (colorAt(state, target) === color) blockedWeight += 7 - die;
+      else open += 1;
+    }
+    score += checkerWeight * blockedWeight * routePressure;
+    if (open === 0) score += checkerWeight * 96 * routePressure;
+    else if (open === 1) score += checkerWeight * 34 * routePressure;
+    else if (open === 2) score += checkerWeight * 11 * routePressure;
+  });
+
+  return score;
+}
+
+export function blockingPrimeRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let longest = 0;
+  let run = 0;
+  let runStart = 0;
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!run) runStart = index;
+      run += 1;
+      const trapped = path.slice(0, runStart).some(
+        target => colorAt(state, target) === opponent,
+      );
+      if (trapped) longest = Math.max(longest, run);
+      return;
+    }
+    run = 0;
+  });
+  return longest;
+}
+
+function longestColorRun(state, points, color) {
+  let longest = 0;
+  let run = 0;
+  points.forEach((point) => {
+    if (colorAt(state, point) === color) {
+      run += 1;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
+  });
+  return longest;
+}
+
 export function stuckRisk(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(color);

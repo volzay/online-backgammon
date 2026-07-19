@@ -1901,6 +1901,8 @@ as $$
       g.bot_color,
       g.result_type,
       g.player_name,
+      coalesce(nullif(decision->>'actor', ''), 'bot') as actor,
+      greatest(0.75, least(4, coalesce(nullif(decision->>'winQuality', '')::numeric, 1))) as win_quality,
       coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
       coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
       coalesce(decision->'selected'->'tactical', '{}'::jsonb) as tactical
@@ -1949,7 +1951,9 @@ as $$
   ), labeled as (
     select
       *,
-      winner <> bot_color and harm_signal >= 1.1 as harmful
+      actor = 'bot' and winner <> bot_color and harm_signal >= 1.1 as harmful,
+      (actor = 'bot' and winner = bot_color)
+        or (actor = 'opponent' and winner <> bot_color) as successful
     from signals
   ), expanded as (
     select
@@ -1958,6 +1962,8 @@ as $$
       result_type,
       harm_signal,
       harmful,
+      successful,
+      win_quality,
       player_weight
     from labeled
     cross join lateral (
@@ -1988,6 +1994,7 @@ as $$
       action_key,
       sum(player_weight)::integer as samples,
       sum(case when harmful then player_weight else 0 end)::integer as losses,
+      sum(case when successful then player_weight else 0 end)::integer as wins,
       sum(case
         when harmful then
           player_weight * (
@@ -2005,7 +2012,8 @@ as $$
           then player_weight
         else 0
       end)::integer as severe_losses,
-      sum(case when harmful then harm_signal * player_weight else 0 end)::double precision as signal_weight
+      sum(case when harmful then harm_signal * player_weight else 0 end)::double precision as signal_weight,
+      sum(case when successful then win_quality * player_weight else 0 end)::double precision as win_weight
     from expanded
     group by context_key, action_key
   ), ranked as (
@@ -2016,14 +2024,16 @@ as $$
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
-      'creditVersion', 2,
+      'creditVersion', 3,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,
       'losses', losses,
+      'wins', wins,
       'lossWeight', loss_weight,
       'severeLosses', severe_losses,
-      'signalWeight', signal_weight
+      'signalWeight', signal_weight,
+      'winWeight', win_weight
     ) order by samples desc, loss_weight desc, signal_weight desc),
     '[]'::jsonb
   )

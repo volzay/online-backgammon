@@ -536,6 +536,70 @@ window.NarduGame = (function () {
     return best;
   }
 
+  function sampledMoveSequences(state, color = state.turn, limit = 32) {
+    const beamLimit = Math.max(4, Math.floor(Number(limit) || 32));
+    let frontier = [{ state: cloneState(state), sequence: [] }];
+    const terminal = [];
+    const maximumDepth = Math.max(1, state.dice?.length || 0);
+
+    for (let depth = 0; depth < maximumDepth && frontier.length; depth += 1) {
+      const expanded = [];
+      frontier.forEach((node) => {
+        const moves = legalNextMoves(node.state, color);
+        if (!moves.length || node.state.winner) {
+          terminal.push(node);
+          return;
+        }
+        moves.forEach((move) => {
+          const next = cloneState(node.state);
+          commitMove(next, color, move);
+          expanded.push({ state: next, sequence: [...node.sequence, move] });
+        });
+      });
+      const unique = new Map();
+      expanded
+        .sort((left, right) => analysisSequencePriority(right, color)
+          - analysisSequencePriority(left, color))
+        .forEach((node) => {
+          const key = analysisPositionKey(node.state);
+          if (!unique.has(key)) unique.set(key, node);
+        });
+      frontier = Array.from(unique.values()).slice(0, beamLimit);
+    }
+    terminal.push(...frontier);
+    const maxLength = Math.max(0, ...terminal.map(node => node.sequence.length));
+    let best = terminal
+      .filter(node => node.sequence.length === maxLength)
+      .sort((left, right) => analysisSequencePriority(right, color)
+        - analysisSequencePriority(left, color))
+      .slice(0, beamLimit)
+      .map(node => node.sequence);
+    const remainingValues = [...new Set(state.dice || [])];
+    if (maxLength === 1 && state.dice.length === 2 && remainingValues.length === 2) {
+      const high = Math.max(...remainingValues);
+      const highDieSequences = best.filter(sequence => sequence[0]?.die === high);
+      if (highDieSequences.length) best = highDieSequences;
+    }
+    return best;
+  }
+
+  function analysisSequencePriority(node, color) {
+    const state = node.state;
+    return (state.off?.[color] || 0) * 1000000
+      - pipsFor(state, color) * 1200
+      + blockControlScore(state, color) * 1800
+      - botStackPenalty(state, color) * 900
+      + node.sequence.length * 100000;
+  }
+
+  function analysisPositionKey(state) {
+    const points = Object.entries(state.points || {})
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+      .join('|');
+    return `${(state.dice || []).slice().sort().join(',')}|${state.off?.white || 0}:${state.off?.dark || 0}|${points}`;
+  }
+
   function chooseBotSequence(state, color = state.turn, options = {}) {
     const difficulty = normalizeBotDifficulty(options.difficulty);
     const sequences = bestMoveSequences(state, color).filter(sequence => sequence.length);
@@ -1762,6 +1826,7 @@ window.NarduGame = (function () {
     legalDestinations,
     legalNextMoves,
     bestMoveSequences,
+    sampledMoveSequences,
     chooseBotSequence,
     hasAnyMoves,
     basicLegalMove,

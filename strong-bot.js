@@ -8,7 +8,7 @@ window.NarduStrongBot = (function () {
   const DEEP_SEQUENCE_LIMIT = 180;
   const PREFILTER_SEQUENCE_LIMIT = 64;
   const REPLY_LIMIT = 4;
-  const PLAN_ANALYSIS_NODE_BUDGET = 1150;
+  const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
   const DEFAULT_PROFILE = {
@@ -1269,6 +1269,7 @@ window.NarduStrongBot = (function () {
           maxCandidates: Number(runtimeOptions.maxCandidates) || PREFILTER_SEQUENCE_LIMIT,
           analysisNodeBudget: Number(runtimeOptions.analysisNodeBudget)
             || PLAN_ANALYSIS_NODE_BUDGET,
+          strategyProfile: runtimeOptions.strategyProfile || 'v20',
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
@@ -1345,9 +1346,13 @@ window.NarduStrongBot = (function () {
       `${pattern.contextKey}::${pattern.actionKey}`,
       { ...pattern },
     ]));
-    const decisions = Array.isArray(state.analysis?.botMemory?.decisions)
+    const archivedDecisions = Array.isArray(state.analysis?.botMemory?.decisions)
       ? state.analysis.botMemory.decisions
       : [];
+    const hasOpponentDecisions = archivedDecisions.some(decision => decision?.actor === 'opponent');
+    const decisions = hasOpponentDecisions
+      ? archivedDecisions
+      : [...archivedDecisions, ...captureOpponentDecisions(state, botColor)];
     const resultLossBonus = state.resultType === 'koks'
       ? 1.5
       : state.resultType === 'mars'
@@ -1358,26 +1363,37 @@ window.NarduStrongBot = (function () {
     decisions.forEach((decision) => {
       const descriptor = decision?.experience || decision?.selected?.experience;
       const severity = Math.max(0, Number(descriptor?.mistakeSeverity) || 0);
-      if (!descriptor?.contextKey || !descriptor?.actionKey || severity < 0.45) return;
+      const actor = decision?.actor === 'opponent' ? 'opponent' : 'bot';
+      const successful = actor === 'opponent' ? !botWon : botWon;
+      const harmful = actor === 'bot' && !botWon;
+      if (!descriptor?.contextKey || !descriptor?.actionKey) return;
+      if (harmful && severity < 0.45) return;
       const key = `${descriptor.contextKey}::${descriptor.actionKey}`;
       const pattern = byKey.get(key) || {
         contextKey: descriptor.contextKey,
         actionKey: descriptor.actionKey,
         samples: 0,
         losses: 0,
+        wins: 0,
         lossWeight: 0,
         severeLosses: 0,
         signalWeight: 0,
+        winWeight: 0,
       };
       pattern.samples += 1;
-      if (!botWon) {
+      if (harmful) {
         pattern.losses += 1;
         pattern.lossWeight = (Number(pattern.lossWeight) || 0)
           + Math.min(3.75, 0.85 + severity * 0.38)
           + resultLossBonus;
       }
-      if (severeLoss) pattern.severeLosses += 1;
-      pattern.signalWeight += severity;
+      if (harmful && severeLoss) pattern.severeLosses += 1;
+      if (harmful) pattern.signalWeight += severity;
+      if (successful) {
+        pattern.wins = (Number(pattern.wins) || 0) + 1;
+        pattern.winWeight = (Number(pattern.winWeight) || 0)
+          + Math.max(0.75, Math.min(4, Number(decision?.winQuality) || 1));
+      }
       pattern.updatedAt = new Date().toISOString();
       byKey.set(key, pattern);
     });
@@ -1386,6 +1402,7 @@ window.NarduStrongBot = (function () {
       .sort((left, right) => (
         Number(right.samples || 0) - Number(left.samples || 0)
         || Number(right.lossWeight || 0) - Number(left.lossWeight || 0)
+        || Number(right.winWeight || 0) - Number(left.winWeight || 0)
         || Number(right.signalWeight || 0) - Number(left.signalWeight || 0)
       ))
       .slice(0, 120);
@@ -1394,12 +1411,104 @@ window.NarduStrongBot = (function () {
     return profile;
   }
 
+  function captureOpponentDecisions(finalState, botColor) {
+    if (
+      !finalState?.winner
+      || finalState.winner === botColor
+      || !Array.isArray(finalState.history)
+      || !window.NarduLongBotEngine?.describeSequence
+    ) {
+      return [];
+    }
+    const winner = finalState.winner;
+    const replay = NarduGame.initialState('long');
+    const events = finalState.history.slice().reverse();
+    const captured = [];
+    let turnStart = null;
+    let turnMoves = [];
+    let turnColor = '';
+
+    const flushTurn = () => {
+      if (turnColor !== winner || !turnStart || !turnMoves.length) {
+        turnStart = null;
+        turnMoves = [];
+        turnColor = '';
+        return;
+      }
+      const described = window.NarduLongBotEngine.describeSequence(turnStart, turnMoves, {
+        color: winner,
+        strategyProfile: 'v20',
+      });
+      if (described?.experience) {
+        const features = described.features || {};
+        const winQuality = Math.min(4, 1
+          + Math.max(0, Number(features.primeScoreGain) || 0) / 1400
+          + Math.max(0, Number(features.opponentMoveBlockGain) || 0) / 120
+          + Math.max(0, Number(features.outsideReduction) || 0) * 0.2);
+        captured.push({
+          id: `opponent-${captured.length + 1}-${described.experience.contextKey}`,
+          actor: 'opponent',
+          color: winner,
+          dice: [...(turnStart.dice || [])],
+          winQuality,
+          selected: {
+            moves: turnMoves.map(move => ({ ...move })),
+            features,
+            experience: described.experience,
+          },
+          experience: described.experience,
+        });
+      }
+      turnStart = null;
+      turnMoves = [];
+      turnColor = '';
+    };
+
+    events.forEach((event) => {
+      if (event?.opening) return;
+      if (event?.roll) {
+        flushTurn();
+        const rolled = String(event.roll)
+          .split(':')
+          .map(Number)
+          .filter(value => value >= 1 && value <= 6);
+        const dice = rolled.length === 2 && rolled[0] === rolled[1]
+          ? [rolled[0], rolled[0], rolled[0], rolled[0]]
+          : rolled;
+        replay.turn = event.color;
+        replay.phase = 'move';
+        replay.dice = [...dice];
+        replay.rolled = [...dice];
+        replay.turnMoves = [];
+        replay.headPlayedThisTurn = { white: false, dark: false };
+        turnStart = cloneState(replay);
+        turnColor = event.color;
+        return;
+      }
+      if (
+        !turnStart
+        || event?.color !== turnColor
+        || !Number.isFinite(Number(event?.from))
+        || !Number.isFinite(Number(event?.die))
+      ) {
+        return;
+      }
+      const move = { from: Number(event.from), die: Number(event.die) };
+      if (NarduGame.applyMove(replay, move.from, move.die, { autoEnd: false })) {
+        turnMoves.push(move);
+      }
+    });
+    flushTurn();
+    return captured;
+  }
+
   return {
     plan,
     evaluateState,
     emergencyActive,
     survivalScore,
     learnFromGame,
+    captureOpponentDecisions,
     learningProfile,
   };
 })();

@@ -75,10 +75,88 @@ test("hard long engine is installed in browser bundle", () => {
   const { engine } = loadBrowserEngine();
   assert.equal(typeof engine.plan, "function");
   assert.equal(typeof engine.rank, "function");
+  assert.equal(typeof engine.describeSequence, "function");
   assert.equal(typeof engine.evaluateState, "function");
   assert.equal(typeof engine.consumeLastDecision, "function");
   assert.equal(typeof engine.setExperience, "function");
   assert.equal(typeof engine.experienceSize, "function");
+});
+
+test("v20 prime metrics value blocked checkers rather than empty board patterns", async () => {
+  const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
+  const threePointPrime = longState({
+    24: { color: "white", count: 10 },
+    23: { color: "dark", count: 1 },
+    22: { color: "dark", count: 2 },
+    21: { color: "dark", count: 1 },
+  });
+  const fivePointPrime = longState({
+    ...threePointPrime.points,
+    20: { color: "dark", count: 1 },
+    19: { color: "dark", count: 1 },
+  });
+  const nobodyBehind = longState({
+    23: { color: "dark", count: 1 },
+    22: { color: "dark", count: 2 },
+    21: { color: "dark", count: 1 },
+    18: { color: "white", count: 10 },
+  });
+
+  assert.ok(metrics.blockingPrimeScore(threePointPrime, "dark") > 0);
+  assert.ok(
+    metrics.blockingPrimeScore(fivePointPrime, "dark")
+      > metrics.blockingPrimeScore(threePointPrime, "dark") * 2,
+  );
+  assert.equal(metrics.blockingPrimeScore(nobodyBehind, "dark"), 0);
+  assert.ok(
+    metrics.opponentMoveBlockScore(fivePointPrime, "dark")
+      > metrics.opponentMoveBlockScore(threePointPrime, "dark"),
+  );
+});
+
+test("v20 reply analysis treats a double as four moves", () => {
+  const { engine } = loadBrowserEngine();
+  const ranked = engine.rank(tacticalThreatState(), {
+    strategyProfile: "v20",
+    maxCandidates: 4,
+    analysisNodeBudget: 260,
+  });
+  const analyzed = ranked.filter(candidate => candidate.tactical);
+
+  assert.ok(analyzed.length >= 2);
+  assert.ok(analyzed.every(candidate => candidate.tactical.doublesExpanded));
+  assert.ok(analyzed.some(candidate => candidate.tactical.rolls >= 3));
+});
+
+test("v20 only rewards explicitly recorded winning experience", async () => {
+  const analysis = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/analysis.ts"),
+  ).href);
+  const descriptor = {
+    contextKey: "route|h0|o2|po0|sz0|tr0|pd2",
+    actionKey: "head:flat|entry:gain|trap:flat",
+    familyActionKey: "head:flat|entry:gain|trap:flat",
+    legacyActionKey: "head:flat|entry:gain|trap:flat",
+    phase: "route",
+    riskSignal: 1,
+  };
+  const oldNeutral = analysis.normalizeExperiencePatterns([{
+    contextKey: descriptor.contextKey,
+    actionKey: descriptor.actionKey,
+    samples: 24,
+    losses: 0,
+  }]);
+  const explicitWins = analysis.normalizeExperiencePatterns([{
+    contextKey: descriptor.contextKey,
+    actionKey: descriptor.actionKey,
+    samples: 24,
+    losses: 0,
+    wins: 24,
+    winWeight: 30,
+  }]);
+
+  assert.equal(analysis.experienceAdjustment(descriptor, oldNeutral), 0);
+  assert.ok(analysis.experienceAdjustment(descriptor, explicitWins) > 0);
 });
 
 test("learned profile cannot destabilize the long engine weights", () => {
@@ -847,7 +925,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v19");
+  assert.equal(decision.engineVersion, "long-analytic-v20");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -1263,7 +1341,9 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
-  assert.match(schema, /'creditVersion', 2/);
+  assert.match(schema, /'creditVersion', 3/);
+  assert.match(schema, /'wins', wins/);
+  assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
   assert.match(schema, /familyActionKey/);
   assert.match(schema, /engine_version like 'long-analytic-%'/);

@@ -621,6 +621,128 @@ function blockadeScore(state, color) {
   return score;
 }
 
+function blockingPrimeScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+  let runStart = -1;
+  let runLength = 0;
+
+  const trappedBefore = (index) => path.slice(0, index).reduce((total, point) => {
+    const stack = stackAt(state, point);
+    return total + (stack?.color === opponent ? Number(stack.count) || 0 : 0);
+  }, 0);
+  const scoreRun = () => {
+    if (runLength < 2 || runStart < 0) return;
+    const trapped = trappedBefore(runStart);
+    if (!trapped) return;
+    const runPoints = path.slice(runStart, runStart + runLength);
+    const reserves = runPoints.reduce((total, point) => {
+      const count = countAt(state, point, color);
+      return total + Math.min(3, Math.max(0, count - 1));
+    }, 0);
+    const zone = runStart < 7 ? 1.5 : runStart < 13 ? 1.2 : 0.82;
+    const closure = runLength >= 6
+      ? 520 + (runLength - 6) * 180
+      : Math.pow(runLength, 3) * (1 + reserves / Math.max(4, runLength * 2));
+    score += trapped * closure * zone;
+  };
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!runLength) runStart = index;
+      runLength += 1;
+      return;
+    }
+    scoreRun();
+    runStart = -1;
+    runLength = 0;
+  });
+  scoreRun();
+
+  for (let start = 1; start <= path.length - 6; start += 1) {
+    const trapped = trappedBefore(start);
+    if (!trapped) continue;
+    const window = path.slice(start, start + 6);
+    const ownPoints = window.filter(point => colorAt(state, point) === color).length;
+    const opponentPoints = window.filter(point => colorAt(state, point) === opponent).length;
+    if (ownPoints < 3 || ownPoints >= 6 || opponentPoints > 0) continue;
+    const madePoints = window.filter(point => countAt(state, point, color) >= 2).length;
+    const longest = longestColorRun(state, window, color);
+    const zone = start < 7 ? 1.35 : start < 13 ? 1.08 : 0.72;
+    const completion = Math.pow(ownPoints - 2, 2)
+      * (1 + longest * 0.3)
+      * (1 + madePoints * 0.1);
+    score += trapped * completion * zone;
+  }
+
+  return score;
+}
+
+function opponentMoveBlockScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== opponent) return;
+    const pos = pathPos(opponent, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const checkerWeight = Math.min(5, Number(stack.count) || 0);
+    const routePressure = 1 + Math.max(0, 11 - pos) * 0.06;
+    let open = 0;
+    let blockedWeight = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const target = path[pos + die];
+      if (!target) continue;
+      if (colorAt(state, target) === color) blockedWeight += 7 - die;
+      else open += 1;
+    }
+    score += checkerWeight * blockedWeight * routePressure;
+    if (open === 0) score += checkerWeight * 96 * routePressure;
+    else if (open === 1) score += checkerWeight * 34 * routePressure;
+    else if (open === 2) score += checkerWeight * 11 * routePressure;
+  });
+
+  return score;
+}
+
+function blockingPrimeRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let longest = 0;
+  let run = 0;
+  let runStart = 0;
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!run) runStart = index;
+      run += 1;
+      const trapped = path.slice(0, runStart).some(
+        target => colorAt(state, target) === opponent,
+      );
+      if (trapped) longest = Math.max(longest, run);
+      return;
+    }
+    run = 0;
+  });
+  return longest;
+}
+
+function longestColorRun(state, points, color) {
+  let longest = 0;
+  let run = 0;
+  points.forEach((point) => {
+    if (colorAt(state, point) === color) {
+      run += 1;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
+  });
+  return longest;
+}
+
 function stuckRisk(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(color);
@@ -928,7 +1050,7 @@ const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_CONTINUATION_CANDIDATES = 2;
 const MAX_CONTINUATION_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 140000000;
-const MAX_EXPERIENCE_REWARD = 18000000;
+const MAX_EXPERIENCE_REWARD = 30000000;
 
 function createAnalysisBudget(limit) {
   const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
@@ -982,6 +1104,30 @@ const TACTICAL_ROLLS = [
   { dice: [1, 1], weight: 1 },
 ];
 
+const ADVANCED_TACTICAL_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [6, 6], weight: 1 },
+  { dice: [5, 4], weight: 2 },
+  { dice: [3, 2], weight: 2 },
+  { dice: [1, 1], weight: 1 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [5, 2], weight: 2 },
+  { dice: [4, 1], weight: 2 },
+  { dice: [5, 5], weight: 1 },
+  { dice: [4, 4], weight: 1 },
+  { dice: [3, 3], weight: 1 },
+  { dice: [2, 2], weight: 1 },
+  { dice: [6, 4], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [6, 2], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [6, 1], weight: 2 },
+];
+
 const RECOVERY_ROLLS = [
   { dice: [6, 5], weight: 2 },
   { dice: [5, 3], weight: 2 },
@@ -1003,21 +1149,32 @@ function analyzeOpponentReplies(
   candidates,
   weights,
   budget,
+  options = {},
 ) {
-  const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
+  const expandDoubles = Boolean(options.expandDoubles);
+  const tacticalCandidates = uniquePositionCandidates(
+    candidates,
+    expandDoubles ? 3 : MAX_TACTICAL_CANDIDATES,
+  );
   if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
+  const tacticalRolls = expandDoubles ? ADVANCED_TACTICAL_ROLLS : TACTICAL_ROLLS;
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
     expectedImpact: 0,
     weight: 0,
     worstImpact: 0,
     rolls: 0,
+    blockedWeight: 0,
+    replySequenceWeight: 0,
+    opponentPipGain: 0,
+    opponentHeadRelease: 0,
+    opponentOutsideReduction: 0,
     frontiers: [],
   }));
 
-  for (const roll of TACTICAL_ROLLS) {
+  for (const roll of tacticalRolls) {
     if (!hasAnalysisBudget(budget)) break;
     let completedRoll = true;
     const rollResults = [];
@@ -1027,11 +1184,18 @@ function analyzeOpponentReplies(
         completedRoll = false;
         break;
       }
-      const replyState = prepareReplyState(accumulator.candidate.after, opponent, roll.dice);
-      const replySequences = sampledSequences(
-        adapter.legalSequences(replyState, opponent),
-        MAX_REPLY_SEQUENCES,
+      const replyState = prepareReplyState(
+        accumulator.candidate.after,
+        opponent,
+        roll.dice,
+        expandDoubles,
       );
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replySequences = expandDoubles
+        ? legalReplies.slice(0, 2)
+        : sampledSequences(legalReplies, MAX_REPLY_SEQUENCES);
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
@@ -1051,7 +1215,24 @@ function analyzeOpponentReplies(
         }
       }
       if (!completedRoll) break;
-      rollResults.push({ impact: worstValue - beforeValue, state: worstState });
+      rollResults.push({
+        impact: worstValue - beforeValue,
+        state: worstState,
+        blocked: replySequences.length === 0,
+        replySequences: legalReplies.length,
+        opponentPipGain: Math.max(
+          0,
+          pipsFor(replyState, opponent) - pipsFor(worstState, opponent),
+        ),
+        opponentHeadRelease: Math.max(
+          0,
+          headCheckers(replyState, opponent) - headCheckers(worstState, opponent),
+        ),
+        opponentOutsideReduction: Math.max(
+          0,
+          outsideHomeCount(replyState, opponent) - outsideHomeCount(worstState, opponent),
+        ),
+      });
     }
 
     if (!completedRoll) break;
@@ -1062,6 +1243,11 @@ function analyzeOpponentReplies(
       accumulator.weight += roll.weight;
       accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
       accumulator.rolls += 1;
+      if (result.blocked) accumulator.blockedWeight += roll.weight;
+      accumulator.replySequenceWeight += result.replySequences * roll.weight;
+      accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
+      accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
+      accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
       accumulator.frontiers.push({ impact, state: result.state });
       accumulator.frontiers.sort((left, right) => left.impact - right.impact);
       accumulator.frontiers = accumulator.frontiers.slice(0, 2);
@@ -1080,10 +1266,16 @@ function analyzeOpponentReplies(
       rolls: accumulator.rolls,
       adjustment: tacticalAdjustment,
       plies: 2,
+      blockedProbability: accumulator.blockedWeight / accumulator.weight,
+      expectedReplySequences: accumulator.replySequenceWeight / accumulator.weight,
+      expectedOpponentPipGain: accumulator.opponentPipGain / accumulator.weight,
+      expectedOpponentHeadRelease: accumulator.opponentHeadRelease / accumulator.weight,
+      expectedOpponentOutsideReduction: accumulator.opponentOutsideReduction / accumulator.weight,
+      doublesExpanded: expandDoubles,
     };
   });
 
-  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget);
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles);
 
   return candidates.sort((left, right) => right.score - left.score);
 }
@@ -1109,7 +1301,7 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles) {
   const deepCandidates = accumulators
     .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
@@ -1126,11 +1318,18 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
 
     for (const roll of RECOVERY_ROLLS) {
       if (!consumeAnalysisNode(budget)) break;
-      const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
-      const recoverySequences = sampledSequences(
-        adapter.legalSequences(recoveryState, color),
-        MAX_RECOVERY_SEQUENCES,
+      const recoveryState = prepareReplyState(
+        frontier.state,
+        color,
+        roll.dice,
+        expandDoubles,
       );
+      const legalRecoverySequences = adapter.legalSequences(recoveryState, color, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const recoverySequences = expandDoubles
+        ? legalRecoverySequences.slice(0, 3)
+        : sampledSequences(legalRecoverySequences, MAX_RECOVERY_SEQUENCES);
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
       let bestRecoveryState = recoveryState;
       let completedRoll = true;
@@ -1181,10 +1380,24 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
       .slice(0, 2);
   }
 
-  analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget);
+  analyzeContinuationReplies(
+    adapter,
+    color,
+    deepCandidates,
+    weights,
+    budget,
+    expandDoubles,
+  );
 }
 
-function analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget) {
+function analyzeContinuationReplies(
+  adapter,
+  color,
+  deepCandidates,
+  weights,
+  budget,
+  expandDoubles,
+) {
   const opponent = opponentOf(color);
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
@@ -1201,12 +1414,19 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, bud
 
     for (const roll of CONTINUATION_ROLLS) {
       if (!consumeAnalysisNode(budget)) break;
-      const replyState = prepareReplyState(frontier.state, opponent, roll.dice);
-      const beforeValue = evaluateState(replyState, color, weights);
-      const replies = sampledSequences(
-        adapter.legalSequences(replyState, opponent),
-        MAX_CONTINUATION_SEQUENCES,
+      const replyState = prepareReplyState(
+        frontier.state,
+        opponent,
+        roll.dice,
+        expandDoubles,
       );
+      const beforeValue = evaluateState(replyState, color, weights);
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replies = expandDoubles
+        ? legalReplies.slice(0, 3)
+        : sampledSequences(legalReplies, MAX_CONTINUATION_SEQUENCES);
       let worstValue = beforeValue;
       let completedRoll = true;
       for (const reply of replies) {
@@ -1295,12 +1515,21 @@ function experienceDescriptor(
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
+  const hasAdvancedStrategy = Number.isFinite(Number(features.primeScoreGain));
+  const strategicActionKey = hasAdvancedStrategy
+    ? [
+      familyActionKey,
+      signedFlag('prime', features.primeScoreGain),
+      signedFlag('block', features.opponentMoveBlockGain),
+      `prime-run:${Math.max(0, Number(features.primeRunAfter) || 0)}`,
+    ].join('|')
+    : familyActionKey;
   const rescueAction = Number(features.missedKoksRescue || 0) > 0
     ? 'koks:miss'
     : Number(features.startZoneReduction || 0) > 0
       ? 'koks:gain'
       : 'koks:flat';
-  const actionKey = `${familyActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
 
   const urgency = 1
     + opponentOff * 0.12
@@ -1311,6 +1540,15 @@ function experienceDescriptor(
   mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
   mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
   mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
+  mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
+  mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
+  if (
+    Number(features.primeRunBefore || 0) >= 4
+    && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+  ) {
+    mistakeSeverity += 1.4
+      + (Number(features.primeRunBefore) - Number(features.primeRunAfter)) * 0.55;
+  }
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
@@ -1344,6 +1582,10 @@ function experienceDescriptor(
     Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
       ? 1.4 + Math.min(2.2, outside / 5)
       : 0,
+    Number(features.primeRunBefore || 0) >= 4
+      && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+      ? 2 + Number(features.primeRunBefore) - Number(features.primeRunAfter)
+      : 0,
   );
   const tacticalRisk = tactical
     ? Math.min(6, Math.abs(Math.min(0, Number(tactical.worstImpact) || 0)) / 12000000)
@@ -1353,6 +1595,7 @@ function experienceDescriptor(
   return {
     contextKey,
     actionKey,
+    strategicActionKey,
     familyActionKey,
     legacyActionKey,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
@@ -1373,6 +1616,7 @@ function normalizeExperiencePatterns(patterns = []) {
       actionKey,
       samples: Math.max(0, Number(pattern.samples) || 0),
       losses: Math.max(0, Number(pattern.losses) || 0),
+      wins: Math.max(0, Number(pattern.wins) || 0),
       lossWeight: Math.max(
         0,
         Number(pattern.lossWeight ?? pattern.loss_weight ?? pattern.losses) || 0,
@@ -1384,6 +1628,10 @@ function normalizeExperiencePatterns(patterns = []) {
       signalWeight: Math.max(
         0,
         Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
+      ),
+      winWeight: Math.max(
+        0,
+        Number(pattern.winWeight ?? pattern.win_weight) || 0,
       ),
     };
     mergePattern(normalized, key, contribution, contextKey, actionKey);
@@ -1401,11 +1649,17 @@ function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
   const strategic = strategicContextKey(descriptor.contextKey);
-  const actionKeys = [
-    descriptor.actionKey,
-    descriptor.familyActionKey,
-    descriptor.legacyActionKey,
-  ].filter(Boolean);
+  const hasStrategicAction = descriptor.strategicActionKey
+    && descriptor.strategicActionKey !== descriptor.familyActionKey;
+  const actionKeys = (hasStrategicAction
+    ? [
+      descriptor.actionKey,
+      descriptor.strategicActionKey,
+      descriptor.familyActionKey,
+      descriptor.legacyActionKey,
+    ]
+    : [descriptor.actionKey, descriptor.familyActionKey, descriptor.legacyActionKey]
+  ).filter(Boolean);
 
   const contextLevels = [
     { key: descriptor.contextKey, minimum: 3, weight: 1 },
@@ -1413,7 +1667,7 @@ function experienceAdjustment(descriptor, experience) {
     { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
     { key: '*', minimum: 16, weight: 0.28 },
   ];
-  const actionWeights = [1, 0.76, 0.56];
+  const actionWeights = hasStrategicAction ? [1, 0.86, 0.68, 0.5] : [1, 0.76, 0.56];
   const matches = [];
   const seen = new Set();
   actionKeys.forEach((actionKey, index) => {
@@ -1421,7 +1675,8 @@ function experienceAdjustment(descriptor, experience) {
       const pattern = experience.get(`${candidate.key}::${actionKey}`);
       if (!pattern) return false;
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
-      return pattern.samples >= candidate.minimum || severeEvidence;
+      const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
+      return pattern.samples >= candidate.minimum || severeEvidence || winningEvidence;
     });
     if (!level) return;
     const mapKey = `${level.key}::${actionKey}`;
@@ -1439,6 +1694,8 @@ function experienceAdjustment(descriptor, experience) {
   let weightedSevereRate = 0;
   let weightedSeverity = 0;
   let weightedSamples = 0;
+  let weightedWinRate = 0;
+  let weightedWinQuality = 0;
   matches.forEach(({ pattern, weight }) => {
     const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
     const evidence = weight * confidence;
@@ -1447,11 +1704,15 @@ function experienceAdjustment(descriptor, experience) {
     weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
     weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
     weightedSamples += pattern.samples * weight;
+    weightedWinRate += pattern.wins / Math.max(1, pattern.samples) * evidence;
+    weightedWinQuality += pattern.winWeight / Math.max(1, pattern.wins) * evidence;
   });
   if (!evidenceWeight) return 0;
   const lossRate = weightedLossRate / evidenceWeight;
   const severeRate = weightedSevereRate / evidenceWeight;
   const learnedSeverity = weightedSeverity / evidenceWeight;
+  const winRate = weightedWinRate / evidenceWeight;
+  const winQuality = weightedWinQuality / evidenceWeight;
   const confidence = Math.min(0.9, weightedSamples / (weightedSamples + 9));
   const relevance = 1.35 + Math.min(3.2, Math.max(
     Number(descriptor.riskSignal) || 0,
@@ -1468,11 +1729,12 @@ function experienceAdjustment(descriptor, experience) {
     );
     return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
   }
-  if (weightedSamples >= 8 && lossRate <= 0.16 && severeRate <= 0.08) {
-    const reward = 3000000
+  if (weightedSamples >= 5 && lossRate <= 0.24 && severeRate <= 0.08 && winRate >= 0.55) {
+    const reward = 9000000
       * confidence
-      * (0.24 - lossRate)
-      * Math.min(1.8, relevance);
+      * (0.35 + winRate)
+      * Math.min(1.8, relevance)
+      * Math.min(1.5, 0.7 + winQuality * 0.3);
     return Math.min(MAX_EXPERIENCE_REWARD, reward);
   }
   return 0;
@@ -1484,15 +1746,19 @@ function mergePattern(target, key, pattern, contextKey, actionKey) {
     actionKey,
     samples: 0,
     losses: 0,
+    wins: 0,
     lossWeight: 0,
     severeLosses: 0,
     signalWeight: 0,
+    winWeight: 0,
   };
   current.samples += pattern.samples;
   current.losses += pattern.losses;
+  current.wins += pattern.wins;
   current.lossWeight += pattern.lossWeight;
   current.severeLosses += pattern.severeLosses;
   current.signalWeight += pattern.signalWeight;
+  current.winWeight += pattern.winWeight;
   target.set(key, current);
 }
 
@@ -1505,13 +1771,16 @@ function strategicContextKey(contextKey) {
   return [phase, ...dimensions].join('|');
 }
 
-function prepareReplyState(state, color, dice) {
+function prepareReplyState(state, color, dice, expandDoubles = false) {
+  const resolvedDice = expandDoubles && dice.length === 2 && dice[0] === dice[1]
+    ? [dice[0], dice[0], dice[0], dice[0]]
+    : [...dice];
   return {
     ...state,
     turn: color,
     phase: 'move',
-    dice: [...dice],
-    rolled: [...dice],
+    dice: resolvedDice,
+    rolled: [...resolvedDice],
     turnMoves: [],
     headPlayedThisTurn: {
       ...(state.headPlayedThisTurn || {}),
@@ -1583,19 +1852,34 @@ function createLongBotEngine(adapter, options = {}) {
       defaultAnalysisNodeBudget,
     );
     const budget = createAnalysisBudget(analysisNodeBudget);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v19').toLowerCase();
+    const advancedStrategy = strategyProfile !== 'v19';
+    const useExperience = advancedStrategy
+      || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(state, color, sequences, maxCandidates);
     const ranked = [];
+    const advancedBeforeMetrics = advancedStrategy
+      ? advancedStateMetrics(state, color)
+      : null;
     for (const sequence of candidates) {
       if (!budget.consume()) break;
       const after = adapter.applySequence(state, sequence, color);
+      const features = sequenceStats(state, after, color, sequence);
+      if (advancedStrategy) {
+        Object.assign(features, advancedSequenceStats(
+          advancedBeforeMetrics,
+          after,
+          color,
+        ));
+      }
       ranked.push({
         sequence,
         after,
         score: scoreSequence(state, after, color, sequence, weights),
-        features: sequenceStats(state, after, color, sequence),
+        features,
       });
     }
 
@@ -1610,11 +1894,22 @@ function createLongBotEngine(adapter, options = {}) {
       );
       candidate.baseScore = candidate.score;
       candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
+      if (advancedStrategy) {
+        candidate.features.advancedStrategyAdjustment = advancedStrategyAdjustment(
+          state,
+          color,
+          candidate.features,
+        );
+        candidate.score += candidate.features.advancedStrategyAdjustment;
+      }
+      candidate.features.strategyProfile = strategyProfile;
       candidate.experience = experienceDescriptor(state, color, candidate.features);
-      candidate.experienceAdjustment = boundedExperienceAdjustment(
-        experienceAdjustment(candidate.experience, experience),
-        candidate.score,
-      );
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score,
+        )
+        : 0;
       candidate.score += candidate.experienceAdjustment;
     });
 
@@ -1652,7 +1947,16 @@ function createLongBotEngine(adapter, options = {}) {
       strategicallyRanked,
       weights,
       budget,
+      { expandDoubles: advancedStrategy },
     );
+    if (advancedStrategy) {
+      tacticallyRanked.forEach((candidate) => {
+        const adjustment = advancedTacticalAdjustment(state, color, candidate);
+        candidate.features.advancedTacticalAdjustment = adjustment;
+        candidate.score += adjustment;
+      });
+      tacticallyRanked.sort((left, right) => right.score - left.score);
+    }
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
     const maxEntry = Math.max(...tacticallyRanked.map(
@@ -1715,10 +2019,12 @@ function createLongBotEngine(adapter, options = {}) {
         candidate.features,
         candidate.tactical,
       );
-      candidate.experienceAdjustment = boundedExperienceAdjustment(
-        experienceAdjustment(candidate.experience, experience),
-        candidate.score - previousExperienceAdjustment,
-      );
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score - previousExperienceAdjustment,
+        )
+        : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
     const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
@@ -1749,9 +2055,28 @@ function createLongBotEngine(adapter, options = {}) {
     return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
   }
 
+  function describeSequence(state, sequence, color = state.turn, runtimeOptions = {}) {
+    if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+    const after = adapter.applySequence(state, sequence, color);
+    const features = sequenceStats(state, after, color, sequence);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v20').toLowerCase();
+    if (strategyProfile !== 'v19') {
+      Object.assign(features, advancedSequenceStats(
+        advancedStateMetrics(state, color),
+        after,
+        color,
+      ));
+    }
+    return {
+      features,
+      experience: experienceDescriptor(state, color, features),
+    };
+  }
+
   return {
     plan,
     rank,
+    describeSequence,
     evaluateState(state, color, weights = defaultWeights) {
       return evaluateState(state, color, mergeWeights(weights));
     },
@@ -1776,6 +2101,112 @@ function normalizeAnalysisNodeBudget(value, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.floor(fallback));
   return Math.max(1, Math.floor(number));
+}
+
+function advancedStrategyAdjustment(state, color, features) {
+  const opponent = opponentOf(color);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const opponentHead = headCheckers(state, opponent);
+  const ownHead = headCheckers(state, color);
+  const attackPressure = Math.min(3.4, 1
+    + Math.max(-0.2, Math.min(1.2, raceDebt / 70))
+    + Math.max(0, opponentHead - 3) / 8
+    + Math.max(0, ownHead - 5) / 14);
+  const primeGain = Number(features.primeScoreGain) || 0;
+  const blockGain = Number(features.opponentMoveBlockGain) || 0;
+  const primeRunBefore = Number(features.primeRunBefore) || 0;
+  const primeRunAfter = Number(features.primeRunAfter) || 0;
+  const runPowerGain = Math.pow(primeRunAfter, 4) - Math.pow(primeRunBefore, 4);
+  const trapBefore = Math.max(0, Number(features.trapBefore) || 0);
+  const safetyCompatible = trapBefore < 240 || (
+    Number(features.trapDelta || 0) >= 0
+    && Number(features.fenceClosureDelta || 0) >= 0
+    && Number(features.escapeGatewayDelta || 0) >= 0
+  );
+  const establishedPrime = primeRunAfter >= 4 || primeRunBefore >= 4;
+  const constructivePressure = attackPressure
+    * (establishedPrime ? 1 : 0.18)
+    * (safetyCompatible ? 1 : 0.12);
+  const preservationPressure = attackPressure
+    * Math.max(0.55, 1 / (1 + trapBefore / 1800));
+  let score = 0;
+
+  score += primeGain * (primeGain >= 0 ? 42000 * constructivePressure : 90000 * preservationPressure);
+  score += blockGain * (blockGain >= 0 ? 360000 * constructivePressure : 620000 * preservationPressure);
+  score += runPowerGain * 260000
+    * (runPowerGain >= 0 ? constructivePressure : preservationPressure);
+  if (primeRunBefore >= 4 && primeRunAfter < primeRunBefore) {
+    score -= (primeRunBefore - primeRunAfter)
+      * (24000000 + opponentHead * 2600000)
+      * preservationPressure;
+  }
+  if (
+    safetyCompatible
+    && primeRunAfter >= 6
+    && Number(features.primeScoreAfter || 0) > 0
+  ) {
+    score += 180000000 * constructivePressure;
+  } else if (primeRunAfter === 5 && primeRunAfter > primeRunBefore) {
+    score += 52000000 * constructivePressure;
+  }
+  if (
+    opponentHead >= 5
+    && Number(features.homeEntryMoves || 0) > 0
+    && primeGain <= 0
+    && blockGain <= 0
+  ) {
+    score -= Number(features.homeEntryMoves)
+      * (9000000 + opponentHead * 1800000);
+  }
+  if (Number(features.maxRouteTowerAfter || 0) >= 6 && primeGain <= 0) {
+    score -= Math.pow(Number(features.maxRouteTowerAfter) - 5, 2) * 18000000;
+  }
+  return score;
+}
+
+function advancedStateMetrics(state, color) {
+  return {
+    primeScore: blockingPrimeScore(state, color),
+    primeRun: blockingPrimeRun(state, color),
+    opponentMoveBlock: opponentMoveBlockScore(state, color),
+  };
+}
+
+function advancedSequenceStats(beforeMetrics, after, color) {
+  const primeScoreAfter = blockingPrimeScore(after, color);
+  const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+  return {
+    primeScoreBefore: beforeMetrics.primeScore,
+    primeScoreAfter,
+    primeScoreGain: primeScoreAfter - beforeMetrics.primeScore,
+    primeRunBefore: beforeMetrics.primeRun,
+    primeRunAfter: blockingPrimeRun(after, color),
+    opponentMoveBlockBefore: beforeMetrics.opponentMoveBlock,
+    opponentMoveBlockAfter,
+    opponentMoveBlockGain: opponentMoveBlockAfter - beforeMetrics.opponentMoveBlock,
+  };
+}
+
+function advancedTacticalAdjustment(state, color, candidate) {
+  const tactical = candidate.tactical;
+  if (!tactical) return 0;
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  const opponentOutside = outsideHomeCount(state, opponent);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const pressure = Math.min(3, 1
+    + Math.max(0, raceDebt) / 90
+    + Math.max(0, opponentHead - 3) / 10);
+  let score = 0;
+  score += (Number(tactical.blockedProbability) || 0) * 95000000 * pressure;
+  score -= (Number(tactical.expectedOpponentPipGain) || 0) * 520000 * pressure;
+  score -= (Number(tactical.expectedOpponentHeadRelease) || 0)
+    * (16000000 + opponentHead * 2400000)
+    * pressure;
+  score -= (Number(tactical.expectedOpponentOutsideReduction) || 0)
+    * (7000000 + Math.max(0, 8 - opponentOutside) * 1800000);
+  score -= Math.log1p(Number(tactical.expectedReplySequences) || 0) * 1800000 * pressure;
+  return score;
 }
 
 function prioritizeAvailableHomeEntry(state, color, ranked) {
@@ -2334,14 +2765,18 @@ function strategicSafetyAdjustment(state, color, features) {
 /* bot-engine/long/nardu-game-adapter.ts */
 function createNarduGameAdapter(game) {
   return {
-    legalSequences(state, color) {
+    legalSequences(state, color, options = {}) {
       if (!game?.bestMoveSequences) return [];
       const prepared = {
         ...state,
         turn: color || state.turn,
         phase: 'move',
       };
-      return game.bestMoveSequences(prepared, color)
+      const limit = Math.max(0, Number(options.limit) || 0);
+      const sequences = limit > 0 && game.sampledMoveSequences
+        ? game.sampledMoveSequences(prepared, color, limit)
+        : game.bestMoveSequences(prepared, color);
+      return sequences
         .filter(sequence => sequence?.length)
         .map(sequence => sequence.map(move => ({
           from: Number(move.from),
@@ -2371,7 +2806,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v19';
+const ENGINE_VERSION = 'long-analytic-v20';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -2397,6 +2832,12 @@ function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       return engine.rank(state, color, runtimeOptions);
+    },
+
+    describeSequence(state, sequence, runtimeOptions = {}) {
+      const color = runtimeOptions.color || state?.turn;
+      if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+      return engine.describeSequence(state, sequence, color, runtimeOptions);
     },
 
     evaluateState(state, color = state?.turn, weights = undefined) {
@@ -2444,6 +2885,12 @@ function decisionRecord(state, color, ranked, weights = undefined, experienceSiz
       continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
       continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
       continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
+      blockedProbability: Number(candidate.tactical.blockedProbability) || 0,
+      expectedReplySequences: Number(candidate.tactical.expectedReplySequences) || 0,
+      expectedOpponentPipGain: Number(candidate.tactical.expectedOpponentPipGain) || 0,
+      expectedOpponentHeadRelease: Number(candidate.tactical.expectedOpponentHeadRelease) || 0,
+      expectedOpponentOutsideReduction: Number(candidate.tactical.expectedOpponentOutsideReduction) || 0,
+      doublesExpanded: Boolean(candidate.tactical.doublesExpanded),
       plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,

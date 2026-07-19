@@ -1,0 +1,162 @@
+begin;
+
+drop function if exists public.get_long_bot_experience_patterns();
+
+create or replace function public.get_long_bot_experience_patterns(
+  p_player_name text default null
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with raw_decisions as (
+    select
+      g.winner,
+      g.bot_color,
+      g.result_type,
+      g.player_name,
+      coalesce(nullif(decision->>'actor', ''), 'bot') as actor,
+      greatest(0.75, least(4, coalesce(nullif(decision->>'winQuality', '')::numeric, 1))) as win_quality,
+      coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
+      coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
+      coalesce(decision->'selected'->'tactical', '{}'::jsonb) as tactical
+    from public.bot_training_games g
+    cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
+    where g.difficulty = 'hard'
+      and g.engine_version like 'long-analytic-%'
+      and g.completed_at >= now() - interval '180 days'
+  ), signals as (
+    select
+      *,
+      coalesce(descriptor->>'phase', split_part(descriptor->>'contextKey', '|', 1), 'route') as phase,
+      greatest(
+        coalesce(nullif(descriptor->>'riskSignal', '')::numeric, 0),
+        coalesce(nullif(descriptor->>'mistakeSeverity', '')::numeric, 0),
+        least(6, abs(least(0, coalesce(nullif(tactical->>'worstImpact', '')::numeric, 0))) / 12000000),
+        case
+          when coalesce(nullif(features->>'trapBefore', '')::numeric, 0) >= 600
+            and coalesce(nullif(features->>'trapDelta', '')::numeric, 0) <= 0
+            then least(4, coalesce(nullif(features->>'trapBefore', '')::numeric, 0) / 900)
+          else 0
+        end,
+        greatest(0, -coalesce(nullif(features->>'routeTowerDelta', '')::numeric, 0) / 90),
+        case
+          when coalesce(nullif(features->>'maxRouteTowerAfter', '')::numeric, 0) >= 6
+            then (coalesce(nullif(features->>'maxRouteTowerAfter', '')::numeric, 0) - 5) * 0.85
+          else 0
+        end,
+        case
+          when coalesce(nullif(features->>'homeShuffleMoves', '')::numeric, 0) > 0
+            and coalesce(nullif(features->>'outsideReduction', '')::numeric, 0) <= 0
+            and coalesce(descriptor->>'phase', '') <> 'bearoff'
+            then 1.5
+          else 0
+        end
+      ) as harm_signal,
+      case
+        when coalesce(trim(p_player_name), '') <> ''
+          and lower(player_name) = lower(trim(p_player_name))
+          then 3
+        else 1
+      end as player_weight
+    from raw_decisions
+    where coalesce(descriptor->>'contextKey', '') <> ''
+      and coalesce(descriptor->>'actionKey', '') <> ''
+  ), labeled as (
+    select
+      *,
+      actor = 'bot' and winner <> bot_color and harm_signal >= 1.1 as harmful,
+      (actor = 'bot' and winner = bot_color)
+        or (actor = 'opponent' and winner <> bot_color) as successful
+    from signals
+  ), expanded as (
+    select
+      descriptor->>'contextKey' as context_key,
+      action.action_key,
+      result_type,
+      harm_signal,
+      harmful,
+      successful,
+      win_quality,
+      player_weight
+    from labeled
+    cross join lateral (
+      select distinct candidate as action_key
+      from (values
+        (descriptor->>'actionKey'),
+        (coalesce(
+          nullif(descriptor->>'familyActionKey', ''),
+          regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
+        )),
+        (coalesce(
+          nullif(descriptor->>'legacyActionKey', ''),
+          regexp_replace(
+            coalesce(
+              nullif(descriptor->>'familyActionKey', ''),
+              regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
+            ),
+            '\|tower:[^|]*$',
+            ''
+          )
+        ))
+      ) choices(candidate)
+      where coalesce(candidate, '') <> ''
+    ) action
+  ), grouped as (
+    select
+      context_key,
+      action_key,
+      sum(player_weight)::integer as samples,
+      sum(case when harmful then player_weight else 0 end)::integer as losses,
+      sum(case when successful then player_weight else 0 end)::integer as wins,
+      sum(case
+        when harmful then
+          player_weight * (
+            least(3.75, 0.85 + harm_signal * 0.38)
+            + case
+              when result_type = 'koks' then 1.5
+              when result_type = 'mars' then 0.75
+              else 0
+            end
+          )
+        else 0
+      end)::double precision as loss_weight,
+      sum(case
+        when harmful and (result_type in ('mars', 'koks') or harm_signal >= 3.2)
+          then player_weight
+        else 0
+      end)::integer as severe_losses,
+      sum(case when harmful then harm_signal * player_weight else 0 end)::double precision as signal_weight,
+      sum(case when successful then win_quality * player_weight else 0 end)::double precision as win_weight
+    from expanded
+    group by context_key, action_key
+  ), ranked as (
+    select *
+    from grouped
+    order by samples desc, loss_weight desc, signal_weight desc
+    limit 480
+  )
+  select coalesce(
+    jsonb_agg(jsonb_build_object(
+      'creditVersion', 3,
+      'contextKey', context_key,
+      'actionKey', action_key,
+      'samples', samples,
+      'losses', losses,
+      'wins', wins,
+      'lossWeight', loss_weight,
+      'severeLosses', severe_losses,
+      'signalWeight', signal_weight,
+      'winWeight', win_weight
+    ) order by samples desc, loss_weight desc, signal_weight desc),
+    '[]'::jsonb
+  )
+  from ranked
+$$;
+
+revoke all on function public.get_long_bot_experience_patterns(text) from public;
+grant execute on function public.get_long_bot_experience_patterns(text) to anon, authenticated;
+
+commit;

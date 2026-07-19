@@ -17,7 +17,7 @@ const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_CONTINUATION_CANDIDATES = 2;
 const MAX_CONTINUATION_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 140000000;
-const MAX_EXPERIENCE_REWARD = 18000000;
+const MAX_EXPERIENCE_REWARD = 30000000;
 
 export function createAnalysisBudget(limit) {
   const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
@@ -71,6 +71,30 @@ const TACTICAL_ROLLS = [
   { dice: [1, 1], weight: 1 },
 ];
 
+const ADVANCED_TACTICAL_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [6, 6], weight: 1 },
+  { dice: [5, 4], weight: 2 },
+  { dice: [3, 2], weight: 2 },
+  { dice: [1, 1], weight: 1 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [5, 2], weight: 2 },
+  { dice: [4, 1], weight: 2 },
+  { dice: [5, 5], weight: 1 },
+  { dice: [4, 4], weight: 1 },
+  { dice: [3, 3], weight: 1 },
+  { dice: [2, 2], weight: 1 },
+  { dice: [6, 4], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [6, 2], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [6, 1], weight: 2 },
+];
+
 const RECOVERY_ROLLS = [
   { dice: [6, 5], weight: 2 },
   { dice: [5, 3], weight: 2 },
@@ -92,21 +116,32 @@ export function analyzeOpponentReplies(
   candidates,
   weights,
   budget,
+  options = {},
 ) {
-  const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
+  const expandDoubles = Boolean(options.expandDoubles);
+  const tacticalCandidates = uniquePositionCandidates(
+    candidates,
+    expandDoubles ? 3 : MAX_TACTICAL_CANDIDATES,
+  );
   if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
+  const tacticalRolls = expandDoubles ? ADVANCED_TACTICAL_ROLLS : TACTICAL_ROLLS;
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
     expectedImpact: 0,
     weight: 0,
     worstImpact: 0,
     rolls: 0,
+    blockedWeight: 0,
+    replySequenceWeight: 0,
+    opponentPipGain: 0,
+    opponentHeadRelease: 0,
+    opponentOutsideReduction: 0,
     frontiers: [],
   }));
 
-  for (const roll of TACTICAL_ROLLS) {
+  for (const roll of tacticalRolls) {
     if (!hasAnalysisBudget(budget)) break;
     let completedRoll = true;
     const rollResults = [];
@@ -116,11 +151,18 @@ export function analyzeOpponentReplies(
         completedRoll = false;
         break;
       }
-      const replyState = prepareReplyState(accumulator.candidate.after, opponent, roll.dice);
-      const replySequences = sampledSequences(
-        adapter.legalSequences(replyState, opponent),
-        MAX_REPLY_SEQUENCES,
+      const replyState = prepareReplyState(
+        accumulator.candidate.after,
+        opponent,
+        roll.dice,
+        expandDoubles,
       );
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replySequences = expandDoubles
+        ? legalReplies.slice(0, 2)
+        : sampledSequences(legalReplies, MAX_REPLY_SEQUENCES);
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
@@ -140,7 +182,24 @@ export function analyzeOpponentReplies(
         }
       }
       if (!completedRoll) break;
-      rollResults.push({ impact: worstValue - beforeValue, state: worstState });
+      rollResults.push({
+        impact: worstValue - beforeValue,
+        state: worstState,
+        blocked: replySequences.length === 0,
+        replySequences: legalReplies.length,
+        opponentPipGain: Math.max(
+          0,
+          pipsFor(replyState, opponent) - pipsFor(worstState, opponent),
+        ),
+        opponentHeadRelease: Math.max(
+          0,
+          headCheckers(replyState, opponent) - headCheckers(worstState, opponent),
+        ),
+        opponentOutsideReduction: Math.max(
+          0,
+          outsideHomeCount(replyState, opponent) - outsideHomeCount(worstState, opponent),
+        ),
+      });
     }
 
     if (!completedRoll) break;
@@ -151,6 +210,11 @@ export function analyzeOpponentReplies(
       accumulator.weight += roll.weight;
       accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
       accumulator.rolls += 1;
+      if (result.blocked) accumulator.blockedWeight += roll.weight;
+      accumulator.replySequenceWeight += result.replySequences * roll.weight;
+      accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
+      accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
+      accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
       accumulator.frontiers.push({ impact, state: result.state });
       accumulator.frontiers.sort((left, right) => left.impact - right.impact);
       accumulator.frontiers = accumulator.frontiers.slice(0, 2);
@@ -169,10 +233,16 @@ export function analyzeOpponentReplies(
       rolls: accumulator.rolls,
       adjustment: tacticalAdjustment,
       plies: 2,
+      blockedProbability: accumulator.blockedWeight / accumulator.weight,
+      expectedReplySequences: accumulator.replySequenceWeight / accumulator.weight,
+      expectedOpponentPipGain: accumulator.opponentPipGain / accumulator.weight,
+      expectedOpponentHeadRelease: accumulator.opponentHeadRelease / accumulator.weight,
+      expectedOpponentOutsideReduction: accumulator.opponentOutsideReduction / accumulator.weight,
+      doublesExpanded: expandDoubles,
     };
   });
 
-  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget);
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles);
 
   return candidates.sort((left, right) => right.score - left.score);
 }
@@ -198,7 +268,7 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles) {
   const deepCandidates = accumulators
     .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
@@ -215,11 +285,18 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
 
     for (const roll of RECOVERY_ROLLS) {
       if (!consumeAnalysisNode(budget)) break;
-      const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
-      const recoverySequences = sampledSequences(
-        adapter.legalSequences(recoveryState, color),
-        MAX_RECOVERY_SEQUENCES,
+      const recoveryState = prepareReplyState(
+        frontier.state,
+        color,
+        roll.dice,
+        expandDoubles,
       );
+      const legalRecoverySequences = adapter.legalSequences(recoveryState, color, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const recoverySequences = expandDoubles
+        ? legalRecoverySequences.slice(0, 3)
+        : sampledSequences(legalRecoverySequences, MAX_RECOVERY_SEQUENCES);
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
       let bestRecoveryState = recoveryState;
       let completedRoll = true;
@@ -270,10 +347,24 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
       .slice(0, 2);
   }
 
-  analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget);
+  analyzeContinuationReplies(
+    adapter,
+    color,
+    deepCandidates,
+    weights,
+    budget,
+    expandDoubles,
+  );
 }
 
-function analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget) {
+function analyzeContinuationReplies(
+  adapter,
+  color,
+  deepCandidates,
+  weights,
+  budget,
+  expandDoubles,
+) {
   const opponent = opponentOf(color);
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
@@ -290,12 +381,19 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, bud
 
     for (const roll of CONTINUATION_ROLLS) {
       if (!consumeAnalysisNode(budget)) break;
-      const replyState = prepareReplyState(frontier.state, opponent, roll.dice);
-      const beforeValue = evaluateState(replyState, color, weights);
-      const replies = sampledSequences(
-        adapter.legalSequences(replyState, opponent),
-        MAX_CONTINUATION_SEQUENCES,
+      const replyState = prepareReplyState(
+        frontier.state,
+        opponent,
+        roll.dice,
+        expandDoubles,
       );
+      const beforeValue = evaluateState(replyState, color, weights);
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replies = expandDoubles
+        ? legalReplies.slice(0, 3)
+        : sampledSequences(legalReplies, MAX_CONTINUATION_SEQUENCES);
       let worstValue = beforeValue;
       let completedRoll = true;
       for (const reply of replies) {
@@ -384,12 +482,21 @@ export function experienceDescriptor(
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
+  const hasAdvancedStrategy = Number.isFinite(Number(features.primeScoreGain));
+  const strategicActionKey = hasAdvancedStrategy
+    ? [
+      familyActionKey,
+      signedFlag('prime', features.primeScoreGain),
+      signedFlag('block', features.opponentMoveBlockGain),
+      `prime-run:${Math.max(0, Number(features.primeRunAfter) || 0)}`,
+    ].join('|')
+    : familyActionKey;
   const rescueAction = Number(features.missedKoksRescue || 0) > 0
     ? 'koks:miss'
     : Number(features.startZoneReduction || 0) > 0
       ? 'koks:gain'
       : 'koks:flat';
-  const actionKey = `${familyActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
 
   const urgency = 1
     + opponentOff * 0.12
@@ -400,6 +507,15 @@ export function experienceDescriptor(
   mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
   mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
   mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
+  mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
+  mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
+  if (
+    Number(features.primeRunBefore || 0) >= 4
+    && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+  ) {
+    mistakeSeverity += 1.4
+      + (Number(features.primeRunBefore) - Number(features.primeRunAfter)) * 0.55;
+  }
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
@@ -433,6 +549,10 @@ export function experienceDescriptor(
     Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
       ? 1.4 + Math.min(2.2, outside / 5)
       : 0,
+    Number(features.primeRunBefore || 0) >= 4
+      && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+      ? 2 + Number(features.primeRunBefore) - Number(features.primeRunAfter)
+      : 0,
   );
   const tacticalRisk = tactical
     ? Math.min(6, Math.abs(Math.min(0, Number(tactical.worstImpact) || 0)) / 12000000)
@@ -442,6 +562,7 @@ export function experienceDescriptor(
   return {
     contextKey,
     actionKey,
+    strategicActionKey,
     familyActionKey,
     legacyActionKey,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
@@ -462,6 +583,7 @@ export function normalizeExperiencePatterns(patterns = []) {
       actionKey,
       samples: Math.max(0, Number(pattern.samples) || 0),
       losses: Math.max(0, Number(pattern.losses) || 0),
+      wins: Math.max(0, Number(pattern.wins) || 0),
       lossWeight: Math.max(
         0,
         Number(pattern.lossWeight ?? pattern.loss_weight ?? pattern.losses) || 0,
@@ -473,6 +595,10 @@ export function normalizeExperiencePatterns(patterns = []) {
       signalWeight: Math.max(
         0,
         Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
+      ),
+      winWeight: Math.max(
+        0,
+        Number(pattern.winWeight ?? pattern.win_weight) || 0,
       ),
     };
     mergePattern(normalized, key, contribution, contextKey, actionKey);
@@ -490,11 +616,17 @@ export function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
   const strategic = strategicContextKey(descriptor.contextKey);
-  const actionKeys = [
-    descriptor.actionKey,
-    descriptor.familyActionKey,
-    descriptor.legacyActionKey,
-  ].filter(Boolean);
+  const hasStrategicAction = descriptor.strategicActionKey
+    && descriptor.strategicActionKey !== descriptor.familyActionKey;
+  const actionKeys = (hasStrategicAction
+    ? [
+      descriptor.actionKey,
+      descriptor.strategicActionKey,
+      descriptor.familyActionKey,
+      descriptor.legacyActionKey,
+    ]
+    : [descriptor.actionKey, descriptor.familyActionKey, descriptor.legacyActionKey]
+  ).filter(Boolean);
 
   const contextLevels = [
     { key: descriptor.contextKey, minimum: 3, weight: 1 },
@@ -502,7 +634,7 @@ export function experienceAdjustment(descriptor, experience) {
     { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
     { key: '*', minimum: 16, weight: 0.28 },
   ];
-  const actionWeights = [1, 0.76, 0.56];
+  const actionWeights = hasStrategicAction ? [1, 0.86, 0.68, 0.5] : [1, 0.76, 0.56];
   const matches = [];
   const seen = new Set();
   actionKeys.forEach((actionKey, index) => {
@@ -510,7 +642,8 @@ export function experienceAdjustment(descriptor, experience) {
       const pattern = experience.get(`${candidate.key}::${actionKey}`);
       if (!pattern) return false;
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
-      return pattern.samples >= candidate.minimum || severeEvidence;
+      const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
+      return pattern.samples >= candidate.minimum || severeEvidence || winningEvidence;
     });
     if (!level) return;
     const mapKey = `${level.key}::${actionKey}`;
@@ -528,6 +661,8 @@ export function experienceAdjustment(descriptor, experience) {
   let weightedSevereRate = 0;
   let weightedSeverity = 0;
   let weightedSamples = 0;
+  let weightedWinRate = 0;
+  let weightedWinQuality = 0;
   matches.forEach(({ pattern, weight }) => {
     const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
     const evidence = weight * confidence;
@@ -536,11 +671,15 @@ export function experienceAdjustment(descriptor, experience) {
     weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
     weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
     weightedSamples += pattern.samples * weight;
+    weightedWinRate += pattern.wins / Math.max(1, pattern.samples) * evidence;
+    weightedWinQuality += pattern.winWeight / Math.max(1, pattern.wins) * evidence;
   });
   if (!evidenceWeight) return 0;
   const lossRate = weightedLossRate / evidenceWeight;
   const severeRate = weightedSevereRate / evidenceWeight;
   const learnedSeverity = weightedSeverity / evidenceWeight;
+  const winRate = weightedWinRate / evidenceWeight;
+  const winQuality = weightedWinQuality / evidenceWeight;
   const confidence = Math.min(0.9, weightedSamples / (weightedSamples + 9));
   const relevance = 1.35 + Math.min(3.2, Math.max(
     Number(descriptor.riskSignal) || 0,
@@ -557,11 +696,12 @@ export function experienceAdjustment(descriptor, experience) {
     );
     return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
   }
-  if (weightedSamples >= 8 && lossRate <= 0.16 && severeRate <= 0.08) {
-    const reward = 3000000
+  if (weightedSamples >= 5 && lossRate <= 0.24 && severeRate <= 0.08 && winRate >= 0.55) {
+    const reward = 9000000
       * confidence
-      * (0.24 - lossRate)
-      * Math.min(1.8, relevance);
+      * (0.35 + winRate)
+      * Math.min(1.8, relevance)
+      * Math.min(1.5, 0.7 + winQuality * 0.3);
     return Math.min(MAX_EXPERIENCE_REWARD, reward);
   }
   return 0;
@@ -573,15 +713,19 @@ function mergePattern(target, key, pattern, contextKey, actionKey) {
     actionKey,
     samples: 0,
     losses: 0,
+    wins: 0,
     lossWeight: 0,
     severeLosses: 0,
     signalWeight: 0,
+    winWeight: 0,
   };
   current.samples += pattern.samples;
   current.losses += pattern.losses;
+  current.wins += pattern.wins;
   current.lossWeight += pattern.lossWeight;
   current.severeLosses += pattern.severeLosses;
   current.signalWeight += pattern.signalWeight;
+  current.winWeight += pattern.winWeight;
   target.set(key, current);
 }
 
@@ -594,13 +738,16 @@ function strategicContextKey(contextKey) {
   return [phase, ...dimensions].join('|');
 }
 
-function prepareReplyState(state, color, dice) {
+function prepareReplyState(state, color, dice, expandDoubles = false) {
+  const resolvedDice = expandDoubles && dice.length === 2 && dice[0] === dice[1]
+    ? [dice[0], dice[0], dice[0], dice[0]]
+    : [...dice];
   return {
     ...state,
     turn: color,
     phase: 'move',
-    dice: [...dice],
-    rolled: [...dice],
+    dice: resolvedDice,
+    rolled: [...resolvedDice],
     turnMoves: [],
     headPlayedThisTurn: {
       ...(state.headPlayedThisTurn || {}),

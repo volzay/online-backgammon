@@ -2815,13 +2815,26 @@ window.NarduController = (function () {
     const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
       ? state.analysis.botMemory
       : {};
+    const decisions = Array.isArray(memory.decisions) ? [...memory.decisions] : [];
+    const botColor = NarduGame.opponentOf(playerColor);
+    const opponentDecisions = window.NarduStrongBot?.captureOpponentDecisions
+      ? window.NarduStrongBot.captureOpponentDecisions(state, botColor)
+      : [];
+    opponentDecisions.forEach((decision) => {
+      if (decision?.id && !decisions.some(existing => existing?.id === decision.id)) {
+        decisions.push(decision);
+      }
+    });
+    if (decisions.length > BOT_MEMORY_MAX_DECISIONS) {
+      decisions.splice(0, decisions.length - BOT_MEMORY_MAX_DECISIONS);
+    }
     state.analysis.botMemory = {
       ...memory,
-      format: 1,
-      decisions: Array.isArray(memory.decisions) ? memory.decisions : [],
+      format: 2,
+      decisions,
       outcome: {
         winner: state.winner,
-        botColor: NarduGame.opponentOf(playerColor),
+        botColor,
         resultType: state.resultType || 'normal',
         score: { ...(state.score || {}) },
         finishedAt: state.finishedAt

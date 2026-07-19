@@ -72,6 +72,28 @@ test("normal long turn releases at most one checker from the head", () => {
   }
 });
 
+test("bounded analysis keeps all four legal moves of a double", () => {
+  const game = loadGame();
+  const state = game.initialState("long");
+  state.turn = "white";
+  state.phase = "move";
+  state.firstMoveDone = { white: true, dark: true };
+  state.points = {
+    24: { color: "white", count: 14 },
+    18: { color: "white", count: 1 },
+    12: { color: "dark", count: 15 },
+  };
+  game.applyRoll(state, [1, 1, 1, 1]);
+  const exact = game.bestMoveSequences(state, "white");
+  const sampled = game.sampledMoveSequences(state, "white", 16);
+  const exactLength = Math.max(...exact.map(sequence => sequence.length));
+
+  assert.equal(exactLength, 4);
+  assert.ok(sampled.length > 0);
+  assert.ok(sampled.length <= 16);
+  assert.ok(sampled.every(sequence => sequence.length === exactLength));
+});
+
 test("bearing off requires every checker to be in the home board", () => {
   const game = loadGame();
   const state = game.initialState("long");

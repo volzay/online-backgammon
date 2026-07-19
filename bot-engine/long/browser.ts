@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v19';
+const ENGINE_VERSION = 'long-analytic-v20';
 
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
@@ -27,6 +27,12 @@ export function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       return engine.rank(state, color, runtimeOptions);
+    },
+
+    describeSequence(state, sequence, runtimeOptions = {}) {
+      const color = runtimeOptions.color || state?.turn;
+      if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+      return engine.describeSequence(state, sequence, color, runtimeOptions);
     },
 
     evaluateState(state, color = state?.turn, weights = undefined) {
@@ -74,6 +80,12 @@ function decisionRecord(state, color, ranked, weights = undefined, experienceSiz
       continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
       continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
       continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
+      blockedProbability: Number(candidate.tactical.blockedProbability) || 0,
+      expectedReplySequences: Number(candidate.tactical.expectedReplySequences) || 0,
+      expectedOpponentPipGain: Number(candidate.tactical.expectedOpponentPipGain) || 0,
+      expectedOpponentHeadRelease: Number(candidate.tactical.expectedOpponentHeadRelease) || 0,
+      expectedOpponentOutsideReduction: Number(candidate.tactical.expectedOpponentOutsideReduction) || 0,
+      doublesExpanded: Boolean(candidate.tactical.doublesExpanded),
       plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
