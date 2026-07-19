@@ -930,6 +930,34 @@ const MAX_CONTINUATION_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 140000000;
 const MAX_EXPERIENCE_REWARD = 18000000;
 
+function createAnalysisBudget(limit) {
+  const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
+  let used = 0;
+  return {
+    limit: normalizedLimit,
+    consume(units = 1) {
+      const normalizedUnits = Math.max(1, Math.floor(Number(units) || 1));
+      if (used + normalizedUnits > normalizedLimit) return false;
+      used += normalizedUnits;
+      return true;
+    },
+    get used() {
+      return used;
+    },
+    get remaining() {
+      return Math.max(0, normalizedLimit - used);
+    },
+  };
+}
+
+function hasAnalysisBudget(budget, units = 1) {
+  return !budget || Number(budget.remaining) >= Math.max(1, Number(units) || 1);
+}
+
+function consumeAnalysisNode(budget, units = 1) {
+  return !budget || budget.consume(units);
+}
+
 const TACTICAL_ROLLS = [
   { dice: [6, 5], weight: 2 },
   { dice: [6, 4], weight: 2 },
@@ -974,10 +1002,10 @@ function analyzeOpponentReplies(
   color,
   candidates,
   weights,
-  deadline,
+  budget,
 ) {
   const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
-  if (tacticalCandidates.length < 2 || Date.now() >= deadline) return candidates;
+  if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
   const accumulators = tacticalCandidates.map(candidate => ({
@@ -990,12 +1018,12 @@ function analyzeOpponentReplies(
   }));
 
   for (const roll of TACTICAL_ROLLS) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     let completedRoll = true;
     const rollResults = [];
 
     for (const accumulator of accumulators) {
-      if (Date.now() >= deadline) {
+      if (!consumeAnalysisNode(budget)) {
         completedRoll = false;
         break;
       }
@@ -1009,6 +1037,10 @@ function analyzeOpponentReplies(
       let worstState = replyState;
 
       for (const reply of replySequences) {
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
@@ -1018,6 +1050,7 @@ function analyzeOpponentReplies(
           worstState = replyAfter;
         }
       }
+      if (!completedRoll) break;
       rollResults.push({ impact: worstValue - beforeValue, state: worstState });
     }
 
@@ -1050,7 +1083,7 @@ function analyzeOpponentReplies(
     };
   });
 
-  analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline);
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget);
 
   return candidates.sort((left, right) => right.score - left.score);
 }
@@ -1076,14 +1109,14 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline) {
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
   const deepCandidates = accumulators
     .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
     .slice(0, MAX_DEEP_CANDIDATES);
 
   for (const accumulator of deepCandidates) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.frontiers[0];
     let expectedRecovery = 0;
     let recoveryWeight = 0;
@@ -1092,7 +1125,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
     const recoveryFrontiers = [];
 
     for (const roll of RECOVERY_ROLLS) {
-      if (Date.now() >= deadline) break;
+      if (!consumeAnalysisNode(budget)) break;
       const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
       const recoverySequences = sampledSequences(
         adapter.legalSequences(recoveryState, color),
@@ -1100,8 +1133,12 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
       );
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
       let bestRecoveryState = recoveryState;
+      let completedRoll = true;
       for (const sequence of recoverySequences) {
-        if (Date.now() >= deadline) break;
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
         const sequenceValue = scoreSequence(
           recoveryState,
@@ -1118,6 +1155,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
           bestRecoveryState = recoveryAfter;
         }
       }
+      if (!completedRoll) break;
       if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
       expectedRecovery += bestRecovery * roll.weight;
       recoveryWeight += roll.weight;
@@ -1143,10 +1181,10 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
       .slice(0, 2);
   }
 
-  analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline);
+  analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget);
 }
 
-function analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline) {
+function analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget) {
   const opponent = opponentOf(color);
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
@@ -1154,7 +1192,7 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
     .slice(0, MAX_CONTINUATION_CANDIDATES);
 
   for (const accumulator of continuationCandidates) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.recoveryFrontiers[0];
     let expectedImpact = 0;
     let impactWeight = 0;
@@ -1162,7 +1200,7 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
     let rolls = 0;
 
     for (const roll of CONTINUATION_ROLLS) {
-      if (Date.now() >= deadline) break;
+      if (!consumeAnalysisNode(budget)) break;
       const replyState = prepareReplyState(frontier.state, opponent, roll.dice);
       const beforeValue = evaluateState(replyState, color, weights);
       const replies = sampledSequences(
@@ -1170,13 +1208,18 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
         MAX_CONTINUATION_SEQUENCES,
       );
       let worstValue = beforeValue;
+      let completedRoll = true;
       for (const reply of replies) {
-        if (Date.now() >= deadline) break;
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
       }
+      if (!completedRoll) break;
       const impact = worstValue - beforeValue;
       expectedImpact += impact * roll.weight;
       impactWeight += roll.weight;
@@ -1519,29 +1562,34 @@ function signedFlag(name, value) {
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 3600;
+const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
   const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
-  const defaultTimeLimitMs = Number(options.timeLimitMs) || DEFAULT_TIME_LIMIT_MS;
+  const defaultAnalysisNodeBudget = normalizeAnalysisNodeBudget(
+    options.analysisNodeBudget,
+    DEFAULT_ANALYSIS_NODE_BUDGET,
+  );
   const experienceSources = new Map();
   let experience = new Map();
 
   function rank(state, color = state.turn, runtimeOptions = {}) {
     if (!color) return [];
     const weights = mergeWeights({ ...defaultWeights, ...(runtimeOptions.weights || {}) });
-    const startedAt = Date.now();
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
-    const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
-    const deadline = startedAt + timeLimitMs;
-    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.34);
+    const analysisNodeBudget = normalizeAnalysisNodeBudget(
+      runtimeOptions.analysisNodeBudget,
+      defaultAnalysisNodeBudget,
+    );
+    const budget = createAnalysisBudget(analysisNodeBudget);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(state, color, sequences, maxCandidates);
     const ranked = [];
     for (const sequence of candidates) {
+      if (!budget.consume()) break;
       const after = adapter.applySequence(state, sequence, color);
       ranked.push({
         sequence,
@@ -1549,7 +1597,6 @@ function createLongBotEngine(adapter, options = {}) {
         score: scoreSequence(state, after, color, sequence, weights),
         features: sequenceStats(state, after, color, sequence),
       });
-      if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
     const maxKoksRescue = Math.max(...ranked.map(
@@ -1604,7 +1651,7 @@ function createLongBotEngine(adapter, options = {}) {
       color,
       strategicallyRanked,
       weights,
-      deadline,
+      budget,
     );
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
@@ -1633,7 +1680,8 @@ function createLongBotEngine(adapter, options = {}) {
     ));
     const opponentOff = offCount(state, opponentOf(color));
     const headReleaseIsCritical = maxHeadRelease > 0 && (
-      headRemaining >= 7
+      headRemaining <= 2
+      || headRemaining >= 7
       || trapPressure >= 600
       || fenceRun >= 4
       || opponentOff > 0
@@ -1684,11 +1732,16 @@ function createLongBotEngine(adapter, options = {}) {
       color,
       developedCandidates,
     );
-    return prioritizeRouteContinuity(
+    const finalRanked = prioritizeRouteContinuity(
       state,
       color,
       prioritizeAvailableHomeEntry(state, color, distributedCandidates),
     );
+    finalRanked.forEach((candidate) => {
+      candidate.features.analysisNodesUsed = budget.used;
+      candidate.features.analysisNodeBudget = budget.limit;
+    });
+    return finalRanked;
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -1719,6 +1772,12 @@ function createLongBotEngine(adapter, options = {}) {
   };
 }
 
+function normalizeAnalysisNodeBudget(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.floor(fallback));
+  return Math.max(1, Math.floor(number));
+}
+
 function prioritizeAvailableHomeEntry(state, color, ranked) {
   const selected = ranked[0];
   if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
@@ -1726,7 +1785,7 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const entering = ranked.filter(candidate => (
     Number(candidate.features.outsideReduction) > selectedEntry
-    && isSafeHomeEntryAlternative(candidate, selected)
+    && isSafeHomeEntryAlternative(state, color, candidate, selected)
   ));
   if (!entering.length) return ranked;
 
@@ -1948,15 +2007,17 @@ function promoteCandidate(ranked, promoted, adjustmentKey) {
   return [promoted, ...ranked.filter(candidate => candidate !== promoted)];
 }
 
-function isSafeHomeEntryAlternative(candidate, selected) {
+function isSafeHomeEntryAlternative(state, color, candidate, selected) {
   if (
-    !isPlausibleHomeEntryAlternative(candidate, selected)
+    !isPlausibleHomeEntryAlternative(state, color, candidate, selected)
     || !candidate.tactical
     || !selected.tactical
   ) {
     return false;
   }
-  const replyTolerance = 250000;
+  const replyTolerance = isForcedLateHomeEntryContext(state, color, selected)
+    ? 8000000
+    : 250000;
   return Number(candidate.tactical.expectedImpact) >= (
     Number(selected.tactical.expectedImpact) - replyTolerance
   )
@@ -1983,7 +2044,7 @@ function reserveHomeEntryForTacticalAnalysis(
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const entering = ranked.filter(candidate => (
     Number(candidate.features.outsideReduction) > selectedEntry
-    && isPlausibleHomeEntryAlternative(candidate, selected)
+    && isPlausibleHomeEntryAlternative(state, color, candidate, selected)
   ));
   if (!entering.length) return ranked;
 
@@ -2014,17 +2075,29 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     && Number(selected.features.homeShuffleMoves || 0) > 0;
 }
 
-function isPlausibleHomeEntryAlternative(candidate, selected) {
-  const totalScoreTolerance = 2000000;
+function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
+  const totalScoreTolerance = forcedLateEntry ? 18000000 : 2000000;
   const experienceTolerance = 500000;
-  return Number(candidate.features.trapDelta || 0) >= 0
-    && Number(candidate.features.fenceClosureDelta || 0) >= 0
-    && Number(candidate.features.escapeGatewayDelta || 0) >= 0
+  const trapFloor = forcedLateEntry ? Number(selected.features.trapDelta || 0) : 0;
+  const fenceFloor = forcedLateEntry ? Number(selected.features.fenceClosureDelta || 0) : 0;
+  const gatewayFloor = forcedLateEntry ? Number(selected.features.escapeGatewayDelta || 0) : 0;
+  return Number(candidate.features.trapDelta || 0) >= trapFloor
+    && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
+    && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
     && Number(candidate.features.maxRouteTowerAfter || 0) < 7
     && Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
     && Number(candidate.experienceAdjustment || 0) >= (
       Number(selected.experienceAdjustment || 0) - experienceTolerance
     );
+}
+
+function isForcedLateHomeEntryContext(state, color, selected) {
+  return Boolean(selected)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) <= 6
+    && opponentTrapRisk(state, color) < 120
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
 }
 
 function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
@@ -2298,7 +2371,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v18';
+const ENGINE_VERSION = 'long-analytic-v19';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

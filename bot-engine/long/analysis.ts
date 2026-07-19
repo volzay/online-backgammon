@@ -19,6 +19,34 @@ const MAX_CONTINUATION_SEQUENCES = 6;
 const MAX_EXPERIENCE_PENALTY = 140000000;
 const MAX_EXPERIENCE_REWARD = 18000000;
 
+export function createAnalysisBudget(limit) {
+  const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
+  let used = 0;
+  return {
+    limit: normalizedLimit,
+    consume(units = 1) {
+      const normalizedUnits = Math.max(1, Math.floor(Number(units) || 1));
+      if (used + normalizedUnits > normalizedLimit) return false;
+      used += normalizedUnits;
+      return true;
+    },
+    get used() {
+      return used;
+    },
+    get remaining() {
+      return Math.max(0, normalizedLimit - used);
+    },
+  };
+}
+
+function hasAnalysisBudget(budget, units = 1) {
+  return !budget || Number(budget.remaining) >= Math.max(1, Number(units) || 1);
+}
+
+function consumeAnalysisNode(budget, units = 1) {
+  return !budget || budget.consume(units);
+}
+
 const TACTICAL_ROLLS = [
   { dice: [6, 5], weight: 2 },
   { dice: [6, 4], weight: 2 },
@@ -63,10 +91,10 @@ export function analyzeOpponentReplies(
   color,
   candidates,
   weights,
-  deadline,
+  budget,
 ) {
   const tacticalCandidates = uniquePositionCandidates(candidates, MAX_TACTICAL_CANDIDATES);
-  if (tacticalCandidates.length < 2 || Date.now() >= deadline) return candidates;
+  if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
   const accumulators = tacticalCandidates.map(candidate => ({
@@ -79,12 +107,12 @@ export function analyzeOpponentReplies(
   }));
 
   for (const roll of TACTICAL_ROLLS) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     let completedRoll = true;
     const rollResults = [];
 
     for (const accumulator of accumulators) {
-      if (Date.now() >= deadline) {
+      if (!consumeAnalysisNode(budget)) {
         completedRoll = false;
         break;
       }
@@ -98,6 +126,10 @@ export function analyzeOpponentReplies(
       let worstState = replyState;
 
       for (const reply of replySequences) {
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
@@ -107,6 +139,7 @@ export function analyzeOpponentReplies(
           worstState = replyAfter;
         }
       }
+      if (!completedRoll) break;
       rollResults.push({ impact: worstValue - beforeValue, state: worstState });
     }
 
@@ -139,7 +172,7 @@ export function analyzeOpponentReplies(
     };
   });
 
-  analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline);
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget);
 
   return candidates.sort((left, right) => right.score - left.score);
 }
@@ -165,14 +198,14 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline) {
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget) {
   const deepCandidates = accumulators
     .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
     .slice(0, MAX_DEEP_CANDIDATES);
 
   for (const accumulator of deepCandidates) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.frontiers[0];
     let expectedRecovery = 0;
     let recoveryWeight = 0;
@@ -181,7 +214,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
     const recoveryFrontiers = [];
 
     for (const roll of RECOVERY_ROLLS) {
-      if (Date.now() >= deadline) break;
+      if (!consumeAnalysisNode(budget)) break;
       const recoveryState = prepareReplyState(frontier.state, color, roll.dice);
       const recoverySequences = sampledSequences(
         adapter.legalSequences(recoveryState, color),
@@ -189,8 +222,12 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
       );
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
       let bestRecoveryState = recoveryState;
+      let completedRoll = true;
       for (const sequence of recoverySequences) {
-        if (Date.now() >= deadline) break;
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
         const sequenceValue = scoreSequence(
           recoveryState,
@@ -207,6 +244,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
           bestRecoveryState = recoveryAfter;
         }
       }
+      if (!completedRoll) break;
       if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
       expectedRecovery += bestRecovery * roll.weight;
       recoveryWeight += roll.weight;
@@ -232,10 +270,10 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, deadline)
       .slice(0, 2);
   }
 
-  analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline);
+  analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget);
 }
 
-function analyzeContinuationReplies(adapter, color, deepCandidates, weights, deadline) {
+function analyzeContinuationReplies(adapter, color, deepCandidates, weights, budget) {
   const opponent = opponentOf(color);
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
@@ -243,7 +281,7 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
     .slice(0, MAX_CONTINUATION_CANDIDATES);
 
   for (const accumulator of continuationCandidates) {
-    if (Date.now() >= deadline) break;
+    if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.recoveryFrontiers[0];
     let expectedImpact = 0;
     let impactWeight = 0;
@@ -251,7 +289,7 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
     let rolls = 0;
 
     for (const roll of CONTINUATION_ROLLS) {
-      if (Date.now() >= deadline) break;
+      if (!consumeAnalysisNode(budget)) break;
       const replyState = prepareReplyState(frontier.state, opponent, roll.dice);
       const beforeValue = evaluateState(replyState, color, weights);
       const replies = sampledSequences(
@@ -259,13 +297,18 @@ function analyzeContinuationReplies(adapter, color, deepCandidates, weights, dea
         MAX_CONTINUATION_SEQUENCES,
       );
       let worstValue = beforeValue;
+      let completedRoll = true;
       for (const reply of replies) {
-        if (Date.now() >= deadline) break;
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
         const replyAfter = adapter.applySequence(replyState, reply, opponent);
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
       }
+      if (!completedRoll) break;
       const impact = worstValue - beforeValue;
       expectedImpact += impact * roll.weight;
       impactWeight += roll.weight;

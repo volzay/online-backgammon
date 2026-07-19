@@ -7,6 +7,7 @@
     "dev": "node server.js",
     "start": "node server.js",
     "build:bot-engine": "node scripts/build-long-bot-engine.js",
+    "simulate:bot-regression": "node scripts/simulate-long-bot-regression.js",
     "test:bot-engine": "node --test tests/*.test.js",
     "test": "npm run test:bot-engine",
     "build": "node scripts/build-github-pages.js"

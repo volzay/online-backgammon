@@ -480,7 +480,7 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
   assert.ok(decision.selected.features.routeContinuityAdjustment > 0);
 });
 
-test("v18 reserves a fifth-place home entry for reply analysis", async () => {
+test("v19 reserves a fifth-place home entry for reply analysis", async () => {
   const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
   ).href);
@@ -847,7 +847,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v18");
+  assert.equal(decision.engineVersion, "long-analytic-v19");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -1312,6 +1312,95 @@ test("U3DQ-PGZX move 11 keeps the point that prevents a head-built fence", () =>
 
   assert.deepEqual(JSON.parse(JSON.stringify(after.points[18])), { color: "dark", count: 1 });
   assert.ok(!plan.some(move => move.from === 18));
+});
+
+test("v19 search is deterministic and bounded by analyzed nodes instead of wall time", () => {
+  const { engine } = loadBrowserEngine();
+  const source = [
+    fs.readFileSync(path.join(ROOT, "bot-engine/long/engine.ts"), "utf8"),
+    fs.readFileSync(path.join(ROOT, "bot-engine/long/analysis.ts"), "utf8"),
+  ].join("\n");
+  assert.doesNotMatch(source, /Date\.now\(\)/);
+
+  const state = tacticalThreatState();
+  const options = { maxCandidates: 64, analysisNodeBudget: 1150 };
+  const plans = Array.from({ length: 4 }, () => engine.plan(
+    JSON.parse(JSON.stringify(state)),
+    options,
+  ));
+  plans.slice(1).forEach(plan => assert.deepEqual(
+    JSON.parse(JSON.stringify(plan)),
+    JSON.parse(JSON.stringify(plans[0])),
+  ));
+
+  const decision = engine.consumeLastDecision();
+  assert.equal(decision.selected.features.analysisNodeBudget, 1150);
+  assert.ok(decision.selected.features.analysisNodesUsed <= 1150);
+});
+
+test("v19 five-game regression releases the final head checker immediately", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 2 },
+    2: { color: "dark", count: 1 },
+    3: { color: "white", count: 1 },
+    4: { color: "white", count: 3 },
+    5: { color: "white", count: 1 },
+    6: { color: "dark", count: 1 },
+    7: { color: "white", count: 1 },
+    8: { color: "dark", count: 1 },
+    9: { color: "dark", count: 4 },
+    11: { color: "dark", count: 1 },
+    12: { color: "dark", count: 1 },
+    13: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "dark", count: 1 },
+    18: { color: "white", count: 3 },
+    19: { color: "dark", count: 1 },
+    20: { color: "dark", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "white", count: 2 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 1 },
+  }, {
+    dice: [3, 5],
+    rolled: [3, 5],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 1150 });
+  assert.ok(plan.some(move => move.from === 12), JSON.stringify(plan));
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+  assert.equal(after.points[12]?.count || 0, 0);
+});
+
+test("v19 five-game regression enters four outside checkers before a home shuffle", () => {
+  const { game, engine } = loadBrowserEngine();
+  const state = longState({
+    2: { color: "white", count: 1 },
+    3: { color: "white", count: 2 },
+    4: { color: "white", count: 4 },
+    5: { color: "white", count: 3 },
+    6: { color: "white", count: 4 },
+    10: { color: "white", count: 1 },
+    13: { color: "dark", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "dark", count: 6 },
+    17: { color: "dark", count: 2 },
+    20: { color: "dark", count: 2 },
+    21: { color: "dark", count: 3 },
+  }, {
+    dice: [3, 3, 3, 3],
+    rolled: [3, 3, 3, 3],
+  });
+
+  const outsideBefore = countOutsideHome(state, "dark");
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 1150 });
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+
+  assert.equal(countOutsideHome(after, "dark"), outsideBefore - 4);
+  assert.ok(!plan.some(move => move.from === 16), JSON.stringify(plan));
 });
 
 function countHome(state, color) {

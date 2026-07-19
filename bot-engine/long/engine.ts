@@ -2,6 +2,7 @@ import { evaluateState, mergeWeights, scoreSequence, sequenceStats } from './eva
 import {
   MAX_TACTICAL_CANDIDATES,
   analyzeOpponentReplies,
+  createAnalysisBudget,
   experienceAdjustment,
   experienceDescriptor,
   normalizeExperiencePatterns,
@@ -27,29 +28,34 @@ import {
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
-const DEFAULT_TIME_LIMIT_MS = 3600;
+const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
   const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
-  const defaultTimeLimitMs = Number(options.timeLimitMs) || DEFAULT_TIME_LIMIT_MS;
+  const defaultAnalysisNodeBudget = normalizeAnalysisNodeBudget(
+    options.analysisNodeBudget,
+    DEFAULT_ANALYSIS_NODE_BUDGET,
+  );
   const experienceSources = new Map();
   let experience = new Map();
 
   function rank(state, color = state.turn, runtimeOptions = {}) {
     if (!color) return [];
     const weights = mergeWeights({ ...defaultWeights, ...(runtimeOptions.weights || {}) });
-    const startedAt = Date.now();
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
-    const timeLimitMs = Number(runtimeOptions.timeLimitMs) || defaultTimeLimitMs;
-    const deadline = startedAt + timeLimitMs;
-    const staticDeadline = startedAt + Math.max(120, timeLimitMs * 0.34);
+    const analysisNodeBudget = normalizeAnalysisNodeBudget(
+      runtimeOptions.analysisNodeBudget,
+      defaultAnalysisNodeBudget,
+    );
+    const budget = createAnalysisBudget(analysisNodeBudget);
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(state, color, sequences, maxCandidates);
     const ranked = [];
     for (const sequence of candidates) {
+      if (!budget.consume()) break;
       const after = adapter.applySequence(state, sequence, color);
       ranked.push({
         sequence,
@@ -57,7 +63,6 @@ export function createLongBotEngine(adapter, options = {}) {
         score: scoreSequence(state, after, color, sequence, weights),
         features: sequenceStats(state, after, color, sequence),
       });
-      if (Date.now() >= staticDeadline && ranked.length >= 8) break;
     }
 
     const maxKoksRescue = Math.max(...ranked.map(
@@ -112,7 +117,7 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       strategicallyRanked,
       weights,
-      deadline,
+      budget,
     );
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
@@ -141,7 +146,8 @@ export function createLongBotEngine(adapter, options = {}) {
     ));
     const opponentOff = offCount(state, opponentOf(color));
     const headReleaseIsCritical = maxHeadRelease > 0 && (
-      headRemaining >= 7
+      headRemaining <= 2
+      || headRemaining >= 7
       || trapPressure >= 600
       || fenceRun >= 4
       || opponentOff > 0
@@ -192,11 +198,16 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       developedCandidates,
     );
-    return prioritizeRouteContinuity(
+    const finalRanked = prioritizeRouteContinuity(
       state,
       color,
       prioritizeAvailableHomeEntry(state, color, distributedCandidates),
     );
+    finalRanked.forEach((candidate) => {
+      candidate.features.analysisNodesUsed = budget.used;
+      candidate.features.analysisNodeBudget = budget.limit;
+    });
+    return finalRanked;
   }
 
   function plan(state, color = state.turn, runtimeOptions = {}) {
@@ -227,6 +238,12 @@ export function createLongBotEngine(adapter, options = {}) {
   };
 }
 
+function normalizeAnalysisNodeBudget(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.floor(fallback));
+  return Math.max(1, Math.floor(number));
+}
+
 function prioritizeAvailableHomeEntry(state, color, ranked) {
   const selected = ranked[0];
   if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
@@ -234,7 +251,7 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const entering = ranked.filter(candidate => (
     Number(candidate.features.outsideReduction) > selectedEntry
-    && isSafeHomeEntryAlternative(candidate, selected)
+    && isSafeHomeEntryAlternative(state, color, candidate, selected)
   ));
   if (!entering.length) return ranked;
 
@@ -456,15 +473,17 @@ function promoteCandidate(ranked, promoted, adjustmentKey) {
   return [promoted, ...ranked.filter(candidate => candidate !== promoted)];
 }
 
-function isSafeHomeEntryAlternative(candidate, selected) {
+function isSafeHomeEntryAlternative(state, color, candidate, selected) {
   if (
-    !isPlausibleHomeEntryAlternative(candidate, selected)
+    !isPlausibleHomeEntryAlternative(state, color, candidate, selected)
     || !candidate.tactical
     || !selected.tactical
   ) {
     return false;
   }
-  const replyTolerance = 250000;
+  const replyTolerance = isForcedLateHomeEntryContext(state, color, selected)
+    ? 8000000
+    : 250000;
   return Number(candidate.tactical.expectedImpact) >= (
     Number(selected.tactical.expectedImpact) - replyTolerance
   )
@@ -491,7 +510,7 @@ export function reserveHomeEntryForTacticalAnalysis(
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const entering = ranked.filter(candidate => (
     Number(candidate.features.outsideReduction) > selectedEntry
-    && isPlausibleHomeEntryAlternative(candidate, selected)
+    && isPlausibleHomeEntryAlternative(state, color, candidate, selected)
   ));
   if (!entering.length) return ranked;
 
@@ -522,17 +541,29 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     && Number(selected.features.homeShuffleMoves || 0) > 0;
 }
 
-function isPlausibleHomeEntryAlternative(candidate, selected) {
-  const totalScoreTolerance = 2000000;
+function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
+  const totalScoreTolerance = forcedLateEntry ? 18000000 : 2000000;
   const experienceTolerance = 500000;
-  return Number(candidate.features.trapDelta || 0) >= 0
-    && Number(candidate.features.fenceClosureDelta || 0) >= 0
-    && Number(candidate.features.escapeGatewayDelta || 0) >= 0
+  const trapFloor = forcedLateEntry ? Number(selected.features.trapDelta || 0) : 0;
+  const fenceFloor = forcedLateEntry ? Number(selected.features.fenceClosureDelta || 0) : 0;
+  const gatewayFloor = forcedLateEntry ? Number(selected.features.escapeGatewayDelta || 0) : 0;
+  return Number(candidate.features.trapDelta || 0) >= trapFloor
+    && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
+    && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
     && Number(candidate.features.maxRouteTowerAfter || 0) < 7
     && Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
     && Number(candidate.experienceAdjustment || 0) >= (
       Number(selected.experienceAdjustment || 0) - experienceTolerance
     );
+}
+
+function isForcedLateHomeEntryContext(state, color, selected) {
+  return Boolean(selected)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) <= 6
+    && opponentTrapRisk(state, color) < 120
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
 }
 
 function boundedExperienceAdjustment(rawAdjustment, immediateScore) {

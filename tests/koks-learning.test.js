@@ -91,10 +91,10 @@ test("the v17 opponent-memory RPC preserves Koks severity ordering", () => {
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v18 bot dependency", () => {
+test("production entry points cache-bust every v19 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260718-early-strategy-v18";
+  const version = "20260719-deterministic-strategy-v19";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

@@ -8,7 +8,7 @@ window.NarduStrongBot = (function () {
   const DEEP_SEQUENCE_LIMIT = 180;
   const PREFILTER_SEQUENCE_LIMIT = 64;
   const REPLY_LIMIT = 4;
-  const PLAN_TIME_LIMIT_MS = 3600;
+  const PLAN_ANALYSIS_NODE_BUDGET = 1150;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
   const DEFAULT_PROFILE = {
@@ -1261,13 +1261,14 @@ window.NarduStrongBot = (function () {
     return worst * 0.62 - total / Math.max(1, REPLY_ROLLS.length) * 0.22;
   }
 
-  function plan(state) {
+  function plan(state, runtimeOptions = {}) {
     if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
       try {
         syncLocalExperience();
         const enginePlan = window.NarduLongBotEngine.plan(state, {
-          maxCandidates: PREFILTER_SEQUENCE_LIMIT,
-          timeLimitMs: PLAN_TIME_LIMIT_MS,
+          maxCandidates: Number(runtimeOptions.maxCandidates) || PREFILTER_SEQUENCE_LIMIT,
+          analysisNodeBudget: Number(runtimeOptions.analysisNodeBudget)
+            || PLAN_ANALYSIS_NODE_BUDGET,
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
@@ -1276,8 +1277,6 @@ window.NarduStrongBot = (function () {
       }
     }
 
-    const startedAt = Date.now();
-    const overBudget = () => Date.now() - startedAt > PLAN_TIME_LIMIT_MS;
     const color = state.turn;
     const sequences = NarduGame.bestMoveSequences(state, color).filter(sequence => sequence.length);
     if (!sequences.length) return [];
@@ -1303,12 +1302,6 @@ window.NarduStrongBot = (function () {
       .sort((a, b) => b.score - a.score)
       .slice(0, candidateCap);
     if (base.length) ranked.push({ sequence: base, score: quickScore(state, color, base) });
-    if (overBudget()) {
-      return ranked
-        .sort((a, b) => b.score - a.score)[0]
-        .sequence
-        .map(move => ({ from: move.from, die: move.die }));
-    }
     if (emergency) {
       return ranked
         .map(item => {
@@ -1328,7 +1321,6 @@ window.NarduStrongBot = (function () {
 
     let best = ranked[0];
     for (const item of ranked) {
-      if (overBudget()) break;
       const next = applySequence(state, item.sequence);
       const replyRisk = opponentReplyRisk(next, color);
       const score = item.score - replyRisk;
