@@ -140,6 +140,21 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(schema, /where host_user_id is not null\s+and guest_user_id is null\s+and status = 'waiting'/);
 });
 
+test("join-by-code accepts the complete current room code", () => {
+  const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+  const roomsClient = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
+
+  assert.match(
+    lobby,
+    /id="join-code"[^>]*maxlength="9"[^>]*placeholder="Например: ABCD-EFGH"/,
+  );
+  assert.match(app, /room_code_ph: 'Например: ABCD-EFGH'/);
+  assert.match(app, /room_code_ph: 'For example: ABCD-EFGH'/);
+  assert.match(roomsClient, /new Uint8Array\(8\)/);
+  assert.match(roomsClient, /return `\$\{code\.slice\(0, 4\)\}-\$\{code\.slice\(4\)\}`/);
+});
+
 test("a registered profile without a Supabase session receives a normalized re-login error", async () => {
   const client = {
     auth: {
