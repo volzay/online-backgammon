@@ -717,9 +717,14 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
     && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
     && Number(candidate.features.maxRouteTowerAfter || 0) < 7
-    && Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
-    && Number(candidate.experienceAdjustment || 0) >= (
-      Number(selected.experienceAdjustment || 0) - experienceTolerance
+    && (
+      forcedLateEntry
+      || (
+        Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
+        && Number(candidate.experienceAdjustment || 0) >= (
+          Number(selected.experienceAdjustment || 0) - experienceTolerance
+        )
+      )
     );
 }
 

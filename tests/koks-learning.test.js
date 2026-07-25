@@ -187,10 +187,10 @@ test("the v20 opponent-memory RPC preserves severity and winning examples", () =
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v20 bot dependency", () => {
+test("production entry points cache-bust every v21 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260719-position-learning-v20";
+  const version = "20260725-balanced-endgame-v21";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

@@ -1269,7 +1269,7 @@ window.NarduStrongBot = (function () {
           maxCandidates: Number(runtimeOptions.maxCandidates) || PREFILTER_SEQUENCE_LIMIT,
           analysisNodeBudget: Number(runtimeOptions.analysisNodeBudget)
             || PLAN_ANALYSIS_NODE_BUDGET,
-          strategyProfile: runtimeOptions.strategyProfile || 'v20',
+          strategyProfile: runtimeOptions.strategyProfile || 'v21',
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
@@ -1437,7 +1437,7 @@ window.NarduStrongBot = (function () {
       }
       const described = window.NarduLongBotEngine.describeSequence(turnStart, turnMoves, {
         color: winner,
-        strategyProfile: 'v20',
+        strategyProfile: 'v21',
       });
       if (described?.experience) {
         const features = described.features || {};

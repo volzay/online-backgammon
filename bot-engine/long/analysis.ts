@@ -369,7 +369,12 @@ function analyzeContinuationReplies(
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
-    .slice(0, MAX_CONTINUATION_CANDIDATES);
+    .slice(
+      0,
+      expandDoubles
+        ? deepCandidates.length
+        : MAX_CONTINUATION_CANDIDATES,
+    );
 
   for (const accumulator of continuationCandidates) {
     if (!hasAnalysisBudget(budget)) break;

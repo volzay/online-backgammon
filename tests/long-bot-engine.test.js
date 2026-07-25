@@ -558,6 +558,80 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
   assert.ok(decision.selected.features.routeContinuityAdjustment > 0);
 });
 
+test("48RU-XSRE enters both available checkers instead of shuffling inside home", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 2 },
+    2: { color: "white", count: 5 },
+    3: { color: "white", count: 1 },
+    4: { color: "white", count: 3 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "white", count: 2 },
+    13: { color: "dark", count: 1 },
+    14: { color: "dark", count: 2 },
+    15: { color: "dark", count: 1 },
+    18: { color: "dark", count: 2 },
+    20: { color: "dark", count: 4 },
+    21: { color: "dark", count: 3 },
+    22: { color: "dark", count: 1 },
+    24: { color: "dark", count: 1 },
+  }, {
+    dice: [2, 6],
+    rolled: [2, 6],
+  });
+
+  const ranked = engine.rank(state, {
+    strategyProfile: "v21",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
+  const plan = Array.from(ranked[0].sequence, move => `${move.from}:${move.die}`);
+
+  assert.deepEqual(new Set(plan), new Set(["20:2", "22:6"]));
+  assert.equal(ranked[0].features.outsideReduction, 2);
+  assert.equal(ranked[0].features.homeShuffleMoves, 0);
+  assert.deepEqual(
+    new Set(ranked.filter(candidate => candidate.tactical).map(candidate => candidate.tactical.plies)),
+    new Set([4]),
+  );
+});
+
+test("48RU-XSRE preserves the escape gateway instead of helping the opponent extend a fence", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    6: { color: "dark", count: 1 },
+    7: { color: "dark", count: 3 },
+    8: { color: "dark", count: 1 },
+    9: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 10 },
+    16: { color: "white", count: 1 },
+    19: { color: "white", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 9 },
+  }, {
+    dice: [2, 3],
+    rolled: [2, 3],
+  });
+
+  const ranked = engine.rank(state, {
+    strategyProfile: "v21",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
+  const plan = Array.from(ranked[0].sequence, move => `${move.from}:${move.die}`);
+
+  assert.deepEqual(plan, ["12:2", "10:3"]);
+  assert.ok(ranked[0].features.fenceClosureDelta > -6);
+  assert.ok(ranked[0].features.escapeGatewayDelta >= 0);
+  assert.deepEqual(
+    new Set(ranked.filter(candidate => candidate.tactical).map(candidate => candidate.tactical.plies)),
+    new Set([4]),
+  );
+});
+
 test("v19 reserves a fifth-place home entry for reply analysis", async () => {
   const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
@@ -925,7 +999,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v20");
+  assert.equal(decision.engineVersion, "long-analytic-v21");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);

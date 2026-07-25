@@ -1402,7 +1402,12 @@ function analyzeContinuationReplies(
   const continuationCandidates = deepCandidates
     .filter(accumulator => accumulator.recoveryFrontiers?.length)
     .sort((left, right) => right.candidate.score - left.candidate.score)
-    .slice(0, MAX_CONTINUATION_CANDIDATES);
+    .slice(
+      0,
+      expandDoubles
+        ? deepCandidates.length
+        : MAX_CONTINUATION_CANDIDATES,
+    );
 
   for (const accumulator of continuationCandidates) {
     if (!hasAnalysisBudget(budget)) break;
@@ -2517,9 +2522,14 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
     && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
     && Number(candidate.features.maxRouteTowerAfter || 0) < 7
-    && Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
-    && Number(candidate.experienceAdjustment || 0) >= (
-      Number(selected.experienceAdjustment || 0) - experienceTolerance
+    && (
+      forcedLateEntry
+      || (
+        Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
+        && Number(candidate.experienceAdjustment || 0) >= (
+          Number(selected.experienceAdjustment || 0) - experienceTolerance
+        )
+      )
     );
 }
 
@@ -2806,7 +2816,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v20';
+const ENGINE_VERSION = 'long-analytic-v21';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
