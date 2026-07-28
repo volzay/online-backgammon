@@ -208,7 +208,7 @@ export function createLongBotEngine(adapter, options = {}) {
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
     // received realistic reply penalties.
-    const finalCandidates = analyzedCandidates.length >= 2
+    const finalCandidates = analyzedCandidates.length
       ? analyzedCandidates
       : strategicallyEligible;
     finalCandidates.forEach((candidate) => {

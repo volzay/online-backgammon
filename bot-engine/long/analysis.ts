@@ -243,8 +243,32 @@ export function analyzeOpponentReplies(
   });
 
   analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles);
+  propagateEquivalentPositionAnalysis(candidates, accumulators);
 
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function propagateEquivalentPositionAnalysis(candidates, accumulators) {
+  const analyzedByPosition = new Map();
+  accumulators.forEach(({ candidate }) => {
+    if (candidate.tactical) {
+      analyzedByPosition.set(positionKey(candidate.after), candidate);
+    }
+  });
+
+  candidates.forEach((candidate) => {
+    if (candidate.tactical) return;
+    const analyzed = analyzedByPosition.get(positionKey(candidate.after));
+    if (!analyzed?.tactical) return;
+    const adjustment = Number(analyzed.tactical.adjustment || 0)
+      + Number(analyzed.tactical.deepAdjustment || 0)
+      + Number(analyzed.tactical.continuationAdjustment || 0);
+    candidate.score += adjustment;
+    candidate.tactical = {
+      ...analyzed.tactical,
+      equivalentPosition: true,
+    };
+  });
 }
 
 function uniquePositionCandidates(candidates, limit) {

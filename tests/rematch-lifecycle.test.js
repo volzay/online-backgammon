@@ -327,6 +327,8 @@ test("bot lobby navigation gives the atomic finalizer a short invisible window",
   assert.equal(roomCalls.finishCalls, 1);
   assert.equal(roomCalls.lobby, 0);
   assert.doesNotMatch(modal.innerHTML, /Сохраняем результат/);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(roomCalls.lobby, 0);
 
   releaseFinalState();
   await navigation;

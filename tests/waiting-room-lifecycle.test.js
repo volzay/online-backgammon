@@ -136,6 +136,9 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(lobby, /redirectForRoomAuthError\(err\)/);
   assert.match(schema, /rooms_one_waiting_room_per_host_idx/);
   assert.match(schema, /create or replace function public\.close_own_lobby_rooms\(\)/);
+  assert.match(schema, /closed_reason = 'lobby_exit_forfeit'/);
+  assert.match(schema, /'resign', true/);
+  assert.match(schema, /'botMemory'/);
   assert.match(schema, /status in \('waiting', 'joined'\)/);
   assert.match(schema, /where host_user_id is not null\s+and guest_user_id is null\s+and status = 'waiting'/);
 });

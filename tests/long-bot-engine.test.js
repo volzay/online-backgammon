@@ -632,6 +632,46 @@ test("48RU-XSRE preserves the escape gateway instead of helping the opponent ext
   );
 });
 
+test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    2: { color: "dark", count: 1 },
+    3: { color: "white", count: 1 },
+    4: { color: "white", count: 1 },
+    5: { color: "white", count: 1 },
+    6: { color: "dark", count: 3 },
+    7: { color: "dark", count: 4 },
+    9: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    16: { color: "dark", count: 1 },
+    17: { color: "white", count: 1 },
+    19: { color: "white", count: 2 },
+    20: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "white", count: 1 },
+    24: { color: "white", count: 4 },
+  }, {
+    dice: [6, 3],
+    rolled: [6, 3],
+  });
+
+  const ranked = engine.rank(state, {
+    strategyProfile: "v22",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
+
+  assert.ok(ranked.length >= 2);
+  assert.ok(ranked.every(candidate => candidate.tactical));
+  assert.deepEqual(
+    new Set(ranked.map(candidate => candidate.tactical.plies)),
+    new Set([4]),
+  );
+  assert.ok(ranked.some(candidate => candidate.tactical.equivalentPosition));
+});
+
 test("v19 reserves a fifth-place home entry for reply analysis", async () => {
   const { reserveHomeEntryForTacticalAnalysis } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
@@ -999,7 +1039,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v21");
+  assert.equal(decision.engineVersion, "long-analytic-v22");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);

@@ -1276,8 +1276,32 @@ function analyzeOpponentReplies(
   });
 
   analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles);
+  propagateEquivalentPositionAnalysis(candidates, accumulators);
 
   return candidates.sort((left, right) => right.score - left.score);
+}
+
+function propagateEquivalentPositionAnalysis(candidates, accumulators) {
+  const analyzedByPosition = new Map();
+  accumulators.forEach(({ candidate }) => {
+    if (candidate.tactical) {
+      analyzedByPosition.set(positionKey(candidate.after), candidate);
+    }
+  });
+
+  candidates.forEach((candidate) => {
+    if (candidate.tactical) return;
+    const analyzed = analyzedByPosition.get(positionKey(candidate.after));
+    if (!analyzed?.tactical) return;
+    const adjustment = Number(analyzed.tactical.adjustment || 0)
+      + Number(analyzed.tactical.deepAdjustment || 0)
+      + Number(analyzed.tactical.continuationAdjustment || 0);
+    candidate.score += adjustment;
+    candidate.tactical = {
+      ...analyzed.tactical,
+      equivalentPosition: true,
+    };
+  });
 }
 
 function uniquePositionCandidates(candidates, limit) {
@@ -2013,7 +2037,7 @@ function createLongBotEngine(adapter, options = {}) {
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
     // received realistic reply penalties.
-    const finalCandidates = analyzedCandidates.length >= 2
+    const finalCandidates = analyzedCandidates.length
       ? analyzedCandidates
       : strategicallyEligible;
     finalCandidates.forEach((candidate) => {
@@ -2816,7 +2840,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v21';
+const ENGINE_VERSION = 'long-analytic-v22';
 
 function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);

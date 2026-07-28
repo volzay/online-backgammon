@@ -840,13 +840,9 @@ window.NarduController = (function () {
     return gameOverPublishPromise;
   }
 
-  function waitForFinishedBotPersistence(timeoutMs = 1200) {
+  function waitForFinishedBotPersistence() {
     if (mode !== 'bot' || !state?.winner) return Promise.resolve(true);
-    const persistence = Promise.resolve(botGameFinalizePromise).catch(() => false);
-    return Promise.race([
-      persistence,
-      wait(timeoutMs).then(() => false),
-    ]);
+    return Promise.resolve(botGameFinalizePromise).catch(() => false);
   }
 
   function ensureRemoteFinalStatePublished() {
