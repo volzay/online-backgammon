@@ -101,7 +101,7 @@ window.NarduController = (function () {
       history_first_turn: 'первый ход',
       history_rerolls: ', перебросов: {count}',
       history_first_move: 'Первый ход',
-      history_starting_dice: 'стартовые кубики {roll}',
+      history_starting_dice: 'кубики первого хода {roll}',
       history_rolls: '{name} бросает',
       history_connection_lost: 'Соединение потеряно',
       history_victory: 'победа: {winner}',
@@ -168,7 +168,7 @@ window.NarduController = (function () {
       history_first_turn: 'first move',
       history_rerolls: ', rerolls: {count}',
       history_first_move: 'First move',
-      history_starting_dice: 'opening dice {roll}',
+      history_starting_dice: 'first-move dice {roll}',
       history_rolls: '{name} rolls',
       history_connection_lost: 'Connection lost',
       history_victory: 'winner: {winner}',
@@ -1190,10 +1190,7 @@ window.NarduController = (function () {
     if (mode !== 'remote' || !nextState || nextState.phase !== 'move') return false;
     if (!nextState.rollToken || remoteAnimatedRollTokens.has(nextState.rollToken)) return false;
     if (!Array.isArray(nextState.rolled) || nextState.rolled.length === 0) return false;
-    const isOpeningTurnRoll = nextState.rollToken.startsWith('opening-turn:')
-      && nextState.history?.[0]?.openingMove
-      && ['opening', 'opening-result'].includes(state?.phase);
-    if (nextState.turn === playerColor && !isOpeningTurnRoll) return false;
+    if (nextState.turn === playerColor) return false;
     if (state?.rollToken === nextState.rollToken) return false;
     remoteAnimatedRollTokens.add(nextState.rollToken);
     if (remoteAnimatedRollTokens.size > 24) {
@@ -1259,7 +1256,6 @@ window.NarduController = (function () {
         faces,
         color: rollingTurn,
         token,
-        duration: token?.startsWith('opening-turn:') ? 740 : undefined,
       }),
       trayRollAnimation(),
     ]).then(() => {
@@ -2011,40 +2007,11 @@ window.NarduController = (function () {
     const started = NarduGame.startOpeningTurn(state);
     if (!started) return;
     const openingHash = state.openingRoll?.sha256 || '';
-    if (openingHash && state.history?.[0]?.openingMove) {
-      state.history[0].sha256 = openingHash;
-    }
-
-    const rollingTurn = state.turn;
-    const boardFaces = boardDiceFaces(state.rolled);
-    const boardDiceLayer = document.getElementById('board-dice-layer');
-    state.rollToken = `opening-turn:${openingHash.slice(0, 16) || Date.now()}:${state.rolled.join(':')}`;
+    state.rollToken = `opening-complete:${openingHash.slice(0, 16) || Date.now()}`;
     undoStack = [];
-    isRolling = true;
-
-    NarduSound.prime();
-    NarduSound.dice();
+    publishRemoteState();
     render();
-    if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
-
-    Promise.all([
-      NarduBoardEngine.animateDiceRoll({
-        layer: boardDiceLayer,
-        faces: boardFaces,
-        color: rollingTurn,
-        token: state.rollToken,
-        duration: 740,
-      }),
-      trayRollAnimation(),
-    ])
-      .then(() => {
-        publishRemoteState();
-        finishTurnRollAnimation(rollingTurn);
-      })
-      .catch(error => {
-        publishRemoteState();
-        finishTurnRollAnimation(rollingTurn, error);
-      });
+    ensureAutoProgress(650);
   }
 
   async function autoRoll() {
@@ -2056,11 +2023,14 @@ window.NarduController = (function () {
       NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
       const r = fair.roll;
+      const openingMove = Boolean(state.openingRoll)
+        && !state.history?.some(item => item.openingMove);
       undoStack = [];
       NarduGame.applyRoll(state, r);
       state.history.unshift({
         color: rollingTurn,
         roll: compactRollText(r),
+        openingMove,
         sha256: fair.hash,
         at: new Date().toISOString(),
       });

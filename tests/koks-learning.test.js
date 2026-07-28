@@ -147,6 +147,13 @@ test("the winner's real turn is reconstructed from game history", () => {
     id: "bot", name: "Bot", color: "dark", die: 1,
   });
   game.startOpeningTurn(state);
+  game.applyRoll(state, [6, 1]);
+  state.history.unshift({
+    color: "white",
+    roll: "6:1",
+    openingMove: true,
+    at: new Date().toISOString(),
+  });
   const sequence = game.bestMoveSequences(state, "white")[0];
   sequence.forEach(move => game.applyMove(state, move.from, move.die, { autoEnd: false }));
   state.winner = "white";

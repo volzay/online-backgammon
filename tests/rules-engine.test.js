@@ -33,6 +33,33 @@ test("initial positions contain 15 checkers per side", () => {
   }
 });
 
+test("the opening roll chooses the first player but not the first-move dice", () => {
+  const game = loadGame();
+  const state = game.initialState("long");
+
+  game.decideOpeningRoll(state, {
+    id: "white", name: "White", color: "white", die: 6,
+  }, {
+    id: "dark", name: "Dark", color: "dark", die: 1,
+  });
+
+  assert.equal(state.phase, "opening-result");
+  assert.equal(state.turn, "white");
+  assert.deepEqual(Array.from(state.rolled), [6, 1]);
+  assert.deepEqual(Array.from(state.dice), []);
+
+  assert.equal(game.startOpeningTurn(state), true);
+  assert.equal(state.phase, "roll");
+  assert.equal(state.turn, "white");
+  assert.deepEqual(Array.from(state.rolled), []);
+  assert.deepEqual(Array.from(state.dice), []);
+
+  game.applyRoll(state, [2, 4]);
+  assert.equal(state.phase, "move");
+  assert.deepEqual(Array.from(state.rolled), [2, 4]);
+  assert.deepEqual(Array.from(state.dice), [2, 4]);
+});
+
 test("legal play preserves checker totals", () => {
   const game = loadGame();
   for (const variant of ["long", "short"]) {

@@ -126,20 +126,13 @@ window.NarduGame = (function () {
   function startOpeningTurn(state) {
     normalizeState(state);
     const opening = state.openingRoll;
-    if (!opening || state.phase === 'move' || state.winner) return false;
-    const diceValues = [opening.host.die, opening.guest.die];
+    if (!opening || state.phase !== 'opening-result' || state.winner) return false;
     state.turn = opening.winnerColor;
-    state.rolled = diceValues.slice();
-    state.dice = diceValues.slice();
+    state.rolled = [];
+    state.dice = [];
     state.turnMoves = [];
     state.headPlayedThisTurn = { white: false, dark: false };
-    state.phase = 'move';
-    state.history.unshift({
-      color: state.turn,
-      roll: `${diceValues[0]}:${diceValues[1]}`,
-      openingMove: true,
-      at: new Date().toISOString(),
-    });
+    state.phase = 'roll';
     return true;
   }
 

@@ -27,7 +27,24 @@ test("board dice use drop-and-settle physics without the old disappearing-canvas
   assert.match(controller, /if \(isRolling\) return;/);
   assert.doesNotMatch(controller, /layer\.innerHTML = '';/);
   assert.match(controller, /duration: 800/);
-  assert.match(controller, /duration: 740/);
   assert.match(controller, /Opening roll failed/);
   assert.match(controller, /Turn roll failed/);
+});
+
+test("the first player makes a separate roll after the opening result", () => {
+  const controller = fs.readFileSync(path.join(ROOT, "game-controller.js"), "utf8");
+  const transition = controller.slice(
+    controller.indexOf("function startOpeningTurnRoll()"),
+    controller.indexOf("async function autoRoll()"),
+  );
+
+  assert.match(transition, /NarduGame\.startOpeningTurn\(state\)/);
+  assert.match(transition, /opening-complete:/);
+  assert.match(transition, /publishRemoteState\(\)/);
+  assert.match(transition, /ensureAutoProgress\(650\)/);
+  assert.doesNotMatch(transition, /animateDiceRoll/);
+  assert.doesNotMatch(transition, /NarduSound\.dice/);
+  assert.doesNotMatch(controller, /opening-turn:/);
+  assert.match(controller, /label: 'turn-roll'/);
+  assert.match(controller, /openingMove,/);
 });
