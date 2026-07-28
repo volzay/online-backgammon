@@ -216,7 +216,7 @@ function main() {
     maxPlies: numericArg('max-plies', 320),
     minWinRate: ratioArg('min-win-rate', 0.7),
     maxSevereLossRate: ratioArg('max-severe-loss-rate', 0.1),
-    botProfile: stringArg('bot-profile', 'v22'),
+    botProfile: stringArg('bot-profile', 'v23'),
     controlProfile: stringArg('control-profile', 'v19'),
     output: stringArg('output'),
     experience: stringArg('experience'),

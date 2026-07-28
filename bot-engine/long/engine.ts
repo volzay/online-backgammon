@@ -318,6 +318,8 @@ function advancedStrategyAdjustment(state, color, features) {
   const primeRunAfter = Number(features.primeRunAfter) || 0;
   const runPowerGain = Math.pow(primeRunAfter, 4) - Math.pow(primeRunBefore, 4);
   const trapBefore = Math.max(0, Number(features.trapBefore) || 0);
+  const opponentFenceRun = Math.max(0, Number(features.opponentFenceRunBefore) || 0);
+  const maxRouteTowerAfter = Math.max(0, Number(features.maxRouteTowerAfter) || 0);
   const safetyCompatible = trapBefore < 240 || (
     Number(features.trapDelta || 0) >= 0
     && Number(features.fenceClosureDelta || 0) >= 0
@@ -358,8 +360,20 @@ function advancedStrategyAdjustment(state, color, features) {
     score -= Number(features.homeEntryMoves)
       * (9000000 + opponentHead * 1800000);
   }
-  if (Number(features.maxRouteTowerAfter || 0) >= 6 && primeGain <= 0) {
-    score -= Math.pow(Number(features.maxRouteTowerAfter) - 5, 2) * 18000000;
+  if (maxRouteTowerAfter >= 6 && primeGain <= 0) {
+    score -= Math.pow(maxRouteTowerAfter - 5, 2) * 18000000;
+  }
+  if (
+    maxRouteTowerAfter >= 5
+    && ownHead > 0
+    && opponentFenceRun >= 2
+    && primeGain <= 0
+  ) {
+    const latentTrapPressure = 18000000
+      + ownHead * 2000000
+      + opponentFenceRun * 10000000
+      + Math.min(20000000, trapBefore * 12000);
+    score -= Math.pow(maxRouteTowerAfter - 4, 2) * latentTrapPressure;
   }
   return score;
 }

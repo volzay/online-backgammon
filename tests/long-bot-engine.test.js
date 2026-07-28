@@ -658,7 +658,7 @@ test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () =>
   });
 
   const ranked = engine.rank(state, {
-    strategyProfile: "v22",
+    strategyProfile: "v23",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -670,6 +670,49 @@ test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () =>
     new Set([4]),
   );
   assert.ok(ranked.some(candidate => candidate.tactical.equivalentPosition));
+});
+
+test("PRBV-GYBH turn 11 avoids a five-checker tower behind a developing fence", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    4: { color: "dark", count: 2 },
+    6: { color: "dark", count: 1 },
+    7: { color: "white", count: 1 },
+    8: { color: "dark", count: 1 },
+    9: { color: "dark", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 6 },
+    13: { color: "white", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "white", count: 1 },
+    18: { color: "white", count: 1 },
+    19: { color: "dark", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "white", count: 1 },
+    23: { color: "dark", count: 2 },
+    24: { color: "white", count: 6 },
+  }, {
+    dice: [5, 5, 5, 5],
+    rolled: [5, 5, 5, 5],
+  });
+
+  const ranked = engine.rank(state, {
+    strategyProfile: "v23",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
+
+  assert.ok(ranked.length > 1);
+  assert.ok(
+    Number(ranked[0].features.maxRouteTowerAfter || 0) <= 4,
+    JSON.stringify(ranked[0]),
+  );
+  assert.ok(
+    ranked[0].sequence.filter(move => move.to === 23).length <= 2,
+    JSON.stringify(ranked[0].sequence),
+  );
 });
 
 test("v19 reserves a fifth-place home entry for reply analysis", async () => {
@@ -1039,7 +1082,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v22");
+  assert.equal(decision.engineVersion, "long-analytic-v23");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
