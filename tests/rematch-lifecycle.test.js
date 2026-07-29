@@ -399,6 +399,7 @@ test("finished bot analysis reaches both rating finalization and the training ar
   await new Promise(resolve => setTimeout(resolve, 20));
 
   assert.equal(roomCalls.finishCalls, 1);
+  assert.equal(roomCalls.finalStatePayload.analysis.botMemory.decisions.length, 0);
   assert.equal(roomCalls.ratingDetails.score.finalState.analysis.botMemory.decisions.length, 1);
   assert.equal(roomCalls.archivePayload.analysis.botMemory.decisions.length, 1);
   assert.equal(roomCalls.archives, 1);

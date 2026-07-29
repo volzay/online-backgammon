@@ -160,6 +160,24 @@ test("database schema archives every finished room state", () => {
   assert.match(schema, /grant execute on function public\.finish_room_game\(text, jsonb\) to authenticated/);
 });
 
+test("admin room polling keeps full game states out of the collection requests", () => {
+  const source = fs.readFileSync(path.join(ROOT, "homegate.js"), "utf8");
+  const listSelect = source.match(/const SUPABASE_ROOM_LIST_SELECT = `([^`]+)`;/)?.[1] || "";
+
+  assert.doesNotMatch(listSelect, /final_state/);
+  assert.doesNotMatch(listSelect, /game_state/);
+  assert.match(source, /\.select\(SUPABASE_ROOM_LIST_SELECT\)/);
+  assert.match(source, /\.select\(SUPABASE_ROOM_MONITOR_SELECT\)\s*\.in\("id", watchedIds\)/);
+});
+
+test("admin marks an unrecoverable loser borne-off count as unknown", () => {
+  const source = fs.readFileSync(path.join(ROOT, "homegate.js"), "utf8");
+
+  assert.match(source, /game\.analysis\?\.resultRepair\?\.borneOffUnknown/);
+  assert.match(source, /room\.closed_reason === "result_repaired"/);
+  assert.match(source, /room\.borneOffUnknown \? "\?" :/);
+});
+
 test("admin history auto-refresh pauses while the operator is scrolling", () => {
   const source = fs.readFileSync(path.join(ROOT, "homegate.js"), "utf8");
   assert.match(source, /adminScrollInteractionUntil = Date\.now\(\) \+ 8000/);
@@ -169,7 +187,8 @@ test("admin history auto-refresh pauses while the operator is scrolling", () => 
   assert.match(source, /room_game_archives\([^)]*final_state/);
   assert.match(source, /bot_training_games\([^)]*final_state/);
   assert.match(source, /\.eq\("status", "closed"\)/);
-  assert.match(source, /state\.archive = \(archiveResponse\.data \|\| \[\]\)/);
+  assert.match(source, /let archivedRooms = archiveResponse\.data \|\| \[\]/);
+  assert.match(source, /state\.archive = archivedRooms\.map/);
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   assert.match(schema, /create policy "admins can see all rooms"/);
 });

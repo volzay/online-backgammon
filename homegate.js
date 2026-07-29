@@ -5,8 +5,10 @@ const WATCH_KEY = "narduh_admin_watch";
 const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
 const SUPABASE_ROOM_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
-const SUPABASE_ROOM_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at)`;
-const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at),room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
+const SUPABASE_ROOM_LIST_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
+const SUPABASE_ROOM_LIST_SELECT = `${SUPABASE_ROOM_LIST_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,completed_at)`;
+const SUPABASE_ROOM_MONITOR_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at)`;
+const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_MONITOR_SELECT},room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
 let adminScrollInteractionUntil = 0;
 let autoRefreshInFlight = false;
 
@@ -540,7 +542,7 @@ function normalizedBorneOff(game = {}) {
 
 function borneOffText(room) {
   const off = room.borneOff || normalizedBorneOff(room);
-  return `${off.white || 0}/${off.dark || 0}`;
+  return `${off.white || 0}/${room.borneOffUnknown ? "?" : (off.dark || 0)}`;
 }
 
 function doubleText(room) {
@@ -557,6 +559,7 @@ function resultTypeText(summary) {
   if (!summary?.winner) return "-";
   if (summary.resultType === "mars") return t("mars");
   if (summary.resultType === "koks") return t("koks");
+  if (summary.resultType === "unknown") return "-";
   return t("normal_result");
 }
 
@@ -648,6 +651,10 @@ function supabaseRoomSummary(room, options = {}) {
   const winnerColor = game.winner || latestArchive?.winner || null;
   const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
   const borneOff = normalizedBorneOff(game);
+  const borneOffUnknown = Boolean(
+    game.analysis?.resultRepair?.borneOffUnknown
+    || room.closed_reason === "result_repaired"
+  );
   const source = options.source || (room.status === "closed" ? "archive" : "active");
   return {
     id: room.id,
@@ -668,6 +675,7 @@ function supabaseRoomSummary(room, options = {}) {
     winnerPlayer: winnerPlayer || null,
     resultType: game.resultType || latestArchive?.result_type || null,
     borneOff,
+    borneOffUnknown,
     historyCount: game.history?.length || latestArchive?.history_count || 0,
     latestCompletedAt: latestArchive?.completed_at || null,
     displaysCompletedGame: archived,
@@ -903,7 +911,7 @@ function gameProtocolText(detail = state.detail) {
     `${t("updated")}: ${summary.updatedAt || "-"}`,
     `${t("winner")}: ${winnerText(summary)}`,
     `${t("result")}: ${resultTypeText(summary)}`,
-    `${t("borne_off")}: ${t("white")} ${summary.borneOff?.white || 0}, ${t("dark")} ${summary.borneOff?.dark || 0}`,
+    `${t("borne_off")}: ${t("white")} ${summary.borneOff?.white || 0}, ${t("dark")} ${summary.borneOffUnknown ? "?" : (summary.borneOff?.dark || 0)}`,
     `${t("rolls")}: ${summary.rolls || 0}`,
     `${t("doubles")}: ${doubleText(summary)}`,
     "",
@@ -1224,21 +1232,33 @@ async function refresh() {
     const [activeResponse, archiveResponse] = await Promise.all([
       client
         .from("rooms")
-        .select(SUPABASE_ROOM_SELECT)
+        .select(SUPABASE_ROOM_LIST_SELECT)
         .neq("status", "closed")
         .order("updated_at", { ascending: false }),
       client
         .from("rooms")
-        .select(SUPABASE_ROOM_SELECT)
+        .select(SUPABASE_ROOM_LIST_SELECT)
         .eq("status", "closed")
         .gte("archived_at", archiveCutoff)
         .order("archived_at", { ascending: false }),
     ]);
     if (activeResponse.error) throw activeResponse.error;
     if (archiveResponse.error) throw archiveResponse.error;
-    const rooms = activeResponse.data || [];
+    let rooms = activeResponse.data || [];
+    let archivedRooms = archiveResponse.data || [];
+    const watchedIds = [...new Set(state.watch.map(key => String(key).split(":").at(-1)).filter(Boolean))];
+    if (watchedIds.length) {
+      const { data: monitoredRooms, error: monitorError } = await client
+        .from("rooms")
+        .select(SUPABASE_ROOM_MONITOR_SELECT)
+        .in("id", watchedIds);
+      if (monitorError) throw monitorError;
+      const monitoredById = new Map((monitoredRooms || []).map(room => [room.id, room]));
+      rooms = rooms.map(room => monitoredById.get(room.id) || room);
+      archivedRooms = archivedRooms.map(room => monitoredById.get(room.id) || room);
+    }
     state.active = rooms.map(room => supabaseRoomSummary(room, { source: "active" }));
-    state.archive = (archiveResponse.data || []).map(room => supabaseRoomSummary(room, { source: "archive" }));
+    state.archive = archivedRooms.map(room => supabaseRoomSummary(room, { source: "archive" }));
     state.audit = [];
     state.retentionHours = ROOM_ARCHIVE_RETENTION_HOURS;
     try {

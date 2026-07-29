@@ -705,6 +705,18 @@ window.NarduController = (function () {
     return payload;
   }
 
+  function botFinalStatePayload() {
+    const payload = botAnalysisPayload();
+    const memory = payload.analysis?.botMemory;
+    if (memory && typeof memory === 'object') {
+      payload.analysis.botMemory = {
+        ...memory,
+        decisions: [],
+      };
+    }
+    return payload;
+  }
+
   function canPublishBotAnalysis(options = {}) {
     return mode === 'bot' &&
       Boolean(remoteCode) &&
@@ -818,7 +830,9 @@ window.NarduController = (function () {
   function ensureBotFinalStatePublished() {
     if (state?.gameOverPublishedAt) return Promise.resolve(true);
     if (gameOverPublishPromise) return gameOverPublishPromise;
-    const payload = botAnalysisPayload();
+    // The complete decision log is archived separately. Keeping it out of the
+    // authoritative room finalizer prevents long games from timing out here.
+    const payload = botFinalStatePayload();
     gameOverPublishPromise = (async () => {
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {

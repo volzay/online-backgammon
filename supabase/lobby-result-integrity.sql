@@ -1,3 +1,6 @@
+-- Keep lobby cleanup from inventing a bot-game result while the real final
+-- snapshot is still being persisted.
+
 begin;
 
 create or replace function public.close_own_lobby_rooms()
@@ -56,5 +59,7 @@ $$;
 
 revoke all on function public.close_own_lobby_rooms() from public;
 grant execute on function public.close_own_lobby_rooms() to authenticated;
+
+notify pgrst, 'reload schema';
 
 commit;
