@@ -509,11 +509,13 @@ window.NarduController = (function () {
   }
 
   function ensureAutoProgressAfterExperience(delay) {
-    if (mode !== 'bot' || variant !== 'long' || botDifficulty !== 'hard') {
+    if (mode !== 'bot' || botDifficulty !== 'hard') {
       ensureAutoProgress(delay);
       return;
     }
-    const load = window.NarduRooms?.loadLongBotExperience?.();
+    const load = variant === 'short'
+      ? window.NarduRooms?.loadShortBotExperience?.()
+      : window.NarduRooms?.loadLongBotExperience?.();
     if (!load?.then) {
       ensureAutoProgress(delay);
       return;
@@ -2759,7 +2761,8 @@ window.NarduController = (function () {
     try {
       const planned = NarduBot.plan(state, { difficulty: botDifficulty });
       if (Array.isArray(planned)) {
-        rememberBotDecision(window.NarduLongBotEngine?.consumeLastDecision?.());
+        const engine = variant === 'short' ? window.NarduShortBotEngine : window.NarduLongBotEngine;
+        rememberBotDecision(engine?.consumeLastDecision?.());
         return planned.map(move => ({ from: move.from, die: move.die }));
       }
     } catch (error) {
@@ -2769,7 +2772,7 @@ window.NarduController = (function () {
   }
 
   function rememberBotDecision(decision) {
-    if (!decision || mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long') return;
+    if (!decision || mode !== 'bot' || botDifficulty !== 'hard') return;
     state.analysis ||= {};
     const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
       ? state.analysis.botMemory
@@ -2790,7 +2793,7 @@ window.NarduController = (function () {
   }
 
   function finalizeBotMemory() {
-    if (mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long' || !state?.winner) return;
+    if (mode !== 'bot' || botDifficulty !== 'hard' || !state?.winner) return;
     state.analysis ||= {};
     const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
       ? state.analysis.botMemory
@@ -2997,7 +3000,7 @@ window.NarduController = (function () {
       if (mode === 'bot') {
         botGameFinalizePromise = Promise.resolve(botPublishPromise).catch(() => false);
       }
-      if (mode === 'bot' && botDifficulty === 'hard' && variant === 'long') {
+      if (mode === 'bot' && botDifficulty === 'hard') {
         archiveBotTrainingGame(botFinalPayload);
       }
       if (
@@ -3007,7 +3010,7 @@ window.NarduController = (function () {
         botLearningRecordedKey !== resultKey
       ) {
         botLearningRecordedKey = resultKey;
-        safeStep('Long bot learning', () => window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor)));
+        safeStep('Hard bot learning', () => window.NarduStrongBot.learnFromGame(state, NarduGame.opponentOf(playerColor)));
       }
 
       const didWin = state.winner === playerColor;

@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------
-   strong-bot.js - separate expert program for the hard long bot.
-   Uses NarduGame only as the rules engine; owns position evaluation.
+   strong-bot.js - dispatcher and learning bridge for hard bots.
+   Dedicated analytical engines own variant-specific evaluation.
    Exposes: window.NarduStrongBot
    --------------------------------------------------------------- */
 window.NarduStrongBot = (function () {
@@ -11,6 +11,7 @@ window.NarduStrongBot = (function () {
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
+  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v1';
   const DEFAULT_PROFILE = {
     version: 5,
     games: 0,
@@ -81,22 +82,22 @@ window.NarduStrongBot = (function () {
     };
   }
 
-  function localExperience() {
+  function localExperience(variant = 'long') {
     const store = storage();
     if (!store) return [];
     try {
-      const parsed = JSON.parse(store.getItem(EXPERIENCE_KEY) || '[]');
+      const parsed = JSON.parse(store.getItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY) || '[]');
       return Array.isArray(parsed) ? parsed.slice(0, 120) : [];
     } catch (error) {
       return [];
     }
   }
 
-  function saveLocalExperience(patterns) {
+  function saveLocalExperience(patterns, variant = 'long') {
     const store = storage();
     if (!store) return;
     try {
-      store.setItem(EXPERIENCE_KEY, JSON.stringify(patterns.slice(0, 120)));
+      store.setItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY, JSON.stringify(patterns.slice(0, 120)));
     } catch (error) {
       // Experience is optional; gameplay remains deterministic without storage.
     }
@@ -104,6 +105,10 @@ window.NarduStrongBot = (function () {
 
   function syncLocalExperience() {
     window.NarduLongBotEngine?.setExperience?.(localExperience(), 'local');
+  }
+
+  function syncShortLocalExperience() {
+    window.NarduShortBotEngine?.setExperience?.(localExperience('short'), 'local');
   }
 
   function cloneState(state) {
@@ -1262,6 +1267,23 @@ window.NarduStrongBot = (function () {
   }
 
   function plan(state, runtimeOptions = {}) {
+    if (state?.variant === 'short' && window.NarduShortBotEngine?.plan) {
+      try {
+        syncShortLocalExperience();
+        const enginePlan = window.NarduShortBotEngine.plan(state, {
+          maxCandidates: Number(runtimeOptions.maxCandidates) || 48,
+          analyzeCandidates: Number(runtimeOptions.analyzeCandidates) || 6,
+          replyLimit: Number(runtimeOptions.replyLimit) || 12,
+        });
+        if (enginePlan?.length) return enginePlan;
+      } catch (error) {
+        console.warn('Short bot engine failed, falling back to strong bot', error?.message || error);
+      }
+    }
+    if (state?.variant === 'short') {
+      return (NarduGame.chooseBotSequence?.(state, state.turn, { difficulty: 'hard' }) || [])
+        .map(move => ({ from: move.from, die: move.die }));
+    }
     if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
       try {
         syncLocalExperience();
@@ -1341,7 +1363,8 @@ window.NarduStrongBot = (function () {
     profile.updatedAt = new Date().toISOString();
     saveLearningProfile(profile);
 
-    const patterns = localExperience();
+    const variant = state.variant === 'short' ? 'short' : 'long';
+    const patterns = localExperience(variant);
     const byKey = new Map(patterns.map(pattern => [
       `${pattern.contextKey}::${pattern.actionKey}`,
       { ...pattern },
@@ -1406,22 +1429,25 @@ window.NarduStrongBot = (function () {
         || Number(right.signalWeight || 0) - Number(left.signalWeight || 0)
       ))
       .slice(0, 120);
-    saveLocalExperience(learnedPatterns);
-    window.NarduLongBotEngine?.setExperience?.(learnedPatterns, 'local');
+    saveLocalExperience(learnedPatterns, variant);
+    const targetEngine = variant === 'short' ? window.NarduShortBotEngine : window.NarduLongBotEngine;
+    targetEngine?.setExperience?.(learnedPatterns, 'local');
     return profile;
   }
 
   function captureOpponentDecisions(finalState, botColor) {
+    const variant = finalState?.variant === 'short' ? 'short' : 'long';
+    const targetEngine = variant === 'short' ? window.NarduShortBotEngine : window.NarduLongBotEngine;
     if (
       !finalState?.winner
       || finalState.winner === botColor
       || !Array.isArray(finalState.history)
-      || !window.NarduLongBotEngine?.describeSequence
+      || !targetEngine?.describeSequence
     ) {
       return [];
     }
     const winner = finalState.winner;
-    const replay = NarduGame.initialState('long');
+    const replay = NarduGame.initialState(variant);
     const events = finalState.history.slice().reverse();
     const captured = [];
     let turnStart = null;
@@ -1435,9 +1461,9 @@ window.NarduStrongBot = (function () {
         turnColor = '';
         return;
       }
-      const described = window.NarduLongBotEngine.describeSequence(turnStart, turnMoves, {
+      const described = targetEngine.describeSequence(turnStart, turnMoves, {
         color: winner,
-        strategyProfile: 'v23',
+        strategyProfile: variant === 'long' ? 'v23' : 'short-v1',
       });
       if (described?.experience) {
         const features = described.features || {};
