@@ -11,7 +11,7 @@ window.NarduStrongBot = (function () {
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
-  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v1';
+  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v2';
   const DEFAULT_PROFILE = {
     version: 5,
     games: 0,

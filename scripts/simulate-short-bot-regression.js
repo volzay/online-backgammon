@@ -32,10 +32,19 @@ function roll(random) {
   return first === second ? [first, first, first, first] : [first, second];
 }
 
+function diceStream(streamSeed, count = 500) {
+  const random = randomFactory(streamSeed);
+  return Array.from({ length: count }, () => roll(random));
+}
+
 function play(index) {
-  const random = randomFactory(seed + index * 7919);
+  const pair = Math.floor(index / 2);
+  const analyticalRolls = diceStream(seed + pair * 7919);
+  const legacyRolls = diceStream(seed + pair * 7919 + 3571);
+  let analyticalRollIndex = 0;
+  let legacyRollIndex = 0;
   const state = game.initialState("short");
-  state.turn = index % 2 ? "dark" : "white";
+  state.turn = "white";
   state.phase = "roll";
   const analyticalColor = index % 2 ? "white" : "dark";
   let turns = 0;
@@ -43,13 +52,16 @@ function play(index) {
 
   while (!state.winner && turns < 500) {
     const color = state.turn;
-    const dice = roll(random);
+    const analyticalTurn = color === analyticalColor;
+    const dice = analyticalTurn
+      ? analyticalRolls[analyticalRollIndex++]
+      : legacyRolls[legacyRollIndex++];
     state.phase = "move";
     state.dice = [...dice];
     state.rolled = [...dice];
     state.turnMoves = [];
     let sequence;
-    if (color === analyticalColor) {
+    if (analyticalTurn) {
       const started = Date.now();
       sequence = analytical.plan(state, {
         maxCandidates: 32,
@@ -89,4 +101,3 @@ console.log(JSON.stringify({
   averageTurns: Math.round(results.reduce((sum, item) => sum + item.turns, 0) / games),
   averageThinkMs: Math.round(results.reduce((sum, item) => sum + item.analyticalThinkMs, 0) / games),
 }, null, 2));
-

@@ -40,7 +40,7 @@ function position(game, {
 
 test("short hard bot installs a dedicated analytical engine", () => {
   const context = runtime();
-  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v1");
+  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v2");
   assert.equal(typeof context.NarduShortBotEngine.rank, "function");
   assert.equal(typeof context.NarduShortBotEngine.setExperience, "function");
 });
@@ -62,7 +62,7 @@ test("short hard bot makes the 7 point with opening 6-1", () => {
   );
   const decision = context.NarduShortBotEngine.consumeLastDecision();
   assert.equal(decision.selected.tactical.rolls, 21);
-  assert.equal(decision.engineVersion, "short-analytic-v1");
+  assert.equal(decision.engineVersion, "short-analytic-v2");
 });
 
 test("short hard bot enters from the bar and hits an exposed checker", () => {
@@ -101,6 +101,66 @@ test("short hard bot bears off both available checkers instead of shuffling at h
   plan.forEach(move => context.NarduGame.applyMove(next, move.from, move.die, { autoEnd: false }));
   assert.equal(next.off.white, 15);
   assert.equal(next.winner, "white");
+});
+
+test("4W69-MCG9 turn 19 bears off two checkers in a contact-free race", () => {
+  const context = runtime();
+  const state = position(context.NarduGame, {
+    points: {
+      1: { color: "white", count: 2 }, 3: { color: "white", count: 5 },
+      4: { color: "white", count: 3 }, 6: { color: "white", count: 1 },
+      7: { color: "white", count: 1 }, 20: { color: "dark", count: 2 },
+      21: { color: "dark", count: 2 }, 22: { color: "dark", count: 2 },
+      23: { color: "dark", count: 3 }, 24: { color: "dark", count: 2 },
+    },
+    off: { dark: 4, white: 3 },
+    turn: "dark",
+    dice: [3, 6],
+  });
+  const plan = context.NarduShortBotEngine.plan(state);
+  const next = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => context.NarduGame.applyMove(next, move.from, move.die, { autoEnd: false }));
+  assert.equal(next.off.dark - state.off.dark, 2);
+});
+
+test("MR5A-N5KY turn 15 takes three legal checkers off on double two", () => {
+  const context = runtime();
+  const state = position(context.NarduGame, {
+    points: {
+      1: { color: "white", count: 1 }, 2: { color: "white", count: 5 },
+      19: { color: "dark", count: 3 }, 21: { color: "dark", count: 2 },
+      22: { color: "dark", count: 3 }, 23: { color: "dark", count: 3 },
+      24: { color: "dark", count: 3 },
+    },
+    off: { dark: 1, white: 9 },
+    turn: "dark",
+    dice: [2, 2, 2, 2],
+  });
+  const plan = context.NarduShortBotEngine.plan(state);
+  const next = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => context.NarduGame.applyMove(next, move.from, move.die, { autoEnd: false }));
+  assert.equal(next.off.dark - state.off.dark, 3);
+  const decision = context.NarduShortBotEngine.consumeLastDecision();
+  assert.equal(decision.experience.phase, "bearoff");
+  assert.equal(decision.experience.mistakeSeverity, 0, "maximum bearoff must not poison learning memory");
+});
+
+test("844F-NPC5 turn 13 advances the last runner after contact is broken", () => {
+  const context = runtime();
+  const state = position(context.NarduGame, {
+    points: {
+      2: { color: "white", count: 3 }, 3: { color: "white", count: 3 },
+      4: { color: "white", count: 4 }, 5: { color: "white", count: 1 },
+      6: { color: "white", count: 3 }, 7: { color: "white", count: 1 },
+      11: { color: "dark", count: 2 }, 21: { color: "dark", count: 3 },
+      22: { color: "dark", count: 2 }, 23: { color: "dark", count: 6 },
+      24: { color: "dark", count: 2 },
+    },
+    turn: "dark",
+    dice: [1, 2],
+  });
+  const plan = context.NarduShortBotEngine.plan(state);
+  assert.ok(plan.every(move => move.from === 11), "both dice must advance the lagging checker stack");
 });
 
 test("short hard bot records bar-aware decisions for durable learning", () => {
@@ -147,15 +207,18 @@ test("short experience keeps local and server knowledge in separate mergeable so
 test("short engine is loaded before the shared hard-bot dispatcher", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   assert.ok(room.indexOf("short-bot-engine.js") < room.indexOf("strong-bot.js"));
-  assert.match(room, /short-bot-engine\.js\?v=20260730-short-analytic-v1/);
+  assert.match(room, /short-bot-engine\.js\?v=20260731-short-analytic-v2/);
 });
 
 test("short learning has a separate server RPC and archive accepts both variants", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
   assert.match(schema, /get_short_bot_experience_patterns\(\s*p_player_name text default null/);
+  assert.match(schema, /engine_version like 'short-analytic-v2%'/);
   assert.match(schema, /not in \('long', 'short'\)/);
   assert.ok((schema.match(/not in \('long', 'short'\)/g) || []).length >= 2);
   assert.match(client, /loadShortBotExperience/);
   assert.match(client, /get_short_bot_experience_patterns/);
+  assert.match(client, /narduh-short-bot-server-experience-v2/);
+  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v2/);
 });

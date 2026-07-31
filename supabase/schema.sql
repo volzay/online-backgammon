@@ -2095,7 +2095,7 @@ as $$
     from public.bot_training_games g
     cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
     where g.difficulty = 'hard'
-      and g.engine_version like 'short-analytic-%'
+      and g.engine_version like 'short-analytic-v2%'
       and g.completed_at >= now() - interval '180 days'
   ), labeled as (
     select

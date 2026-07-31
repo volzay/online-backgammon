@@ -11,12 +11,20 @@ export function shortMetrics(state, color) {
   let anchorValue = 0;
   let longestPrime = 0;
   let run = 0;
+  let outsideHome = 0;
+  let outsideHomePips = 0;
+  let backmost = 24;
 
   path.forEach((point, pos) => {
     const stack = state.points?.[point];
     if (stack?.color !== color) {
       run = 0;
       return;
+    }
+    backmost = Math.min(backmost, pos);
+    if (pos < 18) {
+      outsideHome += stack.count;
+      outsideHomePips += stack.count * (18 - pos);
     }
     if (pos >= 18) homeCheckers += stack.count;
     if (stack.count >= 2) {
@@ -37,6 +45,24 @@ export function shortMetrics(state, color) {
     stacks += excess * excess;
   });
 
+  let pressureRun = 0;
+  let primePressure = 0;
+  const opponentPath = NarduGame.pathFor(opponent, state);
+  opponentPath.forEach((point, opponentPos) => {
+    const stack = state.points?.[point];
+    if (stack?.color !== color || stack.count < 2) {
+      pressureRun = 0;
+      return;
+    }
+    pressureRun += 1;
+    const runStart = opponentPos - pressureRun + 1;
+    const trapped = opponentPath.slice(0, runStart).reduce((total, trappedPoint) => {
+      const trappedStack = state.points?.[trappedPoint];
+      return total + (trappedStack?.color === opponent ? trappedStack.count : 0);
+    }, 0) + (Number(state.bar?.[opponent]) || 0);
+    primePressure += pressureRun * pressureRun * trapped;
+  });
+
   return {
     pips: NarduGame.pipsFor(state, color),
     off: Number(state.off?.[color]) || 0,
@@ -51,6 +77,10 @@ export function shortMetrics(state, color) {
     anchors,
     anchorValue,
     longestPrime,
+    outsideHome,
+    outsideHomePips,
+    backmost,
+    primePressure,
   };
 }
 
@@ -75,10 +105,20 @@ export function blotRisk(state, color, point, pos = NarduGame.pathPos(color, poi
 export function shortPhase(state, color) {
   const opponent = NarduGame.opponentOf(color);
   if ((state.bar?.[color] || 0) > 0 || (state.bar?.[opponent] || 0) > 0) return 'bar';
+  if (shortHasContact(state, color)) return 'contact';
   if (NarduGame.homeReady(state, color)) return 'bearoff';
-  const own = shortMetrics(state, color);
-  const other = shortMetrics(state, opponent);
-  if (own.exposure || other.exposure || own.anchors || other.anchors) return 'contact';
   return 'race';
 }
 
+export function shortHasContact(state, color) {
+  const opponent = NarduGame.opponentOf(color);
+  if ((state.bar?.[color] || 0) > 0 || (state.bar?.[opponent] || 0) > 0) return true;
+  const ownPositions = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point]) => NarduGame.pathPos(color, Number(point), state));
+  const opponentPositionsOnOwnTrack = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === opponent)
+    .map(([point]) => NarduGame.pathPos(color, Number(point), state));
+  if (!ownPositions.length || !opponentPositionsOnOwnTrack.length) return false;
+  return Math.min(...ownPositions) <= Math.max(...opponentPositionsOnOwnTrack);
+}

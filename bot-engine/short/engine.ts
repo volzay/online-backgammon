@@ -8,6 +8,17 @@ for (let first = 1; first <= 6; first += 1) {
   }
 }
 
+const SHORT_CONTINUATION_ROLLS = [
+  [[1, 1, 1, 1], [3, 5]],
+  [[1, 3], [6, 6, 6, 6]],
+  [[1, 6], [2, 4]],
+  [[2, 2, 2, 2], [1, 5]],
+  [[2, 5], [3, 3, 3, 3]],
+  [[3, 4], [2, 6]],
+  [[4, 6], [1, 2]],
+  [[5, 5, 5, 5], [4, 5]],
+];
+
 function clampShort(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -37,9 +48,22 @@ export function createShortBotEngine(adapter, options = {}) {
     const own = shortMetrics(state, color);
     const other = shortMetrics(state, opponent);
     const raceLead = other.pips - own.pips;
-    const contact = shortPhase(state, color) !== 'race';
-    const ownBoard = own.homeMade * own.homeMade * 9500;
-    const otherBoard = other.homeMade * other.homeMade * 9500;
+    const phase = shortPhase(state, color);
+    const contact = phase === 'contact' || phase === 'bar';
+    if (!contact) {
+      const resultSafety = own.off === 0
+        ? -(other.off * 70000 + (other.off >= 8 ? 180000 : 0))
+        : own.off * 35000;
+      return raceLead * 4800
+        + (own.off - other.off) * 520000
+        + (own.backmost - other.backmost) * 22000
+        + (other.outsideHome - own.outsideHome) * 72000
+        + (other.outsideHomePips - own.outsideHomePips) * 6500
+        + (other.stacks - own.stacks) * 3200
+        + resultSafety;
+    }
+    const ownBoard = own.homeMade * own.homeMade * (3600 + other.bar * 11000);
+    const otherBoard = other.homeMade * other.homeMade * (3600 + own.bar * 11000);
     const barValue = (
       other.bar * (52000 + own.homeMade * 17000)
       - own.bar * (65000 + other.homeMade * 21000)
@@ -52,10 +76,12 @@ export function createShortBotEngine(adapter, options = {}) {
       + barValue
       + (own.made - other.made) * 10500
       + ownBoard - otherBoard
-      + (own.longestPrime ** 3 - other.longestPrime ** 3) * 3900
+      + (own.primePressure - other.primePressure) * 8200
       + (other.exposure - own.exposure) * 7600
       + (own.anchorValue - other.anchorValue) * 5200
-      + (other.stacks - own.stacks) * 4400
+      + (other.stacks - own.stacks) * 13500
+      + (own.backmost - other.backmost) * 7200
+      + (other.outsideHome - own.outsideHome) * 13000
       + resultSafety;
   }
 
@@ -95,8 +121,9 @@ export function createShortBotEngine(adapter, options = {}) {
     const own = shortMetrics(state, color);
     const other = shortMetrics(state, opponent);
     const lead = clampShort(Math.round((other.pips - own.pips) / 20), -4, 4);
+    const phase = shortPhase(state, color);
     const contextKey = [
-      shortPhase(state, color),
+      phase,
       `lead:${lead}`,
       `bar:${Math.min(2, own.bar)}-${Math.min(2, other.bar)}`,
       `board:${Math.min(6, own.homeMade)}-${Math.min(6, other.homeMade)}`,
@@ -110,15 +137,21 @@ export function createShortBotEngine(adapter, options = {}) {
       `prime:${clampShort(features.primeGain, -1, 2)}`,
       `risk:${clampShort(Math.round(features.exposureDelta / 25), -3, 3)}`,
     ].join('|');
-    const mistakeSeverity = Math.max(
-      0,
-      features.ownBarAfter * 1.3
-      + Math.max(0, features.exposureDelta) / 35
-      + Math.max(0, -features.madeGain) * 0.75
-      + Math.max(0, features.stackDelta) * 0.25
-      + (features.homeShuffleMoves > 0 && features.offGain === 0 ? 0.65 : 0),
-    );
-    return { phase: shortPhase(state, color), contextKey, actionKey, mistakeSeverity };
+    const contactSeverity = phase === 'contact' || phase === 'bar'
+      ? features.ownBarAfter * 1.3
+        + Math.max(0, features.exposureDelta) / 35
+        + Math.max(0, -features.madeGain) * 0.75
+      : 0;
+    const bearoffWaste = phase === 'bearoff' && features.offGain === 0 ? 1.4 : 0;
+    const structuralSeverity = phase === 'bearoff'
+      ? 0
+      : Math.max(0, features.stackDelta) * 0.25;
+    const mistakeSeverity = Math.max(0,
+      contactSeverity
+      + structuralSeverity
+      + bearoffWaste
+      + (phase !== 'bearoff' && features.homeShuffleMoves > 0 && features.offGain === 0 ? 0.65 : 0));
+    return { phase, contextKey, actionKey, mistakeSeverity };
   }
 
   function experienceAdjustment(item) {
@@ -146,7 +179,10 @@ export function createShortBotEngine(adapter, options = {}) {
     score += features.primeGain * 12000;
     score -= Math.max(0, features.exposureDelta) * 2600;
     score -= Math.max(0, features.stackDelta) * 3500;
-    if (features.homeShuffleMoves && features.offGain === 0 && !NarduGame.homeReady(state, color)) score -= 26000;
+    if (features.homeShuffleMoves && features.offGain === 0 && !NarduGame.homeReady(state, color)) {
+      const outside = shortMetrics(state, color).outsideHome;
+      score -= features.homeShuffleMoves * (26000 + outside * 6500);
+    }
     if (baseline) score += 18000;
     return { sequence, after, features, experience: exp, baseline, baseScore: score, score };
   }
@@ -185,10 +221,62 @@ export function createShortBotEngine(adapter, options = {}) {
       blockedProbability,
       plies: 2,
     };
+    const continuation = analyzeContinuation(candidate.after, color);
     return {
       ...candidate,
-      tactical,
-      score: candidate.baseScore * 0.42 + expected * 0.46 + worst * 0.12,
+      tactical: {
+        ...tactical,
+        continuationExpected: continuation.expected,
+        continuationWorst: continuation.worst,
+        continuationRolls: SHORT_CONTINUATION_ROLLS.length,
+        plies: 4,
+      },
+      score: candidate.baseScore * 0.25
+        + expected * 0.30
+        + worst * 0.10
+        + continuation.expected * 0.27
+        + continuation.worst * 0.08,
+    };
+  }
+
+  function analyzeContinuation(after, color) {
+    const opponent = NarduGame.opponentOf(color);
+    let total = 0;
+    let worst = Infinity;
+    SHORT_CONTINUATION_ROLLS.forEach(([opponentDice, recoveryDice]) => {
+      const opponentState = cloneShortState(after);
+      opponentState.turn = opponent;
+      opponentState.phase = 'move';
+      opponentState.dice = [...opponentDice];
+      opponentState.rolled = [...opponentDice];
+      opponentState.turnMoves = [];
+      const opponentSequence = adapter.baselineSequence?.(opponentState, opponent) || [];
+      const replied = opponentSequence.length
+        ? adapter.applySequence(opponentState, opponentSequence, opponent)
+        : opponentState;
+      if (replied.winner) {
+        const score = evaluateState(replied, color);
+        total += score;
+        worst = Math.min(worst, score);
+        return;
+      }
+      const recoveryState = cloneShortState(replied);
+      recoveryState.turn = color;
+      recoveryState.phase = 'move';
+      recoveryState.dice = [...recoveryDice];
+      recoveryState.rolled = [...recoveryDice];
+      recoveryState.turnMoves = [];
+      const recoverySequence = adapter.baselineSequence?.(recoveryState, color) || [];
+      const recovered = recoverySequence.length
+        ? adapter.applySequence(recoveryState, recoverySequence, color)
+        : recoveryState;
+      const score = evaluateState(recovered, color);
+      total += score;
+      worst = Math.min(worst, score);
+    });
+    return {
+      expected: total / SHORT_CONTINUATION_ROLLS.length,
+      worst,
     };
   }
 
@@ -213,8 +301,12 @@ export function createShortBotEngine(adapter, options = {}) {
       const previous = unique.get(signature);
       if (!previous || item.baseScore > previous.baseScore || item.baseline) unique.set(signature, item);
     });
-    const prefiltered = Array.from(unique.values())
+    let prefiltered = Array.from(unique.values())
       .sort((left, right) => right.baseScore - left.baseScore);
+    if (shortPhase(state, color) === 'bearoff') {
+      const maximumOff = Math.max(...prefiltered.map(item => item.features.offGain));
+      prefiltered = prefiltered.filter(item => item.features.offGain === maximumOff);
+    }
     const selected = prefiltered.slice(0, analyzeCount);
     const baselineCandidate = prefiltered.find(item => item.baseline);
     if (baselineCandidate && !selected.includes(baselineCandidate)) {
