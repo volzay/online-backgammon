@@ -51,5 +51,8 @@ jobs:
           archive: false
           retention-days: 1
 
+      - name: Wait for artifact indexing
+        run: sleep 15
+
       - name: Deploy GitHub Pages
         uses: ./.local-actions/deploy-pages
