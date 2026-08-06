@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64, codex-temporary]
     steps:
       - name: Clone repository
         env:
@@ -36,14 +36,7 @@ jobs:
 
       - name: Prepare Pages artifact
         run: |
-          tar \
-            --dereference \
-            --hard-dereference \
-            --directory source/dist \
-            -cvf "${RUNNER_TEMP}/artifact.tar" \
-            --exclude=.git \
-            --exclude=.github \
-            .
+          tar -cvf "${RUNNER_TEMP}/artifact.tar" -C source/dist .
 
       - name: Download Pages runtime actions
         run: |
