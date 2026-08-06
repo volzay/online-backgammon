@@ -1,0 +1,2995 @@
+/* generated from bot-engine/long/*.ts */
+(function () {
+  'use strict';
+
+/* bot-engine/long/metrics.ts */
+
+const LONG_PATHS = {
+  white: [24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+  dark: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13],
+};
+
+const HEAD_LANDING_DICE = [1, 3, 5, 6];
+
+function opponentOf(color) {
+  return color === 'white' ? 'dark' : 'white';
+}
+
+function pathFor(color) {
+  return LONG_PATHS[color] || LONG_PATHS.white;
+}
+
+function headPoint(color) {
+  return pathFor(color)[0];
+}
+
+function pathPos(color, point) {
+  return pathFor(color).indexOf(Number(point));
+}
+
+function stackAt(state, point) {
+  return state.points?.[point] || state.points?.[String(point)] || null;
+}
+
+function colorAt(state, point) {
+  return stackAt(state, point)?.color || null;
+}
+
+function countAt(state, point, color = null) {
+  const stack = stackAt(state, point);
+  if (!stack) return 0;
+  if (color && stack.color !== color) return 0;
+  return Number(stack.count) || 0;
+}
+
+function offCount(state, color) {
+  return Number(state.off?.[color]) || 0;
+}
+
+function checkersInTrackRange(state, color, start, end) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    return total + (pos >= start && pos <= end ? stack.count : 0);
+  }, 0);
+}
+
+function startZoneCount(state, color) {
+  return checkersInTrackRange(state, color, 0, 5);
+}
+
+function startZoneExitMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos <= 5 && toPos > 5 ? 1 : 0);
+  }, 0);
+}
+
+function koksRescuePressure(state, color) {
+  if (offCount(state, color) > 0 || startZoneCount(state, color) === 0) return 0;
+  const opponent = opponentOf(color);
+  const opponentOff = offCount(state, opponent);
+  if (opponentOff <= 0 && !homeReady(state, opponent)) return 0;
+  const finishProximity = Math.max(0, 84 - pipsFor(state, opponent)) / 21;
+  return Math.min(
+    18,
+    1 + opponentOff * 0.85 + (homeReady(state, opponent) ? 2.4 : 0) + finishProximity,
+  );
+}
+
+function occupiedInTrackRange(state, color, start, end) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    return total + (pos >= start && pos <= end ? 1 : 0);
+  }, 0);
+}
+
+function madePointsInTrackRange(state, color, start, end) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color || stack.count < 2) return total;
+    const pos = pathPos(color, Number(point));
+    return total + (pos >= start && pos <= end ? 1 : 0);
+  }, 0);
+}
+
+function outsideHomeCount(state, color) {
+  return checkersInTrackRange(state, color, 0, 17);
+}
+
+function outsideHomePips(state, color) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    return total + (pos >= 0 && pos < 18 ? stack.count * (18 - pos) : 0);
+  }, 0);
+}
+
+function laggardRouteDebt(state, color) {
+  if (headCheckers(state, color) > 0) return 0;
+  const outside = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point, stack]) => ({ pos: pathPos(color, Number(point)), count: Number(stack.count) || 0 }))
+    .filter(item => item.pos >= 0 && item.pos < 18);
+  if (!outside.length) return 0;
+
+  const lastPos = Math.min(...outside.map(item => item.pos));
+  return outside
+    .filter(item => item.pos <= lastPos + 2)
+    .reduce((total, item) => total + item.count * Math.pow(18 - item.pos, 2), 0);
+}
+
+function entryZoneOutsideCount(state, color) {
+  return checkersInTrackRange(state, color, 12, 17);
+}
+
+function homeBoardCount(state, color) {
+  return checkersInTrackRange(state, color, 18, 23);
+}
+
+function homeTotalCount(state, color) {
+  return homeBoardCount(state, color) + offCount(state, color);
+}
+
+function homeReady(state, color) {
+  return outsideHomeCount(state, color) === 0;
+}
+
+function headCheckers(state, color) {
+  return countAt(state, headPoint(color), color);
+}
+
+function pipsFor(state, color) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0) return total;
+    return total + stack.count * Math.max(0, 24 - pos);
+  }, 0);
+}
+
+function distributionPenalty(state, color) {
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color) return total;
+    const pos = pathPos(color, Number(point));
+    const count = Number(stack.count) || 0;
+    const limit = pos >= 18 ? 3 : 3;
+    const excess = Math.max(0, count - limit);
+    const tower = Math.max(0, count - 5);
+    const head = Number(point) === pathFor(color)[0] ? 1.35 : 1;
+    return total + head * (excess * excess * 8 + tower * tower * 28);
+  }, 0);
+}
+
+function opponentFenceRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let longest = 0;
+
+  for (let start = 0; start < path.length; start += 1) {
+    if (colorAt(state, path[start]) !== opponent) continue;
+    const ownBehind = path.slice(0, start).some(point => colorAt(state, point) === color);
+    if (!ownBehind) continue;
+    let run = 0;
+    while (start + run < path.length && colorAt(state, path[start + run]) === opponent) {
+      run += 1;
+    }
+    longest = Math.max(longest, run);
+  }
+
+  return longest;
+}
+
+function routeTowerRisk(state, color) {
+  if (outsideHomeCount(state, color) <= 0) return 0;
+  const fenceRun = opponentFenceRun(state, color);
+  const fenceScale = 1
+    + Math.pow(Math.max(0, fenceRun - 2), 2) * 0.72
+    + Math.min(4, opponentTrapRisk(state, color) / 480);
+  const head = headPoint(color);
+
+  return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
+    if (stack.color !== color || Number(point) === Number(head)) return total;
+    const count = Number(stack.count) || 0;
+    const excess = Math.max(0, count - 3);
+    if (!excess) return total;
+    const severe = Math.max(0, count - 5);
+    const pos = pathPos(color, Number(point));
+    const routeWeight = pos >= 18 ? 1.45 : 1 + Math.max(0, 10 - pos) * 0.04;
+    return total + (excess * excess * 6 + severe * severe * 34) * routeWeight * fenceScale;
+  }, 0);
+}
+
+function headLandingSupportScore(state, color) {
+  const head = headPoint(color);
+  const headCount = countAt(state, head, color);
+  if (headCount <= 2) return 0;
+  const pressure = 1 + Math.max(0, headCount - 4) / 5;
+
+  return HEAD_LANDING_DICE.reduce((score, die) => {
+    const target = pathFor(color)[die];
+    const stack = target ? stackAt(state, target) : null;
+    const dieWeight = headLandingDieWeight(die);
+    if (stack?.color === color) {
+      const count = Number(stack.count) || 0;
+      const blockValue = 1.72 + Math.min(2, Math.max(0, count - 1)) * 0.16;
+      const stackPenalty = Math.max(0, count - 3) * 0.24;
+      return score + dieWeight * Math.max(0.8, blockValue - stackPenalty);
+    }
+    if (!stack) return score - dieWeight * 0.95;
+    return score - dieWeight * 2.4;
+  }, 0) * pressure;
+}
+
+function headLandingExposureRisk(state, color) {
+  const headCount = headCheckers(state, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    const dieWeight = headLandingDieWeight(die);
+    const occupiedByOpponent = stack?.color === opponent;
+    const reachable = !occupiedByOpponent && canReachPoint(state, opponent, target);
+    return risk + dieWeight * pressure * (
+      occupiedByOpponent ? 8.5 : 3.1 + (reachable ? 4.7 : 0)
+    );
+  }, 0);
+}
+
+function headLandingBreakRisk(before, after, color) {
+  const headCount = headCheckers(before, color);
+  if (headCount <= 2) return 0;
+  const opponent = opponentOf(color);
+  const pressure = 1 + Math.max(0, headCount - 4) / 4;
+
+  return HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(color)[die];
+    const beforeStack = stackAt(before, target);
+    const afterStack = stackAt(after, target);
+    if (beforeStack?.color !== color || afterStack?.color === color) return risk;
+    const reachable = canReachPoint(after, opponent, target);
+    return risk + headLandingDieWeight(die) * pressure * (reachable ? 11 : 6.2);
+  }, 0);
+}
+
+function headLandingDieWeight(die) {
+  if (die === 1) return 3.45;
+  if (die === 3) return 2.45;
+  if (die === 5) return 2.25;
+  return 1.75;
+}
+
+function canReachPoint(state, color, target) {
+  const targetPos = pathPos(color, target);
+  if (targetPos < 0) return false;
+  return Object.entries(state.points || {}).some(([point, stack]) => {
+    if (stack.color !== color) return false;
+    const pos = pathPos(color, Number(point));
+    const distance = targetPos - pos;
+    return distance >= 1 && distance <= 6;
+  });
+}
+
+function opponentHeadBlockScore(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHeadCount = headCheckers(state, opponent);
+  if (opponentHeadCount <= 2) return 0;
+  const importantDice = [1, 3, 5, 6];
+  const pressure = 1 + Math.max(0, opponentHeadCount - 4) / 5;
+
+  return importantDice.reduce((score, die) => {
+    const target = pathFor(opponent)[die];
+    const stack = target ? stackAt(state, target) : null;
+    const dieWeight = die === 1 || die === 3 || die === 5 ? 1.35 : 1.05;
+    if (stack?.color === color) return score + dieWeight * (stack.count >= 2 ? 2.1 : 0.9);
+    if (!stack) return score - dieWeight * 0.55;
+    return score - dieWeight * 0.25;
+  }, 0) * pressure;
+}
+
+function opponentHeadFreedomRisk(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHeadCount = headCheckers(state, opponent);
+  if (opponentHeadCount <= 2) return 0;
+  const pressure = 1 + Math.max(0, opponentHeadCount - 4) / 4;
+  let openLandings = 0;
+
+  const landingRisk = HEAD_LANDING_DICE.reduce((risk, die) => {
+    const target = pathFor(opponent)[die];
+    const stack = target ? stackAt(state, target) : null;
+    if (stack?.color === color) return risk;
+    openLandings += 1;
+    const dieWeight = headLandingDieWeight(die);
+    const supported = stack?.color === opponent;
+    return risk + dieWeight * (supported ? 5.4 : 3.7);
+  }, 0);
+
+  return pressure * (landingRisk + openLandings * openLandings * 1.35);
+}
+
+function opponentHeadFreedomMoveDelta(state, color, sequence = []) {
+  const points = Object.fromEntries(
+    Object.entries(state.points || {}).map(([point, stack]) => [point, { ...stack }]),
+  );
+  const after = { ...state, points };
+
+  sequence.forEach(move => {
+    const fromKey = String(move.from);
+    const source = points[fromKey];
+    if (source?.color === color) {
+      source.count -= 1;
+      if (source.count <= 0) delete points[fromKey];
+    }
+    if (move.bearOff || move.to === 0) return;
+    const toKey = String(move.to);
+    const target = points[toKey];
+    if (target?.color === color) target.count += 1;
+    else if (!target) points[toKey] = { color, count: 1 };
+  });
+
+  return opponentHeadFreedomRisk(state, color) - opponentHeadFreedomRisk(after, color);
+}
+
+function footholdScore(state, color) {
+  const defensive = madePointsInTrackRange(state, color, 1, 7) * 2.8
+    + occupiedInTrackRange(state, color, 1, 7) * 0.75;
+  const route = madePointsInTrackRange(state, color, 8, 17) * 1.6
+    + occupiedInTrackRange(state, color, 8, 17) * 0.42;
+  const attack = madePointsInTrackRange(state, color, 12, 18) * 2.3
+    + occupiedInTrackRange(state, color, 12, 18) * 0.5;
+  return defensive + route + attack;
+}
+
+function prematureHomeRushPenalty(state, color) {
+  if (homeReady(state, color) || offCount(state, color) > 0) return 0;
+  const headDebt = Math.max(0, headCheckers(state, color) - 4);
+  const outside = outsideHomeCount(state, color);
+  const home = homeBoardCount(state, color);
+  if (home <= 3 || outside <= 5) return 0;
+
+  const support = Math.max(0, footholdScore(state, color)) + Math.max(0, headLandingSupportScore(state, color));
+  const supportDebt = Math.max(0, 18 - support);
+  return home * (headDebt * 1.8 + supportDebt * 0.42 + Math.max(0, outside - 8) * 0.35);
+}
+
+function lateEntryPressure(state, color) {
+  const outside = outsideHomeCount(state, color);
+  if (!outside) return 0;
+  const opponent = opponentOf(color);
+  const entry = entryZoneOutsideCount(state, color);
+  const lateRace = Math.max(0, 7 - outside) * 0.72;
+  const opponentRace = offCount(state, opponent) * 0.32 + (homeReady(state, opponent) ? 1.8 : 0);
+  const entryRatio = entry / Math.max(1, outside);
+  return 1 + entryRatio * 2.4 + lateRace + opponentRace;
+}
+
+function routeCompletionPressure(state, color) {
+  const outside = outsideHomeCount(state, color);
+  if (!outside) return 0;
+
+  const opponent = opponentOf(color);
+  const ownHome = homeBoardCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const opponentReady = homeReady(state, opponent);
+
+  if (outside > 8 && opponentOff === 0 && !opponentReady) {
+    return 0.18 + Math.min(0.32, ownHome * 0.025);
+  }
+
+  return Math.min(
+    6.5,
+    1
+      + Math.max(0, 9 - outside) * 0.45
+      + ownHome * 0.12
+      + opponentOff * 0.62
+      + (opponentReady ? 1.8 : 0),
+  );
+}
+
+function opponentTrapRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let run = 0;
+  let runStart = 0;
+  let risk = 0;
+
+  path.forEach((point, index) => {
+    const stack = stackAt(state, point);
+    if (stack?.color === opponent) {
+      if (!run) runStart = index;
+      run += 1;
+      if (run >= 3) {
+        const ownBehind = path.slice(0, runStart).reduce((total, behindPoint) => {
+          const behind = stackAt(state, behindPoint);
+          return total + (behind?.color === color ? Number(behind.count) || 0 : 0);
+        }, 0);
+        if (ownBehind > 0) {
+          const zone = runStart < 8 ? 1.85 : runStart < 13 ? 1.45 : runStart < 18 ? 1.15 : 0.65;
+          const severity = run >= 6 ? 22 : run >= 5 ? 9.5 : run >= 4 ? 4.2 : 1.75;
+          const escapeGaps = path.slice(index + 1, index + 4).reduce((total, escapePoint) => {
+            const escape = stackAt(state, escapePoint);
+            return total + (escape?.color === opponent ? 0 : 1);
+          }, 0);
+          const gapRelief = 1 / (1 + escapeGaps * 0.45);
+          risk += ownBehind * run * run * severity * zone * gapRelief;
+        }
+      }
+      return;
+    }
+    run = 0;
+  });
+
+  return risk;
+}
+
+function fenceClosureRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+
+    const checkerCount = Number(stack.count) || 0;
+    for (let start = pos + 1; start <= Math.min(pos + 6, path.length - 6); start += 1) {
+      const window = path.slice(start, start + 6);
+      if (window.some(target => colorAt(state, target) === color)) continue;
+
+      const blocked = window.filter(target => colorAt(state, target) === opponent).length;
+      if (blocked < 3) continue;
+      const reachableGaps = window.filter(target => (
+        !colorAt(state, target) && canReachPoint(state, opponent, target)
+      )).length;
+      if (blocked + reachableGaps < 5) continue;
+
+      const severity = blocked >= 5 ? 24 : blocked === 4 ? 7.5 : 2.2;
+      const proximity = 1 + Math.max(0, 11 - pos) * 0.12;
+      const headPressure = Number(point) === headPoint(color)
+        ? 1 + Math.min(3.5, checkerCount * 0.28)
+        : 1;
+      risk += checkerCount * severity * proximity * headPressure
+        * (1 + reachableGaps * 0.16);
+    }
+  });
+
+  return risk;
+}
+
+function opponentHeadFenceBarrierScore(state, color) {
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  if (opponentHead <= 2) return 0;
+  const path = pathFor(opponent);
+  const pressure = 1 + Math.max(0, opponentHead - 4) / 6;
+
+  return [1, 2, 3, 4, 5, 6].reduce((score, die) => {
+    const target = pathFor(opponent)[die];
+    if (!target || colorAt(state, target) !== color) return score;
+
+    let run = 1;
+    for (let index = die - 1; index >= 0 && colorAt(state, path[index]) === opponent; index -= 1) {
+      run += 1;
+    }
+    for (
+      let index = die + 1;
+      index < path.length && colorAt(state, path[index]) === opponent;
+      index += 1
+    ) {
+      run += 1;
+    }
+    return score + (run >= 3 ? Math.pow(run, 3) * pressure : 0);
+  }, 0);
+}
+
+function escapeGatewayRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const head = headPoint(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const targets = path.slice(pos + 1, pos + 7);
+    const blocked = targets.filter(target => colorAt(state, target) === opponent).length;
+    if (blocked < 3) return;
+
+    const immediateOwnLandings = targets.filter(target => (
+      colorAt(state, target) === color
+      && gatewayHasMobility(state, color, pathPos(color, target))
+    )).length;
+    const extendedTargets = path.slice(pos + 7, pos + 13);
+    const extendedOwnGateways = extendedTargets.filter(target => (
+      colorAt(state, target) === color
+      && canReachViaTwoDice(state, color, pos, pathPos(color, target))
+      && gatewayHasMobility(state, color, pathPos(color, target))
+    )).length;
+    const ownLandings = immediateOwnLandings + extendedOwnGateways;
+    const emptyLandings = targets.filter(target => !colorAt(state, target));
+    const exposedEmpties = emptyLandings.filter(target => canReachPoint(state, opponent, target)).length;
+    const checkerCount = Number(stack.count) || 0;
+    const severity = checkerCount * Math.pow(blocked - 2, 2);
+    const routePressure = 1 + Math.max(0, 12 - pos) * 0.14;
+    const headPressure = Number(point) === head ? 1 + Math.min(3, checkerCount * 0.55) : 1;
+    const supportFactor = ownLandings > 0 ? 0.18 : 1.15;
+    const exposureFactor = exposedEmpties * 0.55;
+    const narrowExitFactor = ownLandings + emptyLandings.length <= 1 ? 1.4 : 0;
+    risk += severity * routePressure * headPressure
+      * (supportFactor + exposureFactor + narrowExitFactor);
+  });
+
+  return risk;
+}
+
+function canReachViaTwoDice(state, color, fromPos, targetPos) {
+  if (targetPos - fromPos < 7 || targetPos - fromPos > 12) return false;
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  for (let firstDie = 1; firstDie <= 6; firstDie += 1) {
+    const secondDie = targetPos - fromPos - firstDie;
+    if (secondDie < 1 || secondDie > 6) continue;
+    const intermediate = path[fromPos + firstDie];
+    if (intermediate && colorAt(state, intermediate) !== opponent) return true;
+  }
+  return false;
+}
+
+function gatewayHasMobility(state, color, gatewayPos) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const exits = path.slice(gatewayPos + 1, gatewayPos + 7)
+    .filter(target => colorAt(state, target) !== opponent)
+    .length;
+  return exits >= 2;
+}
+
+function homeEntryMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 12 && fromPos < 18 && toPos >= 18 ? 1 : 0);
+  }, 0);
+}
+
+function homeShuffleMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 18 && toPos >= 18 && !(move.bearOff || move.to === 0) ? 1 : 0);
+  }, 0);
+}
+
+function outsideDevelopmentMoveCount(sequence = [], color) {
+  return sequence.reduce((total, move) => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    return total + (fromPos >= 0 && fromPos < 18 && toPos > fromPos && toPos < 18 ? 1 : 0);
+  }, 0);
+}
+
+function entryContinuationMoveCount(sequence = [], color) {
+  let total = 0;
+  let trackedPoint = null;
+
+  sequence.forEach(move => {
+    const fromPos = pathPos(color, move.from);
+    const toPos = move.bearOff || move.to === 0 ? 24 : pathPos(color, move.to);
+    if (trackedPoint !== null && Number(move.from) === trackedPoint && toPos > fromPos) {
+      total += 1;
+      trackedPoint = move.bearOff || move.to === 0 ? null : Number(move.to);
+      return;
+    }
+    trackedPoint = fromPos >= 12 && fromPos < 18 && toPos >= 18
+      ? Number(move.to)
+      : null;
+  });
+
+  return total;
+}
+
+function developmentPressure(state, color) {
+  if (homeReady(state, color)) return 0;
+  return 1
+    + Math.min(2.4, headCheckers(state, color) / 4.5)
+    + Math.min(1.8, outsideHomeCount(state, color) / 8);
+}
+
+function blockadeScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let run = 0;
+  let score = 0;
+  path.forEach((point, index) => {
+    const stack = stackAt(state, point);
+    if (stack?.color === color) {
+      run += 1;
+      const made = stack.count >= 2 ? 1 : 0.45;
+      const zone = index < 12 ? 1.35 : index < 18 ? 1 : 0.55;
+      score += (run * run * 4 + made * 12) * zone;
+      return;
+    }
+    run = 0;
+  });
+  return score;
+}
+
+function blockingPrimeScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+  let runStart = -1;
+  let runLength = 0;
+
+  const trappedBefore = (index) => path.slice(0, index).reduce((total, point) => {
+    const stack = stackAt(state, point);
+    return total + (stack?.color === opponent ? Number(stack.count) || 0 : 0);
+  }, 0);
+  const scoreRun = () => {
+    if (runLength < 2 || runStart < 0) return;
+    const trapped = trappedBefore(runStart);
+    if (!trapped) return;
+    const runPoints = path.slice(runStart, runStart + runLength);
+    const reserves = runPoints.reduce((total, point) => {
+      const count = countAt(state, point, color);
+      return total + Math.min(3, Math.max(0, count - 1));
+    }, 0);
+    const zone = runStart < 7 ? 1.5 : runStart < 13 ? 1.2 : 0.82;
+    const closure = runLength >= 6
+      ? 520 + (runLength - 6) * 180
+      : Math.pow(runLength, 3) * (1 + reserves / Math.max(4, runLength * 2));
+    score += trapped * closure * zone;
+  };
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!runLength) runStart = index;
+      runLength += 1;
+      return;
+    }
+    scoreRun();
+    runStart = -1;
+    runLength = 0;
+  });
+  scoreRun();
+
+  for (let start = 1; start <= path.length - 6; start += 1) {
+    const trapped = trappedBefore(start);
+    if (!trapped) continue;
+    const window = path.slice(start, start + 6);
+    const ownPoints = window.filter(point => colorAt(state, point) === color).length;
+    const opponentPoints = window.filter(point => colorAt(state, point) === opponent).length;
+    if (ownPoints < 3 || ownPoints >= 6 || opponentPoints > 0) continue;
+    const madePoints = window.filter(point => countAt(state, point, color) >= 2).length;
+    const longest = longestColorRun(state, window, color);
+    const zone = start < 7 ? 1.35 : start < 13 ? 1.08 : 0.72;
+    const completion = Math.pow(ownPoints - 2, 2)
+      * (1 + longest * 0.3)
+      * (1 + madePoints * 0.1);
+    score += trapped * completion * zone;
+  }
+
+  return score;
+}
+
+function opponentMoveBlockScore(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let score = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== opponent) return;
+    const pos = pathPos(opponent, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    const checkerWeight = Math.min(5, Number(stack.count) || 0);
+    const routePressure = 1 + Math.max(0, 11 - pos) * 0.06;
+    let open = 0;
+    let blockedWeight = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const target = path[pos + die];
+      if (!target) continue;
+      if (colorAt(state, target) === color) blockedWeight += 7 - die;
+      else open += 1;
+    }
+    score += checkerWeight * blockedWeight * routePressure;
+    if (open === 0) score += checkerWeight * 96 * routePressure;
+    else if (open === 1) score += checkerWeight * 34 * routePressure;
+    else if (open === 2) score += checkerWeight * 11 * routePressure;
+  });
+
+  return score;
+}
+
+function blockingPrimeRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let longest = 0;
+  let run = 0;
+  let runStart = 0;
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!run) runStart = index;
+      run += 1;
+      const trapped = path.slice(0, runStart).some(
+        target => colorAt(state, target) === opponent,
+      );
+      if (trapped) longest = Math.max(longest, run);
+      return;
+    }
+    run = 0;
+  });
+  return longest;
+}
+
+function longestColorRun(state, points, color) {
+  let longest = 0;
+  let run = 0;
+  points.forEach((point) => {
+    if (colorAt(state, point) === color) {
+      run += 1;
+      longest = Math.max(longest, run);
+    } else {
+      run = 0;
+    }
+  });
+  return longest;
+}
+
+function stuckRisk(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let risk = 0;
+
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    if (stack.color !== color) return;
+    const pos = pathPos(color, Number(point));
+    if (pos < 0 || pos >= 18) return;
+    let legalExits = 0;
+    let progress = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      const target = path[pos + die];
+      if (!target) continue;
+      const targetStack = stackAt(state, target);
+      if (targetStack?.color === opponent) continue;
+      legalExits += 1;
+      progress += die;
+    }
+
+    const distancePressure = Math.max(0, 12 - pos) / 3;
+    const count = Number(stack.count) || 0;
+    if (!legalExits) risk += count * (60 + distancePressure * 22);
+    else if (legalExits === 1) risk += count * (18 + distancePressure * 8);
+    risk -= count * progress * 0.35;
+  });
+
+  return risk + opponentTrapRisk(state, color) * 0.72;
+}
+
+function tempoValue(before, after, color) {
+  const pipGain = pipsFor(before, color) - pipsFor(after, color);
+  const offGain = offCount(after, color) - offCount(before, color);
+  const homeGain = homeBoardCount(after, color) - homeBoardCount(before, color);
+  const headGain = headCheckers(before, color) - headCheckers(after, color);
+  return pipGain + offGain * 18 + Math.max(0, homeGain) * 2 + Math.max(0, headGain) * 5;
+}
+
+function phasePressure(state, color) {
+  const opponent = opponentOf(color);
+  return 1
+    + offCount(state, opponent) * 0.45
+    + (homeReady(state, opponent) ? 1.6 : 0)
+    + Math.max(0, 6 - outsideHomeCount(state, color)) * 0.22;
+}
+
+
+/* bot-engine/long/evaluator.ts */
+
+
+const DEFAULT_LONG_BOT_WEIGHTS = {
+  progress: 92,
+  homeCheckers: 420,
+  borneOff: 18000,
+  blockade: 950,
+  stuckRisk: 2100,
+  distribution: 780,
+  tempo: 1650,
+  bearOffPriority: 90000000,
+  headRelease: 9800,
+  foothold: 4300,
+  rushPenalty: 12500,
+  homeEntry: 145000,
+  trapRisk: 62000,
+  headLandingExposure: 62000,
+  opponentHeadFreedom: 48000,
+  escapeGatewayRisk: 800000,
+  koksRescue: 3000000,
+};
+
+function mergeWeights(weights = {}) {
+  return { ...DEFAULT_LONG_BOT_WEIGHTS, ...(weights || {}) };
+}
+
+function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
+  const opponent = opponentOf(color);
+  if (state?.winner) {
+    const resultMultiplier = state.resultType === 'koks'
+      ? 3
+      : state.resultType === 'mars'
+        ? 2
+        : 1;
+    return (state.winner === color ? 1 : -1) * resultMultiplier * 1000000000000;
+  }
+  const ownPips = pipsFor(state, color);
+  const opponentPips = pipsFor(state, opponent);
+  const ownOff = offCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const pressure = phasePressure(state, color);
+  const entryPressure = lateEntryPressure(state, color);
+  const ownTrapRisk = opponentTrapRisk(state, color);
+  const ownFenceClosureRisk = fenceClosureRisk(state, color);
+  const opponentTrapReward = cappedTrapReward(opponentTrapRisk(state, opponent));
+  const ownKoksPressure = koksRescuePressure(state, color);
+
+  return (opponentPips - ownPips) * weights.progress
+    + homeTotalCount(state, color) * weights.homeCheckers
+    - homeTotalCount(state, opponent) * weights.homeCheckers * 0.62
+    + ownOff * weights.borneOff
+    - opponentOff * weights.borneOff * 1.12
+    + blockadeScore(state, color) * weights.blockade
+    - blockadeScore(state, opponent) * weights.blockade * 0.58
+    - stuckRisk(state, color) * weights.stuckRisk * pressure
+    + stuckRisk(state, opponent) * weights.stuckRisk * 0.42
+    - distributionPenalty(state, color) * weights.distribution
+    - routeTowerRisk(state, color) * weights.distribution * 12
+    + distributionPenalty(state, opponent) * weights.distribution * 0.2
+    + headLandingSupportScore(state, color) * weights.headRelease
+    - headLandingSupportScore(state, opponent) * weights.headRelease * 0.34
+    + opponentHeadBlockScore(state, color) * weights.headRelease * 0.82
+    - opponentHeadFreedomRisk(state, color) * weights.opponentHeadFreedom
+    + footholdScore(state, color) * weights.foothold
+    - footholdScore(state, opponent) * weights.foothold * 0.38
+    - headLandingExposureRisk(state, color) * weights.headLandingExposure
+    + headLandingExposureRisk(state, opponent) * weights.headLandingExposure * 0.18
+    - prematureHomeRushPenalty(state, color) * weights.rushPenalty
+    - entryZoneOutsideCount(state, color) * weights.homeEntry * entryPressure
+    + entryZoneOutsideCount(state, opponent) * weights.homeEntry * lateEntryPressure(state, opponent) * 0.34
+    - ownTrapRisk * weights.trapRisk
+    - ownFenceClosureRisk * weights.trapRisk * 1.45
+    + opponentTrapReward * weights.trapRisk * 0.055
+    - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
+    + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12
+    - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
+}
+
+function sequenceStats(before, after, color, sequence = []) {
+  const offGain = offCount(after, color) - offCount(before, color);
+  const homeGain = homeBoardCount(after, color) - homeBoardCount(before, color);
+  const pipGain = pipsFor(before, color) - pipsFor(after, color);
+  const riskDelta = stuckRisk(before, color) - stuckRisk(after, color);
+  const distributionDelta = distributionPenalty(before, color) - distributionPenalty(after, color);
+  const routeTowerDelta = routeTowerRisk(before, color) - routeTowerRisk(after, color);
+  const blockadeGain = blockadeScore(after, color) - blockadeScore(before, color);
+  const headGain = headCheckers(before, color) - headCheckers(after, color);
+  const footholdGain = footholdScore(after, color) - footholdScore(before, color);
+  const outsideReduction = Math.max(0, outsideHomeCount(before, color) - outsideHomeCount(after, color));
+  const outsidePipGain = Math.max(0, outsideHomePips(before, color) - outsideHomePips(after, color));
+  const laggardDebtDelta = laggardRouteDebt(before, color) - laggardRouteDebt(after, color);
+  const homeEntryMoves = homeEntryMoveCount(sequence, color);
+  const trapDelta = opponentTrapRisk(before, color) - opponentTrapRisk(after, color);
+  const trapBefore = opponentTrapRisk(before, color);
+  const fenceClosureDelta = fenceClosureRisk(before, color) - fenceClosureRisk(after, color);
+  const fenceClosureBefore = fenceClosureRisk(before, color);
+  const opponent = opponentOf(color);
+  const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
+  const headLandingBreak = headLandingBreakRisk(before, after, color);
+  const outsideDevelopmentMoves = outsideDevelopmentMoveCount(sequence, color);
+  const entryContinuationMoves = entryContinuationMoveCount(sequence, color);
+  const opponentHeadFreedomDelta = opponentHeadFreedomRisk(before, color)
+    - opponentHeadFreedomRisk(after, color);
+  const opponentHeadBarrierDelta = opponentHeadFenceBarrierScore(after, color)
+    - opponentHeadFenceBarrierScore(before, color);
+  const escapeGatewayDelta = escapeGatewayRisk(before, color) - escapeGatewayRisk(after, color);
+  const bearOffMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
+  const homeShuffleMoves = homeShuffleMoveCount(sequence, color);
+  const startZoneBefore = startZoneCount(before, color);
+  const startZoneAfter = startZoneCount(after, color);
+  const startZoneReduction = Math.max(0, startZoneBefore - startZoneAfter);
+  const resultSafetyBefore = offCount(before, color) > 0 ? 2 : startZoneBefore === 0 ? 1 : 0;
+  const resultSafetyAfter = offCount(after, color) > 0 ? 2 : startZoneAfter === 0 ? 1 : 0;
+  const maxRouteTowerAfter = Object.entries(after.points || {}).reduce((maximum, [point, stack]) => (
+    stack.color === color && Number(point) !== Number(headPoint(color))
+      ? Math.max(maximum, Number(stack.count) || 0)
+      : maximum
+  ), 0);
+  const routeSignature = sequence
+    .map(move => {
+      const from = Math.max(0, pathPos(color, Number(move.from)));
+      const to = move.bearOff || move.to === 0
+        ? 24
+        : Math.max(0, pathPos(color, Number(move.to)));
+      return `${Math.floor(from / 3)}>${Math.floor(to / 3)}`;
+    })
+    .sort()
+    .join('+');
+
+  return {
+    offGain,
+    homeGain,
+    pipGain,
+    riskDelta,
+    distributionDelta,
+    routeTowerDelta,
+    routeTowerAfter: routeTowerRisk(after, color),
+    opponentFenceRunBefore: opponentFenceRun(before, color),
+    blockadeGain,
+    headGain,
+    footholdGain,
+    outsideReduction,
+    outsidePipGain,
+    laggardDebtDelta,
+    homeEntryMoves,
+    trapDelta,
+    trapBefore,
+    fenceClosureDelta,
+    fenceClosureBefore,
+    opponentTrapGain,
+    headLandingBreak,
+    outsideDevelopmentMoves,
+    entryContinuationMoves,
+    opponentHeadFreedomDelta,
+    opponentHeadBarrierDelta,
+    escapeGatewayDelta,
+    bearOffMoves,
+    homeShuffleMoves,
+    routeSignature,
+    maxRouteTowerAfter,
+    startZoneBefore,
+    startZoneAfter,
+    startZoneReduction,
+    resultSafetyBefore,
+    resultSafetyAfter,
+    resultSafetyGain: Math.max(0, resultSafetyAfter - resultSafetyBefore),
+  };
+}
+
+function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LONG_BOT_WEIGHTS) {
+  const stats = sequenceStats(before, after, color, sequence);
+  const pressure = phasePressure(before, color);
+  const entryPressure = lateEntryPressure(before, color);
+  const completionPressure = routeCompletionPressure(before, color);
+  const development = developmentPressure(before, color);
+  const outside = outsideHomeCount(before, color);
+  const headRemaining = headCheckers(before, color);
+  const rescuePressure = koksRescuePressure(before, color);
+  const matureEntryPhase = headRemaining === 0 && outside <= 9;
+  const earlyEntryScale = headRemaining >= 5 && outside >= 9
+    ? 0.18
+    : outside >= 7 && !matureEntryPhase
+      ? 0.48
+      : 1;
+  let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
+
+  score += tempoValue(before, after, color) * weights.tempo * pressure;
+  score += stats.blockadeGain * weights.blockade * 0.9;
+  score += stats.riskDelta * weights.stuckRisk * 1.35;
+  score += stats.distributionDelta * weights.distribution * 0.7;
+  score += stats.offGain * weights.borneOff * 2.3;
+  score += Math.max(0, stats.headGain) * weights.headRelease * (homeReady(before, color) ? 0.12 : 1.15);
+  score += stats.footholdGain * weights.foothold * 1.2;
+  score += stats.homeEntryMoves * weights.homeEntry * 4.2 * entryPressure * earlyEntryScale;
+  score += stats.outsideReduction * weights.homeEntry * 3.6 * entryPressure;
+  score += stats.outsideReduction * weights.homeEntry * 18 * completionPressure;
+  score += stats.outsidePipGain * weights.tempo * 0.52 * completionPressure;
+  score += stats.laggardDebtDelta * weights.homeEntry;
+  score += stats.trapDelta * weights.trapRisk * 1.8;
+  score += stats.fenceClosureDelta * weights.trapRisk * 2.35;
+  score += cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.08;
+  score -= stats.headLandingBreak * weights.headLandingExposure * 1.35;
+  score += stats.opponentHeadFreedomDelta * weights.opponentHeadFreedom * 1.55;
+  score += stats.opponentHeadBarrierDelta * weights.opponentHeadFreedom * 0.55;
+  score += stats.escapeGatewayDelta * weights.escapeGatewayRisk * 1.6;
+  score += stats.outsideDevelopmentMoves * weights.homeEntry * 0.88 * development;
+  score += stats.entryContinuationMoves * weights.tempo * 0.42;
+  if (rescuePressure > 0) {
+    score += stats.startZoneReduction * weights.koksRescue * rescuePressure * 1.25;
+    score += stats.resultSafetyGain * weights.koksRescue * rescuePressure * 3;
+    if (stats.startZoneReduction <= 0) {
+      score -= stats.startZoneAfter * weights.koksRescue * rescuePressure * 0.35;
+    }
+  }
+  if (stats.homeEntryMoves > 0 && headRemaining >= 5 && outside >= 8 && stats.headGain <= 0) {
+    score -= stats.homeEntryMoves * (9000000 + headRemaining * 900000);
+  }
+  if (stats.trapBefore > 0 && stats.trapDelta <= 0) {
+    score -= Math.min(stats.trapBefore, 260) * weights.trapRisk * 0.38;
+  }
+  if (!homeReady(before, color)) {
+    const tacticalJustification = cappedTrapReward(stats.opponentTrapGain) * weights.trapRisk * 0.11
+      + Math.max(0, stats.blockadeGain) * weights.blockade * 0.85;
+    const shufflePenalty = stats.homeShuffleMoves
+      * weights.homeEntry
+      * 1.18
+      * Math.max(1, entryPressure)
+      * Math.max(1, development)
+      * Math.max(1, completionPressure);
+    score -= Math.max(0, shufflePenalty - tacticalJustification);
+  }
+
+  if (homeReady(before, color)) {
+    score += stats.offGain * weights.bearOffPriority * pressure;
+    score += stats.pipGain * weights.tempo * 5;
+    score -= stats.homeShuffleMoves * weights.bearOffPriority * 0.22;
+  } else if (homeReady(after, color)) {
+    score += weights.borneOff * 1.8;
+  }
+
+  return score;
+}
+
+function cappedTrapReward(value) {
+  const risk = Math.max(0, Number(value) || 0);
+  return Math.min(850, risk);
+}
+
+
+/* bot-engine/long/analysis.ts */
+
+
+const MAX_REPLY_SEQUENCES = 8;
+const MAX_TACTICAL_CANDIDATES = 4;
+const MAX_DEEP_CANDIDATES = 3;
+const MAX_RECOVERY_SEQUENCES = 6;
+const MAX_CONTINUATION_CANDIDATES = 2;
+const MAX_CONTINUATION_SEQUENCES = 6;
+const MAX_EXPERIENCE_PENALTY = 140000000;
+const MAX_EXPERIENCE_REWARD = 30000000;
+
+function createAnalysisBudget(limit) {
+  const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
+  let used = 0;
+  return {
+    limit: normalizedLimit,
+    consume(units = 1) {
+      const normalizedUnits = Math.max(1, Math.floor(Number(units) || 1));
+      if (used + normalizedUnits > normalizedLimit) return false;
+      used += normalizedUnits;
+      return true;
+    },
+    get used() {
+      return used;
+    },
+    get remaining() {
+      return Math.max(0, normalizedLimit - used);
+    },
+  };
+}
+
+function hasAnalysisBudget(budget, units = 1) {
+  return !budget || Number(budget.remaining) >= Math.max(1, Number(units) || 1);
+}
+
+function consumeAnalysisNode(budget, units = 1) {
+  return !budget || budget.consume(units);
+}
+
+const TACTICAL_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [6, 4], weight: 2 },
+  { dice: [6, 6], weight: 1 },
+  { dice: [5, 4], weight: 2 },
+  { dice: [5, 5], weight: 1 },
+  { dice: [4, 4], weight: 1 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [3, 3], weight: 1 },
+  { dice: [6, 2], weight: 2 },
+  { dice: [5, 2], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 2], weight: 2 },
+  { dice: [2, 2], weight: 1 },
+  { dice: [6, 1], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [4, 1], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [1, 1], weight: 1 },
+];
+
+const ADVANCED_TACTICAL_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [6, 6], weight: 1 },
+  { dice: [5, 4], weight: 2 },
+  { dice: [3, 2], weight: 2 },
+  { dice: [1, 1], weight: 1 },
+  { dice: [6, 3], weight: 2 },
+  { dice: [5, 2], weight: 2 },
+  { dice: [4, 1], weight: 2 },
+  { dice: [5, 5], weight: 1 },
+  { dice: [4, 4], weight: 1 },
+  { dice: [3, 3], weight: 1 },
+  { dice: [2, 2], weight: 1 },
+  { dice: [6, 4], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [6, 2], weight: 2 },
+  { dice: [5, 1], weight: 2 },
+  { dice: [6, 1], weight: 2 },
+];
+
+const RECOVERY_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [5, 3], weight: 2 },
+  { dice: [4, 2], weight: 2 },
+  { dice: [3, 1], weight: 2 },
+  { dice: [4, 4], weight: 1 },
+];
+
+const CONTINUATION_ROLLS = [
+  { dice: [6, 5], weight: 2 },
+  { dice: [4, 3], weight: 2 },
+  { dice: [2, 1], weight: 2 },
+  { dice: [6, 6], weight: 1 },
+];
+
+function analyzeOpponentReplies(
+  adapter,
+  color,
+  candidates,
+  weights,
+  budget,
+  options = {},
+) {
+  const expandDoubles = Boolean(options.expandDoubles);
+  const tacticalCandidates = uniquePositionCandidates(
+    candidates,
+    expandDoubles ? 3 : MAX_TACTICAL_CANDIDATES,
+  );
+  if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
+
+  const opponent = opponentOf(color);
+  const tacticalRolls = expandDoubles ? ADVANCED_TACTICAL_ROLLS : TACTICAL_ROLLS;
+  const accumulators = tacticalCandidates.map(candidate => ({
+    candidate,
+    expectedImpact: 0,
+    weight: 0,
+    worstImpact: 0,
+    rolls: 0,
+    blockedWeight: 0,
+    replySequenceWeight: 0,
+    opponentPipGain: 0,
+    opponentHeadRelease: 0,
+    opponentOutsideReduction: 0,
+    frontiers: [],
+  }));
+
+  for (const roll of tacticalRolls) {
+    if (!hasAnalysisBudget(budget)) break;
+    let completedRoll = true;
+    const rollResults = [];
+
+    for (const accumulator of accumulators) {
+      if (!consumeAnalysisNode(budget)) {
+        completedRoll = false;
+        break;
+      }
+      const replyState = prepareReplyState(
+        accumulator.candidate.after,
+        opponent,
+        roll.dice,
+        expandDoubles,
+      );
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replySequences = expandDoubles
+        ? legalReplies.slice(0, 2)
+        : sampledSequences(legalReplies, MAX_REPLY_SEQUENCES);
+      const beforeValue = evaluateState(replyState, color, weights);
+      let worstValue = beforeValue;
+      let worstState = replyState;
+
+      for (const reply of replySequences) {
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
+        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+        const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
+        const ownValue = evaluateState(replyAfter, color, weights);
+        const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
+        if (replyValue < worstValue) {
+          worstValue = replyValue;
+          worstState = replyAfter;
+        }
+      }
+      if (!completedRoll) break;
+      rollResults.push({
+        impact: worstValue - beforeValue,
+        state: worstState,
+        blocked: replySequences.length === 0,
+        replySequences: legalReplies.length,
+        opponentPipGain: Math.max(
+          0,
+          pipsFor(replyState, opponent) - pipsFor(worstState, opponent),
+        ),
+        opponentHeadRelease: Math.max(
+          0,
+          headCheckers(replyState, opponent) - headCheckers(worstState, opponent),
+        ),
+        opponentOutsideReduction: Math.max(
+          0,
+          outsideHomeCount(replyState, opponent) - outsideHomeCount(worstState, opponent),
+        ),
+      });
+    }
+
+    if (!completedRoll) break;
+    rollResults.forEach((result, index) => {
+      const accumulator = accumulators[index];
+      const impact = result.impact;
+      accumulator.expectedImpact += impact * roll.weight;
+      accumulator.weight += roll.weight;
+      accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
+      accumulator.rolls += 1;
+      if (result.blocked) accumulator.blockedWeight += roll.weight;
+      accumulator.replySequenceWeight += result.replySequences * roll.weight;
+      accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
+      accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
+      accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
+      accumulator.frontiers.push({ impact, state: result.state });
+      accumulator.frontiers.sort((left, right) => left.impact - right.impact);
+      accumulator.frontiers = accumulator.frontiers.slice(0, 2);
+    });
+  }
+
+  accumulators.forEach((accumulator) => {
+    if (!accumulator.weight) return;
+    const expectedImpact = accumulator.expectedImpact / accumulator.weight;
+    const tacticalAdjustment = expectedImpact * 0.42
+      + accumulator.worstImpact * 0.14 * threatPressure(accumulator.candidate.after, color);
+    accumulator.candidate.score += tacticalAdjustment;
+    accumulator.candidate.tactical = {
+      expectedImpact,
+      worstImpact: accumulator.worstImpact,
+      rolls: accumulator.rolls,
+      adjustment: tacticalAdjustment,
+      plies: 2,
+      blockedProbability: accumulator.blockedWeight / accumulator.weight,
+      expectedReplySequences: accumulator.replySequenceWeight / accumulator.weight,
+      expectedOpponentPipGain: accumulator.opponentPipGain / accumulator.weight,
+      expectedOpponentHeadRelease: accumulator.opponentHeadRelease / accumulator.weight,
+      expectedOpponentOutsideReduction: accumulator.opponentOutsideReduction / accumulator.weight,
+      doublesExpanded: expandDoubles,
+    };
+  });
+
+  analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles);
+  propagateEquivalentPositionAnalysis(candidates, accumulators);
+
+  return candidates.sort((left, right) => right.score - left.score);
+}
+
+function propagateEquivalentPositionAnalysis(candidates, accumulators) {
+  const analyzedByPosition = new Map();
+  accumulators.forEach(({ candidate }) => {
+    if (candidate.tactical) {
+      analyzedByPosition.set(positionKey(candidate.after), candidate);
+    }
+  });
+
+  candidates.forEach((candidate) => {
+    if (candidate.tactical) return;
+    const analyzed = analyzedByPosition.get(positionKey(candidate.after));
+    if (!analyzed?.tactical) return;
+    const adjustment = Number(analyzed.tactical.adjustment || 0)
+      + Number(analyzed.tactical.deepAdjustment || 0)
+      + Number(analyzed.tactical.continuationAdjustment || 0);
+    candidate.score += adjustment;
+    candidate.tactical = {
+      ...analyzed.tactical,
+      equivalentPosition: true,
+    };
+  });
+}
+
+function uniquePositionCandidates(candidates, limit) {
+  const selected = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = positionKey(candidate.after);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(candidate);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+function positionKey(state) {
+  const points = Object.entries(state.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
+}
+
+function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles) {
+  const deepCandidates = accumulators
+    .filter(accumulator => accumulator.weight && accumulator.frontiers.length)
+    .sort((left, right) => right.candidate.score - left.candidate.score)
+    .slice(0, MAX_DEEP_CANDIDATES);
+
+  for (const accumulator of deepCandidates) {
+    if (!hasAnalysisBudget(budget)) break;
+    const frontier = accumulator.frontiers[0];
+    let expectedRecovery = 0;
+    let recoveryWeight = 0;
+    let worstRecovery = Infinity;
+    let recoveryRolls = 0;
+    const recoveryFrontiers = [];
+
+    for (const roll of RECOVERY_ROLLS) {
+      if (!consumeAnalysisNode(budget)) break;
+      const recoveryState = prepareReplyState(
+        frontier.state,
+        color,
+        roll.dice,
+        expandDoubles,
+      );
+      const legalRecoverySequences = adapter.legalSequences(recoveryState, color, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const recoverySequences = expandDoubles
+        ? legalRecoverySequences.slice(0, 3)
+        : sampledSequences(legalRecoverySequences, MAX_RECOVERY_SEQUENCES);
+      let bestRecovery = recoverySequences.length ? -Infinity : 0;
+      let bestRecoveryState = recoveryState;
+      let completedRoll = true;
+      for (const sequence of recoverySequences) {
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
+        const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
+        const sequenceValue = scoreSequence(
+          recoveryState,
+          recoveryAfter,
+          color,
+          sequence,
+          weights,
+        );
+        const residualFenceRisk = fenceClosureRisk(recoveryAfter, color)
+          + opponentTrapRisk(recoveryAfter, color);
+        const recoveryValue = sequenceValue - residualFenceRisk * weights.trapRisk * 0.16;
+        if (recoveryValue > bestRecovery) {
+          bestRecovery = recoveryValue;
+          bestRecoveryState = recoveryAfter;
+        }
+      }
+      if (!completedRoll) break;
+      if (!Number.isFinite(bestRecovery)) bestRecovery = 0;
+      expectedRecovery += bestRecovery * roll.weight;
+      recoveryWeight += roll.weight;
+      worstRecovery = Math.min(worstRecovery, bestRecovery);
+      recoveryRolls += 1;
+      recoveryFrontiers.push({ value: bestRecovery, state: bestRecoveryState, weight: roll.weight });
+    }
+
+    if (!recoveryWeight) continue;
+    const recoveryExpected = expectedRecovery / recoveryWeight;
+    const deepAdjustment = recoveryExpected * 0.18
+      + Math.min(0, worstRecovery) * 0.08;
+    accumulator.candidate.score += deepAdjustment;
+    Object.assign(accumulator.candidate.tactical, {
+      recoveryExpected,
+      recoveryWorst: Number.isFinite(worstRecovery) ? worstRecovery : 0,
+      recoveryRolls,
+      deepAdjustment,
+      plies: 3,
+    });
+    accumulator.recoveryFrontiers = recoveryFrontiers
+      .sort((left, right) => left.value - right.value)
+      .slice(0, 2);
+  }
+
+  analyzeContinuationReplies(
+    adapter,
+    color,
+    deepCandidates,
+    weights,
+    budget,
+    expandDoubles,
+  );
+}
+
+function analyzeContinuationReplies(
+  adapter,
+  color,
+  deepCandidates,
+  weights,
+  budget,
+  expandDoubles,
+) {
+  const opponent = opponentOf(color);
+  const continuationCandidates = deepCandidates
+    .filter(accumulator => accumulator.recoveryFrontiers?.length)
+    .sort((left, right) => right.candidate.score - left.candidate.score)
+    .slice(
+      0,
+      expandDoubles
+        ? deepCandidates.length
+        : MAX_CONTINUATION_CANDIDATES,
+    );
+
+  for (const accumulator of continuationCandidates) {
+    if (!hasAnalysisBudget(budget)) break;
+    const frontier = accumulator.recoveryFrontiers[0];
+    let expectedImpact = 0;
+    let impactWeight = 0;
+    let worstImpact = 0;
+    let rolls = 0;
+
+    for (const roll of CONTINUATION_ROLLS) {
+      if (!consumeAnalysisNode(budget)) break;
+      const replyState = prepareReplyState(
+        frontier.state,
+        opponent,
+        roll.dice,
+        expandDoubles,
+      );
+      const beforeValue = evaluateState(replyState, color, weights);
+      const legalReplies = adapter.legalSequences(replyState, opponent, {
+        limit: expandDoubles ? 18 : 0,
+      });
+      const replies = expandDoubles
+        ? legalReplies.slice(0, 3)
+        : sampledSequences(legalReplies, MAX_CONTINUATION_SEQUENCES);
+      let worstValue = beforeValue;
+      let completedRoll = true;
+      for (const reply of replies) {
+        if (!consumeAnalysisNode(budget)) {
+          completedRoll = false;
+          break;
+        }
+        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+        const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
+        const ownValue = evaluateState(replyAfter, color, weights);
+        worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
+      }
+      if (!completedRoll) break;
+      const impact = worstValue - beforeValue;
+      expectedImpact += impact * roll.weight;
+      impactWeight += roll.weight;
+      worstImpact = Math.min(worstImpact, impact);
+      rolls += 1;
+    }
+
+    if (!impactWeight) continue;
+    const continuationExpected = expectedImpact / impactWeight;
+    const continuationAdjustment = continuationExpected * 0.24
+      + worstImpact * 0.1 * threatPressure(frontier.state, color);
+    accumulator.candidate.score += continuationAdjustment;
+    Object.assign(accumulator.candidate.tactical, {
+      continuationExpected,
+      continuationWorst: worstImpact,
+      continuationRolls: rolls,
+      continuationAdjustment,
+      plies: 4,
+    });
+  }
+}
+
+function threatPressure(state, color) {
+  const opponent = opponentOf(color);
+  const raceLead = Math.max(0, pipsFor(state, opponent) - pipsFor(state, color));
+  return Math.min(3.4, 1
+    + Math.min(1.2, raceLead / 42)
+    + offCount(state, opponent) * 0.12
+    + (homeReady(state, opponent) ? 0.75 : 0));
+}
+
+function experienceDescriptor(
+  state,
+  color,
+  features,
+  tactical = null,
+) {
+  const opponent = opponentOf(color);
+  const ownHead = headCheckers(state, color);
+  const outside = outsideHomeCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const ownOff = offCount(state, color);
+  const startZone = Number(features.startZoneBefore) || 0;
+  const trap = opponentTrapRisk(state, color);
+  const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
+  const phase = homeReady(state, color)
+    ? 'bearoff'
+    : opponentOff > 0 && ownOff === 0
+      ? 'koks-rescue'
+      : outside <= 4
+        ? 'late-entry'
+        : ownHead > 0
+          ? 'head-development'
+          : 'route';
+  const contextKey = [
+    phase,
+    bucket('h', ownHead, [0, 1, 3, 7]),
+    bucket('o', outside, [0, 2, 5, 9]),
+    bucket('po', opponentOff, [0, 1, 5, 10]),
+    bucket('sz', startZone, [0, 1, 3, 6]),
+    bucket('tr', trap, [0, 40, 180, 600]),
+    bucket('pd', pipDelta, [-36, -8, 9, 37]),
+  ].join('|');
+
+  const legacyActionKey = [
+    signedFlag('head', features.headGain),
+    signedFlag('entry', features.outsideReduction),
+    signedFlag('trap', features.trapDelta),
+    signedFlag('freedom', features.opponentHeadFreedomDelta),
+    signedFlag('distribution', features.distributionDelta),
+    Number(features.headLandingBreak || 0) > 0 ? 'support:break' : 'support:keep',
+    Number(features.homeShuffleMoves || 0) > 0 ? 'home:shuffle' : 'home:steady',
+    Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
+  ].join('|');
+  const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
+  const hasAdvancedStrategy = Number.isFinite(Number(features.primeScoreGain));
+  const strategicActionKey = hasAdvancedStrategy
+    ? [
+      familyActionKey,
+      signedFlag('prime', features.primeScoreGain),
+      signedFlag('block', features.opponentMoveBlockGain),
+      `prime-run:${Math.max(0, Number(features.primeRunAfter) || 0)}`,
+    ].join('|')
+    : familyActionKey;
+  const rescueAction = Number(features.missedKoksRescue || 0) > 0
+    ? 'koks:miss'
+    : Number(features.startZoneReduction || 0) > 0
+      ? 'koks:gain'
+      : 'koks:flat';
+  const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+
+  const urgency = 1
+    + opponentOff * 0.12
+    + (homeReady(state, opponent) ? 0.65 : 0)
+    + (phase === 'koks-rescue' ? 0.8 : 0);
+  let mistakeSeverity = 0;
+  mistakeSeverity += Math.min(3, Math.max(0, Number(features.headLandingBreak) || 0)) * 0.9;
+  mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
+  mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
+  mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
+  mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
+  mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
+  if (
+    Number(features.primeRunBefore || 0) >= 4
+    && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+  ) {
+    mistakeSeverity += 1.4
+      + (Number(features.primeRunBefore) - Number(features.primeRunAfter)) * 0.55;
+  }
+  if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
+    mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.outsideReduction || 0) <= 0) {
+    mistakeSeverity += 1.15 + Math.min(1.2, outside / 8);
+  }
+  if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
+    mistakeSeverity += 1.4;
+  }
+  if (phase === 'koks-rescue' && Number(features.missedKoksRescue || 0) > 0) {
+    mistakeSeverity += Math.min(
+      4,
+      Number(features.missedKoksRescue) * (1.2 + opponentOff * 0.12),
+    );
+  }
+  if (tactical && Number(tactical.worstImpact) < -4000000) {
+    mistakeSeverity += Math.min(2.2, Math.abs(Number(tactical.worstImpact)) / 16000000);
+  }
+
+  const structuralRisk = Math.max(
+    Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 90,
+    Number(features.maxRouteTowerAfter || 0) >= 6
+      ? (Number(features.maxRouteTowerAfter) - 5) * 0.85
+      : 0,
+    Number(features.trapBefore || 0) >= 600 && Number(features.trapDelta || 0) <= 0
+      ? Math.min(4, Number(features.trapBefore) / 900)
+      : 0,
+    Number(features.escapeGatewayDelta || 0) < 0 && Number(features.trapBefore || 0) >= 180
+      ? Math.min(3, Math.abs(Number(features.escapeGatewayDelta)) / 3)
+      : 0,
+    Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
+      ? 1.4 + Math.min(2.2, outside / 5)
+      : 0,
+    Number(features.primeRunBefore || 0) >= 4
+      && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
+      ? 2 + Number(features.primeRunBefore) - Number(features.primeRunAfter)
+      : 0,
+  );
+  const tacticalRisk = tactical
+    ? Math.min(6, Math.abs(Math.min(0, Number(tactical.worstImpact) || 0)) / 12000000)
+    : 0;
+  const riskSignal = Math.min(10, Math.max(mistakeSeverity * urgency, structuralRisk, tacticalRisk));
+
+  return {
+    contextKey,
+    actionKey,
+    strategicActionKey,
+    familyActionKey,
+    legacyActionKey,
+    mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
+    riskSignal,
+    phase,
+  };
+}
+
+function normalizeExperiencePatterns(patterns = []) {
+  const normalized = new Map();
+  (Array.isArray(patterns) ? patterns : []).forEach((pattern) => {
+    const contextKey = String(pattern?.contextKey || pattern?.context_key || '');
+    const actionKey = String(pattern?.actionKey || pattern?.action_key || '');
+    if (!contextKey || !actionKey) return;
+    const key = `${contextKey}::${actionKey}`;
+    const contribution = {
+      contextKey,
+      actionKey,
+      samples: Math.max(0, Number(pattern.samples) || 0),
+      losses: Math.max(0, Number(pattern.losses) || 0),
+      wins: Math.max(0, Number(pattern.wins) || 0),
+      lossWeight: Math.max(
+        0,
+        Number(pattern.lossWeight ?? pattern.loss_weight ?? pattern.losses) || 0,
+      ),
+      severeLosses: Math.max(
+        0,
+        Number(pattern.severeLosses ?? pattern.severe_losses) || 0,
+      ),
+      signalWeight: Math.max(
+        0,
+        Number(pattern.signalWeight ?? pattern.signal_weight) || 0,
+      ),
+      winWeight: Math.max(
+        0,
+        Number(pattern.winWeight ?? pattern.win_weight) || 0,
+      ),
+    };
+    mergePattern(normalized, key, contribution, contextKey, actionKey);
+
+    const phase = contextKey.split('|')[0] || 'route';
+    const strategic = strategicContextKey(contextKey);
+    mergePattern(normalized, `strategy:${strategic}::${actionKey}`, contribution, strategic, actionKey);
+    mergePattern(normalized, `phase:${phase}::${actionKey}`, contribution, phase, actionKey);
+    mergePattern(normalized, `*::${actionKey}`, contribution, '*', actionKey);
+  });
+  return normalized;
+}
+
+function experienceAdjustment(descriptor, experience) {
+  if (!descriptor || !(experience instanceof Map)) return 0;
+  const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
+  const strategic = strategicContextKey(descriptor.contextKey);
+  const hasStrategicAction = descriptor.strategicActionKey
+    && descriptor.strategicActionKey !== descriptor.familyActionKey;
+  const actionKeys = (hasStrategicAction
+    ? [
+      descriptor.actionKey,
+      descriptor.strategicActionKey,
+      descriptor.familyActionKey,
+      descriptor.legacyActionKey,
+    ]
+    : [descriptor.actionKey, descriptor.familyActionKey, descriptor.legacyActionKey]
+  ).filter(Boolean);
+
+  const contextLevels = [
+    { key: descriptor.contextKey, minimum: 3, weight: 1 },
+    { key: `strategy:${strategic}`, minimum: 5, weight: 0.78 },
+    { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
+    { key: '*', minimum: 16, weight: 0.28 },
+  ];
+  const actionWeights = hasStrategicAction ? [1, 0.86, 0.68, 0.5] : [1, 0.76, 0.56];
+  const matches = [];
+  const seen = new Set();
+  actionKeys.forEach((actionKey, index) => {
+    const level = contextLevels.find((candidate) => {
+      const pattern = experience.get(`${candidate.key}::${actionKey}`);
+      if (!pattern) return false;
+      const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
+      const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
+      return pattern.samples >= candidate.minimum || severeEvidence || winningEvidence;
+    });
+    if (!level) return;
+    const mapKey = `${level.key}::${actionKey}`;
+    if (seen.has(mapKey)) return;
+    seen.add(mapKey);
+    matches.push({
+      pattern: experience.get(mapKey),
+      weight: level.weight * (actionWeights[index] || 0.4),
+    });
+  });
+  if (!matches.length) return 0;
+
+  let evidenceWeight = 0;
+  let weightedLossRate = 0;
+  let weightedSevereRate = 0;
+  let weightedSeverity = 0;
+  let weightedSamples = 0;
+  let weightedWinRate = 0;
+  let weightedWinQuality = 0;
+  matches.forEach(({ pattern, weight }) => {
+    const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
+    const evidence = weight * confidence;
+    evidenceWeight += evidence;
+    weightedLossRate += Math.min(0.98, (pattern.lossWeight + 0.5) / (pattern.samples + 1.5)) * evidence;
+    weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
+    weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
+    weightedSamples += pattern.samples * weight;
+    weightedWinRate += pattern.wins / Math.max(1, pattern.samples) * evidence;
+    weightedWinQuality += pattern.winWeight / Math.max(1, pattern.wins) * evidence;
+  });
+  if (!evidenceWeight) return 0;
+  const lossRate = weightedLossRate / evidenceWeight;
+  const severeRate = weightedSevereRate / evidenceWeight;
+  const learnedSeverity = weightedSeverity / evidenceWeight;
+  const winRate = weightedWinRate / evidenceWeight;
+  const winQuality = weightedWinQuality / evidenceWeight;
+  const confidence = Math.min(0.9, weightedSamples / (weightedSamples + 9));
+  const relevance = 1.35 + Math.min(3.2, Math.max(
+    Number(descriptor.riskSignal) || 0,
+    Number(descriptor.mistakeSeverity) || 0,
+  ));
+  if (lossRate >= 0.42) {
+    const penalty = (
+      18000000
+      * confidence
+      * (lossRate - 0.28)
+      * (1 + severeRate * 1.5)
+      * (1 + learnedSeverity * 0.2)
+      * relevance
+    );
+    return -Math.min(MAX_EXPERIENCE_PENALTY, penalty);
+  }
+  if (weightedSamples >= 5 && lossRate <= 0.24 && severeRate <= 0.08 && winRate >= 0.55) {
+    const reward = 9000000
+      * confidence
+      * (0.35 + winRate)
+      * Math.min(1.8, relevance)
+      * Math.min(1.5, 0.7 + winQuality * 0.3);
+    return Math.min(MAX_EXPERIENCE_REWARD, reward);
+  }
+  return 0;
+}
+
+function mergePattern(target, key, pattern, contextKey, actionKey) {
+  const current = target.get(key) || {
+    contextKey,
+    actionKey,
+    samples: 0,
+    losses: 0,
+    wins: 0,
+    lossWeight: 0,
+    severeLosses: 0,
+    signalWeight: 0,
+    winWeight: 0,
+  };
+  current.samples += pattern.samples;
+  current.losses += pattern.losses;
+  current.wins += pattern.wins;
+  current.lossWeight += pattern.lossWeight;
+  current.severeLosses += pattern.severeLosses;
+  current.signalWeight += pattern.signalWeight;
+  current.winWeight += pattern.winWeight;
+  target.set(key, current);
+}
+
+function strategicContextKey(contextKey) {
+  const parts = String(contextKey || '').split('|').filter(Boolean);
+  const phase = parts[0] || 'route';
+  const dimensions = ['o', 'po', 'tr']
+    .map(prefix => parts.find(part => part.startsWith(prefix)))
+    .filter(Boolean);
+  return [phase, ...dimensions].join('|');
+}
+
+function prepareReplyState(state, color, dice, expandDoubles = false) {
+  const resolvedDice = expandDoubles && dice.length === 2 && dice[0] === dice[1]
+    ? [dice[0], dice[0], dice[0], dice[0]]
+    : [...dice];
+  return {
+    ...state,
+    turn: color,
+    phase: 'move',
+    dice: resolvedDice,
+    rolled: [...resolvedDice],
+    turnMoves: [],
+    headPlayedThisTurn: {
+      ...(state.headPlayedThisTurn || {}),
+      [color]: false,
+    },
+  };
+}
+
+function sampledSequences(sequences, limit) {
+  const legal = (Array.isArray(sequences) ? sequences : []).filter(sequence => sequence?.length);
+  if (legal.length <= limit) return legal;
+  const sampled = [];
+  const seen = new Set();
+  const add = (sequence) => {
+    if (!sequence || sampled.length >= limit) return;
+    const key = sequence.map(move => `${move.from}:${move.die}`).join(',');
+    if (seen.has(key)) return;
+    seen.add(key);
+    sampled.push(sequence);
+  };
+  const bestBearOff = legal.reduce((best, sequence) => {
+    const offMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
+    const bestOffMoves = best.filter(move => move.bearOff || move.to === 0).length;
+    return offMoves > bestOffMoves ? sequence : best;
+  }, legal[0]);
+  if (bestBearOff.some(move => move.bearOff || move.to === 0)) add(bestBearOff);
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
+    add(legal[sourceIndex]);
+  }
+  return sampled;
+}
+
+function bucket(prefix, value, thresholds) {
+  const number = Number(value) || 0;
+  const index = thresholds.findIndex(threshold => number <= threshold);
+  return `${prefix}${index < 0 ? thresholds.length : index}`;
+}
+
+function signedFlag(name, value) {
+  const number = Number(value) || 0;
+  return `${name}:${number > 0.001 ? 'gain' : number < -0.001 ? 'loss' : 'flat'}`;
+}
+
+
+/* bot-engine/long/engine.ts */
+
+
+
+const DEFAULT_MAX_CANDIDATES = 64;
+const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
+
+function createLongBotEngine(adapter, options = {}) {
+  const defaultWeights = mergeWeights(options.weights);
+  const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
+  const defaultAnalysisNodeBudget = normalizeAnalysisNodeBudget(
+    options.analysisNodeBudget,
+    DEFAULT_ANALYSIS_NODE_BUDGET,
+  );
+  const experienceSources = new Map();
+  let experience = new Map();
+
+  function rank(state, color = state.turn, runtimeOptions = {}) {
+    if (!color) return [];
+    const weights = mergeWeights({ ...defaultWeights, ...(runtimeOptions.weights || {}) });
+    const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
+    const analysisNodeBudget = normalizeAnalysisNodeBudget(
+      runtimeOptions.analysisNodeBudget,
+      defaultAnalysisNodeBudget,
+    );
+    const budget = createAnalysisBudget(analysisNodeBudget);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v19').toLowerCase();
+    const advancedStrategy = strategyProfile !== 'v19';
+    const useExperience = advancedStrategy
+      || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
+    const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
+    if (!sequences.length) return [];
+
+    const candidates = prefilterSequences(state, color, sequences, maxCandidates);
+    const ranked = [];
+    const advancedBeforeMetrics = advancedStrategy
+      ? advancedStateMetrics(state, color)
+      : null;
+    for (const sequence of candidates) {
+      if (!budget.consume()) break;
+      const after = adapter.applySequence(state, sequence, color);
+      const features = sequenceStats(state, after, color, sequence);
+      if (advancedStrategy) {
+        Object.assign(features, advancedSequenceStats(
+          advancedBeforeMetrics,
+          after,
+          color,
+        ));
+      }
+      ranked.push({
+        sequence,
+        after,
+        score: scoreSequence(state, after, color, sequence, weights),
+        features,
+      });
+    }
+
+    const maxKoksRescue = Math.max(...ranked.map(
+      candidate => Number(candidate.features.startZoneReduction) || 0,
+    ));
+    ranked.forEach((candidate) => {
+      candidate.features.koksRescueOpportunity = maxKoksRescue;
+      candidate.features.missedKoksRescue = Math.max(
+        0,
+        maxKoksRescue - (Number(candidate.features.startZoneReduction) || 0),
+      );
+      candidate.baseScore = candidate.score;
+      candidate.score += strategicSafetyAdjustment(state, color, candidate.features);
+      if (advancedStrategy) {
+        candidate.features.advancedStrategyAdjustment = advancedStrategyAdjustment(
+          state,
+          color,
+          candidate.features,
+        );
+        candidate.score += candidate.features.advancedStrategyAdjustment;
+      }
+      candidate.features.strategyProfile = strategyProfile;
+      candidate.experience = experienceDescriptor(state, color, candidate.features);
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score,
+        )
+        : 0;
+      candidate.score += candidate.experienceAdjustment;
+    });
+
+    let strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+      .sort((left, right) => right.score - left.score);
+    const opponentOffBeforeMove = offCount(state, opponentOf(color));
+    if (
+      opponentOffBeforeMove >= 3
+      && offCount(state, color) === 0
+      && startZoneCount(state, color) > 0
+    ) {
+      const bestResultSafety = Math.max(...strategicallyRanked.map(
+        candidate => Number(candidate.features.resultSafetyAfter) || 0,
+      ));
+      const safest = strategicallyRanked.filter(
+        candidate => Number(candidate.features.resultSafetyAfter) === bestResultSafety,
+      );
+      const maxStartExit = Math.max(...safest.map(
+        candidate => Number(candidate.features.startZoneReduction) || 0,
+      ));
+      if (maxStartExit > 0) {
+        strategicallyRanked = safest.filter(
+          candidate => Number(candidate.features.startZoneReduction) === maxStartExit,
+        );
+      }
+    }
+    strategicallyRanked = reserveHomeEntryForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
+    const tacticallyRanked = analyzeOpponentReplies(
+      adapter,
+      color,
+      strategicallyRanked,
+      weights,
+      budget,
+      { expandDoubles: advancedStrategy },
+    );
+    if (advancedStrategy) {
+      tacticallyRanked.forEach((candidate) => {
+        const adjustment = advancedTacticalAdjustment(state, color, candidate);
+        candidate.features.advancedTacticalAdjustment = adjustment;
+        candidate.score += adjustment;
+      });
+      tacticallyRanked.sort((left, right) => right.score - left.score);
+    }
+    const outside = outsideHomeCount(state, color);
+    const trapPressure = opponentTrapRisk(state, color);
+    const maxEntry = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.outsideReduction) || 0,
+    ));
+    const fenceRun = Math.max(...tacticallyRanked.map(
+      candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
+    ));
+    const nonSevereTowerCandidates = fenceRun >= 5
+      ? tacticallyRanked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
+      : [];
+    const hasSevereTowerCandidate = tacticallyRanked.some(
+      candidate => Number(candidate.features.maxRouteTowerAfter) >= 7,
+    );
+    let strategicallyEligible = hasSevereTowerCandidate && nonSevereTowerCandidates.length
+      ? nonSevereTowerCandidates
+      : trapPressure > 850 && outside <= 8 && maxEntry > 0 && fenceRun < 4
+        ? tacticallyRanked.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxEntry,
+        )
+        : tacticallyRanked;
+    const headRemaining = headCheckers(state, color);
+    const maxHeadRelease = Math.max(...strategicallyEligible.map(
+      candidate => Number(candidate.features.headGain) || 0,
+    ));
+    const opponentOff = offCount(state, opponentOf(color));
+    const headReleaseIsCritical = maxHeadRelease > 0 && (
+      headRemaining <= 2
+      || headRemaining >= 7
+      || trapPressure >= 600
+      || fenceRun >= 4
+      || opponentOff > 0
+    );
+    if (headReleaseIsCritical) {
+      strategicallyEligible = strategicallyEligible.filter(
+        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease,
+      );
+    }
+    if (fenceRun >= 5) {
+      const maxSafeEntry = Math.max(...strategicallyEligible.map(
+        candidate => Number(candidate.features.outsideReduction) || 0,
+      ));
+      if (maxSafeEntry > 0) {
+        strategicallyEligible = strategicallyEligible.filter(
+          candidate => Number(candidate.features.outsideReduction) === maxSafeEntry,
+        );
+      }
+    }
+    const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
+    // Never promote an unchecked move merely because analyzed candidates
+    // received realistic reply penalties.
+    const finalCandidates = analyzedCandidates.length
+      ? analyzedCandidates
+      : strategicallyEligible;
+    finalCandidates.forEach((candidate) => {
+      const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
+      candidate.experience = experienceDescriptor(
+        state,
+        color,
+        candidate.features,
+        candidate.tactical,
+      );
+      candidate.experienceAdjustment = useExperience
+        ? boundedExperienceAdjustment(
+          experienceAdjustment(candidate.experience, experience),
+          candidate.score - previousExperienceAdjustment,
+        )
+        : 0;
+      candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
+    });
+    const sortedCandidates = finalCandidates.sort((left, right) => right.score - left.score);
+    const developedCandidates = prioritizePreHomeDevelopment(
+      state,
+      color,
+      prioritizeSafeEarlyDevelopment(state, color, sortedCandidates),
+    );
+    const distributedCandidates = prioritizeRouteDistribution(
+      state,
+      color,
+      developedCandidates,
+    );
+    const finalRanked = prioritizeRouteContinuity(
+      state,
+      color,
+      prioritizeAvailableHomeEntry(state, color, distributedCandidates),
+    );
+    finalRanked.forEach((candidate) => {
+      candidate.features.analysisNodesUsed = budget.used;
+      candidate.features.analysisNodeBudget = budget.limit;
+    });
+    return finalRanked;
+  }
+
+  function plan(state, color = state.turn, runtimeOptions = {}) {
+    const ranked = rank(state, color, runtimeOptions);
+    return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
+  }
+
+  function describeSequence(state, sequence, color = state.turn, runtimeOptions = {}) {
+    if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+    const after = adapter.applySequence(state, sequence, color);
+    const features = sequenceStats(state, after, color, sequence);
+    const strategyProfile = String(runtimeOptions.strategyProfile || 'v20').toLowerCase();
+    if (strategyProfile !== 'v19') {
+      Object.assign(features, advancedSequenceStats(
+        advancedStateMetrics(state, color),
+        after,
+        color,
+      ));
+    }
+    return {
+      features,
+      experience: experienceDescriptor(state, color, features),
+    };
+  }
+
+  return {
+    plan,
+    rank,
+    describeSequence,
+    evaluateState(state, color, weights = defaultWeights) {
+      return evaluateState(state, color, mergeWeights(weights));
+    },
+    scoreSequence(state, sequence, color = state.turn, weights = defaultWeights) {
+      const after = adapter.applySequence(state, sequence, color);
+      return scoreSequence(state, after, color, sequence, mergeWeights(weights));
+    },
+    setExperience(patterns = [], source = 'runtime') {
+      experienceSources.set(String(source || 'runtime'), Array.isArray(patterns) ? patterns : []);
+      experience = normalizeExperiencePatterns(
+        Array.from(experienceSources.values()).flat(),
+      );
+      return experience.size;
+    },
+    experienceSize() {
+      return experience.size;
+    },
+  };
+}
+
+function normalizeAnalysisNodeBudget(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return Math.max(1, Math.floor(fallback));
+  return Math.max(1, Math.floor(number));
+}
+
+function advancedStrategyAdjustment(state, color, features) {
+  const opponent = opponentOf(color);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const opponentHead = headCheckers(state, opponent);
+  const ownHead = headCheckers(state, color);
+  const attackPressure = Math.min(3.4, 1
+    + Math.max(-0.2, Math.min(1.2, raceDebt / 70))
+    + Math.max(0, opponentHead - 3) / 8
+    + Math.max(0, ownHead - 5) / 14);
+  const primeGain = Number(features.primeScoreGain) || 0;
+  const blockGain = Number(features.opponentMoveBlockGain) || 0;
+  const primeRunBefore = Number(features.primeRunBefore) || 0;
+  const primeRunAfter = Number(features.primeRunAfter) || 0;
+  const runPowerGain = Math.pow(primeRunAfter, 4) - Math.pow(primeRunBefore, 4);
+  const trapBefore = Math.max(0, Number(features.trapBefore) || 0);
+  const opponentFenceRun = Math.max(0, Number(features.opponentFenceRunBefore) || 0);
+  const maxRouteTowerAfter = Math.max(0, Number(features.maxRouteTowerAfter) || 0);
+  const safetyCompatible = trapBefore < 240 || (
+    Number(features.trapDelta || 0) >= 0
+    && Number(features.fenceClosureDelta || 0) >= 0
+    && Number(features.escapeGatewayDelta || 0) >= 0
+  );
+  const establishedPrime = primeRunAfter >= 4 || primeRunBefore >= 4;
+  const constructivePressure = attackPressure
+    * (establishedPrime ? 1 : 0.18)
+    * (safetyCompatible ? 1 : 0.12);
+  const preservationPressure = attackPressure
+    * Math.max(0.55, 1 / (1 + trapBefore / 1800));
+  let score = 0;
+
+  score += primeGain * (primeGain >= 0 ? 42000 * constructivePressure : 90000 * preservationPressure);
+  score += blockGain * (blockGain >= 0 ? 360000 * constructivePressure : 620000 * preservationPressure);
+  score += runPowerGain * 260000
+    * (runPowerGain >= 0 ? constructivePressure : preservationPressure);
+  if (primeRunBefore >= 4 && primeRunAfter < primeRunBefore) {
+    score -= (primeRunBefore - primeRunAfter)
+      * (24000000 + opponentHead * 2600000)
+      * preservationPressure;
+  }
+  if (
+    safetyCompatible
+    && primeRunAfter >= 6
+    && Number(features.primeScoreAfter || 0) > 0
+  ) {
+    score += 180000000 * constructivePressure;
+  } else if (primeRunAfter === 5 && primeRunAfter > primeRunBefore) {
+    score += 52000000 * constructivePressure;
+  }
+  if (
+    opponentHead >= 5
+    && Number(features.homeEntryMoves || 0) > 0
+    && primeGain <= 0
+    && blockGain <= 0
+  ) {
+    score -= Number(features.homeEntryMoves)
+      * (9000000 + opponentHead * 1800000);
+  }
+  if (maxRouteTowerAfter >= 6 && primeGain <= 0) {
+    score -= Math.pow(maxRouteTowerAfter - 5, 2) * 18000000;
+  }
+  if (
+    maxRouteTowerAfter >= 5
+    && ownHead > 0
+    && opponentFenceRun >= 2
+    && primeGain <= 0
+  ) {
+    const latentTrapPressure = 18000000
+      + ownHead * 2000000
+      + opponentFenceRun * 10000000
+      + Math.min(20000000, trapBefore * 12000);
+    score -= Math.pow(maxRouteTowerAfter - 4, 2) * latentTrapPressure;
+  }
+  return score;
+}
+
+function advancedStateMetrics(state, color) {
+  return {
+    primeScore: blockingPrimeScore(state, color),
+    primeRun: blockingPrimeRun(state, color),
+    opponentMoveBlock: opponentMoveBlockScore(state, color),
+  };
+}
+
+function advancedSequenceStats(beforeMetrics, after, color) {
+  const primeScoreAfter = blockingPrimeScore(after, color);
+  const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+  return {
+    primeScoreBefore: beforeMetrics.primeScore,
+    primeScoreAfter,
+    primeScoreGain: primeScoreAfter - beforeMetrics.primeScore,
+    primeRunBefore: beforeMetrics.primeRun,
+    primeRunAfter: blockingPrimeRun(after, color),
+    opponentMoveBlockBefore: beforeMetrics.opponentMoveBlock,
+    opponentMoveBlockAfter,
+    opponentMoveBlockGain: opponentMoveBlockAfter - beforeMetrics.opponentMoveBlock,
+  };
+}
+
+function advancedTacticalAdjustment(state, color, candidate) {
+  const tactical = candidate.tactical;
+  if (!tactical) return 0;
+  const opponent = opponentOf(color);
+  const opponentHead = headCheckers(state, opponent);
+  const opponentOutside = outsideHomeCount(state, opponent);
+  const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
+  const pressure = Math.min(3, 1
+    + Math.max(0, raceDebt) / 90
+    + Math.max(0, opponentHead - 3) / 10);
+  let score = 0;
+  score += (Number(tactical.blockedProbability) || 0) * 95000000 * pressure;
+  score -= (Number(tactical.expectedOpponentPipGain) || 0) * 520000 * pressure;
+  score -= (Number(tactical.expectedOpponentHeadRelease) || 0)
+    * (16000000 + opponentHead * 2400000)
+    * pressure;
+  score -= (Number(tactical.expectedOpponentOutsideReduction) || 0)
+    * (7000000 + Math.max(0, 8 - opponentOutside) * 1800000);
+  score -= Math.log1p(Number(tactical.expectedReplySequences) || 0) * 1800000 * pressure;
+  return score;
+}
+
+function prioritizeAvailableHomeEntry(state, color, ranked) {
+  const selected = ranked[0];
+  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const entering = ranked.filter(candidate => (
+    Number(candidate.features.outsideReduction) > selectedEntry
+    && isSafeHomeEntryAlternative(state, color, candidate, selected)
+  ));
+  if (!entering.length) return ranked;
+
+  // With a clear head and no severe trap, shuffling inside the home board only
+  // delays home readiness when the same roll can bring another checker home.
+  const maxEntry = Math.max(...entering.map(
+    candidate => Number(candidate.features.outsideReduction) || 0,
+  ));
+  const promoted = entering.filter(
+    candidate => Number(candidate.features.outsideReduction) === maxEntry,
+  );
+  const promotedSet = new Set(promoted);
+  promoted.forEach((candidate) => {
+    const adjustment = Math.max(0, Number(selected.score) - Number(candidate.score) + 1);
+    candidate.features.homeEntryPriorityAdjustment = adjustment;
+    candidate.score += adjustment;
+  });
+  return [...promoted, ...ranked.filter(candidate => !promotedSet.has(candidate))];
+}
+
+function prioritizeRouteContinuity(state, color, ranked) {
+  const selected = ranked[0];
+  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedDebt = Number(selected.features.laggardDebtDelta) || 0;
+  const continuing = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.outsideReduction || 0) >= selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) > selectedProgress
+    && Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+    && isSafeRouteAlternative(candidate, selected, 8000000, 250000, 250000)
+  ));
+  if (!continuing.length) return ranked;
+
+  continuing.sort((left, right) => (
+    Number(right.features.outsideReduction || 0) - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.features.laggardDebtDelta || 0) - Number(left.features.laggardDebtDelta || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, continuing[0], 'routeContinuityAdjustment');
+}
+
+function prioritizeSafeEarlyDevelopment(state, color, ranked) {
+  const selected = ranked[0];
+  const headRemaining = headCheckers(state, color);
+  if (
+    !selected
+    || homeReady(state, color)
+    || headRemaining < 4
+    || opponentTrapRisk(state, color) >= 120
+    || Number(selected.features.homeEntryMoves || 0) <= 0
+  ) {
+    return ranked;
+  }
+
+  const selectedHeadGain = Number(selected.features.headGain) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedEntry = Number(selected.features.homeEntryMoves) || 0;
+  const selectedTower = Number(selected.features.maxRouteTowerAfter) || 0;
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.headGain || 0) >= selectedHeadGain
+    && Number(candidate.features.homeEntryMoves || 0) < selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) >= selectedProgress
+    && Number(candidate.features.maxRouteTowerAfter || 0) < selectedTower
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && isSaferEarlyAlternative(candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.homeEntryMoves || 0) - Number(right.features.homeEntryMoves || 0)
+    || Number(left.features.maxRouteTowerAfter || 0) - Number(right.features.maxRouteTowerAfter || 0)
+    || Number(right.tactical.worstImpact) - Number(left.tactical.worstImpact)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'earlyDevelopmentAdjustment');
+}
+
+function isSaferEarlyAlternative(candidate, selected) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - 25000000
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.tactical.expectedImpact) >= Number(selected.tactical.expectedImpact)
+    && Number(candidate.tactical.worstImpact) >= Number(selected.tactical.worstImpact);
+}
+
+function prioritizePreHomeDevelopment(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || homeReady(state, color)
+    || headCheckers(state, color) <= 0
+    || opponentTrapRisk(state, color) >= 120
+    || Number(selected.features.homeShuffleMoves || 0) <= 0
+  ) {
+    return ranked;
+  }
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.headGain || 0) >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && Number(candidate.features.outsidePipGain || 0)
+      > Number(selected.features.outsidePipGain || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && isComparablePreHomeAlternative(candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.homeShuffleMoves || 0) - Number(right.features.homeShuffleMoves || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'preHomeDevelopmentAdjustment');
+}
+
+function isComparablePreHomeAlternative(candidate, selected) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - 12000000
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= (
+      Number(selected.features.escapeGatewayDelta || 0) - 3
+    )
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 3000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 7000000
+    );
+}
+
+function prioritizeRouteDistribution(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || homeReady(state, color)
+    || headCheckers(state, color) > 0
+    || outsideHomeCount(state, color) > 9
+    || opponentTrapRisk(state, color) >= 120
+  ) {
+    return ranked;
+  }
+
+  const selectedTower = Number(selected.features.maxRouteTowerAfter) || 0;
+  if (selectedTower < 6) return ranked;
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const alternatives = ranked.filter(candidate => {
+    if (candidate === selected) return false;
+    const candidateEntry = Number(candidate.features.outsideReduction) || 0;
+    const candidateProgress = Number(candidate.features.outsidePipGain) || 0;
+    const keepsRouteTempo = selectedTower >= 7
+      ? candidateEntry >= selectedEntry - 1 && candidateProgress >= selectedProgress
+      : candidateEntry >= selectedEntry && candidateProgress >= selectedProgress;
+    return keepsRouteTempo
+      && Number(candidate.features.maxRouteTowerAfter || 0) < selectedTower
+      && isSafeRouteAlternative(candidate, selected, 4000000, 750000, 250000);
+  });
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(left.features.maxRouteTowerAfter || 0) - Number(right.features.maxRouteTowerAfter || 0)
+    || Number(right.features.outsideReduction || 0) - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0) - Number(left.features.outsidePipGain || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(ranked, alternatives[0], 'routeDistributionAdjustment');
+}
+
+function isSafeRouteAlternative(
+  candidate,
+  selected,
+  scoreTolerance,
+  expectedReplyTolerance,
+  worstReplyTolerance,
+) {
+  if (!candidate.tactical || !selected.tactical) return false;
+  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+    && Number(candidate.experienceAdjustment || 0) >= (
+      Number(selected.experienceAdjustment || 0) - 500000
+    )
+    && Number(candidate.features.trapDelta || 0) >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0) >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - expectedReplyTolerance
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - worstReplyTolerance
+    );
+}
+
+function promoteCandidate(ranked, promoted, adjustmentKey) {
+  const selected = ranked[0];
+  const adjustment = Math.max(0, Number(selected.score) - Number(promoted.score) + 1);
+  promoted.features[adjustmentKey] = adjustment;
+  promoted.score += adjustment;
+  return [promoted, ...ranked.filter(candidate => candidate !== promoted)];
+}
+
+function isSafeHomeEntryAlternative(state, color, candidate, selected) {
+  if (
+    !isPlausibleHomeEntryAlternative(state, color, candidate, selected)
+    || !candidate.tactical
+    || !selected.tactical
+  ) {
+    return false;
+  }
+  const replyTolerance = isForcedLateHomeEntryContext(state, color, selected)
+    ? 8000000
+    : 250000;
+  return Number(candidate.tactical.expectedImpact) >= (
+    Number(selected.tactical.expectedImpact) - replyTolerance
+  )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - replyTolerance
+    );
+}
+
+function reserveHomeEntryForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (
+    ranked.length <= slotCount
+    || !hasHomeEntryPriorityContext(state, color, selected)
+  ) {
+    return ranked;
+  }
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const entering = ranked.filter(candidate => (
+    Number(candidate.features.outsideReduction) > selectedEntry
+    && isPlausibleHomeEntryAlternative(state, color, candidate, selected)
+  ));
+  if (!entering.length) return ranked;
+
+  const maxEntry = Math.max(...entering.map(
+    candidate => Number(candidate.features.outsideReduction) || 0,
+  ));
+  const reserved = entering.find(
+    candidate => Number(candidate.features.outsideReduction) === maxEntry,
+  );
+  const reservedIndex = ranked.indexOf(reserved);
+  if (reservedIndex < slotCount) return ranked;
+
+  const leading = ranked.slice(0, slotCount - 1);
+  const leadingSet = new Set(leading);
+  return [
+    ...leading,
+    reserved,
+    ...ranked.filter(candidate => candidate !== reserved && !leadingSet.has(candidate)),
+  ];
+}
+
+function hasHomeEntryPriorityContext(state, color, selected) {
+  return Boolean(selected)
+    && !homeReady(state, color)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) <= 9
+    && opponentTrapRisk(state, color) < 120
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
+}
+
+function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
+  const totalScoreTolerance = forcedLateEntry ? 18000000 : 2000000;
+  const experienceTolerance = 500000;
+  const trapFloor = forcedLateEntry ? Number(selected.features.trapDelta || 0) : 0;
+  const fenceFloor = forcedLateEntry ? Number(selected.features.fenceClosureDelta || 0) : 0;
+  const gatewayFloor = forcedLateEntry ? Number(selected.features.escapeGatewayDelta || 0) : 0;
+  return Number(candidate.features.trapDelta || 0) >= trapFloor
+    && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
+    && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
+    && Number(candidate.features.maxRouteTowerAfter || 0) < 7
+    && (
+      forcedLateEntry
+      || (
+        Number(candidate.score) >= Number(selected.score) - totalScoreTolerance
+        && Number(candidate.experienceAdjustment || 0) >= (
+          Number(selected.experienceAdjustment || 0) - experienceTolerance
+        )
+      )
+    );
+}
+
+function isForcedLateHomeEntryContext(state, color, selected) {
+  return Boolean(selected)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) <= 6
+    && opponentTrapRisk(state, color) < 120
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
+}
+
+function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
+  const raw = Number(rawAdjustment) || 0;
+  const budget = Math.min(
+    18000000,
+    Math.max(6000000, Math.abs(Number(immediateScore) || 0) * 0.06),
+  );
+  return Math.max(-budget, Math.min(Math.min(6000000, budget), raw));
+}
+
+function prefilterSequences(state, color, sequences, maxCandidates) {
+  const ready = homeReady(state, color);
+  const entryPressure = lateEntryPressure(state, color);
+  const trapPressure = opponentTrapRisk(state, color);
+  const development = developmentPressure(state, color);
+  const rescuePressure = koksRescuePressure(state, color);
+
+  const head = headPoint(color);
+  const scored = sequences
+    .map(sequence => {
+      const offMoves = sequence.reduce((total, move) => total + (move.bearOff || move.to === 0 ? 1 : 0), 0);
+      const roughPips = sequence.reduce((total, move) => total + Number(move.die || 0), 0);
+      const homeShuffle = ready ? sequence.length - offMoves : 0;
+      const homeEntries = homeEntryMoveCount(sequence, color);
+      const insideHomeMoves = homeShuffleMoveCount(sequence, color);
+      const outsideMoves = sequence.reduce((total, move) => total + (pathPos(color, move.from) < 18 ? 1 : 0), 0);
+      const headMoves = sequence.reduce(
+        (total, move) => total + (Number(move.from) === Number(head) ? 1 : 0),
+        0,
+      );
+      const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
+      const startZoneExits = startZoneExitMoveCount(sequence, color);
+      return {
+        sequence,
+        offMoves,
+        homeEntries,
+        outsideMoves,
+        headMoves,
+        homeShuffle: insideHomeMoves,
+        startZoneExits,
+        priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
+          + homeEntries * 65000 * entryPressure
+          - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
+          + outsideMoves * Math.min(90000, trapPressure * 320)
+          + headMoves * (
+            headCheckers(state, color) >= 7
+              ? 250000 + headCheckers(state, color) * 30000
+              : headCheckers(state, color) <= 2
+                ? 180000
+                : 95000
+          )
+          + opponentHeadControlGain * 18000
+          + startZoneExits * 3000000 * rescuePressure
+          + roughPips * 120
+          + offCount(state, color) * 10
+          - pipsFor(state, color) * 0.01,
+      };
+    })
+    .sort((a, b) => b.priority - a.priority);
+
+  const selected = [];
+  const seen = new Set();
+  const add = (item) => {
+    if (!item || selected.length >= maxCandidates) return;
+    const key = item.sequence.map(move => `${move.from}:${move.die}`).join(',');
+    if (seen.has(key)) return;
+    seen.add(key);
+    selected.push(item.sequence);
+  };
+  const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
+
+  add(bestBy(item => item.headMoves > 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.startZoneExits > 0, (a, b) => (
+    b.startZoneExits - a.startZoneExits || b.priority - a.priority
+  )));
+  add(bestBy(item => item.homeEntries > 0, (a, b) => (
+    b.homeEntries - a.homeEntries || b.priority - a.priority
+  )));
+  add(bestBy(item => item.outsideMoves > 0, (a, b) => (
+    b.outsideMoves - a.outsideMoves || b.priority - a.priority
+  )));
+  add(bestBy(item => item.homeShuffle === 0, (a, b) => b.priority - a.priority));
+  add(bestBy(item => item.offMoves > 0, (a, b) => (
+    b.offMoves - a.offMoves || b.priority - a.priority
+  )));
+  scored.forEach(add);
+  return selected;
+}
+
+function prioritizeForcedRacePlay(state, color, ranked) {
+  if (!ranked.length) return ranked;
+  if (homeReady(state, color)) {
+    const maxOff = Math.max(...ranked.map(candidate => Number(candidate.features.offGain) || 0));
+    return ranked.filter(candidate => Number(candidate.features.offGain) === maxOff);
+  }
+
+  const opponent = opponentOf(color);
+  const outside = outsideHomeCount(state, color);
+  const opponentOff = offCount(state, opponent);
+  const trapPressure = opponentTrapRisk(state, color);
+  const maxEntry = Math.max(...ranked.map(candidate => Number(candidate.features.outsideReduction) || 0));
+  const maxHeadRelease = Math.max(...ranked.map(candidate => Number(candidate.features.headGain) || 0));
+  const headRemaining = headCheckers(state, color);
+  const urgentHeadRelease = headCheckers(state, color) > 0
+    && maxHeadRelease > 0
+    && (
+      headCheckers(state, color) <= 2
+      || opponentOff > 0
+      || homeReady(state, opponent)
+      || trapPressure > 80
+    );
+
+  ranked.forEach((candidate) => {
+    const features = candidate.features;
+    if (headRemaining >= 7 && maxHeadRelease > 0) {
+      const release = Number(features.headGain || 0);
+      const developmentScale = 52000000 + headRemaining * 5200000;
+      candidate.score += release * developmentScale;
+      if (release < maxHeadRelease) candidate.score -= developmentScale * 0.72;
+      if (release <= 0 && Number(features.outsideReduction || 0) > 0) {
+        candidate.score -= 26000000 + headRemaining * 2800000;
+      }
+    } else if (headRemaining >= 4 && maxHeadRelease > 0) {
+      candidate.score += Number(features.headGain || 0) * 18000000;
+    }
+    if (urgentHeadRelease) {
+      candidate.score += Number(features.headGain || 0) * 36000000;
+      if (Number(features.headGain || 0) < maxHeadRelease) candidate.score -= 28000000;
+    }
+    if (outside <= 4 && maxEntry > 0) {
+      candidate.score += Number(features.outsideReduction || 0)
+        * (14000000 + opponentOff * 3500000);
+      if (Number(features.outsideReduction || 0) < maxEntry) {
+        candidate.score -= (maxEntry - Number(features.outsideReduction || 0))
+          * (9000000 + opponentOff * 2200000);
+      }
+    }
+    const fenceRun = Number(features.opponentFenceRunBefore || 0);
+    if (trapPressure > 850 && fenceRun >= 4) {
+      candidate.score += Number(features.trapDelta || 0) * 2200000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2800000;
+      candidate.score += Math.max(0, Number(features.laggardDebtDelta) || 0) * 340000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 12000000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
+    } else if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
+      const entry = Number(features.outsideReduction || 0);
+      const trapScale = Math.min(72000000, trapPressure * 52000);
+      candidate.score += entry * (18000000 + trapScale);
+      if (entry < maxEntry) {
+        candidate.score -= (maxEntry - entry) * (16000000 + trapScale * 0.82);
+      }
+      candidate.score -= Number(features.homeShuffleMoves || 0)
+        * (12000000 + trapScale * 0.72);
+    } else if (trapPressure > 850 && outside > 8) {
+      candidate.score += Number(features.trapDelta || 0) * 1800000;
+      candidate.score += Number(features.escapeGatewayDelta || 0) * 2400000;
+      candidate.score += Number(features.outsideDevelopmentMoves || 0) * 9000000;
+      candidate.score += Number(features.distributionDelta || 0) * 180000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 42000000;
+    }
+    if (trapPressure < 120 && headRemaining >= 7 && maxHeadRelease > 0) {
+      candidate.score += Number(features.headGain || 0) * 24000000;
+      candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
+    }
+    if (opponentOff >= 3 && offCount(state, color) === 0) {
+      candidate.score += Number(features.bearOffMoves || 0) * 42000000;
+      candidate.score += Number(features.outsideReduction || 0) * 15000000;
+      candidate.score += Number(features.headGain || 0) * 12000000;
+      candidate.score -= Number(features.homeShuffleMoves || 0) * 14000000;
+    }
+  });
+  return ranked;
+}
+
+function strategicSafetyAdjustment(state, color, features) {
+  const opponent = opponentOf(color);
+  const opponentOff = offCount(state, opponent);
+  const outside = outsideHomeCount(state, color);
+  let score = 0;
+
+  score -= Math.max(0, Number(features.headLandingBreak) || 0)
+    * (4200000 + headCheckers(state, color) * 620000);
+  score += Number(features.opponentHeadFreedomDelta || 0)
+    * (2200000 + Math.max(0, headCheckers(state, opponent) - 2) * 240000);
+  if (Number(features.trapBefore || 0) > 0) {
+    score += Number(features.trapDelta || 0) * (380000 + opponentOff * 70000);
+    if (Number(features.trapDelta || 0) <= 0) {
+      score -= Math.min(24000000, Number(features.trapBefore) * 68000);
+    }
+  }
+  const fenceClosureDelta = Number(features.fenceClosureDelta || 0);
+  const fenceClosureBefore = Number(features.fenceClosureBefore || 0);
+  score += fenceClosureDelta * (fenceClosureBefore > 0 ? 950000 : 620000);
+  if (fenceClosureDelta < 0) {
+    score += fenceClosureDelta
+      * (2400000 + Math.min(1800000, Number(features.trapBefore || 0) * 1100));
+  }
+  const escapeGatewayDelta = Number(features.escapeGatewayDelta || 0);
+  if (escapeGatewayDelta < 0) {
+    score += escapeGatewayDelta
+      * (1300000 + Math.min(1700000, Number(features.trapBefore || 0) * 900));
+  }
+  const distributionDelta = Number(features.distributionDelta || 0);
+  if (outside > 0 && distributionDelta < 0) {
+    score += distributionDelta
+      * (150000 + Math.min(180000, Number(features.trapBefore || 0) * 120));
+  }
+  const routeTowerDelta = Number(features.routeTowerDelta || 0);
+  const fenceRun = Number(features.opponentFenceRunBefore || 0);
+  if (outside > 0 && routeTowerDelta !== 0) {
+    const towerScale = 18000
+      + Math.max(0, fenceRun - 2) * 9000
+      + Math.min(45000, Number(features.trapBefore || 0) * 20);
+    score += routeTowerDelta * towerScale;
+    if (routeTowerDelta < 0 && fenceRun >= 4) {
+      score += routeTowerDelta * 75000;
+    }
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0) {
+    score -= Number(features.homeShuffleMoves)
+      * (3800000 + Math.max(0, 6 - outside) * 1600000 + opponentOff * 1100000);
+  }
+  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.trapBefore || 0) > 850) {
+    score -= Number(features.homeShuffleMoves)
+      * Math.min(160000000, Number(features.trapBefore) * 9500);
+  }
+  score += Math.max(0, Number(features.laggardDebtDelta) || 0)
+    * (155000 + developmentPressure(state, color) * 42000);
+  return score;
+}
+
+
+/* bot-engine/long/nardu-game-adapter.ts */
+function createNarduGameAdapter(game) {
+  return {
+    legalSequences(state, color, options = {}) {
+      if (!game?.bestMoveSequences) return [];
+      const prepared = {
+        ...state,
+        turn: color || state.turn,
+        phase: 'move',
+      };
+      const limit = Math.max(0, Number(options.limit) || 0);
+      const sequences = limit > 0 && game.sampledMoveSequences
+        ? game.sampledMoveSequences(prepared, color, limit)
+        : game.bestMoveSequences(prepared, color);
+      return sequences
+        .filter(sequence => sequence?.length)
+        .map(sequence => sequence.map(move => ({
+          from: Number(move.from),
+          die: Number(move.die),
+          to: move.bearOff ? 0 : Number(move.to || game.moveTo(color, move.from, move.die, prepared)),
+          bearOff: Boolean(move.bearOff || move.to === 0),
+        })));
+    },
+
+    applySequence(state, sequence, color) {
+      const next = JSON.parse(JSON.stringify(state || {}));
+      next.turn = color || state.turn;
+      next.phase = 'move';
+      sequence.forEach(move => {
+        game.applyMove(next, move.from, move.die, { autoEnd: false });
+      });
+      return next;
+    },
+
+    moveTo(state, color, from, die) {
+      return game.moveTo(color, from, die, state);
+    },
+  };
+}
+
+
+/* bot-engine/long/browser.ts */
+
+
+const ENGINE_VERSION = 'long-analytic-v23';
+
+function createBrowserLongBotEngine(game, options = {}) {
+  const adapter = createNarduGameAdapter(game);
+  const engine = createLongBotEngine(adapter, options);
+  let lastDecision = null;
+
+  return {
+    plan(state, runtimeOptions = {}) {
+      const color = state?.turn;
+      if (!state || (state.variant && state.variant !== 'long') || !color) return [];
+      const ranked = engine.rank(state, color, runtimeOptions);
+      lastDecision = decisionRecord(
+        state,
+        color,
+        ranked,
+        runtimeOptions.weights,
+        engine.experienceSize(),
+      );
+      return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
+    },
+
+    rank(state, runtimeOptions = {}) {
+      const color = state?.turn;
+      if (!state || (state.variant && state.variant !== 'long') || !color) return [];
+      return engine.rank(state, color, runtimeOptions);
+    },
+
+    describeSequence(state, sequence, runtimeOptions = {}) {
+      const color = runtimeOptions.color || state?.turn;
+      if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+      return engine.describeSequence(state, sequence, color, runtimeOptions);
+    },
+
+    evaluateState(state, color = state?.turn, weights = undefined) {
+      if (!state || !color) return 0;
+      return engine.evaluateState(state, color, weights);
+    },
+
+    setExperience(patterns, source = 'runtime') {
+      return engine.setExperience(patterns, source);
+    },
+
+    experienceSize() {
+      return engine.experienceSize();
+    },
+
+    consumeLastDecision() {
+      const decision = lastDecision;
+      lastDecision = null;
+      return decision;
+    },
+
+    version: ENGINE_VERSION,
+  };
+}
+
+function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
+  const candidates = ranked.slice(0, 4).map(candidate => ({
+    score: Math.round(candidate.score),
+    moves: candidate.sequence.map(move => ({
+      from: move.from,
+      to: move.bearOff ? 0 : move.to,
+      die: move.die,
+    })),
+    features: { ...(candidate.features || {}) },
+    tactical: candidate.tactical ? {
+      expectedImpact: Math.round(candidate.tactical.expectedImpact),
+      worstImpact: Math.round(candidate.tactical.worstImpact),
+      rolls: candidate.tactical.rolls,
+      adjustment: Math.round(candidate.tactical.adjustment),
+      recoveryExpected: Math.round(Number(candidate.tactical.recoveryExpected) || 0),
+      recoveryWorst: Math.round(Number(candidate.tactical.recoveryWorst) || 0),
+      recoveryRolls: Number(candidate.tactical.recoveryRolls) || 0,
+      deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
+      continuationExpected: Math.round(Number(candidate.tactical.continuationExpected) || 0),
+      continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
+      continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
+      continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
+      blockedProbability: Number(candidate.tactical.blockedProbability) || 0,
+      expectedReplySequences: Number(candidate.tactical.expectedReplySequences) || 0,
+      expectedOpponentPipGain: Number(candidate.tactical.expectedOpponentPipGain) || 0,
+      expectedOpponentHeadRelease: Number(candidate.tactical.expectedOpponentHeadRelease) || 0,
+      expectedOpponentOutsideReduction: Number(candidate.tactical.expectedOpponentOutsideReduction) || 0,
+      doublesExpanded: Boolean(candidate.tactical.doublesExpanded),
+      plies: Number(candidate.tactical.plies) || 2,
+    } : null,
+    experience: candidate.experience ? { ...candidate.experience } : null,
+    experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),
+  }));
+  if (!candidates.length) return null;
+
+  return {
+    id: positionFingerprint(state, color),
+    at: new Date().toISOString(),
+    engineVersion: ENGINE_VERSION,
+    experienceSize: Math.max(0, Number(experienceSize) || 0),
+    weights: weights && typeof weights === 'object'
+      ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
+      : {},
+    color,
+    dice: [...(state.dice || [])],
+    position: {
+      points: JSON.parse(JSON.stringify(state.points || {})),
+      off: { white: Number(state.off?.white) || 0, dark: Number(state.off?.dark) || 0 },
+    },
+    selected: candidates[0],
+    alternatives: candidates.slice(1),
+    experience: candidates[0].experience ? { ...candidates[0].experience } : null,
+  };
+}
+
+function positionFingerprint(state, color) {
+  const points = Object.entries(state.points || {})
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([point, stack]) => `${point}:${stack.color[0]}${stack.count}`)
+    .join(',');
+  const source = `${color}|${(state.dice || []).join(',')}|${points}|${state.off?.white || 0}:${state.off?.dark || 0}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `lb4-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function installBrowserLongBotEngine(root = globalThis) {
+  const game = root?.NarduGame;
+  if (!game) return null;
+  const api = createBrowserLongBotEngine(game);
+  root.NarduLongBotEngine = api;
+  return api;
+}
+
+if (typeof window !== 'undefined') {
+  installBrowserLongBotEngine(window);
+}
+
+}());
