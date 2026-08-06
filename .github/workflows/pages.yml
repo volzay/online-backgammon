@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, macOS, ARM64, codex-temporary]
+    runs-on: ubuntu-latest
     steps:
       - name: Clone repository
         env:
