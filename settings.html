@@ -271,6 +271,25 @@
           </div>
         </div>
 
+        <div class="account-block admin-correspondence">
+          <div class="account-block-head">
+            <div>
+              <h4 data-i18n="admin_messages_title">Сообщения администрации</h4>
+              <p data-i18n="admin_messages_desc">Объявления, правила и личные ответы администратора.</p>
+            </div>
+          </div>
+          <div class="friend-message-panel">
+            <div class="message-thread-head" data-i18n="admin_messages_thread">Администрация</div>
+            <div class="message-thread" id="admin-message-thread">
+              <div class="account-empty" data-i18n="admin_messages_empty">Сообщений администрации пока нет.</div>
+            </div>
+            <form class="friend-message-form" id="admin-message-form">
+              <input class="text-input" id="admin-message-input" type="text" maxlength="2000" placeholder="Ответить администрации…" data-i18n-ph="admin_message_reply_placeholder" autocomplete="off" disabled />
+              <button class="ghostbtn" type="submit" data-i18n="send" disabled>Отправить</button>
+            </form>
+          </div>
+        </div>
+
         <div class="account-grid">
           <div class="account-block">
             <div class="account-block-head">
@@ -387,6 +406,10 @@ const accountState = {
   messageTimer: null,
   profileTimer: null,
   searchTimer: null,
+  adminMessageTimer: null,
+  adminMessageAdminId: null,
+  adminMessages: [],
+  adminMessageSending: false,
 };
 
 function currentUser() {
@@ -896,6 +919,7 @@ async function loadAccountProfile({ silent = false } = {}) {
     };
     showAccountNotice(data.supabaseMode ? tr('account_supabase_notice', 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.') : '');
     renderAccount();
+    await loadAdminMessages({ silent: true });
   } catch (err) {
     // A transient Supabase/read failure must not make friends or history vanish.
     if (!accountState.profile) accountState.profile = fallbackProfile();
@@ -920,6 +944,87 @@ function renderAccount() {
   renderGames(games);
   renderFriendRequests(profile.friendRequests || { incoming: [], outgoing: [] });
   renderFriends(profile.friends || []);
+  renderAdminMessages();
+}
+
+async function loadAdminMessages({ silent = false } = {}) {
+  if (!registeredUser() || !supabaseAccountMode()) return;
+  try {
+    const { client, profile } = await supabaseAccountContext();
+    const { data, error } = await client
+      .from('admin_player_messages')
+      .select('id,admin_user_id,player_user_id,direction,subject,text,read_at,created_at')
+      .eq('player_user_id', profile.id)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) throw error;
+    accountState.adminMessages = data || [];
+    const latestAdminMessage = [...accountState.adminMessages].reverse().find(message => message.direction === 'admin');
+    accountState.adminMessageAdminId = latestAdminMessage?.admin_user_id || accountState.adminMessageAdminId;
+    const unreadIds = accountState.adminMessages
+      .filter(message => message.direction === 'admin' && !message.read_at)
+      .map(message => message.id);
+    if (unreadIds.length) {
+      await client.from('admin_player_messages').update({ read_at: new Date().toISOString() }).in('id', unreadIds);
+    }
+    renderAdminMessages();
+  } catch (error) {
+    if (!silent) flash(error.message || tr('admin_messages_load_failed', 'Не удалось загрузить сообщения администрации'));
+  }
+}
+
+function renderAdminMessages() {
+  const thread = document.getElementById('admin-message-thread');
+  const input = document.getElementById('admin-message-input');
+  const submit = document.querySelector('#admin-message-form button[type="submit"]');
+  if (!thread || !input || !submit) return;
+  const enabled = Boolean(accountState.adminMessageAdminId && registeredUser() && supabaseAccountMode());
+  input.disabled = !enabled;
+  submit.disabled = !enabled || accountState.adminMessageSending;
+  if (!accountState.adminMessages.length) {
+    thread.innerHTML = `<div class="account-empty">${tr('admin_messages_empty', 'Сообщений администрации пока нет.')}</div>`;
+    return;
+  }
+  thread.innerHTML = '';
+  accountState.adminMessages.forEach(message => {
+    const node = buildFriendMessageNode({
+      id: message.id,
+      fromName: message.direction === 'admin' ? tr('administration', 'Администрация') : tr('you', 'Вы'),
+      text: `${message.subject ? `${message.subject}\n` : ''}${message.text}`,
+      kind: 'text',
+      at: message.created_at,
+      own: message.direction === 'player',
+      readAt: message.read_at,
+    });
+    thread.appendChild(node);
+  });
+  thread.scrollTop = thread.scrollHeight;
+}
+
+async function sendAdminReply(event) {
+  event.preventDefault();
+  if (!accountState.adminMessageAdminId || accountState.adminMessageSending) return;
+  const input = document.getElementById('admin-message-input');
+  const text = input.value.trim();
+  if (!text) return;
+  accountState.adminMessageSending = true;
+  renderAdminMessages();
+  try {
+    const { client } = await supabaseAccountContext();
+    const { error } = await client.rpc('player_reply_to_admin', {
+      target_admin_id: accountState.adminMessageAdminId,
+      message_text: text,
+      p_client_message_id: newChatMessageId('admin-reply'),
+    });
+    if (error) throw error;
+    input.value = '';
+    await loadAdminMessages();
+  } catch (error) {
+    flash(error.message || tr('message_send_failed', 'Не удалось отправить сообщение'));
+  } finally {
+    accountState.adminMessageSending = false;
+    renderAdminMessages();
+  }
 }
 
 function repaintAccountLanguage() {
@@ -2045,6 +2150,7 @@ document.getElementById('friend-message-form').addEventListener('submit', (event
   event.preventDefault();
   sendFriendMessage();
 });
+document.getElementById('admin-message-form').addEventListener('submit', sendAdminReply);
 friendEmojiButton?.addEventListener('click', () => {
   if (!friendEmojiPopover || friendEmojiButton.disabled) return;
   friendEmojiPopover.hidden = !friendEmojiPopover.hidden;
@@ -2203,6 +2309,7 @@ window.addEventListener('nardu:langchange', repaintAccountLanguage);
 accountState.messageTimer = setInterval(() => {
   if (accountState.selectedFriendId) loadMessages(accountState.selectedFriendId, { silent: true });
 }, 4000);
+accountState.adminMessageTimer = setInterval(() => loadAdminMessages({ silent: true }), 5000);
 accountState.profileTimer = setInterval(() => loadAccountProfile({ silent: true }), 7000);
 accountState.presenceTimer = setInterval(() => touchAccountPresence(), 30000);
 document.addEventListener('visibilitychange', () => {
@@ -2212,6 +2319,7 @@ window.addEventListener('focus', () => touchAccountPresence({ force: true }).cat
 touchAccountPresence({ force: true }).catch(() => {});
 window.addEventListener('beforeunload', () => {
   clearInterval(accountState.messageTimer);
+  clearInterval(accountState.adminMessageTimer);
   clearInterval(accountState.profileTimer);
   clearInterval(accountState.presenceTimer);
 });

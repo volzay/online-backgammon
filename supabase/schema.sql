@@ -909,6 +909,50 @@ create table if not exists public.admin_audit (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.admin_message_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references public.profiles(id) on delete cascade,
+  subject text not null default '',
+  message text not null check (char_length(message) between 1 and 2000),
+  min_rating integer,
+  max_rating integer,
+  recipient_count integer not null default 0,
+  client_message_id text,
+  created_at timestamptz not null default now(),
+  check (min_rating is null or max_rating is null or min_rating <= max_rating)
+);
+
+create unique index if not exists admin_message_campaigns_sender_client_unique
+on public.admin_message_campaigns (admin_user_id, client_message_id)
+where client_message_id is not null;
+
+create table if not exists public.admin_player_messages (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references public.profiles(id) on delete cascade,
+  player_user_id uuid not null references public.profiles(id) on delete cascade,
+  campaign_id uuid references public.admin_message_campaigns(id) on delete set null,
+  direction text not null check (direction in ('admin', 'player')),
+  subject text not null default '',
+  text text not null check (char_length(text) between 1 and 2000),
+  client_message_id text,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists admin_player_messages_player_created_idx
+on public.admin_player_messages (player_user_id, created_at desc);
+
+create index if not exists admin_player_messages_admin_created_idx
+on public.admin_player_messages (admin_user_id, created_at desc);
+
+create unique index if not exists admin_player_messages_admin_client_unique
+on public.admin_player_messages (admin_user_id, client_message_id)
+where direction = 'admin' and client_message_id is not null;
+
+create unique index if not exists admin_player_messages_player_client_unique
+on public.admin_player_messages (player_user_id, client_message_id)
+where direction = 'player' and client_message_id is not null;
+
 alter table public.profiles enable row level security;
 alter table public.guest_presence enable row level security;
 alter table public.friend_requests enable row level security;
@@ -920,6 +964,8 @@ alter table public.rating_events enable row level security;
 alter table public.bot_training_games enable row level security;
 alter table public.room_game_archives enable row level security;
 alter table public.admin_audit enable row level security;
+alter table public.admin_message_campaigns enable row level security;
+alter table public.admin_player_messages enable row level security;
 
 create or replace function public.admin_email_whitelist()
 returns text[]
@@ -944,6 +990,217 @@ $$;
 
 revoke all on function public.is_admin_user() from public;
 grant execute on function public.is_admin_user() to authenticated;
+
+drop policy if exists "admins can read message campaigns" on public.admin_message_campaigns;
+create policy "admins can read message campaigns"
+on public.admin_message_campaigns for select
+to authenticated
+using (public.is_admin_user());
+
+drop policy if exists "admins and recipients can read admin messages" on public.admin_player_messages;
+create policy "admins and recipients can read admin messages"
+on public.admin_player_messages for select
+to authenticated
+using (public.is_admin_user() or player_user_id = auth.uid());
+
+drop policy if exists "admins and recipients can mark admin messages read" on public.admin_player_messages;
+create policy "admins and recipients can mark admin messages read"
+on public.admin_player_messages for update
+to authenticated
+using (
+  (public.is_admin_user() and direction = 'player')
+  or (player_user_id = auth.uid() and direction = 'admin')
+)
+with check (
+  (public.is_admin_user() and direction = 'player')
+  or (player_user_id = auth.uid() and direction = 'admin')
+);
+
+grant select on public.admin_message_campaigns to authenticated;
+grant select on public.admin_player_messages to authenticated;
+grant update (read_at) on public.admin_player_messages to authenticated;
+
+create or replace function public.admin_send_player_message(
+  target_profile_id uuid,
+  message_text text,
+  message_subject text default '',
+  p_client_message_id text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_text text := trim(coalesce(message_text, ''));
+  clean_subject text := left(trim(coalesce(message_subject, '')), 160);
+  clean_client_id text := nullif(left(trim(coalesce(p_client_message_id, '')), 120), '');
+  created_id uuid;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+  if char_length(clean_text) not between 1 and 2000 then
+    raise exception 'Сообщение должно содержать от 1 до 2000 символов.';
+  end if;
+  if not exists (select 1 from public.profiles where id = target_profile_id) then
+    raise exception 'Игрок не найден.';
+  end if;
+
+  if clean_client_id is not null then
+    select id into created_id
+    from public.admin_player_messages
+    where admin_user_id = auth.uid()
+      and client_message_id = clean_client_id
+      and direction = 'admin';
+    if created_id is not null then return created_id; end if;
+  end if;
+
+  insert into public.admin_player_messages (
+    admin_user_id, player_user_id, direction, subject, text, client_message_id
+  ) values (
+    auth.uid(), target_profile_id, 'admin', clean_subject, clean_text, clean_client_id
+  ) returning id into created_id;
+
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (auth.uid(), 'send-player-message', jsonb_build_object('targetUserId', target_profile_id, 'messageId', created_id));
+  return created_id;
+exception when unique_violation then
+  select id into created_id
+  from public.admin_player_messages
+  where admin_user_id = auth.uid() and client_message_id = clean_client_id and direction = 'admin';
+  return created_id;
+end;
+$$;
+
+revoke all on function public.admin_send_player_message(uuid, text, text, text) from public;
+grant execute on function public.admin_send_player_message(uuid, text, text, text) to authenticated;
+
+create or replace function public.admin_send_broadcast(
+  message_text text,
+  message_subject text default '',
+  p_min_rating integer default null,
+  p_max_rating integer default null,
+  p_client_message_id text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_text text := trim(coalesce(message_text, ''));
+  clean_subject text := left(trim(coalesce(message_subject, '')), 160);
+  clean_client_id text := nullif(left(trim(coalesce(p_client_message_id, '')), 120), '');
+  campaign_id uuid;
+  delivered integer := 0;
+begin
+  if not public.is_admin_user() then
+    raise exception 'Admin access required' using errcode = '42501';
+  end if;
+  if char_length(clean_text) not between 1 and 2000 then
+    raise exception 'Сообщение должно содержать от 1 до 2000 символов.';
+  end if;
+  if p_min_rating is not null and p_max_rating is not null and p_min_rating > p_max_rating then
+    raise exception 'Минимальный рейтинг не может превышать максимальный.';
+  end if;
+
+  if clean_client_id is not null then
+    select id, recipient_count into campaign_id, delivered
+    from public.admin_message_campaigns
+    where admin_user_id = auth.uid() and client_message_id = clean_client_id;
+    if campaign_id is not null then
+      return jsonb_build_object('campaignId', campaign_id, 'recipientCount', delivered, 'duplicate', true);
+    end if;
+  end if;
+
+  insert into public.admin_message_campaigns (
+    admin_user_id, subject, message, min_rating, max_rating, client_message_id
+  ) values (
+    auth.uid(), clean_subject, clean_text, p_min_rating, p_max_rating, clean_client_id
+  ) returning id into campaign_id;
+
+  insert into public.admin_player_messages (
+    admin_user_id, player_user_id, campaign_id, direction, subject, text
+  )
+  select auth.uid(), p.id, campaign_id, 'admin', clean_subject, clean_text
+  from public.profiles p
+  where p.id <> auth.uid()
+    and p.banned_at is null
+    and p.rating_eligible is true
+    and (p_min_rating is null or p.rating >= p_min_rating)
+    and (p_max_rating is null or p.rating <= p_max_rating)
+    and lower(p.email) <> all(public.admin_email_whitelist());
+
+  get diagnostics delivered = row_count;
+  update public.admin_message_campaigns set recipient_count = delivered where id = campaign_id;
+  insert into public.admin_audit (actor_user_id, action, details)
+  values (auth.uid(), 'send-player-broadcast', jsonb_build_object(
+    'campaignId', campaign_id, 'recipientCount', delivered,
+    'minRating', p_min_rating, 'maxRating', p_max_rating
+  ));
+  return jsonb_build_object('campaignId', campaign_id, 'recipientCount', delivered, 'duplicate', false);
+exception when unique_violation then
+  select id, recipient_count into campaign_id, delivered
+  from public.admin_message_campaigns
+  where admin_user_id = auth.uid() and client_message_id = clean_client_id;
+  return jsonb_build_object('campaignId', campaign_id, 'recipientCount', delivered, 'duplicate', true);
+end;
+$$;
+
+revoke all on function public.admin_send_broadcast(text, text, integer, integer, text) from public;
+grant execute on function public.admin_send_broadcast(text, text, integer, integer, text) to authenticated;
+
+create or replace function public.player_reply_to_admin(
+  target_admin_id uuid,
+  message_text text,
+  p_client_message_id text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  clean_text text := trim(coalesce(message_text, ''));
+  clean_client_id text := nullif(left(trim(coalesce(p_client_message_id, '')), 120), '');
+  created_id uuid;
+begin
+  if auth.uid() is null then raise exception 'Auth session missing'; end if;
+  if char_length(clean_text) not between 1 and 2000 then
+    raise exception 'Сообщение должно содержать от 1 до 2000 символов.';
+  end if;
+  if not exists (
+    select 1 from public.profiles p
+    where p.id = target_admin_id and lower(p.email) = any(public.admin_email_whitelist())
+  ) or not exists (
+    select 1 from public.admin_player_messages m
+    where m.admin_user_id = target_admin_id and m.player_user_id = auth.uid()
+  ) then
+    raise exception 'Диалог с администратором не найден.';
+  end if;
+
+  if clean_client_id is not null then
+    select id into created_id from public.admin_player_messages
+    where player_user_id = auth.uid() and client_message_id = clean_client_id and direction = 'player';
+    if created_id is not null then return created_id; end if;
+  end if;
+
+  insert into public.admin_player_messages (
+    admin_user_id, player_user_id, direction, text, client_message_id
+  ) values (
+    target_admin_id, auth.uid(), 'player', clean_text, clean_client_id
+  ) returning id into created_id;
+  return created_id;
+exception when unique_violation then
+  select id into created_id from public.admin_player_messages
+  where player_user_id = auth.uid() and client_message_id = clean_client_id and direction = 'player';
+  return created_id;
+end;
+$$;
+
+revoke all on function public.player_reply_to_admin(uuid, text, text) from public;
+grant execute on function public.player_reply_to_admin(uuid, text, text) to authenticated;
 
 drop policy if exists "admins can read bot training games" on public.bot_training_games;
 create policy "admins can read bot training games"
@@ -2334,6 +2591,11 @@ begin
 
   begin
     alter publication supabase_realtime add table public.friend_requests;
+  exception when duplicate_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.admin_player_messages;
   exception when duplicate_object then null;
   end;
 end $$;

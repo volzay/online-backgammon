@@ -24,6 +24,11 @@ const state = {
   archive: [],
   users: [],
   usersError: "",
+  selectedMessagePlayerId: "",
+  adminMessages: [],
+  messageLoading: false,
+  adminMessageSending: false,
+  adminBroadcastSending: false,
   audit: [],
   detail: null,
   detailKey: "",
@@ -41,6 +46,19 @@ const adminDict = {
     admin_panel: "Админ-панель",
     monitoring: "Мониторинг комнат",
     players: "Игроки",
+    messages: "Сообщения",
+    direct_message: "Личный диалог",
+    broadcast: "Массовая рассылка",
+    choose_player: "Выберите игрока",
+    write_message: "Написать",
+    message_subject: "Тема",
+    message_text: "Текст сообщения",
+    send: "Отправить",
+    rating_from: "Рейтинг от",
+    rating_to: "Рейтинг до",
+    recipients: "Получателей",
+    send_broadcast: "Отправить рассылку",
+    no_admin_messages: "Сообщений пока нет.",
     rooms: "Комнаты",
     change_password: "Сменить пароль",
     refresh: "Обновить",
@@ -165,6 +183,19 @@ const adminDict = {
     admin_panel: "Admin panel",
     monitoring: "Room monitoring",
     players: "Players",
+    messages: "Messages",
+    direct_message: "Direct conversation",
+    broadcast: "Broadcast",
+    choose_player: "Choose a player",
+    write_message: "Message",
+    message_subject: "Subject",
+    message_text: "Message text",
+    send: "Send",
+    rating_from: "Rating from",
+    rating_to: "Rating to",
+    recipients: "Recipients",
+    send_broadcast: "Send broadcast",
+    no_admin_messages: "No messages yet.",
     rooms: "Rooms",
     change_password: "Change password",
     refresh: "Refresh",
@@ -1026,6 +1057,7 @@ function adminTabsHtml() {
     <nav class="admin-tabs" aria-label="Разделы админ-панели">
       <button class="${state.adminTab === "rooms" ? "active" : ""}" type="button" data-admin-tab="rooms">${t("rooms")}</button>
       <button class="${state.adminTab === "players" ? "active" : ""}" type="button" data-admin-tab="players">${t("players")}</button>
+      ${state.backend === "supabase" ? `<button class="${state.adminTab === "messages" ? "active" : ""}" type="button" data-admin-tab="messages">${t("messages")}</button>` : ""}
     </nav>`;
 }
 
@@ -1098,7 +1130,8 @@ function playerRow(user) {
     ? `${user.banned
         ? `<button class="btn ghost small" type="button" data-user-unban="${escapeHtml(user.id)}">${t("unban")}</button>`
         : `<button class="btn ghost danger small" type="button" data-user-ban="${escapeHtml(user.id)}">${t("ban")}</button>`}
-        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>`
+        <button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>
+        ${state.backend === "supabase" ? `<button class="btn ghost small" type="button" data-message-player="${escapeHtml(user.id)}">${t("write_message")}</button>` : ""}`
     : canDeleteGuest
       ? `<button class="btn ghost danger small" type="button" data-user-delete="${escapeHtml(user.id)}">${t("delete")}</button>`
     : `<span class="readonly-note">${t("unavailable_actions")}</span>`;
@@ -1155,6 +1188,70 @@ function playersDashboardHtml() {
     </section>`;
 }
 
+function selectedMessagePlayer() {
+  return state.users.find(user => user.id === state.selectedMessagePlayerId && !user.guest) || null;
+}
+
+function broadcastRecipientCount(minValue = "", maxValue = "") {
+  const min = minValue === "" ? null : Number(minValue);
+  const max = maxValue === "" ? null : Number(maxValue);
+  return state.users.filter(user => {
+    if (user.guest || user.banned || user.rating == null || user.ratingEligible === false) return false;
+    if (adminEmails().has(String(user.email || "").toLowerCase())) return false;
+    if (min !== null && Number(user.rating) < min) return false;
+    if (max !== null && Number(user.rating) > max) return false;
+    return user.id !== state.admin?.id;
+  }).length;
+}
+
+function adminMessageThreadHtml() {
+  if (state.messageLoading) return `<div class="admin-empty">…</div>`;
+  if (!state.adminMessages.length) return `<div class="admin-empty">${t("no_admin_messages")}</div>`;
+  return state.adminMessages.map(message => `
+    <article class="admin-direct-message ${message.direction === "admin" ? "outgoing" : "incoming"}">
+      <div class="admin-direct-meta">${message.direction === "admin" ? t("admin_panel") : escapeHtml(selectedMessagePlayer()?.name || t("players"))} · ${fmtDate(message.created_at)}</div>
+      ${message.subject ? `<strong>${escapeHtml(message.subject)}</strong>` : ""}
+      <div>${escapeHtml(message.text)}</div>
+    </article>`).join("");
+}
+
+function messagesDashboardHtml() {
+  const player = selectedMessagePlayer();
+  const registered = state.users.filter(user => !user.guest && !adminEmails().has(String(user.email || "").toLowerCase()));
+  return `
+    <section class="admin-messaging-layout">
+      <section class="admin-panel admin-message-panel">
+        <div class="detail-section-head">
+          <div><h2>${t("direct_message")}</h2><p>${player ? `${escapeHtml(player.name)} · ${escapeHtml(player.rating ?? "—")}` : t("choose_player")}</p></div>
+        </div>
+        <label class="admin-message-select"><span>${t("players")}</span>
+          <select data-message-player-select>
+            <option value="">${t("choose_player")}</option>
+            ${registered.map(user => `<option value="${escapeHtml(user.id)}" ${user.id === state.selectedMessagePlayerId ? "selected" : ""}>${escapeHtml(user.name)} · ${escapeHtml(user.rating ?? "—")}</option>`).join("")}
+          </select>
+        </label>
+        <div class="admin-direct-thread">${adminMessageThreadHtml()}</div>
+        <form class="admin-message-form" data-form="admin-direct-message">
+          <input name="subject" maxlength="160" placeholder="${t("message_subject")}" ${player ? "" : "disabled"} />
+          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}" ${player ? "" : "disabled"}></textarea>
+          <button class="btn small" type="submit" ${player ? "" : "disabled"}>${t("send")}</button>
+        </form>
+      </section>
+      <section class="admin-panel admin-broadcast-panel">
+        <div class="detail-section-head"><div><h2>${t("broadcast")}</h2><p>${t("recipients")}: <strong data-broadcast-count>${broadcastRecipientCount()}</strong></p></div></div>
+        <form class="admin-message-form" data-form="admin-broadcast">
+          <div class="admin-rating-filter">
+            <label><span>${t("rating_from")}</span><input name="minRating" type="number" min="0" max="9999" placeholder="0" data-broadcast-rating /></label>
+            <label><span>${t("rating_to")}</span><input name="maxRating" type="number" min="0" max="9999" placeholder="9999" data-broadcast-rating /></label>
+          </div>
+          <input name="subject" maxlength="160" required placeholder="${t("message_subject")}" />
+          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}"></textarea>
+          <button class="btn small" type="submit">${t("send_broadcast")}</button>
+        </form>
+      </section>
+    </section>`;
+}
+
 function dashboardView() {
   const adminModeLabel = state.readonlyAdmin ? t("readonly_admin_mode") : `${t("archive")} ${archiveRetentionText()}`;
   return `
@@ -1162,7 +1259,7 @@ function dashboardView() {
       <header class="admin-top">
         <div>
           <div class="eyebrow">${t("admin_panel")} · ${adminModeLabel}</div>
-          <h1>${state.adminTab === "players" ? t("players") : t("monitoring")}</h1>
+          <h1>${state.adminTab === "players" ? t("players") : state.adminTab === "messages" ? t("messages") : t("monitoring")}</h1>
         </div>
         <div class="admin-actions">
           ${adminPreferenceControls()}
@@ -1174,7 +1271,7 @@ function dashboardView() {
       ${adminTabsHtml()}
       ${adminPasswordPanelHtml()}
       ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
-      ${state.adminTab === "players" ? playersDashboardHtml() : roomsDashboardHtml()}
+      ${state.adminTab === "players" ? playersDashboardHtml() : state.adminTab === "messages" ? messagesDashboardHtml() : roomsDashboardHtml()}
     </div>`;
 }
 
@@ -1321,6 +1418,7 @@ async function refresh() {
         gamesPlayed: statByUser.get(user.id)?.gamesPlayed || 0,
         gamesWon: statByUser.get(user.id)?.gamesWon || 0,
         rating: user.rating,
+        ratingEligible: user.rating_eligible !== false,
         online: onlineUserIds.has(user.id) || isRecentActivity(user.last_seen_at) || guestOnlineByName.has(nameKey) || Number(activeRoomCounts.get(user.id) || 0) > 0,
         banned: Boolean(user.banned_at),
         banReason: user.banned_reason || "",
@@ -1351,6 +1449,9 @@ async function refresh() {
         return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
       });
       state.usersError = "";
+      if (state.adminTab === "messages" && state.selectedMessagePlayerId) {
+        await loadAdminThread({ renderAfter: false });
+      }
     } catch (error) {
       state.users = [];
       state.usersError = error.message;
@@ -1600,12 +1701,102 @@ async function deletePlayer(userId) {
   await refresh();
 }
 
+function newAdminMessageId(scope) {
+  return `${scope}-${Date.now().toString(36)}-${cryptoRandomToken()}`;
+}
+
+function cryptoRandomToken() {
+  const bytes = new Uint32Array(2);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(value => value.toString(36)).join("");
+}
+
+async function loadAdminThread({ renderAfter = true } = {}) {
+  if (state.backend !== "supabase" || !state.selectedMessagePlayerId) {
+    state.adminMessages = [];
+    if (renderAfter) renderPreservingScroll();
+    return;
+  }
+  state.messageLoading = true;
+  if (renderAfter) renderPreservingScroll();
+  const client = await supabaseClient();
+  const { data, error } = await client
+    .from("admin_player_messages")
+    .select("id,admin_user_id,player_user_id,direction,subject,text,read_at,created_at")
+    .eq("player_user_id", state.selectedMessagePlayerId)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) throw error;
+  state.adminMessages = data || [];
+  state.messageLoading = false;
+  const unread = state.adminMessages.filter(message => message.direction === "player" && !message.read_at).map(message => message.id);
+  if (unread.length) await client.from("admin_player_messages").update({ read_at: new Date().toISOString() }).in("id", unread);
+  if (renderAfter) renderPreservingScroll();
+}
+
+async function sendAdminDirectMessage(form) {
+  if (state.adminMessageSending) return;
+  if (!state.selectedMessagePlayerId) throw new Error(t("choose_player"));
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.adminMessageSending = true;
+  const button = form.querySelector('button[type="submit"]');
+  if (button) button.disabled = true;
+  try {
+    const client = await supabaseClient();
+    const { error } = await client.rpc("admin_send_player_message", {
+      target_profile_id: state.selectedMessagePlayerId,
+      message_text: String(values.message || "").trim(),
+      message_subject: String(values.subject || "").trim(),
+      p_client_message_id: newAdminMessageId("direct"),
+    });
+    if (error) throw error;
+    form.reset();
+    state.notice = "Сообщение отправлено.";
+    await loadAdminThread();
+  } finally {
+    state.adminMessageSending = false;
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
+async function sendAdminBroadcast(form) {
+  if (state.adminBroadcastSending) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const minRating = values.minRating === "" ? null : Number(values.minRating);
+  const maxRating = values.maxRating === "" ? null : Number(values.maxRating);
+  const expected = broadcastRecipientCount(values.minRating, values.maxRating);
+  if (!expected) throw new Error("В выбранном диапазоне нет игроков.");
+  if (!window.confirm(`Отправить сообщение ${expected} игрокам?`)) return;
+  state.adminBroadcastSending = true;
+  const button = form.querySelector('button[type="submit"]');
+  if (button) button.disabled = true;
+  try {
+    const client = await supabaseClient();
+    const { data, error } = await client.rpc("admin_send_broadcast", {
+      message_text: String(values.message || "").trim(),
+      message_subject: String(values.subject || "").trim(),
+      p_min_rating: minRating,
+      p_max_rating: maxRating,
+      p_client_message_id: newAdminMessageId("broadcast"),
+    });
+    if (error) throw error;
+    form.reset();
+    state.notice = `Рассылка отправлена. Получателей: ${Number(data?.recipientCount ?? data?.recipient_count ?? expected)}.`;
+    renderPreservingScroll();
+  } finally {
+    state.adminBroadcastSending = false;
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
 document.addEventListener("submit", async event => {
   const form = event.target;
-  if (!["admin-login", "admin-password"].includes(form.dataset.form)) return;
+  if (!["admin-login", "admin-password", "admin-direct-message", "admin-broadcast"].includes(form.dataset.form)) return;
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
   try {
+    if (form.dataset.form === "admin-direct-message") return await sendAdminDirectMessage(form);
+    if (form.dataset.form === "admin-broadcast") return await sendAdminBroadcast(form);
     if (form.dataset.form === "admin-login") {
       if (supabaseAdminMode()) {
         const client = await supabaseClient();
@@ -1693,6 +1884,13 @@ document.addEventListener("click", async event => {
       renderPreservingScroll();
       return;
     }
+    if (button.dataset.messagePlayer) {
+      state.selectedMessagePlayerId = button.dataset.messagePlayer;
+      state.adminTab = "messages";
+      localStorage.setItem(TAB_KEY, state.adminTab);
+      await loadAdminThread();
+      return;
+    }
     if (button.dataset.action === "refresh") await refresh();
     if (button.dataset.action === "logout") {
       if (state.backend === "supabase") {
@@ -1739,6 +1937,24 @@ document.addEventListener("click", async event => {
     state.notice = error.message;
     renderPreservingScroll();
   }
+});
+
+document.addEventListener("change", event => {
+  if (!event.target.matches("[data-message-player-select]")) return;
+  state.selectedMessagePlayerId = event.target.value;
+  loadAdminThread().catch(error => {
+    state.notice = error.message;
+    state.messageLoading = false;
+    renderPreservingScroll();
+  });
+});
+
+document.addEventListener("input", event => {
+  if (!event.target.matches("[data-broadcast-rating]")) return;
+  const form = event.target.closest("form");
+  const count = document.querySelector("[data-broadcast-count]");
+  if (!form || !count) return;
+  count.textContent = String(broadcastRecipientCount(form.minRating.value, form.maxRating.value));
 });
 
 function markAdminScrollInteraction(event) {
