@@ -46,6 +46,10 @@ jobs:
           git clone --depth=1 https://github.com/actions/upload-artifact.git .local-actions/upload-artifact
           git clone --depth=1 https://github.com/actions/deploy-pages.git .local-actions/deploy-pages
 
+      - name: Extend Pages deployment timeout
+        run: |
+          node -e 'const fs = require("fs"); const path = ".local-actions/deploy-pages/dist/index.js"; const source = fs.readFileSync(path, "utf8"); const patched = source.replace("const MAX_TIMEOUT = 600000", "const MAX_TIMEOUT = 1800000"); if (patched === source) throw new Error("deploy-pages timeout marker not found"); fs.writeFileSync(path, patched);'
+
       - name: Upload Pages artifact
         uses: ./.local-actions/upload-artifact
         with:
