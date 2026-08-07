@@ -36,7 +36,7 @@ jobs:
 
       - name: Prepare Pages artifact
         run: |
-          tar -cvf "${RUNNER_TEMP}/artifact.tar" -C source/dist .
+          tar -cvf "${RUNNER_TEMP}/github-pages" -C source/dist .
 
       - name: Download Pages runtime actions
         run: |
@@ -47,7 +47,7 @@ jobs:
         uses: ./.local-actions/upload-artifact
         with:
           name: github-pages
-          path: ${{ runner.temp }}/artifact.tar
+          path: ${{ runner.temp }}/github-pages
           archive: false
           retention-days: 1
 
