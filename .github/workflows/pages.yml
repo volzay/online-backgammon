@@ -18,6 +18,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Clone repository
         env:
@@ -55,4 +58,9 @@ jobs:
         run: sleep 15
 
       - name: Deploy GitHub Pages
+        id: deployment
         uses: ./.local-actions/deploy-pages
+        with:
+          timeout: 1800000
+          error_count: 100
+          reporting_interval: 10000
