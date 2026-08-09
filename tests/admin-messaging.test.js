@@ -34,6 +34,9 @@ test('admin and player interfaces expose the conversation workflow', () => {
   assert.match(admin, /data-broadcast-rating/);
   assert.match(admin, /admin_send_player_message/);
   assert.match(admin, /admin_send_broadcast/);
+  assert.match(admin, /adminMessageDrafts/);
+  assert.match(admin, /adminMessageEditorActive\(\)/);
+  assert.match(admin, /state\.adminMessageDrafts\[draftName\]\[event\.target\.name\] = event\.target\.value/);
   assert.match(settings, /id="admin-message-thread"/);
   assert.match(settings, /id="admin-message-form"/);
   assert.match(settings, /player_reply_to_admin/);

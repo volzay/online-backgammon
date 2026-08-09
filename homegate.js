@@ -29,6 +29,10 @@ const state = {
   messageLoading: false,
   adminMessageSending: false,
   adminBroadcastSending: false,
+  adminMessageDrafts: {
+    direct: { subject: "", message: "" },
+    broadcast: { minRating: "", maxRating: "", subject: "", message: "" },
+  },
   audit: [],
   detail: null,
   detailKey: "",
@@ -1218,6 +1222,8 @@ function adminMessageThreadHtml() {
 function messagesDashboardHtml() {
   const player = selectedMessagePlayer();
   const registered = state.users.filter(user => !user.guest && !adminEmails().has(String(user.email || "").toLowerCase()));
+  const directDraft = state.adminMessageDrafts.direct;
+  const broadcastDraft = state.adminMessageDrafts.broadcast;
   return `
     <section class="admin-messaging-layout">
       <section class="admin-panel admin-message-panel">
@@ -1232,20 +1238,20 @@ function messagesDashboardHtml() {
         </label>
         <div class="admin-direct-thread">${adminMessageThreadHtml()}</div>
         <form class="admin-message-form" data-form="admin-direct-message">
-          <input name="subject" maxlength="160" placeholder="${t("message_subject")}" ${player ? "" : "disabled"} />
-          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}" ${player ? "" : "disabled"}></textarea>
+          <input name="subject" maxlength="160" value="${escapeHtml(directDraft.subject)}" placeholder="${t("message_subject")}" ${player ? "" : "disabled"} />
+          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}" ${player ? "" : "disabled"}>${escapeHtml(directDraft.message)}</textarea>
           <button class="btn small" type="submit" ${player ? "" : "disabled"}>${t("send")}</button>
         </form>
       </section>
       <section class="admin-panel admin-broadcast-panel">
-        <div class="detail-section-head"><div><h2>${t("broadcast")}</h2><p>${t("recipients")}: <strong data-broadcast-count>${broadcastRecipientCount()}</strong></p></div></div>
+        <div class="detail-section-head"><div><h2>${t("broadcast")}</h2><p>${t("recipients")}: <strong data-broadcast-count>${broadcastRecipientCount(broadcastDraft.minRating, broadcastDraft.maxRating)}</strong></p></div></div>
         <form class="admin-message-form" data-form="admin-broadcast">
           <div class="admin-rating-filter">
-            <label><span>${t("rating_from")}</span><input name="minRating" type="number" min="0" max="9999" placeholder="0" data-broadcast-rating /></label>
-            <label><span>${t("rating_to")}</span><input name="maxRating" type="number" min="0" max="9999" placeholder="9999" data-broadcast-rating /></label>
+            <label><span>${t("rating_from")}</span><input name="minRating" type="number" min="0" max="9999" value="${escapeHtml(broadcastDraft.minRating)}" placeholder="0" data-broadcast-rating /></label>
+            <label><span>${t("rating_to")}</span><input name="maxRating" type="number" min="0" max="9999" value="${escapeHtml(broadcastDraft.maxRating)}" placeholder="9999" data-broadcast-rating /></label>
           </div>
-          <input name="subject" maxlength="160" required placeholder="${t("message_subject")}" />
-          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}"></textarea>
+          <input name="subject" maxlength="160" required value="${escapeHtml(broadcastDraft.subject)}" placeholder="${t("message_subject")}" />
+          <textarea name="message" maxlength="2000" required placeholder="${t("message_text")}">${escapeHtml(broadcastDraft.message)}</textarea>
           <button class="btn small" type="submit">${t("send_broadcast")}</button>
         </form>
       </section>
@@ -1750,6 +1756,7 @@ async function sendAdminDirectMessage(form) {
       p_client_message_id: newAdminMessageId("direct"),
     });
     if (error) throw error;
+    state.adminMessageDrafts.direct = { subject: "", message: "" };
     form.reset();
     state.notice = "Сообщение отправлено.";
     await loadAdminThread();
@@ -1780,6 +1787,7 @@ async function sendAdminBroadcast(form) {
       p_client_message_id: newAdminMessageId("broadcast"),
     });
     if (error) throw error;
+    state.adminMessageDrafts.broadcast = { minRating: "", maxRating: "", subject: "", message: "" };
     form.reset();
     state.notice = `Рассылка отправлена. Получателей: ${Number(data?.recipientCount ?? data?.recipient_count ?? expected)}.`;
     renderPreservingScroll();
@@ -1950,12 +1958,21 @@ document.addEventListener("change", event => {
 });
 
 document.addEventListener("input", event => {
-  if (!event.target.matches("[data-broadcast-rating]")) return;
   const form = event.target.closest("form");
+  const formName = form?.dataset.form;
+  const draftName = formName === "admin-direct-message" ? "direct" : formName === "admin-broadcast" ? "broadcast" : "";
+  if (draftName && event.target.name && Object.hasOwn(state.adminMessageDrafts[draftName], event.target.name)) {
+    state.adminMessageDrafts[draftName][event.target.name] = event.target.value;
+  }
+  if (!event.target.matches("[data-broadcast-rating]")) return;
   const count = document.querySelector("[data-broadcast-count]");
   if (!form || !count) return;
   count.textContent = String(broadcastRecipientCount(form.minRating.value, form.maxRating.value));
 });
+
+function adminMessageEditorActive() {
+  return Boolean(document.activeElement?.closest?.('[data-form="admin-direct-message"], [data-form="admin-broadcast"]'));
+}
 
 function markAdminScrollInteraction(event) {
   if (event.target?.closest?.(".history-admin, .chat-admin")) {
@@ -1969,7 +1986,7 @@ app.addEventListener("touchmove", markAdminScrollInteraction, { passive: true })
 app.addEventListener("pointerdown", markAdminScrollInteraction, { passive: true });
 
 window.setInterval(() => {
-  if (!state.admin || document.hidden || Date.now() < adminScrollInteractionUntil || autoRefreshInFlight) return;
+  if (!state.admin || document.hidden || adminMessageEditorActive() || Date.now() < adminScrollInteractionUntil || autoRefreshInFlight) return;
   autoRefreshInFlight = true;
   refresh().catch(() => {}).finally(() => {
     autoRefreshInFlight = false;
