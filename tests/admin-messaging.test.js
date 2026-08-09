@@ -34,6 +34,10 @@ test('admin and player interfaces expose the conversation workflow', () => {
   assert.match(admin, /data-broadcast-rating/);
   assert.match(admin, /admin_send_player_message/);
   assert.match(admin, /admin_send_broadcast/);
+  assert.match(admin, /unreadAdminMessagesByPlayer/);
+  assert.match(admin, /admin-tab-unread/);
+  assert.match(admin, /\.eq\("direction", "player"\)[\s\S]*\.is\("read_at", null\)/);
+  assert.match(admin, /delete state\.unreadAdminMessagesByPlayer\[state\.selectedMessagePlayerId\]/);
   assert.match(admin, /adminMessageDrafts/);
   assert.match(admin, /adminMessageEditorActive\(\)/);
   assert.match(admin, /state\.adminMessageDrafts\[draftName\]\[event\.target\.name\] = event\.target\.value/);

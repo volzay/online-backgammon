@@ -26,6 +26,7 @@ const state = {
   usersError: "",
   selectedMessagePlayerId: "",
   adminMessages: [],
+  unreadAdminMessagesByPlayer: {},
   messageLoading: false,
   adminMessageSending: false,
   adminBroadcastSending: false,
@@ -63,6 +64,8 @@ const adminDict = {
     recipients: "Получателей",
     send_broadcast: "Отправить рассылку",
     no_admin_messages: "Сообщений пока нет.",
+    new_messages: "Новые сообщения",
+    new_messages_count: "Новых сообщений: {count}",
     rooms: "Комнаты",
     change_password: "Сменить пароль",
     refresh: "Обновить",
@@ -200,6 +203,8 @@ const adminDict = {
     recipients: "Recipients",
     send_broadcast: "Send broadcast",
     no_admin_messages: "No messages yet.",
+    new_messages: "New messages",
+    new_messages_count: "New messages: {count}",
     rooms: "Rooms",
     change_password: "Change password",
     refresh: "Refresh",
@@ -1057,11 +1062,12 @@ function loginView() {
 }
 
 function adminTabsHtml() {
+  const unreadMessages = unreadAdminMessageTotal();
   return `
     <nav class="admin-tabs" aria-label="Разделы админ-панели">
       <button class="${state.adminTab === "rooms" ? "active" : ""}" type="button" data-admin-tab="rooms">${t("rooms")}</button>
       <button class="${state.adminTab === "players" ? "active" : ""}" type="button" data-admin-tab="players">${t("players")}</button>
-      ${state.backend === "supabase" ? `<button class="${state.adminTab === "messages" ? "active" : ""}" type="button" data-admin-tab="messages">${t("messages")}</button>` : ""}
+      ${state.backend === "supabase" ? `<button class="${state.adminTab === "messages" ? "active" : ""}" type="button" data-admin-tab="messages"><span>${t("messages")}</span>${unreadMessages ? `<span class="admin-tab-unread" aria-label="${escapeHtml(tf("new_messages_count", { count: unreadMessages }))}">${unreadMessages > 99 ? "99+" : unreadMessages}</span>` : ""}</button>` : ""}
     </nav>`;
 }
 
@@ -1196,6 +1202,22 @@ function selectedMessagePlayer() {
   return state.users.find(user => user.id === state.selectedMessagePlayerId && !user.guest) || null;
 }
 
+function unreadAdminMessageCount(playerId) {
+  return Number(state.unreadAdminMessagesByPlayer[playerId] || 0);
+}
+
+function unreadAdminMessageTotal() {
+  return Object.values(state.unreadAdminMessagesByPlayer).reduce((total, count) => total + Number(count || 0), 0);
+}
+
+function setUnreadAdminMessages(messages = []) {
+  state.unreadAdminMessagesByPlayer = messages.reduce((counts, message) => {
+    if (!message?.player_user_id) return counts;
+    counts[message.player_user_id] = Number(counts[message.player_user_id] || 0) + 1;
+    return counts;
+  }, {});
+}
+
 function broadcastRecipientCount(minValue = "", maxValue = "") {
   const min = minValue === "" ? null : Number(minValue);
   const max = maxValue === "" ? null : Number(maxValue);
@@ -1221,7 +1243,10 @@ function adminMessageThreadHtml() {
 
 function messagesDashboardHtml() {
   const player = selectedMessagePlayer();
-  const registered = state.users.filter(user => !user.guest && !adminEmails().has(String(user.email || "").toLowerCase()));
+  const registered = state.users
+    .filter(user => !user.guest && !adminEmails().has(String(user.email || "").toLowerCase()))
+    .sort((a, b) => unreadAdminMessageCount(b.id) - unreadAdminMessageCount(a.id));
+  const unreadMessages = unreadAdminMessageTotal();
   const directDraft = state.adminMessageDrafts.direct;
   const broadcastDraft = state.adminMessageDrafts.broadcast;
   return `
@@ -1229,11 +1254,15 @@ function messagesDashboardHtml() {
       <section class="admin-panel admin-message-panel">
         <div class="detail-section-head">
           <div><h2>${t("direct_message")}</h2><p>${player ? `${escapeHtml(player.name)} · ${escapeHtml(player.rating ?? "—")}` : t("choose_player")}</p></div>
+          ${unreadMessages ? `<span class="admin-message-unread-summary">${escapeHtml(tf("new_messages_count", { count: unreadMessages }))}</span>` : ""}
         </div>
         <label class="admin-message-select"><span>${t("players")}</span>
           <select data-message-player-select>
             <option value="">${t("choose_player")}</option>
-            ${registered.map(user => `<option value="${escapeHtml(user.id)}" ${user.id === state.selectedMessagePlayerId ? "selected" : ""}>${escapeHtml(user.name)} · ${escapeHtml(user.rating ?? "—")}</option>`).join("")}
+            ${registered.map(user => {
+              const unread = unreadAdminMessageCount(user.id);
+              return `<option value="${escapeHtml(user.id)}" ${user.id === state.selectedMessagePlayerId ? "selected" : ""}>${unread ? `● ${unread} · ` : ""}${escapeHtml(user.name)} · ${escapeHtml(user.rating ?? "—")}</option>`;
+            }).join("")}
           </select>
         </label>
         <div class="admin-direct-thread">${adminMessageThreadHtml()}</div>
@@ -1403,6 +1432,15 @@ async function refresh() {
           gamesWon: Number(item.games_won || 0),
         });
       });
+      const { data: unreadMessages, error: unreadMessagesError } = await client
+        .from("admin_player_messages")
+        .select("id,player_user_id,created_at")
+        .eq("direction", "player")
+        .is("read_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (unreadMessagesError) throw unreadMessagesError;
+      setUnreadAdminMessages(unreadMessages || []);
       const guestOnlineByName = new Map();
       (guests || []).forEach(guest => {
         const key = playerNameKey(guest.name);
@@ -1736,7 +1774,14 @@ async function loadAdminThread({ renderAfter = true } = {}) {
   state.adminMessages = data || [];
   state.messageLoading = false;
   const unread = state.adminMessages.filter(message => message.direction === "player" && !message.read_at).map(message => message.id);
-  if (unread.length) await client.from("admin_player_messages").update({ read_at: new Date().toISOString() }).in("id", unread);
+  if (unread.length) {
+    const readAt = new Date().toISOString();
+    const { error: readError } = await client.from("admin_player_messages").update({ read_at: readAt }).in("id", unread);
+    if (readError) throw readError;
+    state.adminMessages = state.adminMessages.map(message => unread.includes(message.id) ? { ...message, read_at: readAt } : message);
+    state.unreadAdminMessagesByPlayer = { ...state.unreadAdminMessagesByPlayer };
+    delete state.unreadAdminMessagesByPlayer[state.selectedMessagePlayerId];
+  }
   if (renderAfter) renderPreservingScroll();
 }
 
