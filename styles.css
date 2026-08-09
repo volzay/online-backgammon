@@ -3186,6 +3186,9 @@ body.board-focus .bear-pip {
   gap: 8px;
   align-items: center;
 }
+#admin-message-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
 .friend-add .text-input,
 .friend-message-form .text-input {
   width: 100%;
@@ -3827,6 +3830,9 @@ body.board-focus .bear-pip {
   }
   .friend-message-form {
     grid-template-columns: 38px 38px minmax(0, 1fr) auto;
+  }
+  #admin-message-form {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .friend-request-row {
     grid-template-columns: 1fr;

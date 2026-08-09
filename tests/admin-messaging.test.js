@@ -40,4 +40,6 @@ test('admin and player interfaces expose the conversation workflow', () => {
   assert.match(settings, /id="admin-message-thread"/);
   assert.match(settings, /id="admin-message-form"/);
   assert.match(settings, /player_reply_to_admin/);
+  const styles = read('styles.css');
+  assert.match(styles, /#admin-message-form\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\) auto/);
 });
