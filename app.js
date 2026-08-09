@@ -116,6 +116,7 @@
       brand_sub: 'длинные · короткие · онлайн',
       nav_lobby: 'Лобби',
       nav_settings: 'Настройки',
+      nav_account: 'Личный кабинет',
       day: 'День', night: 'Ночь',
       logout: 'Выйти',
       vs: 'против',
@@ -124,6 +125,8 @@
       sound_off: 'Звук выключен',
       profile: 'Профиль',
       settings_icon: 'Настройки',
+      messages: 'Сообщения',
+      new_messages: 'Новых сообщений',
       show_password: 'Показать пароль',
       hide_password: 'Скрыть пароль',
       // lobby
@@ -461,6 +464,7 @@
       brand_sub: 'long · short · online',
       nav_lobby: 'Lobby',
       nav_settings: 'Settings',
+      nav_account: 'Account',
       day: 'Day', night: 'Night',
       logout: 'Sign out',
       vs: 'vs',
@@ -469,6 +473,8 @@
       sound_off: 'Sound off',
       profile: 'Profile',
       settings_icon: 'Settings',
+      messages: 'Messages',
+      new_messages: 'New messages',
       show_password: 'Show password',
       hide_password: 'Hide password',
       lobby_title: 'Lobby',
@@ -890,6 +896,7 @@
     });
     document.querySelectorAll('[data-lang-set]').forEach(b =>
       b.classList.toggle('active', b.dataset.langSet === lang));
+    paintLobbyMessageIndicator();
     window.dispatchEvent(new CustomEvent('nardu:langchange', { detail: { lang } }));
   }
   function currentLang() {
@@ -1057,6 +1064,65 @@
     document.querySelectorAll('[data-user-tier]').forEach(el => el.textContent = isRatedUser(u) ? tierLabel(u.tier) : t('unrated'));
   }
 
+  let lobbyUnreadMessageCount = 0;
+  let lobbyMessageRefreshBusy = false;
+  function paintLobbyMessageIndicator(count = lobbyUnreadMessageCount) {
+    lobbyUnreadMessageCount = Math.max(0, Number(count) || 0);
+    document.querySelectorAll('[data-message-notification]').forEach(indicator => {
+      const badge = indicator.querySelector('[data-message-notification-count]');
+      const hasUnread = lobbyUnreadMessageCount > 0;
+      const label = hasUnread
+        ? `${t('new_messages')}: ${lobbyUnreadMessageCount}`
+        : t('messages');
+      indicator.classList.toggle('has-unread', hasUnread);
+      indicator.setAttribute('aria-label', label);
+      indicator.title = label;
+      if (badge) {
+        badge.textContent = lobbyUnreadMessageCount > 99 ? '99+' : String(lobbyUnreadMessageCount);
+        badge.hidden = !hasUnread;
+      }
+    });
+  }
+  async function refreshLobbyMessageIndicator() {
+    if (!document.querySelector('[data-message-notification]') || lobbyMessageRefreshBusy) return;
+    const localUser = getUser();
+    if (!localUser || localUser.guest || !window.NarduSupabase?.configured?.()) {
+      paintLobbyMessageIndicator(0);
+      return;
+    }
+    lobbyMessageRefreshBusy = true;
+    try {
+      const client = await window.NarduSupabase.client();
+      const { data: authData, error: authError } = await client.auth.getUser();
+      const userId = authData?.user?.id;
+      if (authError || !userId) {
+        paintLobbyMessageIndicator(0);
+        return;
+      }
+      const [friendResult, adminResult] = await Promise.all([
+        client.from('friend_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('to_user_id', userId)
+          .is('read_at', null),
+        client.from('admin_player_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('player_user_id', userId)
+          .eq('direction', 'admin')
+          .is('read_at', null),
+      ]);
+      if (friendResult.error) console.warn('Could not count unread player messages', friendResult.error.message || friendResult.error);
+      if (adminResult.error) console.warn('Could not count unread admin messages', adminResult.error.message || adminResult.error);
+      paintLobbyMessageIndicator(
+        (friendResult.error ? 0 : Number(friendResult.count) || 0)
+        + (adminResult.error ? 0 : Number(adminResult.count) || 0),
+      );
+    } catch (error) {
+      console.warn('Could not refresh message indicator', error.message || error);
+    } finally {
+      lobbyMessageRefreshBusy = false;
+    }
+  }
+
   let lastGuestPresenceAt = 0;
   let lastProfilePresenceAt = 0;
   function presenceHash(value) {
@@ -1214,6 +1280,15 @@
     applyBoardStyle(currentBoardStyle());
     applyLang(currentLang());
     paintUser();
+    paintLobbyMessageIndicator();
+    refreshLobbyMessageIndicator();
+    if (document.querySelector('[data-message-notification]')) {
+      setInterval(refreshLobbyMessageIndicator, 5000);
+      window.addEventListener('focus', refreshLobbyMessageIndicator);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshLobbyMessageIndicator();
+      });
+    }
     touchPresence({ force: true });
     setInterval(() => touchPresence(), GUEST_PRESENCE_MS);
     paintSound();
@@ -1231,6 +1306,7 @@
     createGuestUser, compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
     safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,
     paintUser, currentSound, setSound, paintSound,
+    refreshLobbyMessageIndicator,
     wirePasswordToggles, t, translateServerMessage,
     isAuthSessionError, redirectForAuthError, reauthContext, clearReauthContext,
   };

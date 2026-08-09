@@ -61,7 +61,15 @@
 
     <nav class="topnav">
       <a class="navlink active" href="index.html" data-i18n="nav_lobby">Лобби</a>
-      <a class="navlink" href="settings.html" data-i18n="nav_settings">Настройки</a>
+      <a class="navlink" href="settings.html#account" data-i18n="nav_account">Личный кабинет</a>
+      <a class="nav-message-indicator" href="settings.html#account" data-message-notification
+         aria-label="Сообщения" title="Сообщения" data-i18n-aria="messages" data-i18n-title="messages">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+          <path d="M10 21h4"/>
+        </svg>
+        <span class="nav-message-count" data-message-notification-count hidden>0</span>
+      </a>
     </nav>
 
     <div class="spacer"></div>
