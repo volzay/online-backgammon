@@ -205,6 +205,11 @@ export function createLongBotEngine(adapter, options = {}) {
         );
       }
     }
+    strategicallyEligible = prioritizeDevelopingFenceEscape(
+      state,
+      color,
+      strategicallyEligible,
+    );
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
     // received realistic reply penalties.
@@ -921,6 +926,38 @@ function prioritizeForcedRacePlay(state, color, ranked) {
     }
   });
   return ranked;
+}
+
+function prioritizeDevelopingFenceEscape(state, color, ranked) {
+  if (!ranked.length || homeReady(state, color)) return ranked;
+  const fenceRun = Math.max(...ranked.map(
+    candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
+  ));
+  const closureBefore = Math.max(...ranked.map(
+    candidate => Number(candidate.features.fenceClosureBefore) || 0,
+  ));
+  const maxEscape = Math.max(...ranked.map(
+    candidate => Number(candidate.features.fenceClosureDelta) || 0,
+  ));
+  const developingFenceIsCritical = fenceRun >= 2
+    && closureBefore >= 36
+    && maxEscape >= closureBefore * 0.45;
+  if (!developingFenceIsCritical) return ranked;
+
+  const escapeFloor = Math.max(closureBefore * 0.45, maxEscape * 0.8);
+  const escaping = ranked.filter(candidate => (
+    Number(candidate.features.fenceClosureDelta || 0) >= escapeFloor
+    && Number(candidate.features.escapeGatewayDelta || 0) >= 0
+  ));
+  if (!escaping.length) return ranked;
+
+  escaping.forEach((candidate) => {
+    candidate.features.developingFenceEscapeAdjustment = Math.max(
+      1,
+      closureBefore * 1000000,
+    );
+  });
+  return escaping;
 }
 
 function strategicSafetyAdjustment(state, color, features) {

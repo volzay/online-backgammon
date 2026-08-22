@@ -271,6 +271,43 @@ test("evaluation rewards head support and penalizes trapped checkers", () => {
   assert.ok(engine.evaluateState(supported, "dark") > engine.evaluateState(trapped, "dark"));
 });
 
+test("VPD3-MD7P regression escapes the point-six laggard before a developing fence closes", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 1 },
+    3: { color: "white", count: 1 },
+    5: { color: "white", count: 1 },
+    6: { color: "dark", count: 1 },
+    8: { color: "dark", count: 2 },
+    12: { color: "dark", count: 4 },
+    15: { color: "dark", count: 2 },
+    18: { color: "dark", count: 2 },
+    20: { color: "dark", count: 2 },
+    22: { color: "dark", count: 2 },
+    24: { color: "white", count: 12 },
+  }, {
+    dice: [5, 2],
+    rolled: [5, 2],
+  });
+
+  engine.plan(state, {
+    strategyProfile: "v23",
+    maxCandidates: 64,
+    analysisNodeBudget: 1150,
+  });
+  const decision = engine.consumeLastDecision();
+
+  assert.ok(
+    decision.selected.moves.some(move => Number(move.from) === 6),
+    `expected the point-six checker to move, got ${JSON.stringify({
+      selected: decision.selected,
+      alternatives: decision.alternatives.slice(0, 8),
+    })}`,
+  );
+  assert.ok(Number(decision.selected.features.fenceClosureDelta) > 0);
+  assert.ok(Number(decision.selected.features.developingFenceEscapeAdjustment) > 0);
+});
+
 test("evaluation prefers distributed checkers over home towers before the race", () => {
   const { engine } = loadBrowserEngine();
   const balanced = longState({
