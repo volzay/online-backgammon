@@ -1302,6 +1302,15 @@ on public.friend_messages for insert
 to authenticated
 with check (from_user_id = auth.uid());
 
+drop policy if exists "recipients can mark friend messages read" on public.friend_messages;
+create policy "recipients can mark friend messages read"
+on public.friend_messages for update
+to authenticated
+using (to_user_id = auth.uid())
+with check (to_user_id = auth.uid());
+
+grant update (read_at) on public.friend_messages to authenticated;
+
 drop policy if exists "authenticated users can see non-closed rooms" on public.rooms;
 create policy "authenticated users can see non-closed rooms"
 on public.rooms for select

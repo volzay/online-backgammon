@@ -965,7 +965,20 @@ async function loadAdminMessages({ silent = false } = {}) {
       .filter(message => message.direction === 'admin' && !message.read_at)
       .map(message => message.id);
     if (unreadIds.length) {
-      await client.from('admin_player_messages').update({ read_at: new Date().toISOString() }).in('id', unreadIds);
+      const readAt = new Date().toISOString();
+      const { error: markReadError } = await client
+        .from('admin_player_messages')
+        .update({ read_at: readAt })
+        .eq('player_user_id', profile.id)
+        .eq('direction', 'admin')
+        .in('id', unreadIds);
+      if (markReadError) throw markReadError;
+      accountState.adminMessages.forEach(message => {
+        if (unreadIds.includes(message.id)) message.read_at = readAt;
+      });
+      window.dispatchEvent(new CustomEvent('nardu:messages-read', {
+        detail: { source: 'admin' },
+      }));
     }
     renderAdminMessages();
   } catch (error) {
@@ -1310,10 +1323,17 @@ async function loadSupabaseMessages(friendId) {
     .filter(message => message.to_user_id === profile.id && !message.read_at)
     .map(message => message.id);
   if (unreadIds.length) {
-    await client
+    const readAt = new Date().toISOString();
+    const { error: markReadError } = await client
       .from('friend_messages')
-      .update({ read_at: new Date().toISOString() })
+      .update({ read_at: readAt })
+      .eq('to_user_id', profile.id)
       .in('id', unreadIds);
+    if (markReadError) throw new Error(markReadError.message);
+    (data || []).forEach(message => {
+      if (unreadIds.includes(message.id)) message.read_at = readAt;
+    });
+    clearFriendUnread(friendId);
   }
   return {
     messages: (data || []).map(message => ({
@@ -1329,6 +1349,17 @@ async function loadSupabaseMessages(friendId) {
       readAt: message.read_at,
     })),
   };
+}
+
+function clearFriendUnread(friendId) {
+  const friend = (accountState.profile?.friends || []).find(item => item.id === friendId);
+  if (friend) friend.unread = 0;
+  document.querySelectorAll('[data-friend-id]').forEach(row => {
+    if (row.dataset.friendId === friendId) row.querySelector('.unread-badge')?.remove();
+  });
+  window.dispatchEvent(new CustomEvent('nardu:messages-read', {
+    detail: { source: 'friend', friendId },
+  }));
 }
 
 function renderMessages(messages) {
