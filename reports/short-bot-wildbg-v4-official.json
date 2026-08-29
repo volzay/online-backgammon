@@ -1,0 +1,3132 @@
+{
+  "schemaVersion": 1,
+  "official": true,
+  "passed": true,
+  "certifierHarnessFingerprint": "sha256:6167d6c3797f43c55e604e0b00b3a0fae7852f54ec03d77ad8ec152ce2cb87b6",
+  "suite": {
+    "id": "short-heldout-v3-drand-6419263",
+    "derivation": "first non-zero uint32be from SHA-256(\"nardu-short-bot/certification-v2\\0\" + engineCommit + \"\\0\" + round + \"\\0\" + randomness + \"\\0\" + index + \"\\0\" + counter)",
+    "seeds": [
+      2221044440,
+      439839141,
+      3047035989,
+      2308075387,
+      2277016493
+    ],
+    "gamesPerSeed": 20,
+    "fingerprint": "sha256:6e723f5b73877006eef856b56dce740eba9e24d957c5f100b852d54faed0ef1e"
+  },
+  "methodology": {
+    "pairing": "white and dark physical streams stay fixed while analytical and control algorithms swap colors",
+    "independentUnit": "paired score; adaptive learning and mutable experience are forbidden",
+    "opponent": "legacy short hard policy from the same frozen game.js runtime",
+    "runtime": "all child processes use one read-only frozen JS, WildBG WASM, and simulator byte bundle",
+    "diceStreams": "SHA-256 domain-separated, non-zero, collision-checked xorshift32 seeds",
+    "gate": "observed 100-game result only; confidence bounds are diagnostics and do not alter the gate",
+    "experienceScope": "cold-empty analytical engine baseline; mutable production experience is excluded"
+  },
+  "criteria": {
+    "minWinRate": 0.67,
+    "maxSevereLossRate": 0.1,
+    "minimumWins": 67,
+    "maximumSevereLosses": 10,
+    "requiresOfficialExecution": true,
+    "requiresFreshExecution": true,
+    "confidenceRequired": false,
+    "minimumPairsForSimultaneousHoeffding95": 185
+  },
+  "execution": {
+    "engineVersion": "short-analytic-v4",
+    "opponent": "legacy-short-hard",
+    "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+    "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+    "wildbg": {
+      "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+      "version": "0.3.1-pre",
+      "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+    },
+    "experience": {
+      "mode": "cold-empty",
+      "patternCount": 0,
+      "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+    },
+    "frozenBundleFingerprint": "sha256:4c9a0ef7c625e99c84351f1d1e48323c570775d47a4efc7d6194fa3d6b871faa",
+    "mode": "official-fresh",
+    "freshExecution": true,
+    "productionExperienceCertified": false,
+    "gitCommit": "fe89fbb13420b18983281e5ddb501003bb7d3592",
+    "engineCommit": "ed5c23384ad38e016304991508ddfa184679eaec",
+    "gitTreeClean": true,
+    "nodeVersion": "v24.15.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "options": {
+    "jobs": 5,
+    "seedTimeoutMs": 3600000,
+    "checkpointDirectory": "/private/tmp/short-wildbg-official-msgzgw/checkpoints",
+    "simulatorOptions": {
+      "games": 20,
+      "botCandidates": 48,
+      "botAnalyze": 6,
+      "botReplyLimit": 12,
+      "maxPlies": 500,
+      "minWinRate": 0,
+      "maxSevereLossRate": 1,
+      "trace": false
+    }
+  },
+  "aggregate": {
+    "seeds": 5,
+    "games": 100,
+    "pairs": 50,
+    "botWins": 84,
+    "controlWins": 16,
+    "winRate": 0.84,
+    "severeBotLosses": 7,
+    "severeLossRate": 0.07,
+    "pairSweeps": 35,
+    "pairSplits": 14,
+    "pairLosses": 1,
+    "botRolls": 2958,
+    "controlRolls": 2924,
+    "rollCountDifference": 34,
+    "botDoubles": 502,
+    "controlDoubles": 498,
+    "botDoubleRate": 0.16970926301555106,
+    "controlDoubleRate": 0.17031463748290013,
+    "doubleRateDifference": -0.000605374467349068,
+    "botWhiteWins": 42,
+    "botDarkWins": 42,
+    "physicalWhiteWins": 50,
+    "physicalDarkWins": 50,
+    "diceAudit": {
+      "expectedDerivedStreamSeeds": 100,
+      "uniqueDerivedStreamSeeds": 100,
+      "collisions": 0,
+      "pairedStreamMismatches": 0
+    },
+    "pairedWinConfidence95": {
+      "observations": 50,
+      "mean": 0.84,
+      "sampleVariance": 0.0657142857142857,
+      "standardError": 0.036253078686998626,
+      "perBoundErrorRate": 0.025,
+      "normalLower95": 0.768945271444786,
+      "normalUpper95": 0.911054728555214,
+      "hoeffdingLower95": 0.6479354417360158,
+      "hoeffdingUpper95": 1
+    },
+    "pairedSevereLossConfidence95": {
+      "observations": 50,
+      "mean": 0.07,
+      "sampleVariance": 0.030714285714285697,
+      "standardError": 0.024784787961282095,
+      "perBoundErrorRate": 0.025,
+      "normalLower95": 0.02142270823142519,
+      "normalUpper95": 0.11857729176857482,
+      "hoeffdingLower95": 0,
+      "hoeffdingUpper95": 0.26206455826398417
+    },
+    "confidenceRequiredForPass": false,
+    "confidencePassed": false,
+    "observedPassed": true,
+    "passed": true
+  },
+  "losses": [
+    {
+      "seed": 2221044440,
+      "game": 7,
+      "pair": 4,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 40,
+      "streamSeeds": {
+        "white": 3473704321,
+        "dark": 489845047
+      },
+      "off": {
+        "white": 10,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 2221044440,
+      "game": 12,
+      "pair": 6,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "normal",
+      "plies": 80,
+      "streamSeeds": {
+        "white": 4182501987,
+        "dark": 129972289
+      },
+      "off": {
+        "white": 15,
+        "dark": 12
+      }
+    },
+    {
+      "seed": 439839141,
+      "game": 3,
+      "pair": 2,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 52,
+      "streamSeeds": {
+        "white": 4125673329,
+        "dark": 4180577709
+      },
+      "off": {
+        "white": 12,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 439839141,
+      "game": 5,
+      "pair": 3,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "mars",
+      "plies": 43,
+      "streamSeeds": {
+        "white": 3641051468,
+        "dark": 336436496
+      },
+      "off": {
+        "white": 0,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 439839141,
+      "game": 7,
+      "pair": 4,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 54,
+      "streamSeeds": {
+        "white": 3496817089,
+        "dark": 1757543675
+      },
+      "off": {
+        "white": 13,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 3047035989,
+      "game": 2,
+      "pair": 1,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "koks",
+      "plies": 68,
+      "streamSeeds": {
+        "white": 734741411,
+        "dark": 555847691
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 3047035989,
+      "game": 6,
+      "pair": 3,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 81,
+      "streamSeeds": {
+        "white": 11882142,
+        "dark": 746205864
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 3047035989,
+      "game": 16,
+      "pair": 8,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "normal",
+      "plies": 38,
+      "streamSeeds": {
+        "white": 358403104,
+        "dark": 3005373587
+      },
+      "off": {
+        "white": 15,
+        "dark": 12
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 1,
+      "pair": 1,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 78,
+      "streamSeeds": {
+        "white": 3992716525,
+        "dark": 3097720765
+      },
+      "off": {
+        "white": 13,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 6,
+      "pair": 3,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "koks",
+      "plies": 30,
+      "streamSeeds": {
+        "white": 2367330977,
+        "dark": 4136567501
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 12,
+      "pair": 6,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 67,
+      "streamSeeds": {
+        "white": 2762831872,
+        "dark": 1838397914
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 13,
+      "pair": 7,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 36,
+      "streamSeeds": {
+        "white": 2817330961,
+        "dark": 1092392787
+      },
+      "off": {
+        "white": 5,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 14,
+      "pair": 7,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 45,
+      "streamSeeds": {
+        "white": 2817330961,
+        "dark": 1092392787
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 15,
+      "pair": 8,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "mars",
+      "plies": 39,
+      "streamSeeds": {
+        "white": 1005039057,
+        "dark": 2181849466
+      },
+      "off": {
+        "white": 0,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 2277016493,
+      "game": 2,
+      "pair": 1,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "normal",
+      "plies": 57,
+      "streamSeeds": {
+        "white": 150942178,
+        "dark": 2255509601
+      },
+      "off": {
+        "white": 15,
+        "dark": 13
+      }
+    },
+    {
+      "seed": 2277016493,
+      "game": 5,
+      "pair": 3,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "normal",
+      "plies": 57,
+      "streamSeeds": {
+        "white": 2142398670,
+        "dark": 1419021236
+      },
+      "off": {
+        "white": 11,
+        "dark": 15
+      }
+    }
+  ],
+  "severeLosses": [
+    {
+      "seed": 439839141,
+      "game": 5,
+      "pair": 3,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "mars",
+      "plies": 43,
+      "streamSeeds": {
+        "white": 3641051468,
+        "dark": 336436496
+      },
+      "off": {
+        "white": 0,
+        "dark": 15
+      }
+    },
+    {
+      "seed": 3047035989,
+      "game": 2,
+      "pair": 1,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "koks",
+      "plies": 68,
+      "streamSeeds": {
+        "white": 734741411,
+        "dark": 555847691
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 3047035989,
+      "game": 6,
+      "pair": 3,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 81,
+      "streamSeeds": {
+        "white": 11882142,
+        "dark": 746205864
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 6,
+      "pair": 3,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "koks",
+      "plies": 30,
+      "streamSeeds": {
+        "white": 2367330977,
+        "dark": 4136567501
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 12,
+      "pair": 6,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 67,
+      "streamSeeds": {
+        "white": 2762831872,
+        "dark": 1838397914
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 14,
+      "pair": 7,
+      "leg": 2,
+      "botColor": "dark",
+      "winner": "white",
+      "resultType": "mars",
+      "plies": 45,
+      "streamSeeds": {
+        "white": 2817330961,
+        "dark": 1092392787
+      },
+      "off": {
+        "white": 15,
+        "dark": 0
+      }
+    },
+    {
+      "seed": 2308075387,
+      "game": 15,
+      "pair": 8,
+      "leg": 1,
+      "botColor": "white",
+      "winner": "dark",
+      "resultType": "mars",
+      "plies": 39,
+      "streamSeeds": {
+        "white": 1005039057,
+        "dark": 2181849466
+      },
+      "off": {
+        "white": 0,
+        "dark": 15
+      }
+    }
+  ],
+  "lostPairs": [
+    {
+      "seed": 2308075387,
+      "pair": 7
+    }
+  ],
+  "perSeed": [
+    {
+      "seed": 2221044440,
+      "checkpointFingerprint": "sha256:dd8a6e0451bf2f5adfcb08102afb2d0b23be319c79e40cb501937ecacd9a3854",
+      "checkpointReused": false,
+      "summary": {
+        "engineVersion": "short-analytic-v4",
+        "opponent": "legacy-short-hard",
+        "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+        "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+        "wildbg": {
+          "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+          "version": "0.3.1-pre",
+          "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+        },
+        "experience": {
+          "mode": "cold-empty",
+          "patternCount": 0,
+          "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+        },
+        "games": 20,
+        "pairs": 10,
+        "botWins": 18,
+        "controlWins": 2,
+        "severeBotLosses": 0,
+        "pairSweeps": 8,
+        "pairSplits": 2,
+        "pairLosses": 0,
+        "botRolls": 613,
+        "controlRolls": 605,
+        "botDoubles": 97,
+        "controlDoubles": 94,
+        "averagePlies": 60.9,
+        "options": {
+          "games": 20,
+          "seed": 2221044440,
+          "botCandidates": 48,
+          "botAnalyze": 6,
+          "botReplyLimit": 12,
+          "maxPlies": 500,
+          "minWinRate": 0,
+          "maxSevereLossRate": 1,
+          "output": "",
+          "trace": false
+        },
+        "winRate": 0.9,
+        "severeLossRate": 0,
+        "botDoubleRate": 0.15823817292006526,
+        "controlDoubleRate": 0.15537190082644628,
+        "doubleRateDifference": 0.0028662720936189767,
+        "passed": true
+      },
+      "results": [
+        {
+          "game": 1,
+          "pair": 1,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 399845015,
+            "dark": 1769619061
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 64,
+          "botRolls": 32,
+          "controlRolls": 32,
+          "botDoubles": 6,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 2
+          }
+        },
+        {
+          "game": 2,
+          "pair": 1,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 399845015,
+            "dark": 1769619061
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 3,
+          "controlDoubles": 6,
+          "off": {
+            "white": 9,
+            "dark": 15
+          }
+        },
+        {
+          "game": 3,
+          "pair": 2,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 961176719,
+            "dark": 4224577672
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 68,
+          "botRolls": 34,
+          "controlRolls": 34,
+          "botDoubles": 8,
+          "controlDoubles": 8,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 4,
+          "pair": 2,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 961176719,
+            "dark": 4224577672
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 59,
+          "botRolls": 30,
+          "controlRolls": 29,
+          "botDoubles": 8,
+          "controlDoubles": 7,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 5,
+          "pair": 3,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1804905228,
+            "dark": 3583604359
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 48,
+          "botRolls": 24,
+          "controlRolls": 24,
+          "botDoubles": 6,
+          "controlDoubles": 6,
+          "off": {
+            "white": 15,
+            "dark": 9
+          }
+        },
+        {
+          "game": 6,
+          "pair": 3,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1804905228,
+            "dark": 3583604359
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 65,
+          "botRolls": 33,
+          "controlRolls": 32,
+          "botDoubles": 6,
+          "controlDoubles": 6,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 7,
+          "pair": 4,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3473704321,
+            "dark": 489845047
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 40,
+          "botRolls": 20,
+          "controlRolls": 20,
+          "botDoubles": 1,
+          "controlDoubles": 4,
+          "off": {
+            "white": 10,
+            "dark": 15
+          }
+        },
+        {
+          "game": 8,
+          "pair": 4,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3473704321,
+            "dark": 489845047
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 44,
+          "botRolls": 22,
+          "controlRolls": 22,
+          "botDoubles": 4,
+          "controlDoubles": 1,
+          "off": {
+            "white": 6,
+            "dark": 15
+          }
+        },
+        {
+          "game": 9,
+          "pair": 5,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 157325169,
+            "dark": 1990953705
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 76,
+          "botRolls": 38,
+          "controlRolls": 38,
+          "botDoubles": 4,
+          "controlDoubles": 8,
+          "off": {
+            "white": 15,
+            "dark": 11
+          }
+        },
+        {
+          "game": 10,
+          "pair": 5,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 157325169,
+            "dark": 1990953705
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 55,
+          "botRolls": 28,
+          "controlRolls": 27,
+          "botDoubles": 6,
+          "controlDoubles": 3,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        },
+        {
+          "game": 11,
+          "pair": 6,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4182501987,
+            "dark": 129972289
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 96,
+          "botRolls": 48,
+          "controlRolls": 48,
+          "botDoubles": 7,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 4
+          }
+        },
+        {
+          "game": 12,
+          "pair": 6,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4182501987,
+            "dark": 129972289
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 80,
+          "botRolls": 40,
+          "controlRolls": 40,
+          "botDoubles": 5,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 12
+          }
+        },
+        {
+          "game": 13,
+          "pair": 7,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4063544303,
+            "dark": 2374341013
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 42,
+          "botRolls": 21,
+          "controlRolls": 21,
+          "botDoubles": 3,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 8
+          }
+        },
+        {
+          "game": 14,
+          "pair": 7,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4063544303,
+            "dark": 2374341013
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 49,
+          "botRolls": 25,
+          "controlRolls": 24,
+          "botDoubles": 5,
+          "controlDoubles": 3,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        },
+        {
+          "game": 15,
+          "pair": 8,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 604461410,
+            "dark": 478184364
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 60,
+          "botRolls": 30,
+          "controlRolls": 30,
+          "botDoubles": 2,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 8
+          }
+        },
+        {
+          "game": 16,
+          "pair": 8,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 604461410,
+            "dark": 478184364
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 3,
+          "controlDoubles": 2,
+          "off": {
+            "white": 9,
+            "dark": 15
+          }
+        },
+        {
+          "game": 17,
+          "pair": 9,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3284467055,
+            "dark": 765164169
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 69,
+          "botRolls": 35,
+          "controlRolls": 34,
+          "botDoubles": 6,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 18,
+          "pair": 9,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3284467055,
+            "dark": 765164169
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 58,
+          "botRolls": 29,
+          "controlRolls": 29,
+          "botDoubles": 3,
+          "controlDoubles": 6,
+          "off": {
+            "white": 8,
+            "dark": 15
+          }
+        },
+        {
+          "game": 19,
+          "pair": 10,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 374492978,
+            "dark": 3938585810
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 68,
+          "botRolls": 34,
+          "controlRolls": 34,
+          "botDoubles": 7,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 20,
+          "pair": 10,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 374492978,
+            "dark": 3938585810
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 55,
+          "botRolls": 28,
+          "controlRolls": 27,
+          "botDoubles": 4,
+          "controlDoubles": 5,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        }
+      ]
+    },
+    {
+      "seed": 439839141,
+      "checkpointFingerprint": "sha256:d762c80b0d2f56d128b4192fb215a5631b3c23db263a234f4e85a2e20494b59f",
+      "checkpointReused": false,
+      "summary": {
+        "engineVersion": "short-analytic-v4",
+        "opponent": "legacy-short-hard",
+        "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+        "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+        "wildbg": {
+          "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+          "version": "0.3.1-pre",
+          "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+        },
+        "experience": {
+          "mode": "cold-empty",
+          "patternCount": 0,
+          "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+        },
+        "games": 20,
+        "pairs": 10,
+        "botWins": 17,
+        "controlWins": 3,
+        "severeBotLosses": 1,
+        "pairSweeps": 7,
+        "pairSplits": 3,
+        "pairLosses": 0,
+        "botRolls": 587,
+        "controlRolls": 580,
+        "botDoubles": 94,
+        "controlDoubles": 95,
+        "averagePlies": 58.35,
+        "options": {
+          "games": 20,
+          "seed": 439839141,
+          "botCandidates": 48,
+          "botAnalyze": 6,
+          "botReplyLimit": 12,
+          "maxPlies": 500,
+          "minWinRate": 0,
+          "maxSevereLossRate": 1,
+          "output": "",
+          "trace": false
+        },
+        "winRate": 0.85,
+        "severeLossRate": 0.05,
+        "botDoubleRate": 0.16013628620102216,
+        "controlDoubleRate": 0.16379310344827586,
+        "doubleRateDifference": -0.0036568172472536964,
+        "passed": true
+      },
+      "results": [
+        {
+          "game": 1,
+          "pair": 1,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2036492843,
+            "dark": 3540460943
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "koks",
+          "plies": 55,
+          "botRolls": 28,
+          "controlRolls": 27,
+          "botDoubles": 5,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 2,
+          "pair": 1,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2036492843,
+            "dark": 3540460943
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 42,
+          "botRolls": 21,
+          "controlRolls": 21,
+          "botDoubles": 4,
+          "controlDoubles": 4,
+          "off": {
+            "white": 14,
+            "dark": 15
+          }
+        },
+        {
+          "game": 3,
+          "pair": 2,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4125673329,
+            "dark": 4180577709
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 52,
+          "botRolls": 26,
+          "controlRolls": 26,
+          "botDoubles": 5,
+          "controlDoubles": 8,
+          "off": {
+            "white": 12,
+            "dark": 15
+          }
+        },
+        {
+          "game": 4,
+          "pair": 2,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4125673329,
+            "dark": 4180577709
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 52,
+          "botRolls": 26,
+          "controlRolls": 26,
+          "botDoubles": 8,
+          "controlDoubles": 5,
+          "off": {
+            "white": 7,
+            "dark": 15
+          }
+        },
+        {
+          "game": 5,
+          "pair": 3,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3641051468,
+            "dark": 336436496
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "mars",
+          "plies": 43,
+          "botRolls": 21,
+          "controlRolls": 22,
+          "botDoubles": 5,
+          "controlDoubles": 4,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 6,
+          "pair": 3,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3641051468,
+            "dark": 336436496
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 95,
+          "botRolls": 48,
+          "controlRolls": 47,
+          "botDoubles": 8,
+          "controlDoubles": 7,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 7,
+          "pair": 4,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3496817089,
+            "dark": 1757543675
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 54,
+          "botRolls": 27,
+          "controlRolls": 27,
+          "botDoubles": 5,
+          "controlDoubles": 7,
+          "off": {
+            "white": 13,
+            "dark": 15
+          }
+        },
+        {
+          "game": 8,
+          "pair": 4,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3496817089,
+            "dark": 1757543675
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 54,
+          "botRolls": 27,
+          "controlRolls": 27,
+          "botDoubles": 7,
+          "controlDoubles": 5,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 9,
+          "pair": 5,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2784978344,
+            "dark": 593152690
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 71,
+          "botRolls": 36,
+          "controlRolls": 35,
+          "botDoubles": 5,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 10,
+          "pair": 5,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2784978344,
+            "dark": 593152690
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 50,
+          "botRolls": 25,
+          "controlRolls": 25,
+          "botDoubles": 4,
+          "controlDoubles": 3,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 11,
+          "pair": 6,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2444610426,
+            "dark": 2378268625
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 44,
+          "botRolls": 22,
+          "controlRolls": 22,
+          "botDoubles": 5,
+          "controlDoubles": 0,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 12,
+          "pair": 6,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2444610426,
+            "dark": 2378268625
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 1,
+          "controlDoubles": 8,
+          "off": {
+            "white": 3,
+            "dark": 15
+          }
+        },
+        {
+          "game": 13,
+          "pair": 7,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4123423725,
+            "dark": 3323286311
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 46,
+          "botRolls": 23,
+          "controlRolls": 23,
+          "botDoubles": 5,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 5
+          }
+        },
+        {
+          "game": 14,
+          "pair": 7,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4123423725,
+            "dark": 3323286311
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 4,
+          "controlDoubles": 5,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 15,
+          "pair": 8,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1729812878,
+            "dark": 746403377
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 82,
+          "botRolls": 41,
+          "controlRolls": 41,
+          "botDoubles": 9,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 6
+          }
+        },
+        {
+          "game": 16,
+          "pair": 8,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1729812878,
+            "dark": 746403377
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 67,
+          "botRolls": 34,
+          "controlRolls": 33,
+          "botDoubles": 2,
+          "controlDoubles": 7,
+          "off": {
+            "white": 10,
+            "dark": 15
+          }
+        },
+        {
+          "game": 17,
+          "pair": 9,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2282660639,
+            "dark": 259913182
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 75,
+          "botRolls": 38,
+          "controlRolls": 37,
+          "botDoubles": 2,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 6
+          }
+        },
+        {
+          "game": 18,
+          "pair": 9,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2282660639,
+            "dark": 259913182
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 44,
+          "botRolls": 22,
+          "controlRolls": 22,
+          "botDoubles": 4,
+          "controlDoubles": 1,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        },
+        {
+          "game": 19,
+          "pair": 10,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 767522545,
+            "dark": 63995180
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 57,
+          "botRolls": 29,
+          "controlRolls": 28,
+          "botDoubles": 5,
+          "controlDoubles": 0,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 20,
+          "pair": 10,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 767522545,
+            "dark": 63995180
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 62,
+          "botRolls": 31,
+          "controlRolls": 31,
+          "botDoubles": 1,
+          "controlDoubles": 6,
+          "off": {
+            "white": 14,
+            "dark": 15
+          }
+        }
+      ]
+    },
+    {
+      "seed": 3047035989,
+      "checkpointFingerprint": "sha256:32765193a12920451c5e7d42fd773d95767fe3526987257a833ee11370a27586",
+      "checkpointReused": false,
+      "summary": {
+        "engineVersion": "short-analytic-v4",
+        "opponent": "legacy-short-hard",
+        "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+        "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+        "wildbg": {
+          "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+          "version": "0.3.1-pre",
+          "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+        },
+        "experience": {
+          "mode": "cold-empty",
+          "patternCount": 0,
+          "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+        },
+        "games": 20,
+        "pairs": 10,
+        "botWins": 17,
+        "controlWins": 3,
+        "severeBotLosses": 2,
+        "pairSweeps": 7,
+        "pairSplits": 3,
+        "pairLosses": 0,
+        "botRolls": 583,
+        "controlRolls": 576,
+        "botDoubles": 106,
+        "controlDoubles": 108,
+        "averagePlies": 57.95,
+        "options": {
+          "games": 20,
+          "seed": 3047035989,
+          "botCandidates": 48,
+          "botAnalyze": 6,
+          "botReplyLimit": 12,
+          "maxPlies": 500,
+          "minWinRate": 0,
+          "maxSevereLossRate": 1,
+          "output": "",
+          "trace": false
+        },
+        "winRate": 0.85,
+        "severeLossRate": 0.1,
+        "botDoubleRate": 0.18181818181818182,
+        "controlDoubleRate": 0.1875,
+        "doubleRateDifference": -0.005681818181818177,
+        "passed": true
+      },
+      "results": [
+        {
+          "game": 1,
+          "pair": 1,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 734741411,
+            "dark": 555847691
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 72,
+          "botRolls": 36,
+          "controlRolls": 36,
+          "botDoubles": 4,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 2,
+          "pair": 1,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 734741411,
+            "dark": 555847691
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "koks",
+          "plies": 68,
+          "botRolls": 34,
+          "controlRolls": 34,
+          "botDoubles": 6,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 3,
+          "pair": 2,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2731258878,
+            "dark": 1696134927
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 57,
+          "botRolls": 29,
+          "controlRolls": 28,
+          "botDoubles": 5,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 4,
+          "pair": 2,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2731258878,
+            "dark": 1696134927
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 50,
+          "botRolls": 25,
+          "controlRolls": 25,
+          "botDoubles": 7,
+          "controlDoubles": 4,
+          "off": {
+            "white": 9,
+            "dark": 15
+          }
+        },
+        {
+          "game": 5,
+          "pair": 3,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 11882142,
+            "dark": 746205864
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 41,
+          "botRolls": 21,
+          "controlRolls": 20,
+          "botDoubles": 3,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 9
+          }
+        },
+        {
+          "game": 6,
+          "pair": 3,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 11882142,
+            "dark": 746205864
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "mars",
+          "plies": 81,
+          "botRolls": 40,
+          "controlRolls": 41,
+          "botDoubles": 4,
+          "controlDoubles": 6,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 7,
+          "pair": 4,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1349759528,
+            "dark": 3539906818
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 65,
+          "botRolls": 33,
+          "controlRolls": 32,
+          "botDoubles": 4,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 6
+          }
+        },
+        {
+          "game": 8,
+          "pair": 4,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1349759528,
+            "dark": 3539906818
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 62,
+          "botRolls": 31,
+          "controlRolls": 31,
+          "botDoubles": 7,
+          "controlDoubles": 4,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        },
+        {
+          "game": 9,
+          "pair": 5,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2094532924,
+            "dark": 2272603855
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 49,
+          "botRolls": 25,
+          "controlRolls": 24,
+          "botDoubles": 6,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 3
+          }
+        },
+        {
+          "game": 10,
+          "pair": 5,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2094532924,
+            "dark": 2272603855
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 48,
+          "botRolls": 24,
+          "controlRolls": 24,
+          "botDoubles": 2,
+          "controlDoubles": 5,
+          "off": {
+            "white": 5,
+            "dark": 15
+          }
+        },
+        {
+          "game": 11,
+          "pair": 6,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1828108858,
+            "dark": 2284540205
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 51,
+          "botRolls": 26,
+          "controlRolls": 25,
+          "botDoubles": 6,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 3
+          }
+        },
+        {
+          "game": 12,
+          "pair": 6,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1828108858,
+            "dark": 2284540205
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 54,
+          "botRolls": 27,
+          "controlRolls": 27,
+          "botDoubles": 3,
+          "controlDoubles": 7,
+          "off": {
+            "white": 3,
+            "dark": 15
+          }
+        },
+        {
+          "game": 13,
+          "pair": 7,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1890551970,
+            "dark": 2072697077
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 6,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 14,
+          "pair": 7,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1890551970,
+            "dark": 2072697077
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 84,
+          "botRolls": 42,
+          "controlRolls": 42,
+          "botDoubles": 6,
+          "controlDoubles": 8,
+          "off": {
+            "white": 11,
+            "dark": 15
+          }
+        },
+        {
+          "game": 15,
+          "pair": 8,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 358403104,
+            "dark": 3005373587
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 38,
+          "botRolls": 19,
+          "controlRolls": 19,
+          "botDoubles": 4,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 11
+          }
+        },
+        {
+          "game": 16,
+          "pair": 8,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 358403104,
+            "dark": 3005373587
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 38,
+          "botRolls": 19,
+          "controlRolls": 19,
+          "botDoubles": 5,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 12
+          }
+        },
+        {
+          "game": 17,
+          "pair": 9,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2234591089,
+            "dark": 1110937184
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 76,
+          "botRolls": 38,
+          "controlRolls": 38,
+          "botDoubles": 10,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 6
+          }
+        },
+        {
+          "game": 18,
+          "pair": 9,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2234591089,
+            "dark": 1110937184
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 41,
+          "botRolls": 21,
+          "controlRolls": 20,
+          "botDoubles": 5,
+          "controlDoubles": 6,
+          "off": {
+            "white": 7,
+            "dark": 15
+          }
+        },
+        {
+          "game": 19,
+          "pair": 10,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1095839185,
+            "dark": 4191419871
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 47,
+          "botRolls": 24,
+          "controlRolls": 23,
+          "botDoubles": 6,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 20,
+          "pair": 10,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1095839185,
+            "dark": 4191419871
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 76,
+          "botRolls": 38,
+          "controlRolls": 38,
+          "botDoubles": 7,
+          "controlDoubles": 10,
+          "off": {
+            "white": 2,
+            "dark": 15
+          }
+        }
+      ]
+    },
+    {
+      "seed": 2308075387,
+      "checkpointFingerprint": "sha256:9311ed5b8ecd63ab4453f58b2fc6cbb77480fdcb8a5914b3c04113184416642b",
+      "checkpointReused": false,
+      "summary": {
+        "engineVersion": "short-analytic-v4",
+        "opponent": "legacy-short-hard",
+        "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+        "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+        "wildbg": {
+          "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+          "version": "0.3.1-pre",
+          "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+        },
+        "experience": {
+          "mode": "cold-empty",
+          "patternCount": 0,
+          "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+        },
+        "games": 20,
+        "pairs": 10,
+        "botWins": 14,
+        "controlWins": 6,
+        "severeBotLosses": 4,
+        "pairSweeps": 5,
+        "pairSplits": 4,
+        "pairLosses": 1,
+        "botRolls": 540,
+        "controlRolls": 536,
+        "botDoubles": 97,
+        "controlDoubles": 95,
+        "averagePlies": 53.8,
+        "options": {
+          "games": 20,
+          "seed": 2308075387,
+          "botCandidates": 48,
+          "botAnalyze": 6,
+          "botReplyLimit": 12,
+          "maxPlies": 500,
+          "minWinRate": 0,
+          "maxSevereLossRate": 1,
+          "output": "",
+          "trace": false
+        },
+        "winRate": 0.7,
+        "severeLossRate": 0.2,
+        "botDoubleRate": 0.17962962962962964,
+        "controlDoubleRate": 0.17723880597014927,
+        "doubleRateDifference": 0.0023908236594803733,
+        "passed": true
+      },
+      "results": [
+        {
+          "game": 1,
+          "pair": 1,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3992716525,
+            "dark": 3097720765
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 78,
+          "botRolls": 39,
+          "controlRolls": 39,
+          "botDoubles": 4,
+          "controlDoubles": 7,
+          "off": {
+            "white": 13,
+            "dark": 15
+          }
+        },
+        {
+          "game": 2,
+          "pair": 1,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3992716525,
+            "dark": 3097720765
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 54,
+          "botRolls": 27,
+          "controlRolls": 27,
+          "botDoubles": 3,
+          "controlDoubles": 2,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 3,
+          "pair": 2,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3026728543,
+            "dark": 3090224859
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 55,
+          "botRolls": 28,
+          "controlRolls": 27,
+          "botDoubles": 3,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 2
+          }
+        },
+        {
+          "game": 4,
+          "pair": 2,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3026728543,
+            "dark": 3090224859
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "koks",
+          "plies": 94,
+          "botRolls": 47,
+          "controlRolls": 47,
+          "botDoubles": 6,
+          "controlDoubles": 5,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 5,
+          "pair": 3,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2367330977,
+            "dark": 4136567501
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 32,
+          "botRolls": 16,
+          "controlRolls": 16,
+          "botDoubles": 10,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 2
+          }
+        },
+        {
+          "game": 6,
+          "pair": 3,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2367330977,
+            "dark": 4136567501
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "koks",
+          "plies": 30,
+          "botRolls": 15,
+          "controlRolls": 15,
+          "botDoubles": 3,
+          "controlDoubles": 9,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 7,
+          "pair": 4,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 280224609,
+            "dark": 2615208970
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 47,
+          "botRolls": 24,
+          "controlRolls": 23,
+          "botDoubles": 3,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 3
+          }
+        },
+        {
+          "game": 8,
+          "pair": 4,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 280224609,
+            "dark": 2615208970
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 52,
+          "botRolls": 26,
+          "controlRolls": 26,
+          "botDoubles": 2,
+          "controlDoubles": 5,
+          "off": {
+            "white": 7,
+            "dark": 15
+          }
+        },
+        {
+          "game": 9,
+          "pair": 5,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 3691612840,
+            "dark": 2706524694
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 52,
+          "botRolls": 26,
+          "controlRolls": 26,
+          "botDoubles": 6,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 10,
+          "pair": 5,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 3691612840,
+            "dark": 2706524694
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 49,
+          "botRolls": 25,
+          "controlRolls": 24,
+          "botDoubles": 5,
+          "controlDoubles": 5,
+          "off": {
+            "white": 6,
+            "dark": 15
+          }
+        },
+        {
+          "game": 11,
+          "pair": 6,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2762831872,
+            "dark": 1838397914
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 73,
+          "botRolls": 37,
+          "controlRolls": 36,
+          "botDoubles": 7,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 9
+          }
+        },
+        {
+          "game": 12,
+          "pair": 6,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2762831872,
+            "dark": 1838397914
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "mars",
+          "plies": 67,
+          "botRolls": 33,
+          "controlRolls": 34,
+          "botDoubles": 4,
+          "controlDoubles": 7,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 13,
+          "pair": 7,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2817330961,
+            "dark": 1092392787
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 36,
+          "botRolls": 18,
+          "controlRolls": 18,
+          "botDoubles": 5,
+          "controlDoubles": 6,
+          "off": {
+            "white": 5,
+            "dark": 15
+          }
+        },
+        {
+          "game": 14,
+          "pair": 7,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2817330961,
+            "dark": 1092392787
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "mars",
+          "plies": 45,
+          "botRolls": 22,
+          "controlRolls": 23,
+          "botDoubles": 6,
+          "controlDoubles": 6,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 15,
+          "pair": 8,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1005039057,
+            "dark": 2181849466
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "mars",
+          "plies": 39,
+          "botRolls": 19,
+          "controlRolls": 20,
+          "botDoubles": 5,
+          "controlDoubles": 8,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 16,
+          "pair": 8,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1005039057,
+            "dark": 2181849466
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 39,
+          "botRolls": 20,
+          "controlRolls": 19,
+          "botDoubles": 8,
+          "controlDoubles": 5,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        },
+        {
+          "game": 17,
+          "pair": 9,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 655449696,
+            "dark": 1164433289
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 49,
+          "botRolls": 25,
+          "controlRolls": 24,
+          "botDoubles": 4,
+          "controlDoubles": 3,
+          "off": {
+            "white": 15,
+            "dark": 3
+          }
+        },
+        {
+          "game": 18,
+          "pair": 9,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 655449696,
+            "dark": 1164433289
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 72,
+          "botRolls": 36,
+          "controlRolls": 36,
+          "botDoubles": 6,
+          "controlDoubles": 4,
+          "off": {
+            "white": 2,
+            "dark": 15
+          }
+        },
+        {
+          "game": 19,
+          "pair": 10,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4166336538,
+            "dark": 1896521339
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 3,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 20,
+          "pair": 10,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4166336538,
+            "dark": 1896521339
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 52,
+          "botRolls": 26,
+          "controlRolls": 26,
+          "botDoubles": 4,
+          "controlDoubles": 2,
+          "off": {
+            "white": 8,
+            "dark": 15
+          }
+        }
+      ]
+    },
+    {
+      "seed": 2277016493,
+      "checkpointFingerprint": "sha256:0e1274ba64c95d07cb2857f13d7ed06d5e0bdc64f9a2102064952d93677ac72a",
+      "checkpointReused": false,
+      "summary": {
+        "engineVersion": "short-analytic-v4",
+        "opponent": "legacy-short-hard",
+        "runtimeFingerprint": "sha256:ede2eeea300857f731f3c52d9a3fb91bec1e603cb547aa9e64d4375cd0cff136",
+        "simulatorHarnessFingerprint": "sha256:df6a99813f86a8b9414d6f2fb5f859a3150b6957abfab09db7463589ef72ed1c",
+        "wildbg": {
+          "assetFingerprint": "sha256:fef65348499806cfe267d63a0dfef608186c15ffe005492fc675d5a3d26fe13e",
+          "version": "0.3.1-pre",
+          "revision": "dbc4b4e7614540beadf1a923809d3f31566bfbee"
+        },
+        "experience": {
+          "mode": "cold-empty",
+          "patternCount": 0,
+          "fingerprint": "sha256:b50e8f4e6b118b1ee60a38ecb53aa0e020b400fa4cc8a524390a1584e7abd56c"
+        },
+        "games": 20,
+        "pairs": 10,
+        "botWins": 18,
+        "controlWins": 2,
+        "severeBotLosses": 0,
+        "pairSweeps": 8,
+        "pairSplits": 2,
+        "pairLosses": 0,
+        "botRolls": 635,
+        "controlRolls": 627,
+        "botDoubles": 108,
+        "controlDoubles": 106,
+        "averagePlies": 63.1,
+        "options": {
+          "games": 20,
+          "seed": 2277016493,
+          "botCandidates": 48,
+          "botAnalyze": 6,
+          "botReplyLimit": 12,
+          "maxPlies": 500,
+          "minWinRate": 0,
+          "maxSevereLossRate": 1,
+          "output": "",
+          "trace": false
+        },
+        "winRate": 0.9,
+        "severeLossRate": 0,
+        "botDoubleRate": 0.1700787401574803,
+        "controlDoubleRate": 0.16905901116427433,
+        "doubleRateDifference": 0.0010197289932059872,
+        "passed": true
+      },
+      "results": [
+        {
+          "game": 1,
+          "pair": 1,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 150942178,
+            "dark": 2255509601
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 61,
+          "botRolls": 31,
+          "controlRolls": 30,
+          "botDoubles": 5,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 3
+          }
+        },
+        {
+          "game": 2,
+          "pair": 1,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 150942178,
+            "dark": 2255509601
+          },
+          "winner": "white",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 57,
+          "botRolls": 28,
+          "controlRolls": 29,
+          "botDoubles": 5,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 13
+          }
+        },
+        {
+          "game": 3,
+          "pair": 2,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1340111986,
+            "dark": 3293352162
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 96,
+          "botRolls": 48,
+          "controlRolls": 48,
+          "botDoubles": 6,
+          "controlDoubles": 8,
+          "off": {
+            "white": 15,
+            "dark": 7
+          }
+        },
+        {
+          "game": 4,
+          "pair": 2,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1340111986,
+            "dark": 3293352162
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 57,
+          "botRolls": 29,
+          "controlRolls": 28,
+          "botDoubles": 6,
+          "controlDoubles": 3,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 5,
+          "pair": 3,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2142398670,
+            "dark": 1419021236
+          },
+          "winner": "dark",
+          "botWon": false,
+          "resultType": "normal",
+          "plies": 57,
+          "botRolls": 28,
+          "controlRolls": 29,
+          "botDoubles": 7,
+          "controlDoubles": 5,
+          "off": {
+            "white": 11,
+            "dark": 15
+          }
+        },
+        {
+          "game": 6,
+          "pair": 3,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2142398670,
+            "dark": 1419021236
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 47,
+          "botRolls": 24,
+          "controlRolls": 23,
+          "botDoubles": 3,
+          "controlDoubles": 6,
+          "off": {
+            "white": 7,
+            "dark": 15
+          }
+        },
+        {
+          "game": 7,
+          "pair": 4,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2219729783,
+            "dark": 2947144686
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 53,
+          "botRolls": 27,
+          "controlRolls": 26,
+          "botDoubles": 3,
+          "controlDoubles": 8,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 8,
+          "pair": 4,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2219729783,
+            "dark": 2947144686
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 40,
+          "botRolls": 20,
+          "controlRolls": 20,
+          "botDoubles": 7,
+          "controlDoubles": 2,
+          "off": {
+            "white": 2,
+            "dark": 15
+          }
+        },
+        {
+          "game": 9,
+          "pair": 5,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 4038878610,
+            "dark": 3564162900
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 57,
+          "botRolls": 29,
+          "controlRolls": 28,
+          "botDoubles": 1,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 8
+          }
+        },
+        {
+          "game": 10,
+          "pair": 5,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 4038878610,
+            "dark": 3564162900
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 60,
+          "botRolls": 30,
+          "controlRolls": 30,
+          "botDoubles": 4,
+          "controlDoubles": 1,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 11,
+          "pair": 6,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 872697858,
+            "dark": 3940625610
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 39,
+          "botRolls": 20,
+          "controlRolls": 19,
+          "botDoubles": 8,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 6
+          }
+        },
+        {
+          "game": 12,
+          "pair": 6,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 872697858,
+            "dark": 3940625610
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 94,
+          "botRolls": 47,
+          "controlRolls": 47,
+          "botDoubles": 6,
+          "controlDoubles": 12,
+          "off": {
+            "white": 6,
+            "dark": 15
+          }
+        },
+        {
+          "game": 13,
+          "pair": 7,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 2834049227,
+            "dark": 3394557113
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 75,
+          "botRolls": 38,
+          "controlRolls": 37,
+          "botDoubles": 6,
+          "controlDoubles": 4,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 14,
+          "pair": 7,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 2834049227,
+            "dark": 3394557113
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 80,
+          "botRolls": 40,
+          "controlRolls": 40,
+          "botDoubles": 5,
+          "controlDoubles": 7,
+          "off": {
+            "white": 2,
+            "dark": 15
+          }
+        },
+        {
+          "game": 15,
+          "pair": 8,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1595672677,
+            "dark": 3847057481
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 79,
+          "botRolls": 40,
+          "controlRolls": 39,
+          "botDoubles": 7,
+          "controlDoubles": 6,
+          "off": {
+            "white": 15,
+            "dark": 12
+          }
+        },
+        {
+          "game": 16,
+          "pair": 8,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1595672677,
+            "dark": 3847057481
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 48,
+          "botRolls": 24,
+          "controlRolls": 24,
+          "botDoubles": 2,
+          "controlDoubles": 6,
+          "off": {
+            "white": 5,
+            "dark": 15
+          }
+        },
+        {
+          "game": 17,
+          "pair": 9,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 106313558,
+            "dark": 970341304
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "koks",
+          "plies": 45,
+          "botRolls": 23,
+          "controlRolls": 22,
+          "botDoubles": 4,
+          "controlDoubles": 2,
+          "off": {
+            "white": 15,
+            "dark": 0
+          }
+        },
+        {
+          "game": 18,
+          "pair": 9,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 106313558,
+            "dark": 970341304
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "mars",
+          "plies": 94,
+          "botRolls": 47,
+          "controlRolls": 47,
+          "botDoubles": 8,
+          "controlDoubles": 6,
+          "off": {
+            "white": 0,
+            "dark": 15
+          }
+        },
+        {
+          "game": 19,
+          "pair": 10,
+          "leg": 1,
+          "botColor": "white",
+          "controlColor": "dark",
+          "streamSeeds": {
+            "white": 1882896237,
+            "dark": 2884687822
+          },
+          "winner": "white",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 53,
+          "botRolls": 27,
+          "controlRolls": 26,
+          "botDoubles": 8,
+          "controlDoubles": 5,
+          "off": {
+            "white": 15,
+            "dark": 5
+          }
+        },
+        {
+          "game": 20,
+          "pair": 10,
+          "leg": 2,
+          "botColor": "dark",
+          "controlColor": "white",
+          "streamSeeds": {
+            "white": 1882896237,
+            "dark": 2884687822
+          },
+          "winner": "dark",
+          "botWon": true,
+          "resultType": "normal",
+          "plies": 70,
+          "botRolls": 35,
+          "controlRolls": 35,
+          "botDoubles": 7,
+          "controlDoubles": 9,
+          "off": {
+            "white": 1,
+            "dark": 15
+          }
+        }
+      ]
+    }
+  ]
+}
