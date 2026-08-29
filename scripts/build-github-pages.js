@@ -29,6 +29,8 @@ const STATIC_FILES = [
   "game-controller.js",
   "long-bot-engine.js",
   "short-bot-engine.js",
+  "short-bot-wildbg-client.js",
+  "short-bot-wildbg-worker.js",
   "strong-bot.js",
   "bot.js",
   "board-engine.js",
@@ -38,6 +40,11 @@ const STATIC_FILES = [
   "rating.js",
   "admin-room-data.js",
   "homegate.js",
+  "vendor/wildbg/wildbg_wasm_browser.js",
+  "vendor/wildbg/wildbg_wasm_bg.wasm",
+  "vendor/wildbg/LICENSE-MIT",
+  "vendor/wildbg/LICENSE-APACHE",
+  "vendor/wildbg/NOTICE.md",
 ];
 
 function copyFile(file) {

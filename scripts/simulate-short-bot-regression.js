@@ -5,7 +5,15 @@ const { createHash } = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 const UINT32_MAX = 0xffffffff;
-const RUNTIME_FILES = ['game.js', 'short-bot-engine.js'];
+const WILDBG_GLUE_FILE = 'vendor/wildbg/wildbg_wasm.js';
+const WILDBG_WASM_FILE = 'vendor/wildbg/wildbg_wasm_bg.wasm';
+const WILDBG_RUNTIME_FILES = Object.freeze([WILDBG_GLUE_FILE, WILDBG_WASM_FILE]);
+const RUNTIME_FILES = Object.freeze([
+  'game.js',
+  'short-bot-engine.js',
+  ...WILDBG_RUNTIME_FILES,
+]);
+const wildbgRuntimeCache = new Map();
 const VALUE_OPTIONS = new Set([
   'games', 'seed', 'bot-candidates', 'bot-analyze', 'bot-reply-limit',
   'max-plies', 'min-win-rate', 'max-severe-loss-rate', 'output',
@@ -25,7 +33,12 @@ function fingerprintNamedBuffers(entries) {
 
 function readRuntimeSnapshot(root = ROOT) {
   const entries = RUNTIME_FILES.map(file => [file, fs.readFileSync(path.join(root, file))]);
-  return { entries, fingerprint: fingerprintNamedBuffers(entries) };
+  const wildbgEntries = entries.filter(([file]) => WILDBG_RUNTIME_FILES.includes(file));
+  return {
+    entries,
+    fingerprint: fingerprintNamedBuffers(entries),
+    wildbgFingerprint: fingerprintNamedBuffers(wildbgEntries),
+  };
 }
 
 function runtimeFingerprint(snapshot = readRuntimeSnapshot()) {
@@ -129,6 +142,135 @@ function stringOption(parsed, name, fallback = '') {
   return value;
 }
 
+function requiredRuntimeBuffer(runtimeFiles, name) {
+  const bytes = runtimeFiles.get(name);
+  if (!Buffer.isBuffer(bytes)) throw new Error(`Deterministic runtime is missing ${name}`);
+  return bytes;
+}
+
+function instantiateWildbgModule(runtimeFiles) {
+  const glueBytes = requiredRuntimeBuffer(runtimeFiles, WILDBG_GLUE_FILE);
+  const wasmBytes = requiredRuntimeBuffer(runtimeFiles, WILDBG_WASM_FILE);
+  const moduleRecord = { exports: {} };
+  const virtualDirectory = path.join(path.sep, '__nardu_frozen__', 'vendor', 'wildbg');
+  const virtualFilename = path.join(virtualDirectory, path.basename(WILDBG_GLUE_FILE));
+  const virtualWasm = path.join(virtualDirectory, path.basename(WILDBG_WASM_FILE));
+  const snapshotFs = {
+    ...fs,
+    readFileSync(file, ...args) {
+      if (path.resolve(String(file)) === path.resolve(virtualWasm)) {
+        if (args.length && args[0]) return wasmBytes.toString(args[0]);
+        return Buffer.from(wasmBytes);
+      }
+      return fs.readFileSync(file, ...args);
+    },
+  };
+  const snapshotRequire = request => {
+    if (request === 'fs' || request === 'node:fs') return snapshotFs;
+    if (!String(request).startsWith('node:')) {
+      throw new Error(`WildBG runtime requested an unpinned dependency: ${request}`);
+    }
+    return require(request);
+  };
+  const compile = new Function(
+    'exports', 'require', 'module', '__filename', '__dirname',
+    `${glueBytes.toString('utf8')}\n//# sourceURL=${virtualFilename}`,
+  );
+  compile(
+    moduleRecord.exports,
+    snapshotRequire,
+    moduleRecord,
+    virtualFilename,
+    virtualDirectory,
+  );
+  return moduleRecord.exports;
+}
+
+function createWildbgAnalyzer(runtimeSnapshot) {
+  const runtimeFiles = new Map(runtimeSnapshot?.entries || []);
+  const wildbgEntries = WILDBG_RUNTIME_FILES.map(file => (
+    [file, requiredRuntimeBuffer(runtimeFiles, file)]
+  ));
+  const assetFingerprint = fingerprintNamedBuffers(wildbgEntries);
+  const cacheKey = `${runtimeSnapshot?.fingerprint || 'unfingerprinted'}:${assetFingerprint}`;
+  if (wildbgRuntimeCache.has(cacheKey)) return wildbgRuntimeCache.get(cacheKey);
+
+  let exports;
+  try {
+    exports = instantiateWildbgModule(runtimeFiles);
+  } catch (error) {
+    throw new Error(`Could not initialize frozen WildBG WASM runtime: ${error.message}`);
+  }
+  if (typeof exports?.Wildbg !== 'function'
+    || typeof exports?.wildbg_version !== 'function'
+    || typeof exports?.wildbg_revision !== 'function') {
+    throw new Error('Frozen WildBG module does not expose the required synchronous API');
+  }
+  const instance = new exports.Wildbg();
+  const counters = { analyze: 0, evaluate: 0 };
+  const version = String(exports.wildbg_version());
+  const revision = String(exports.wildbg_revision());
+  if (!version || !revision) throw new Error('Frozen WildBG module has incomplete provenance');
+  const analyzer = Object.freeze({
+    analyze(pips, dieOne, dieTwo, onePointer = true) {
+      if (!pips || Number(pips.length) !== 26) {
+        throw new Error('WildBG analyze requires an exact 26-point position');
+      }
+      if (![dieOne, dieTwo].every(dieValue => (
+        Number.isInteger(Number(dieValue)) && Number(dieValue) >= 1 && Number(dieValue) <= 6
+      ))) {
+        throw new Error('WildBG analyze requires two dice from 1 to 6');
+      }
+      counters.analyze += 1;
+      const result = instance.analyze(
+        pips instanceof Int8Array ? pips : Int8Array.from(pips),
+        Number(dieOne),
+        Number(dieTwo),
+        Boolean(onePointer),
+      );
+      if (!result || !Array.isArray(result.moves)) {
+        throw new Error('WildBG analyze returned an invalid result');
+      }
+      return result;
+    },
+    evaluate(pips) {
+      if (!pips || Number(pips.length) !== 26) {
+        throw new Error('WildBG evaluate requires an exact 26-point position');
+      }
+      counters.evaluate += 1;
+      const result = instance.evaluate(
+        pips instanceof Int8Array ? pips : Int8Array.from(pips),
+      );
+      if (!result || typeof result !== 'object') {
+        throw new Error('WildBG evaluate returned an invalid result');
+      }
+      return result;
+    },
+    analyzeCount: () => counters.analyze,
+    evaluateCount: () => counters.evaluate,
+    assetFingerprint,
+    version,
+    revision,
+  });
+  wildbgRuntimeCache.set(cacheKey, analyzer);
+  return analyzer;
+}
+
+function assertWildbgDecision(runtime, decision, analyzeCallsBefore, hadLegalMoves, stage = 'turn') {
+  const analyzeCallsAfter = Number(runtime?.wildbgAnalyzer?.analyzeCount?.());
+  if (!Number.isSafeInteger(analyzeCallsBefore)
+    || !Number.isSafeInteger(analyzeCallsAfter)
+    || analyzeCallsAfter <= analyzeCallsBefore) {
+    throw new Error(`Analytical bot did not invoke frozen WildBG at ${stage}`);
+  }
+  if (!hadLegalMoves) return;
+  if (decision?.engine?.name !== 'wildbg'
+    || decision?.engine?.provenance !== 'wildbg-wasm'
+    || !['play', 'position'].includes(decision?.engine?.match)) {
+    throw new Error(`Analytical bot did not prove a WildBG-backed decision at ${stage}`);
+  }
+}
+
 function loadRuntime(runtimeSnapshot = readRuntimeSnapshot()) {
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {
@@ -139,6 +281,8 @@ function loadRuntime(runtimeSnapshot = readRuntimeSnapshot()) {
   context.globalThis = context.window;
   vm.createContext(context);
   const runtimeFiles = new Map(runtimeSnapshot.entries);
+  const wildbgAnalyzer = createWildbgAnalyzer(runtimeSnapshot);
+  context.window.NarduWildbgAnalyzer = wildbgAnalyzer;
   vm.runInContext(runtimeFiles.get('game.js').toString('utf8'), context, { filename: 'game.js' });
   context.NarduGame = context.window.NarduGame;
   vm.runInContext(runtimeFiles.get('short-bot-engine.js').toString('utf8'), context, {
@@ -149,6 +293,12 @@ function loadRuntime(runtimeSnapshot = readRuntimeSnapshot()) {
     game: context.window.NarduGame,
     engine,
     runtimeFingerprint: runtimeSnapshot.fingerprint,
+    wildbgAnalyzer,
+    wildbg: {
+      assetFingerprint: wildbgAnalyzer.assetFingerprint,
+      version: wildbgAnalyzer.version,
+      revision: wildbgAnalyzer.revision,
+    },
     experience: {
       mode: 'cold-empty',
       patternCount: 0,
@@ -311,6 +461,10 @@ function playGame(pairIndex, leg, runtime, options) {
     const botTurn = actingColor === botColor;
     const stateBeforePlanning = JSON.stringify(state);
     const planningState = JSON.parse(stateBeforePlanning);
+    const botHadLegalMoves = botTurn && game.hasAnyMoves(planningState);
+    const wildbgAnalyzeCallsBefore = botTurn
+      ? Number(runtime.wildbgAnalyzer?.analyzeCount?.())
+      : 0;
     const plan = botTurn
       ? engine.plan(planningState, {
         maxCandidates: options.botCandidates,
@@ -322,6 +476,15 @@ function playGame(pairIndex, leg, runtime, options) {
       throw new Error(`${botTurn ? 'Analytical bot' : 'Control bot'} mutated authoritative state`);
     }
     const decision = botTurn ? engine.consumeLastDecision?.() : null;
+    if (botTurn) {
+      assertWildbgDecision(
+        runtime,
+        decision,
+        wildbgAnalyzeCallsBefore,
+        botHadLegalMoves,
+        `game ${pairIndex * 2 + leg + 1}, ply ${plies}`,
+      );
+    }
     if (options.trace) {
       decisions.push({
         ply: plies,
@@ -335,6 +498,7 @@ function playGame(pairIndex, leg, runtime, options) {
         plan: plan.map(move => ({ ...move })),
         selected: decision?.selected || null,
         alternatives: decision?.alternatives || [],
+        engine: decision?.engine || null,
       });
     }
     applyPlan(game, state, plan, botTurn ? 'Analytical bot' : 'Control bot');
@@ -395,6 +559,7 @@ function summarize(results, runtime, options, harnessSnapshot = readHarnessSnaps
     opponent: 'legacy-short-hard',
     runtimeFingerprint: runtime.runtimeFingerprint,
     simulatorHarnessFingerprint: harnessSnapshot.fingerprint,
+    wildbg: { ...runtime.wildbg },
     experience: { ...runtime.experience },
     games: results.length,
     pairs: completePairs.length,
@@ -486,8 +651,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  RUNTIME_FILES,
+  WILDBG_RUNTIME_FILES,
   applyPlan,
   assertColdEmptyExperience,
+  assertWildbgDecision,
   botColorForLeg,
   createDiceStream,
   createLegAssignment,
@@ -495,6 +663,7 @@ module.exports = {
   diceStreamSeeds,
   fileFingerprint,
   fingerprintNamedBuffers,
+  createWildbgAnalyzer,
   loadRuntime,
   main,
   parseCliTokens,

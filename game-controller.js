@@ -55,6 +55,9 @@ window.NarduController = (function () {
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
   let gameOverActionStarted = null;
+  let botTurnActive = false;
+  let botTurnGeneration = 0;
+  let botTurnPlanPromise = null;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
   const ROOM_PERSIST_SNAPSHOT_PREFIX = 'narduh-room-state:';
   const BOT_GAME_CONFIG_PREFIX = 'narduh-bot-game:';
@@ -66,6 +69,7 @@ window.NarduController = (function () {
   const MOVE_SOUND_SETTLE_MS = 210;
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
   const GAME_OVER_SOUND_GAP_MS = 260;
+  const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   let gameplaySoundBusyUntil = 0;
   const UI_TEXT = {
     ru: {
@@ -398,6 +402,7 @@ window.NarduController = (function () {
 
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
+    cancelBotTurnActivity();
     const url = new URL(location.href);
     const freshGame = opts.freshGame === true;
     mode = opts.mode || url.searchParams.get('mode') || 'bot';
@@ -478,6 +483,7 @@ window.NarduController = (function () {
     paintOpponent();
     startStatTimer();
     render();
+    preloadWildbgForHardShortBot();
 
     if (applyLocalBearOffDemo(url)) return;
     if (waitingForOpponent) return;
@@ -524,6 +530,14 @@ window.NarduController = (function () {
       load.catch(error => console.warn('Could not load shared bot experience', error?.message || error)),
       new Promise(resolve => setTimeout(resolve, 4500)),
     ]).finally(() => ensureAutoProgress(delay));
+  }
+
+  function preloadWildbgForHardShortBot() {
+    if (mode !== 'bot' || variant !== 'short' || botDifficulty !== 'hard') return;
+    const preload = window.NarduShortBotWildbg?.preload;
+    if (typeof preload !== 'function') return;
+    Promise.resolve(preload.call(window.NarduShortBotWildbg))
+      .catch(error => console.warn('Could not preload WildBG', error?.message || error));
   }
 
   function resolveBotDifficulty(...hints) {
@@ -1877,6 +1891,7 @@ window.NarduController = (function () {
     }
   }
   function clearAll() {
+    cancelBotTurnActivity();
     timers.forEach(clearTimeout); timers = [];
     if (autoRollTimer) clearTimeout(autoRollTimer);
     if (autoEndTimer) clearTimeout(autoEndTimer);
@@ -2771,6 +2786,74 @@ window.NarduController = (function () {
     return fallbackBotPlan();
   }
 
+  function botTurnStateKey(source = state) {
+    const points = Object.entries(source?.points || {})
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([point, stack]) => `${point}:${stack?.color || '-'}:${Number(stack?.count) || 0}`)
+      .join('|');
+    return [
+      source?.phase || '',
+      source?.turn || '',
+      source?.winner || '',
+      Array.isArray(source?.dice) ? source.dice.join(',') : '',
+      Number(source?.bar?.white) || 0,
+      Number(source?.bar?.dark) || 0,
+      Number(source?.off?.white) || 0,
+      Number(source?.off?.dark) || 0,
+      source?.rollToken || '',
+      points,
+    ].join(';');
+  }
+
+  function cancelBotTurnActivity() {
+    botTurnGeneration += 1;
+    botTurnActive = false;
+    botTurnPlanPromise = null;
+  }
+
+  function releaseBotTurnActivity(generation) {
+    if (generation !== botTurnGeneration) return false;
+    botTurnActive = false;
+    botTurnPlanPromise = null;
+    return true;
+  }
+
+  function normalizedBotMoves(planned, engine) {
+    if (!Array.isArray(planned)) return [];
+    rememberBotDecision(engine?.consumeLastDecision?.());
+    return planned.map(move => ({ from: move.from, die: move.die }));
+  }
+
+  async function resolveBotTurnPlan(sourceState, generation, stateKey) {
+    const current = () => (
+      generation === botTurnGeneration &&
+      state === sourceState &&
+      botTurnStateKey(sourceState) === stateKey &&
+      sourceState.phase === 'move' &&
+      !sourceState.winner
+    );
+    const engine = window.NarduShortBotEngine;
+    const client = window.NarduShortBotWildbg;
+    if (
+      variant !== 'short' ||
+      botDifficulty !== 'hard' ||
+      typeof client?.plan !== 'function'
+    ) {
+      return { stale: !current(), moves: current() ? safeBotPlan() : [] };
+    }
+
+    const result = await client.plan({
+      engine,
+      state: sourceState,
+      isCurrent: current,
+      fallback: safeBotPlan,
+      timeoutMs: WILDBG_ANALYSIS_TIMEOUT_MS,
+    });
+    if (result?.stale || !current()) return { stale: true, moves: [] };
+    if (result?.fallback) return { stale: false, moves: result.planned || [] };
+    return { stale: false, moves: normalizedBotMoves(result?.planned, engine) };
+  }
+
   function rememberBotDecision(decision) {
     if (!decision || mode !== 'bot' || botDifficulty !== 'hard') return;
     state.analysis ||= {};
@@ -2873,46 +2956,87 @@ window.NarduController = (function () {
   }
 
   function playBotTurn() {
-    if (!state || state.phase !== 'move' || state.winner) return;
+    if (
+      !state ||
+      state.phase !== 'move' ||
+      state.winner ||
+      isRolling ||
+      isAnimating ||
+      isChainingMove ||
+      botTurnActive
+    ) return;
     NarduSound.prime();
     undoStack = [];
-    const moves = safeBotPlan();
-    if (moves.length === 0) {
-      NarduGame.endTurn(state); afterTurn(); return;
-    }
-    let i = 0;
-    function step() {
-      if (i >= moves.length) {
-        if (state.winner) onGameOver();
-        else afterTurn();
-        return;
-      }
-      let m = moves[i++];
-      if (!NarduGame.isValidMove(state, m.from, m.die)) {
-        m = nextLegalBotMove();
-        if (!m) {
+    botTurnActive = true;
+    const generation = ++botTurnGeneration;
+    const sourceState = state;
+    const stateKey = botTurnStateKey(sourceState);
+
+    botTurnPlanPromise = resolveBotTurnPlan(sourceState, generation, stateKey)
+      .then(({ stale, moves }) => {
+        if (stale || generation !== botTurnGeneration || state !== sourceState) {
+          if (releaseBotTurnActivity(generation)) ensureAutoProgress(250);
+          return;
+        }
+        if (moves.length === 0) {
           NarduGame.endTurn(state);
+          releaseBotTurnActivity(generation);
           afterTurn();
           return;
         }
-      }
-      const to = NarduGame.moveTo(state.turn, m.from, m.die, state);
-      animateMove(m.from, to, () => {
-        const applied = NarduGame.applyMove(state, m.from, m.die);
-        if (!applied) {
-          render();
-          if (state.winner) onGameOver();
-          else afterTurn();
-          return;
+        let i = 0;
+        function step() {
+          if (generation !== botTurnGeneration || state !== sourceState) {
+            releaseBotTurnActivity(generation);
+            return;
+          }
+          if (i >= moves.length) {
+            releaseBotTurnActivity(generation);
+            if (state.winner) onGameOver();
+            else afterTurn();
+            return;
+          }
+          let m = moves[i++];
+          if (!NarduGame.isValidMove(state, m.from, m.die)) {
+            m = nextLegalBotMove();
+            if (!m) {
+              NarduGame.endTurn(state);
+              releaseBotTurnActivity(generation);
+              afterTurn();
+              return;
+            }
+          }
+          const to = NarduGame.moveTo(state.turn, m.from, m.die, state);
+          animateMove(m.from, to, () => {
+            if (generation !== botTurnGeneration || state !== sourceState) {
+              releaseBotTurnActivity(generation);
+              return;
+            }
+            const applied = NarduGame.applyMove(state, m.from, m.die);
+            if (!applied) {
+              releaseBotTurnActivity(generation);
+              render();
+              if (state.winner) onGameOver();
+              else afterTurn();
+              return;
+            }
+            playMoveSound(m);
+            render();
+            persistRoomSnapshot();
+            if (state.winner) {
+              releaseBotTurnActivity(generation);
+              onGameOver();
+              return;
+            }
+            schedule(step, 380);
+          });
         }
-        playMoveSound(m);
-        render();
-        persistRoomSnapshot();
-        if (state.winner) { onGameOver(); return; }
-        schedule(step, 380);
+        step();
+      })
+      .catch(error => {
+        console.warn('Bot planning failed', error?.message || error);
+        if (releaseBotTurnActivity(generation)) ensureAutoProgress(350);
       });
-    }
-    step();
   }
 
   /* ── animation: clone a flying checker from source to destination ── */

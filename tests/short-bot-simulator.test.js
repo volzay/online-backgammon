@@ -104,8 +104,63 @@ test('short simulator fingerprints the exact immutable runtime files', () => {
   assert.deepEqual(snapshot.entries.map(([name]) => name), [
     'game.js',
     'short-bot-engine.js',
+    'vendor/wildbg/wildbg_wasm.js',
+    'vendor/wildbg/wildbg_wasm_bg.wasm',
   ]);
+  assert.match(snapshot.wildbgFingerprint, /^sha256:[0-9a-f]{64}$/);
   assert.match(simulator.fileFingerprint(require.resolve('../scripts/simulate-short-bot-regression')), /^sha256:/);
+});
+
+test('short simulator initializes one synchronous WildBG analyzer from frozen bytes', () => {
+  const glue = Buffer.from([
+    'class Wildbg {',
+    '  analyze(pips, d1, d2, onePointer) {',
+    '    return { moves: [{ position: Array.from(pips), play: [], score: d1 + d2 }], onePointer };',
+    '  }',
+    '  evaluate(pips) { return { equity: pips[1] || 0 }; }',
+    '}',
+    'exports.Wildbg = Wildbg;',
+    "exports.wildbg_version = () => 'test-1';",
+    "exports.wildbg_revision = () => 'revision-test';",
+  ].join('\n'));
+  const wasm = Buffer.from('frozen-wasm-fixture');
+  const entries = [
+    ['vendor/wildbg/wildbg_wasm.js', glue],
+    ['vendor/wildbg/wildbg_wasm_bg.wasm', wasm],
+  ];
+  const snapshot = {
+    entries,
+    fingerprint: simulator.fingerprintNamedBuffers(entries),
+  };
+  const analyzer = simulator.createWildbgAnalyzer(snapshot);
+  const sameAnalyzer = simulator.createWildbgAnalyzer(snapshot);
+  assert.equal(sameAnalyzer, analyzer);
+  assert.equal(analyzer.version, 'test-1');
+  assert.equal(analyzer.revision, 'revision-test');
+  assert.match(analyzer.assetFingerprint, /^sha256:/);
+  assert.equal(analyzer.analyzeCount(), 0);
+  const analysis = analyzer.analyze(new Int8Array(26), 3, 1, true);
+  assert.equal(analysis.moves[0].score, 4);
+  assert.equal(analyzer.analyzeCount(), 1);
+  assert.deepEqual(analyzer.evaluate(Int8Array.from({ length: 26 }, (_, index) => index)), {
+    equity: 1,
+  });
+  assert.equal(analyzer.evaluateCount(), 1);
+});
+
+test('short simulator fails closed unless every bot turn invokes and proves WildBG', () => {
+  let calls = 0;
+  const runtime = { wildbgAnalyzer: { analyzeCount: () => calls } };
+  const valid = { engine: { name: 'wildbg', provenance: 'wildbg-wasm', match: 'play' } };
+  calls = 1;
+  assert.doesNotThrow(() => simulator.assertWildbgDecision(runtime, valid, 0, true, 'test'));
+  assert.doesNotThrow(() => simulator.assertWildbgDecision(runtime, null, 0, false, 'blocked'));
+  assert.throws(() => simulator.assertWildbgDecision(runtime, valid, 1, true, 'test'), /did not invoke/);
+  calls = 2;
+  assert.throws(() => simulator.assertWildbgDecision(runtime, null, 1, true, 'test'), /did not prove/);
+  assert.throws(() => simulator.assertWildbgDecision(runtime, {
+    engine: { name: 'wildbg', provenance: 'wildbg-wasm', match: 'fallback' },
+  }, 1, true, 'test'), /did not prove/);
 });
 
 test('short simulator reports the harness snapshot captured before play', () => {
@@ -125,6 +180,11 @@ test('short simulator reports the harness snapshot captured before play', () => 
   const summary = simulator.summarize(results, {
     engine: { version: 'test', experienceSize: () => 0 },
     runtimeFingerprint: `sha256:${'b'.repeat(64)}`,
+    wildbg: {
+      assetFingerprint: `sha256:${'d'.repeat(64)}`,
+      version: 'test',
+      revision: 'test-revision',
+    },
     experience: { mode: 'cold-empty', patternCount: 0, fingerprint: `sha256:${'c'.repeat(64)}` },
   }, {
     games: 2,

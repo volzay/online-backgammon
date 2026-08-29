@@ -6,6 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 
 const buildShortBotEngine = require('./build-short-bot-engine');
 const {
+  RUNTIME_FILES,
   diceStreamSeeds,
   fileFingerprint,
   fingerprintNamedBuffers,
@@ -63,15 +64,29 @@ const FROZEN_BUILDER_BYTES = Buffer.from(
   "module.exports = function buildFrozenShortBotEngine() {};\n",
 );
 const OFFICIAL_EXECUTION_TOKEN = Symbol('official-short-certification');
-const PROVENANCE_TRACKED_FILES = Object.freeze([
+const ENGINE_PINNED_FILES = Object.freeze([
   'game.js',
+  'game-controller.js',
   'short-bot-engine.js',
+  'short-bot-wildbg-client.js',
+  'short-bot-wildbg-worker.js',
+  'strong-bot.js',
+  'bot.js',
+  'vendor/wildbg/wildbg_wasm.js',
+  'vendor/wildbg/wildbg_wasm_browser.js',
+  'vendor/wildbg/wildbg_wasm_bg.wasm',
+  'room.html',
   'bot-engine/short/metrics.ts',
   'bot-engine/short/engine.ts',
   'bot-engine/short/nardu-game-adapter.ts',
   'bot-engine/short/browser.ts',
   'scripts/build-short-bot-engine.js',
+  'scripts/build-github-pages.js',
   'scripts/simulate-short-bot-regression.js',
+  'server.js',
+]);
+const PROVENANCE_TRACKED_FILES = Object.freeze([
+  ...ENGINE_PINNED_FILES,
   'scripts/certify-short-bot-regression.js',
 ]);
 
@@ -101,6 +116,80 @@ function canonicalJson(value) {
     )).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function deriveOfficialSeeds(engineCommit, round, randomness, count) {
+  if (!GIT_COMMIT_PATTERN.test(engineCommit)) {
+    throw new Error('Official seed derivation requires a canonical lowercase Git commit');
+  }
+  if (!Number.isSafeInteger(round) || round < 1) {
+    throw new Error('Official seed derivation requires a positive drand round');
+  }
+  if (!/^[0-9a-f]{64}$/.test(randomness)) {
+    throw new Error('Official seed derivation requires 32-byte lowercase randomness');
+  }
+  if (!Number.isSafeInteger(count) || count < 1 || count > 10_000) {
+    throw new Error('Official seed derivation count must be from 1 to 10000');
+  }
+  return Array.from({ length: count }, (_, index) => {
+    for (let counter = 0; counter <= UINT32_MAX; counter += 1) {
+      const digest = createHash('sha256')
+        .update('nardu-short-bot/certification-v2\0')
+        .update(engineCommit).update('\0')
+        .update(String(round)).update('\0')
+        .update(randomness).update('\0')
+        .update(String(index)).update('\0')
+        .update(String(counter)).digest();
+      const seed = digest.readUInt32BE(0);
+      if (seed !== 0) return seed;
+    }
+    throw new Error(`Could not derive a non-zero seed at index ${index}`);
+  });
+}
+
+function validateDrandMainnetBeacon(beacon) {
+  if (!beacon || beacon.network !== 'drand-mainnet') {
+    throw new Error('Official beacon must use drand mainnet');
+  }
+  if (!Number.isSafeInteger(beacon.round) || beacon.round < 1) {
+    throw new Error('Official drand beacon has an invalid round');
+  }
+  if (!/^[0-9a-f]{192}$/.test(beacon.signature || '')) {
+    throw new Error('Official drand beacon has an invalid 96-byte signature');
+  }
+  if (!/^[0-9a-f]{64}$/.test(beacon.randomness || '')) {
+    throw new Error('Official drand beacon has invalid randomness');
+  }
+  const derivedRandomness = createHash('sha256')
+    .update(Buffer.from(beacon.signature, 'hex'))
+    .digest('hex');
+  if (derivedRandomness !== beacon.randomness) {
+    throw new Error('Official drand randomness does not match SHA-256(signature)');
+  }
+  return true;
+}
+
+function validateOfficialSuite() {
+  if (!GIT_COMMIT_PATTERN.test(OFFICIAL_SUITE.engineCommit)) {
+    throw new Error('Official suite has an invalid engine commit');
+  }
+  validateDrandMainnetBeacon(OFFICIAL_SUITE.beacon);
+  const derivedSeeds = deriveOfficialSeeds(
+    OFFICIAL_SUITE.engineCommit,
+    OFFICIAL_SUITE.beacon.round,
+    OFFICIAL_SUITE.beacon.randomness,
+    OFFICIAL_SUITE.seeds.length,
+  );
+  if (canonicalJson(derivedSeeds) !== canonicalJson([...OFFICIAL_SUITE.seeds])) {
+    throw new Error('Official suite seeds do not match the declared beacon derivation');
+  }
+  if (new Set(derivedSeeds).size !== derivedSeeds.length) {
+    throw new Error('Official suite contains duplicate derived seeds');
+  }
+  if (officialSuiteFingerprint() !== OFFICIAL_SUITE_FINGERPRINT) {
+    throw new Error('Official held-out suite fingerprint does not match its frozen declaration');
+  }
+  return true;
 }
 
 function positiveIntegerOption(parsed, name, fallback, maximum = Number.MAX_SAFE_INTEGER) {
@@ -252,6 +341,26 @@ function readGitProvenance(root = ROOT, dependencies = {}) {
   if (trackedStatus) {
     throw new Error('Official short certification requires a clean tracked Git worktree');
   }
+  const engineCommit = OFFICIAL_SUITE.engineCommit;
+  if (!GIT_COMMIT_PATTERN.test(engineCommit)) {
+    throw new Error(`Official certification has an invalid engine commit: ${engineCommit}`);
+  }
+  let resolvedEngineCommit;
+  try {
+    resolvedEngineCommit = runGit([
+      'rev-parse', '--verify', `${engineCommit}^{commit}`,
+    ]).toLowerCase();
+  } catch (error) {
+    throw new Error(`Official engine commit cannot be resolved: ${error.message}`);
+  }
+  if (resolvedEngineCommit !== engineCommit) {
+    throw new Error(`Official engine commit resolved unexpectedly: ${resolvedEngineCommit}`);
+  }
+  try {
+    runGit(['merge-base', '--is-ancestor', engineCommit, 'HEAD']);
+  } catch (error) {
+    throw new Error(`Official engine commit is not an ancestor of HEAD: ${error.message}`);
+  }
   runGit(['ls-files', '--error-unmatch', '--', ...PROVENANCE_TRACKED_FILES]);
   for (const file of PROVENANCE_TRACKED_FILES) {
     const committedBlob = runGit(['rev-parse', `HEAD:${file}`]);
@@ -260,8 +369,16 @@ function readGitProvenance(root = ROOT, dependencies = {}) {
       throw new Error(`Official certification file does not match Git HEAD: ${file}`);
     }
   }
+  for (const file of ENGINE_PINNED_FILES) {
+    const engineBlob = runGit(['rev-parse', `${engineCommit}:${file}`]);
+    const headBlob = runGit(['rev-parse', `HEAD:${file}`]);
+    if (engineBlob !== headBlob) {
+      throw new Error(`Official engine-pinned file differs from ${engineCommit}: ${file}`);
+    }
+  }
   return {
     gitCommit,
+    engineCommit,
     gitTreeClean: true,
     nodeVersion: process.version,
     platform: process.platform,
@@ -272,6 +389,9 @@ function readGitProvenance(root = ROOT, dependencies = {}) {
 function diagnosticProvenance(value = {}) {
   return {
     gitCommit: typeof value.gitCommit === 'string' ? value.gitCommit : 'diagnostic-unverified',
+    engineCommit: typeof value.engineCommit === 'string'
+      ? value.engineCommit
+      : 'diagnostic-unverified',
     gitTreeClean: value.gitTreeClean === true,
     nodeVersion: typeof value.nodeVersion === 'string' ? value.nodeVersion : process.version,
     platform: typeof value.platform === 'string' ? value.platform : process.platform,
@@ -286,6 +406,8 @@ function assertSameOfficialProvenance(before, after) {
   );
   assertCondition(before.gitTreeClean === true, 'official Git worktree is not clean');
   assertCondition(GIT_COMMIT_PATTERN.test(before.gitCommit), 'official Git commit is invalid');
+  assertCondition(before.engineCommit === OFFICIAL_SUITE.engineCommit,
+    'official engine commit is not the frozen suite commit');
 }
 
 function checkpointFilename(seed) {
@@ -335,27 +457,36 @@ function writeFrozenFile(file, bytes) {
 }
 
 function createFrozenBundle(runtimeSnapshot, harnessSnapshot, dependencies = {}) {
-  assertCondition(runtimeSnapshot?.entries?.length === 2, 'frozen runtime snapshot is incomplete');
+  assertCondition(
+    runtimeSnapshot?.entries?.length === RUNTIME_FILES.length,
+    'frozen runtime snapshot is incomplete',
+  );
   assertCondition(Buffer.isBuffer(harnessSnapshot?.bytes), 'frozen simulator snapshot has no bytes');
   const tempRoot = dependencies.tempRoot || os.tmpdir();
   const root = fs.mkdtempSync(path.join(tempRoot, 'short-bot-cert-bundle-'));
   const scriptsDirectory = path.join(root, 'scripts');
+  const vendorDirectory = path.join(root, 'vendor');
+  const wildbgDirectory = path.join(vendorDirectory, 'wildbg');
   fs.mkdirSync(scriptsDirectory);
+  fs.mkdirSync(wildbgDirectory, { recursive: true });
   const entries = new Map(runtimeSnapshot.entries);
   const simulator = path.join(scriptsDirectory, 'simulate-short-bot-regression.js');
   const builder = path.join(scriptsDirectory, 'build-short-bot-engine.js');
   try {
-    writeFrozenFile(path.join(root, 'game.js'), entries.get('game.js'));
-    writeFrozenFile(path.join(root, 'short-bot-engine.js'), entries.get('short-bot-engine.js'));
+    for (const file of RUNTIME_FILES) {
+      assertCondition(Buffer.isBuffer(entries.get(file)), `frozen runtime is missing ${file}`);
+      writeFrozenFile(path.join(root, file), entries.get(file));
+    }
     writeFrozenFile(simulator, harnessSnapshot.bytes);
     writeFrozenFile(builder, FROZEN_BUILDER_BYTES);
     const bundleEntries = [
-      ['game.js', entries.get('game.js')],
-      ['short-bot-engine.js', entries.get('short-bot-engine.js')],
+      ...RUNTIME_FILES.map(file => [file, entries.get(file)]),
       ['scripts/simulate-short-bot-regression.js', harnessSnapshot.bytes],
       ['scripts/build-short-bot-engine.js', FROZEN_BUILDER_BYTES],
     ];
     fs.chmodSync(scriptsDirectory, 0o500);
+    fs.chmodSync(wildbgDirectory, 0o500);
+    fs.chmodSync(vendorDirectory, 0o500);
     fs.chmodSync(root, 0o500);
     const frozenRuntime = readRuntimeSnapshot(root);
     assertCondition(
@@ -382,9 +513,13 @@ function createFrozenBundle(runtimeSnapshot, harnessSnapshot, dependencies = {})
 function removeFrozenBundle(bundle) {
   if (!bundle?.root || !fs.existsSync(bundle.root)) return;
   try {
-    const scriptsDirectory = path.join(bundle.root, 'scripts');
-    if (fs.existsSync(scriptsDirectory)) fs.chmodSync(scriptsDirectory, 0o700);
     fs.chmodSync(bundle.root, 0o700);
+    const scriptsDirectory = path.join(bundle.root, 'scripts');
+    const vendorDirectory = path.join(bundle.root, 'vendor');
+    const wildbgDirectory = path.join(vendorDirectory, 'wildbg');
+    if (fs.existsSync(scriptsDirectory)) fs.chmodSync(scriptsDirectory, 0o700);
+    if (fs.existsSync(vendorDirectory)) fs.chmodSync(vendorDirectory, 0o700);
+    if (fs.existsSync(wildbgDirectory)) fs.chmodSync(wildbgDirectory, 0o700);
   } catch {}
   fs.rmSync(bundle.root, { recursive: true, force: true });
 }
@@ -396,6 +531,7 @@ function currentExecutionIdentity(runtimeSnapshot, harnessSnapshot) {
     opponent: 'legacy-short-hard',
     runtimeFingerprint: runtime.runtimeFingerprint,
     simulatorHarnessFingerprint: harnessSnapshot.fingerprint,
+    wildbg: { ...runtime.wildbg },
     experience: { ...runtime.experience },
   };
 }
@@ -438,6 +574,18 @@ function validateSeedPayload(payload, seed, expectedIdentity) {
     assertCondition(summary[field] === expectedIdentity[field],
       `seed ${seed} ${field} does not match frozen execution identity`);
   }
+  assertCondition(summary.wildbg && typeof summary.wildbg === 'object',
+    `seed ${seed} has no WildBG identity`);
+  assertCondition(
+    canonicalJson(summary.wildbg) === canonicalJson(expectedIdentity.wildbg),
+    `seed ${seed} WildBG identity mismatch`,
+  );
+  assertCondition(SHA256_PATTERN.test(summary.wildbg.assetFingerprint),
+    `seed ${seed} has invalid WildBG asset fingerprint`);
+  assertCondition(typeof summary.wildbg.version === 'string' && summary.wildbg.version.length > 0,
+    `seed ${seed} has invalid WildBG version`);
+  assertCondition(typeof summary.wildbg.revision === 'string' && summary.wildbg.revision.length > 0,
+    `seed ${seed} has invalid WildBG revision`);
   assertCondition(summary.experience && typeof summary.experience === 'object',
     `seed ${seed} has no experience identity`);
   assertCondition(
@@ -569,6 +717,7 @@ function validateSeedPayload(payload, seed, expectedIdentity) {
     engineVersion: summary.engineVersion,
     runtimeFingerprint: summary.runtimeFingerprint,
     simulatorHarnessFingerprint: summary.simulatorHarnessFingerprint,
+    wildbg: { ...summary.wildbg },
     experience: { ...summary.experience },
     comparableOptions: comparableOptions(summary.options),
   };
@@ -600,6 +749,8 @@ function validateSeedRecords(seedRecords, expectedIdentity) {
     }
     assertCondition(canonicalJson(current.experience) === canonicalJson(baseline.experience),
       'seed payloads do not share one experience identity');
+    assertCondition(canonicalJson(current.wildbg) === canonicalJson(baseline.wildbg),
+      'seed payloads do not share one WildBG identity');
     assertCondition(canonicalJson(current.comparableOptions) === canonicalJson(baseline.comparableOptions),
       'seed payloads do not share identical simulator options');
   }
@@ -983,7 +1134,7 @@ function buildReport(
       pairing: 'white and dark physical streams stay fixed while analytical and control algorithms swap colors',
       independentUnit: 'paired score; adaptive learning and mutable experience are forbidden',
       opponent: 'legacy short hard policy from the same frozen game.js runtime',
-      runtime: 'all child processes use one read-only frozen runtime and simulator byte bundle',
+      runtime: 'all child processes use one read-only frozen JS, WildBG WASM, and simulator byte bundle',
       diceStreams: 'SHA-256 domain-separated, non-zero, collision-checked xorshift32 seeds',
       gate: 'observed 100-game result only; confidence bounds are diagnostics and do not alter the gate',
       experienceScope: 'cold-empty analytical engine baseline; mutable production experience is excluded',
@@ -1052,9 +1203,7 @@ async function executeCertification(argv, dependencies, executionToken = null) {
   const official = executionToken === OFFICIAL_EXECUTION_TOKEN;
   const certifierSnapshot = readHarnessSnapshot(__filename);
   const options = parseCertificationOptions(argv);
-  if (officialSuiteFingerprint() !== OFFICIAL_SUITE_FINGERPRINT) {
-    throw new Error('Official held-out suite fingerprint does not match its frozen declaration');
-  }
+  validateOfficialSuite();
   validateDerivedStreamSeeds([...OFFICIAL_SUITE.seeds], OFFICIAL_SUITE.gamesPerSeed / 2);
   assertDestinationAbsent(options.output);
   validateArtifactLocations(options.output, options.checkpointDirectory);
@@ -1141,6 +1290,7 @@ module.exports = {
   CHILD_OPTIONS,
   DEFAULT_JOBS,
   DEFAULT_SEED_TIMEOUT_MS,
+  ENGINE_PINNED_FILES,
   MAX_JOBS,
   OFFICIAL_CRITERIA,
   OFFICIAL_SUITE,
@@ -1156,6 +1306,7 @@ module.exports = {
   createReport,
   currentExecutionIdentity,
   diagnosticProvenance,
+  deriveOfficialSeeds,
   ensureCheckpointDirectory,
   expectedSimulatorOptions,
   loadCheckpoint,
@@ -1178,4 +1329,6 @@ module.exports = {
   validateSeedPayload,
   validateSeedRecords,
   validateArtifactLocations,
+  validateDrandMainnetBeacon,
+  validateOfficialSuite,
 };

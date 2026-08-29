@@ -453,6 +453,76 @@ export function createShortBotEngine(adapter, options = {}) {
     });
   }
 
+  function removeSeverePositionDominance(candidates, state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const own = shortMetrics(state, color);
+    const other = shortMetrics(state, opponent);
+    const resultDanger = own.off === 0 && (own.pips - other.pips >= 15 || other.off > 0);
+    if (!resultDanger) return candidates;
+    const equalKeys = [
+      'pipsGain', 'hits', 'entries', 'offGain', 'ownBarAfter', 'opponentBarAfter',
+    ];
+    const maximizeKeys = [
+      'madeGain', 'homeMadeGain', 'primeGain', 'backmostGain', 'anchorDelta',
+      'opponentExposureGain', 'capturedExposure',
+    ];
+    const minimizeKeys = ['exposureDelta', 'stackDelta'];
+    return candidates.filter(candidate => !candidates.some(otherCandidate => {
+      if (otherCandidate === candidate) return false;
+      const current = candidate.features;
+      const alternative = otherCandidate.features;
+      if (!equalKeys.every(key => Number(alternative[key]) === Number(current[key]))) return false;
+      const noWorse = maximizeKeys.every(key => Number(alternative[key]) >= Number(current[key]))
+        && minimizeKeys.every(key => Number(alternative[key]) <= Number(current[key]));
+      if (!noWorse) return false;
+      return maximizeKeys.some(key => Number(alternative[key]) > Number(current[key]))
+        || minimizeKeys.some(key => Number(alternative[key]) < Number(current[key]));
+    }));
+  }
+
+  function removeSevereContactRisks(candidates, state, color) {
+    if (candidates.length < 2) return candidates;
+    const phase = shortPhase(state, color);
+    if (phase !== 'contact' && phase !== 'bar') return candidates;
+    const opponent = NarduGame.opponentOf(color);
+    const own = shortMetrics(state, color);
+    const other = shortMetrics(state, opponent);
+    if (own.off > 0) return candidates;
+    const resultDanger = own.pips - other.pips >= 15 || other.off > 0;
+    if (!resultDanger) return candidates;
+    return candidates.filter(riskyCandidate => !candidates.some(saferCandidate => {
+      if (saferCandidate === riskyCandidate) return false;
+      const risky = riskyCandidate.features;
+      const safer = saferCandidate.features;
+      const sameProgress = ['pipsGain', 'entries', 'offGain']
+        .every(key => Number(safer[key]) === Number(risky[key]));
+      if (!sameProgress) return false;
+      const preservesStructure = ['madeGain', 'homeMadeGain', 'primeGain', 'anchorDelta']
+        .every(key => Number(safer[key]) >= Number(risky[key]));
+      if (!preservesStructure) return false;
+      const riskyHitRolls = Number(riskyCandidate.tactical?.reservations?.hitRolls) || 0;
+      const saferHitRolls = Number(saferCandidate.tactical?.reservations?.hitRolls) || 0;
+      const hitRollImprovement = riskyHitRolls - saferHitRolls;
+      const sameHits = Number(safer.hits) === Number(risky.hits);
+      const exposureTrap = sameHits
+        && Number(risky.exposureDelta) >= 25
+        && Number(safer.exposureDelta) <= 5
+        && hitRollImprovement >= 4;
+      if (exposureTrap) return true;
+      if (hitRollImprovement < 4) return false;
+      const structureImprovement = ['madeGain', 'homeMadeGain', 'primeGain', 'anchorDelta']
+        .some(key => Number(safer[key]) > Number(risky[key]));
+      if (!structureImprovement || Number(safer.exposureDelta) > Number(risky.exposureDelta)) {
+        return false;
+      }
+      if (Number(safer.hits) >= Number(risky.hits)) return true;
+      return Number(risky.hits) - Number(safer.hits) === 1
+        && Number(safer.madeGain) >= Number(risky.madeGain) + 1
+        && Number(safer.anchorDelta) >= Number(risky.anchorDelta) + 1
+        && hitRollImprovement >= 10;
+    }));
+  }
+
   function rank(state, color, runtimeOptions = {}) {
     const maxCandidates = Math.max(6, Number(runtimeOptions.maxCandidates) || 48);
     const analyzeCount = Math.max(4, Number(runtimeOptions.analyzeCandidates) || 6);
@@ -499,15 +569,17 @@ export function createShortBotEngine(adapter, options = {}) {
       prefiltered = removeStructurallyDominated(prefiltered);
       prefiltered = removePrematureAnchorBreaks(prefiltered, state, color);
       prefiltered = removeUnsafeBarEntryBlots(prefiltered, state, color);
+      prefiltered = removeSeverePositionDominance(prefiltered, state, color);
     }
     prefiltered = prefiltered.slice(0, maxCandidates);
     const selected = prefiltered.slice(0, Math.min(analyzeCount, 2));
-    return selected
+    const analyzed = selected
       .map(item => {
         const analyzed = analyzeReplies(item, color, runtimeOptions);
         const adjustment = experienceAdjustment(analyzed);
         return { ...analyzed, experienceAdjustment: adjustment, score: analyzed.score + adjustment };
-      })
+      });
+    return removeSevereContactRisks(analyzed, state, color)
       .sort((left, right) => right.score - left.score
         || shortSequenceSignature(left.sequence, state, color)
           .localeCompare(shortSequenceSignature(right.sequence, state, color)));

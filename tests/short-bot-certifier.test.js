@@ -14,6 +14,7 @@ const HASH_D = `sha256:${'d'.repeat(64)}`;
 const HASH_E = `sha256:${'e'.repeat(64)}`;
 const DIAGNOSTIC_PROVENANCE = Object.freeze({
   gitCommit: 'f'.repeat(40),
+  engineCommit: 'e'.repeat(40),
   gitTreeClean: true,
   nodeVersion: 'v-test',
   platform: 'test-platform',
@@ -25,6 +26,11 @@ const IDENTITY = Object.freeze({
   opponent: 'legacy-short-hard',
   runtimeFingerprint: HASH_A,
   simulatorHarnessFingerprint: HASH_B,
+  wildbg: Object.freeze({
+    assetFingerprint: HASH_D,
+    version: 'test-wildbg',
+    revision: 'test-wildbg-revision',
+  }),
   experience: Object.freeze({
     mode: 'cold-empty',
     patternCount: 0,
@@ -90,6 +96,7 @@ function payloadFor(seed, wins, severeLosses = 0, identity = IDENTITY) {
     opponent: identity.opponent,
     runtimeFingerprint: identity.runtimeFingerprint,
     simulatorHarnessFingerprint: identity.simulatorHarnessFingerprint,
+    wildbg: clone(identity.wildbg),
     experience: clone(identity.experience),
     games: 20,
     pairs: 10,
@@ -143,6 +150,36 @@ test('official short suite is frozen, unique, and cannot be weakened through CLI
     '6d75fb90fa2fadaf78fc220836fe3b20af76906ed135b5e4a80f22727fd03c0c',
   );
   assert.equal(certifier.OFFICIAL_SUITE.gamesPerSeed, 20);
+  assert.deepEqual(certifier.deriveOfficialSeeds(
+    certifier.OFFICIAL_SUITE.engineCommit,
+    certifier.OFFICIAL_SUITE.beacon.round,
+    certifier.OFFICIAL_SUITE.beacon.randomness,
+    certifier.OFFICIAL_SUITE.seeds.length,
+  ), [...certifier.OFFICIAL_SUITE.seeds]);
+  assert.doesNotThrow(() => certifier.validateDrandMainnetBeacon(
+    certifier.OFFICIAL_SUITE.beacon,
+  ));
+  assert.doesNotThrow(() => certifier.validateOfficialSuite());
+  assert.throws(() => certifier.validateDrandMainnetBeacon({
+    ...certifier.OFFICIAL_SUITE.beacon,
+    randomness: '0'.repeat(64),
+  }), /does not match SHA-256/);
+  assert.ok(!certifier.ENGINE_PINNED_FILES.includes(
+    'scripts/certify-short-bot-regression.js',
+  ));
+  for (const file of [
+    'game-controller.js',
+    'short-bot-wildbg-client.js',
+    'short-bot-wildbg-worker.js',
+    'vendor/wildbg/wildbg_wasm_browser.js',
+    'room.html',
+    'scripts/build-github-pages.js',
+  ]) {
+    assert.ok(certifier.ENGINE_PINNED_FILES.includes(file), `${file} must be engine-pinned`);
+  }
+  assert.ok(certifier.PROVENANCE_TRACKED_FILES.includes(
+    'scripts/certify-short-bot-regression.js',
+  ));
   assert.equal(certifier.officialSuiteFingerprint(), certifier.OFFICIAL_SUITE_FINGERPRINT);
   assert.equal(simulator.validateDerivedStreamSeeds([...certifier.OFFICIAL_SUITE.seeds], 10), 100);
   assert.equal(certifier.minimumPairsForConfidence(), 185);
@@ -194,6 +231,10 @@ test('seed payload validation checks every crossed pair, stream, result, and sum
   const mixedRuntime = clone(payload);
   mixedRuntime.summary.runtimeFingerprint = HASH_D;
   assert.throws(() => certifier.validateSeedPayload(mixedRuntime, seed, IDENTITY), /frozen execution identity/);
+
+  const mixedWildbg = clone(payload);
+  mixedWildbg.summary.wildbg.revision = 'different-revision';
+  assert.throws(() => certifier.validateSeedPayload(mixedWildbg, seed, IDENTITY), /WildBG identity/);
 });
 
 test('official aggregate passes exactly at 67 wins and 10 severe losses', () => {
@@ -297,11 +338,21 @@ test('frozen bundle contains exact immutable runtime and a non-writing builder',
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'short-cert-bundle-test-'));
   const game = Buffer.from('window.NarduGame = {};\n');
   const engine = Buffer.from('window.NarduShortBotEngine = {};\n');
+  const wildbgGlue = Buffer.from('exports.Wildbg = class {};\n');
+  const wildbgWasm = Buffer.from('wildbg-wasm');
   const harnessBytes = Buffer.from('require("./build-short-bot-engine")();\n');
   const runtimeSnapshot = {
-    entries: [['game.js', game], ['short-bot-engine.js', engine]],
+    entries: [
+      ['game.js', game],
+      ['short-bot-engine.js', engine],
+      ['vendor/wildbg/wildbg_wasm.js', wildbgGlue],
+      ['vendor/wildbg/wildbg_wasm_bg.wasm', wildbgWasm],
+    ],
     fingerprint: simulator.fingerprintNamedBuffers([
-      ['game.js', game], ['short-bot-engine.js', engine],
+      ['game.js', game],
+      ['short-bot-engine.js', engine],
+      ['vendor/wildbg/wildbg_wasm.js', wildbgGlue],
+      ['vendor/wildbg/wildbg_wasm_bg.wasm', wildbgWasm],
     ]),
   };
   const harnessSnapshot = {
@@ -317,13 +368,19 @@ test('frozen bundle contains exact immutable runtime and a non-writing builder',
     assert.match(bundle.bundleFingerprint, /^sha256:/);
     assert.equal(fs.statSync(bundle.root).mode & 0o222, 0);
     assert.equal(fs.statSync(bundle.simulator).mode & 0o222, 0);
+    const frozenWildbg = path.join(bundle.root, 'vendor', 'wildbg', 'wildbg_wasm_bg.wasm');
+    assert.equal(fs.statSync(frozenWildbg).mode & 0o222, 0);
+    assert.deepEqual(fs.readFileSync(frozenWildbg), wildbgWasm);
     const engineFile = path.join(bundle.root, 'short-bot-engine.js');
     const before = fs.readFileSync(engineFile, 'utf8');
     require(path.join(bundle.root, 'scripts', 'build-short-bot-engine.js'))();
     assert.equal(fs.readFileSync(engineFile, 'utf8'), before);
     game.fill(0);
     engine.fill(0);
+    wildbgGlue.fill(0);
+    wildbgWasm.fill(0);
     assert.equal(fs.readFileSync(engineFile, 'utf8'), before);
+    assert.equal(fs.readFileSync(frozenWildbg, 'utf8'), 'wildbg-wasm');
   } finally {
     certifier.removeFrozenBundle(bundle);
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -465,8 +522,18 @@ test('official Git provenance requires one clean tracked worktree and remains st
   const cleanGit = args => {
     calls.push(args);
     if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return directory;
-    if (args[0] === 'rev-parse' && args[1] === '--verify') return 'a'.repeat(40);
+    if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'HEAD') {
+      return 'a'.repeat(40);
+    }
+    if (args[0] === 'rev-parse' && args[1] === '--verify') {
+      return certifier.OFFICIAL_SUITE.engineCommit;
+    }
+    if (args[0] === 'merge-base') return '';
     if (args[0] === 'rev-parse' && args[1].startsWith('HEAD:')) return 'c'.repeat(40);
+    if (args[0] === 'rev-parse'
+      && args[1].startsWith(`${certifier.OFFICIAL_SUITE.engineCommit}:`)) {
+      return 'c'.repeat(40);
+    }
     if (args[0] === 'hash-object') return 'c'.repeat(40);
     if (args[0] === 'status') return '';
     if (args[0] === 'ls-files') return certifier.PROVENANCE_TRACKED_FILES.join('\n');
@@ -476,6 +543,7 @@ test('official Git provenance requires one clean tracked worktree and remains st
     const provenance = certifier.readGitProvenance(directory, { runGit: cleanGit });
     assert.deepEqual(provenance, {
       gitCommit: 'a'.repeat(40),
+      engineCommit: certifier.OFFICIAL_SUITE.engineCommit,
       gitTreeClean: true,
       nodeVersion: process.version,
       platform: process.platform,
@@ -508,7 +576,13 @@ test('official Git provenance requires one clean tracked worktree and remains st
     assert.throws(() => certifier.readGitProvenance(directory, {
       runGit: args => {
         if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return directory;
-        if (args[0] === 'rev-parse' && args[1] === '--verify') return 'a'.repeat(40);
+        if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'HEAD') {
+          return 'a'.repeat(40);
+        }
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return certifier.OFFICIAL_SUITE.engineCommit;
+        }
+        if (args[0] === 'merge-base') return '';
         if (args[0] === 'status') return '';
         if (args[0] === 'ls-files') return certifier.PROVENANCE_TRACKED_FILES.join('\n');
         if (args[0] === 'rev-parse') return 'c'.repeat(40);
@@ -518,6 +592,41 @@ test('official Git provenance requires one clean tracked worktree and remains st
         throw new Error(`unexpected git invocation: ${args.join(' ')}`);
       },
     }), /does not match Git HEAD: game\.js/);
+    assert.throws(() => certifier.readGitProvenance(directory, {
+      runGit: args => {
+        if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return directory;
+        if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'HEAD') {
+          return 'a'.repeat(40);
+        }
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return certifier.OFFICIAL_SUITE.engineCommit;
+        }
+        if (args[0] === 'status') return '';
+        if (args[0] === 'merge-base') throw new Error('not ancestor');
+        throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+      },
+    }), /not an ancestor of HEAD/);
+    assert.throws(() => certifier.readGitProvenance(directory, {
+      runGit: args => {
+        if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return directory;
+        if (args[0] === 'rev-parse' && args[1] === '--verify' && args[2] === 'HEAD') {
+          return 'a'.repeat(40);
+        }
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return certifier.OFFICIAL_SUITE.engineCommit;
+        }
+        if (args[0] === 'status' || args[0] === 'merge-base') return '';
+        if (args[0] === 'ls-files') return certifier.PROVENANCE_TRACKED_FILES.join('\n');
+        if (args[0] === 'hash-object') return 'c'.repeat(40);
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD:game.js') return 'c'.repeat(40);
+        if (args[0] === 'rev-parse'
+          && args[1] === `${certifier.OFFICIAL_SUITE.engineCommit}:game.js`) {
+          return 'd'.repeat(40);
+        }
+        if (args[0] === 'rev-parse') return 'c'.repeat(40);
+        throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+      },
+    }), /engine-pinned file differs.*game\.js/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

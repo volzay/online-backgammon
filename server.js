@@ -43,6 +43,7 @@ const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".wasm": "application/wasm",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".png": "image/png",

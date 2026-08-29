@@ -83,6 +83,18 @@ function shortStateContract(state) {
   }));
 }
 
+function wildbgBoardFixture(game, state, color = state.turn) {
+  const board = new Array(26).fill(0);
+  Object.entries(state.points || {}).forEach(([point, stack]) => {
+    const wildbgPoint = 24 - game.pathPos(color, Number(point), state);
+    board[wildbgPoint] = stack.color === color ? Number(stack.count) : -Number(stack.count);
+  });
+  board[25] = Number(state.bar?.[color]) || 0;
+  const opponentBar = Number(state.bar?.[game.opponentOf(color)]) || 0;
+  board[0] = opponentBar ? -opponentBar : 0;
+  return board;
+}
+
 function deterministicReachableShortPositions(game, seed, turns = 16) {
   let randomState = seed >>> 0;
   const random = () => {
@@ -121,9 +133,11 @@ function deterministicReachableShortPositions(game, seed, turns = 16) {
 
 test("short hard bot installs a dedicated analytical engine", () => {
   const context = runtime();
-  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v3");
+  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v4");
   assert.equal(typeof context.NarduShortBotEngine.rank, "function");
   assert.equal(typeof context.NarduShortBotEngine.setExperience, "function");
+  assert.equal(typeof context.NarduShortBotEngine.prepareWildbgRequest, "function");
+  assert.equal(typeof context.NarduShortBotEngine.planFromWildbgAnalysis, "function");
 });
 
 test("short hard bot makes the 7 point with opening 6-1", () => {
@@ -143,7 +157,252 @@ test("short hard bot makes the 7 point with opening 6-1", () => {
   );
   const decision = context.NarduShortBotEngine.consumeLastDecision();
   assert.equal(decision.selected.tactical.rolls, 21);
-  assert.equal(decision.engineVersion, "short-analytic-v3");
+  assert.equal(decision.engineVersion, "short-analytic-v4");
+  assert.equal(decision.engine.provenance, "builtin");
+});
+
+test("short WildBG request maps white and dark positions into the active-player perspective", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const points = {
+    1: { color: "dark", count: 4 },
+    10: { color: "white", count: 3 },
+    20: { color: "dark", count: 6 },
+    24: { color: "white", count: 2 },
+  };
+  const white = position(game, {
+    points,
+    bar: { white: 1, dark: 2 },
+    off: { white: 9, dark: 3 },
+    dice: [6, 1],
+  });
+  const dark = position(game, {
+    points,
+    bar: { white: 1, dark: 2 },
+    off: { white: 9, dark: 3 },
+    turn: "dark",
+    dice: [3, 3, 3, 3],
+  });
+
+  const whiteRequest = context.NarduShortBotEngine.prepareWildbgRequest(white);
+  assert.equal(whiteRequest.die1, 6);
+  assert.equal(whiteRequest.die2, 1);
+  assert.equal(whiteRequest.isOnePointer, true);
+  assert.deepEqual(Array.from(whiteRequest.board), wildbgBoardFixture(game, white, "white"));
+  assert.equal(whiteRequest.board[0], -2);
+  assert.equal(whiteRequest.board[1], -4);
+  assert.equal(whiteRequest.board[10], 3);
+  assert.equal(whiteRequest.board[20], -6);
+  assert.equal(whiteRequest.board[24], 2);
+  assert.equal(whiteRequest.board[25], 1);
+
+  const darkRequest = context.NarduShortBotEngine.prepareWildbgRequest(dark);
+  assert.equal(darkRequest.die1, 3);
+  assert.equal(darkRequest.die2, 3);
+  assert.deepEqual(Array.from(darkRequest.board), wildbgBoardFixture(game, dark, "dark"));
+  assert.equal(darkRequest.board[0], -1);
+  assert.equal(darkRequest.board[1], -2);
+  assert.equal(darkRequest.board[5], 6);
+  assert.equal(darkRequest.board[15], -3);
+  assert.equal(darkRequest.board[24], 4);
+  assert.equal(darkRequest.board[25], 2);
+});
+
+test("short WildBG adapter matches exact white and dark opening plays", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const initial = game.initialState("short").points;
+  const analysis = {
+    phase: "contact",
+    moves: [{ play: [{ from: 13, to: 7 }, { from: 8, to: 7 }], equity: 0.14, score: 0.55 }],
+  };
+  const white = position(game, { points: initial, dice: [6, 1] });
+  const dark = position(game, { points: initial, turn: "dark", dice: [6, 1] });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(white, analysis))),
+    [{ from: 13, die: 6 }, { from: 8, die: 1 }],
+  );
+  let decision = context.NarduShortBotEngine.consumeLastDecision();
+  assert.equal(decision.engine.provenance, "wildbg-wasm");
+  assert.equal(decision.engine.match, "play");
+  assert.equal(decision.engine.phase, "contact");
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(dark, analysis))),
+    [{ from: 12, die: 6 }, { from: 17, die: 1 }],
+  );
+  decision = context.NarduShortBotEngine.consumeLastDecision();
+  assert.equal(decision.engine.provenance, "wildbg-wasm");
+  assert.equal(decision.engine.match, "play");
+});
+
+test("short WildBG adapter preserves bar entry and every move of a double", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const barState = position(game, {
+    points: {
+      24: { color: "dark", count: 1 },
+      13: { color: "white", count: 14 },
+      12: { color: "dark", count: 14 },
+    },
+    bar: { white: 1 },
+    dice: [1, 2],
+  });
+  const barAnalysis = {
+    moves: [{ play: [{ from: 25, to: 24 }, { from: 24, to: 22 }] }],
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(
+      barState,
+      barAnalysis,
+    ))),
+    [{ from: 25, die: 1 }, { from: 24, die: 2 }],
+  );
+
+  const doubleState = position(game, {
+    points: game.initialState("short").points,
+    dice: [1, 1, 1, 1],
+  });
+  const doubleAnalysis = {
+    moves: [{ play: [
+      { from: 6, to: 5 }, { from: 5, to: 4 },
+      { from: 4, to: 3 }, { from: 3, to: 2 },
+    ] }],
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(
+      doubleState,
+      doubleAnalysis,
+    ))),
+    [
+      { from: 6, die: 1 }, { from: 5, die: 1 },
+      { from: 4, die: 1 }, { from: 3, die: 1 },
+    ],
+  );
+});
+
+test("short WildBG adapter keeps the local die for an oversize bearoff", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const state = position(game, {
+    points: {
+      3: { color: "white", count: 1 },
+      1: { color: "white", count: 1 },
+      24: { color: "dark", count: 15 },
+    },
+    off: { white: 13 },
+    dice: [6, 1],
+  });
+  const analysis = {
+    phase: "race",
+    moves: [{ play: [{ from: 3, to: 0 }, { from: 1, to: 0 }] }],
+  };
+  const plan = context.NarduShortBotEngine.planFromWildbgAnalysis(state, analysis);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 3, die: 6 },
+    { from: 1, die: 1 },
+  ]);
+  const next = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => assert.equal(
+    game.applyMove(next, move.from, move.die, { autoEnd: false }),
+    true,
+  ));
+  assert.equal(next.off.white, 15);
+});
+
+test("short WildBG adapter uses final-position fallback but rejects an illegal mismatch", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const state = position(game, {
+    points: game.initialState("short").points,
+    dice: [6, 1],
+  });
+  const expectedPlan = [{ from: 13, die: 6 }, { from: 8, die: 1 }];
+  const next = JSON.parse(JSON.stringify(state));
+  expectedPlan.forEach(move => game.applyMove(next, move.from, move.die, { autoEnd: false }));
+  const fallbackAnalysis = {
+    moves: [{
+      play: [{ from: 8, to: 7 }, { from: 13, to: 7 }],
+      position: wildbgBoardFixture(game, next, "white"),
+    }],
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(
+      state,
+      fallbackAnalysis,
+    ))),
+    expectedPlan,
+  );
+  assert.equal(context.NarduShortBotEngine.consumeLastDecision().engine.match, "position");
+
+  assert.equal(context.NarduShortBotEngine.planFromWildbgAnalysis(state, {
+    moves: [{ play: [{ from: 25, to: 24 }] }],
+  }), null);
+  assert.equal(context.NarduShortBotEngine.planFromWildbgAnalysis(state, {
+    moves: [{ play: [{ from: 13, to: 13 }], position: wildbgBoardFixture(game, next, "white") }],
+  }), null, "a malformed play must not be trusted even when it includes a plausible position");
+});
+
+test("short WildBG adapter rejects a contradictory or malformed reported position", () => {
+  const context = runtime();
+  const game = context.NarduGame;
+  const state = position(game, {
+    points: game.initialState("short").points,
+    dice: [6, 1],
+  });
+  const exactPlay = [{ from: 13, to: 7 }, { from: 8, to: 7 }];
+
+  assert.equal(context.NarduShortBotEngine.planFromWildbgAnalysis(state, {
+    moves: [{
+      play: exactPlay,
+      position: wildbgBoardFixture(game, state, "white"),
+    }],
+  }), null, "an exact play must not override a contradictory final position");
+
+  assert.equal(context.NarduShortBotEngine.planFromWildbgAnalysis(state, {
+    moves: [{ play: exactPlay, position: [1, 2, 3] }],
+  }), null, "a present malformed position must fail closed");
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.NarduShortBotEngine.planFromWildbgAnalysis(state, {
+      moves: [{ play: exactPlay }],
+    }))),
+    [{ from: 13, die: 6 }, { from: 8, die: 1 }],
+    "the pinned API compatibility path may omit position when play itself is locally exact",
+  );
+});
+
+test("short hard bot automatically uses a synchronous global WildBG analyzer", () => {
+  const context = runtime();
+  const state = position(context.NarduGame, {
+    points: context.NarduGame.initialState("short").points,
+    dice: [6, 1],
+  });
+  let request = null;
+  context.NarduWildbgAnalyzer = {
+    analyze(board, die1, die2, isOnePointer) {
+      request = { board: Array.from(board), die1, die2, isOnePointer };
+      return {
+        phase: "contact",
+        moves: [{ play: [{ from: 13, to: 7 }, { from: 8, to: 7 }], equity: 0.14 }],
+      };
+    },
+  };
+
+  const plan = context.NarduShortBotEngine.plan(state);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 13, die: 6 },
+    { from: 8, die: 1 },
+  ]);
+  assert.equal(request.die1, 6);
+  assert.equal(request.die2, 1);
+  assert.equal(request.isOnePointer, true);
+  assert.deepEqual(request.board, wildbgBoardFixture(context.NarduGame, state, "white"));
+  assert.equal(
+    context.NarduShortBotEngine.consumeLastDecision().engine.provenance,
+    "wildbg-wasm",
+  );
 });
 
 test("short Pubeval matches a hand-calculated race vector and its mirror", () => {
@@ -682,6 +941,107 @@ test("seed 2654435765 game 2 ply 16 rejects a structurally dominated home-board 
   assert.equal(context.__shortMetrics(ranked[0].after, "dark").homeMade, 4);
 });
 
+test("severe contact regressions reduce re-hit risk while preserving critical structure", () => {
+  const context = shortCoreRuntime();
+  const game = context.NarduGame;
+  const engine = context.__createShortBotEngine(context.__createShortNarduGameAdapter(game));
+  const scenarios = [
+    {
+      turn: "white",
+      dice: [6, 1],
+      bar: { white: 1, dark: 0 },
+      points: {
+        3: { color: "white", count: 2 }, 4: { color: "white", count: 2 },
+        5: { color: "dark", count: 2 }, 6: { color: "white", count: 3 },
+        8: { color: "white", count: 3 }, 12: { color: "dark", count: 4 },
+        13: { color: "white", count: 2 }, 17: { color: "dark", count: 2 },
+        19: { color: "dark", count: 2 }, 21: { color: "dark", count: 3 },
+        23: { color: "dark", count: 2 }, 24: { color: "white", count: 2 },
+      },
+      expected: [[25, 24, 1], [8, 2, 6]],
+    },
+    {
+      turn: "white",
+      dice: [3, 4],
+      points: {
+        1: { color: "dark", count: 2 }, 6: { color: "white", count: 5 },
+        7: { color: "white", count: 1 }, 8: { color: "white", count: 5 },
+        12: { color: "dark", count: 1 }, 13: { color: "white", count: 2 },
+        17: { color: "dark", count: 1 }, 18: { color: "dark", count: 2 },
+        19: { color: "dark", count: 5 }, 22: { color: "dark", count: 2 },
+        23: { color: "dark", count: 2 }, 24: { color: "white", count: 2 },
+      },
+      expected: [[8, 4, 4], [7, 4, 3]],
+    },
+    {
+      turn: "dark",
+      dice: [6, 5],
+      points: {
+        1: { color: "dark", count: 4 }, 2: { color: "dark", count: 2 },
+        4: { color: "dark", count: 1 }, 6: { color: "white", count: 5 },
+        7: { color: "white", count: 1 }, 8: { color: "white", count: 3 },
+        12: { color: "dark", count: 1 }, 13: { color: "white", count: 4 },
+        17: { color: "dark", count: 1 }, 18: { color: "dark", count: 1 },
+        19: { color: "dark", count: 5 }, 22: { color: "white", count: 2 },
+      },
+      expected: [[1, 7, 6], [7, 12, 5]],
+    },
+    {
+      turn: "white",
+      dice: [6, 2],
+      off: { white: 0, dark: 2 },
+      points: {
+        3: { color: "white", count: 2 }, 5: { color: "white", count: 2 },
+        6: { color: "white", count: 3 }, 8: { color: "white", count: 3 },
+        14: { color: "white", count: 1 }, 19: { color: "dark", count: 4 },
+        20: { color: "white", count: 4 }, 21: { color: "dark", count: 3 },
+        22: { color: "dark", count: 3 }, 23: { color: "dark", count: 2 },
+        24: { color: "dark", count: 1 },
+      },
+      expected: [[8, 6, 2], [20, 14, 6]],
+    },
+    {
+      turn: "white",
+      dice: [3, 6],
+      off: { white: 0, dark: 6 },
+      points: {
+        2: { color: "white", count: 2 }, 3: { color: "white", count: 2 },
+        5: { color: "white", count: 4 }, 6: { color: "white", count: 2 },
+        7: { color: "white", count: 2 }, 10: { color: "white", count: 1 },
+        20: { color: "dark", count: 1 }, 21: { color: "dark", count: 2 },
+        22: { color: "dark", count: 3 }, 23: { color: "dark", count: 3 },
+        24: { color: "white", count: 2 },
+      },
+      expected: [[10, 4, 6], [7, 4, 3]],
+    },
+    {
+      turn: "white",
+      dice: [2, 6],
+      off: { white: 0, dark: 10 },
+      points: {
+        2: { color: "white", count: 2 }, 3: { color: "white", count: 2 },
+        5: { color: "white", count: 4 }, 6: { color: "white", count: 2 },
+        7: { color: "white", count: 2 }, 10: { color: "white", count: 1 },
+        15: { color: "white", count: 1 }, 22: { color: "dark", count: 2 },
+        23: { color: "dark", count: 3 }, 24: { color: "white", count: 1 },
+      },
+      expected: [[24, 18, 6], [18, 16, 2]],
+    },
+  ];
+  scenarios.forEach(scenario => {
+    const state = position(game, scenario);
+    const selected = engine.rank(state, scenario.turn, {
+      maxCandidates: 48,
+      analyzeCandidates: 6,
+      replyLimit: 12,
+    })[0];
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(selected.sequence.map(move => [move.from, move.to, move.die]))),
+      scenario.expected,
+    );
+  });
+});
+
 test("short hard bot enters from the bar and hits an exposed checker", () => {
   const context = runtime();
   const state = position(context.NarduGame, {
@@ -827,24 +1187,24 @@ test("short experience keeps local and server knowledge in separate mergeable so
 test("short engine is loaded before the shared hard-bot dispatcher", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   assert.ok(room.indexOf("short-bot-engine.js") < room.indexOf("strong-bot.js"));
-  assert.match(room, /short-bot-engine\.js\?v=20260829-short-analytic-v3/);
+  assert.match(room, /short-bot-engine\.js\?v=20260829-short-analytic-v4/);
 });
 
 test("short learning has a separate server RPC and archive accepts both variants", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase", "short-bot-analytic-v3.sql"),
+    path.join(ROOT, "supabase", "short-bot-analytic-v4.sql"),
     "utf8",
   );
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
   assert.match(schema, /get_short_bot_experience_patterns\(\s*p_player_name text default null/);
-  assert.match(schema, /engine_version like 'short-analytic-v3%'/);
+  assert.match(schema, /engine_version like 'short-analytic-v4%'/);
   assert.match(schema, /not in \('long', 'short'\)/);
   assert.ok((schema.match(/not in \('long', 'short'\)/g) || []).length >= 2);
   assert.match(client, /loadShortBotExperience/);
   assert.match(client, /get_short_bot_experience_patterns/);
-  assert.match(client, /narduh-short-bot-server-experience-v3/);
-  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v3/);
-  assert.match(migration, /engine_version like 'short-analytic-v3%'/);
-  assert.match(migration, /'creditVersion', 3/);
+  assert.match(client, /narduh-short-bot-server-experience-v4/);
+  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v4/);
+  assert.match(migration, /engine_version like 'short-analytic-v4%'/);
+  assert.match(migration, /'creditVersion', 4/);
 });

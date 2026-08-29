@@ -716,6 +716,76 @@ function createShortBotEngine(adapter, options = {}) {
     });
   }
 
+  function removeSeverePositionDominance(candidates, state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const own = shortMetrics(state, color);
+    const other = shortMetrics(state, opponent);
+    const resultDanger = own.off === 0 && (own.pips - other.pips >= 15 || other.off > 0);
+    if (!resultDanger) return candidates;
+    const equalKeys = [
+      'pipsGain', 'hits', 'entries', 'offGain', 'ownBarAfter', 'opponentBarAfter',
+    ];
+    const maximizeKeys = [
+      'madeGain', 'homeMadeGain', 'primeGain', 'backmostGain', 'anchorDelta',
+      'opponentExposureGain', 'capturedExposure',
+    ];
+    const minimizeKeys = ['exposureDelta', 'stackDelta'];
+    return candidates.filter(candidate => !candidates.some(otherCandidate => {
+      if (otherCandidate === candidate) return false;
+      const current = candidate.features;
+      const alternative = otherCandidate.features;
+      if (!equalKeys.every(key => Number(alternative[key]) === Number(current[key]))) return false;
+      const noWorse = maximizeKeys.every(key => Number(alternative[key]) >= Number(current[key]))
+        && minimizeKeys.every(key => Number(alternative[key]) <= Number(current[key]));
+      if (!noWorse) return false;
+      return maximizeKeys.some(key => Number(alternative[key]) > Number(current[key]))
+        || minimizeKeys.some(key => Number(alternative[key]) < Number(current[key]));
+    }));
+  }
+
+  function removeSevereContactRisks(candidates, state, color) {
+    if (candidates.length < 2) return candidates;
+    const phase = shortPhase(state, color);
+    if (phase !== 'contact' && phase !== 'bar') return candidates;
+    const opponent = NarduGame.opponentOf(color);
+    const own = shortMetrics(state, color);
+    const other = shortMetrics(state, opponent);
+    if (own.off > 0) return candidates;
+    const resultDanger = own.pips - other.pips >= 15 || other.off > 0;
+    if (!resultDanger) return candidates;
+    return candidates.filter(riskyCandidate => !candidates.some(saferCandidate => {
+      if (saferCandidate === riskyCandidate) return false;
+      const risky = riskyCandidate.features;
+      const safer = saferCandidate.features;
+      const sameProgress = ['pipsGain', 'entries', 'offGain']
+        .every(key => Number(safer[key]) === Number(risky[key]));
+      if (!sameProgress) return false;
+      const preservesStructure = ['madeGain', 'homeMadeGain', 'primeGain', 'anchorDelta']
+        .every(key => Number(safer[key]) >= Number(risky[key]));
+      if (!preservesStructure) return false;
+      const riskyHitRolls = Number(riskyCandidate.tactical?.reservations?.hitRolls) || 0;
+      const saferHitRolls = Number(saferCandidate.tactical?.reservations?.hitRolls) || 0;
+      const hitRollImprovement = riskyHitRolls - saferHitRolls;
+      const sameHits = Number(safer.hits) === Number(risky.hits);
+      const exposureTrap = sameHits
+        && Number(risky.exposureDelta) >= 25
+        && Number(safer.exposureDelta) <= 5
+        && hitRollImprovement >= 4;
+      if (exposureTrap) return true;
+      if (hitRollImprovement < 4) return false;
+      const structureImprovement = ['madeGain', 'homeMadeGain', 'primeGain', 'anchorDelta']
+        .some(key => Number(safer[key]) > Number(risky[key]));
+      if (!structureImprovement || Number(safer.exposureDelta) > Number(risky.exposureDelta)) {
+        return false;
+      }
+      if (Number(safer.hits) >= Number(risky.hits)) return true;
+      return Number(risky.hits) - Number(safer.hits) === 1
+        && Number(safer.madeGain) >= Number(risky.madeGain) + 1
+        && Number(safer.anchorDelta) >= Number(risky.anchorDelta) + 1
+        && hitRollImprovement >= 10;
+    }));
+  }
+
   function rank(state, color, runtimeOptions = {}) {
     const maxCandidates = Math.max(6, Number(runtimeOptions.maxCandidates) || 48);
     const analyzeCount = Math.max(4, Number(runtimeOptions.analyzeCandidates) || 6);
@@ -762,15 +832,17 @@ function createShortBotEngine(adapter, options = {}) {
       prefiltered = removeStructurallyDominated(prefiltered);
       prefiltered = removePrematureAnchorBreaks(prefiltered, state, color);
       prefiltered = removeUnsafeBarEntryBlots(prefiltered, state, color);
+      prefiltered = removeSeverePositionDominance(prefiltered, state, color);
     }
     prefiltered = prefiltered.slice(0, maxCandidates);
     const selected = prefiltered.slice(0, Math.min(analyzeCount, 2));
-    return selected
+    const analyzed = selected
       .map(item => {
         const analyzed = analyzeReplies(item, color, runtimeOptions);
         const adjustment = experienceAdjustment(analyzed);
         return { ...analyzed, experienceAdjustment: adjustment, score: analyzed.score + adjustment };
-      })
+      });
+    return removeSevereContactRisks(analyzed, state, color)
       .sort((left, right) => right.score - left.score
         || shortSequenceSignature(left.sequence, state, color)
           .localeCompare(shortSequenceSignature(right.sequence, state, color)));
@@ -1137,19 +1209,194 @@ function applyKnownShortSequence(game, state, sequence, color) {
 
 
 /* bot-engine/short/browser.ts */
-const SHORT_ENGINE_VERSION = 'short-analytic-v3';
+const SHORT_ENGINE_VERSION = 'short-analytic-v4';
+
+function shortStateToWildbgBoard(game, state, color = state?.turn) {
+  if (!game || !state || state.variant !== 'short' || !color) return null;
+  const opponent = game.opponentOf(color);
+  const board = new Int8Array(26);
+  Object.entries(state.points || {}).forEach(([rawPoint, stack]) => {
+    const point = Number(rawPoint);
+    const pathPosition = game.pathPos(color, point, state);
+    const count = Number(stack?.count) || 0;
+    if (pathPosition < 0 || pathPosition > 23 || count < 1) return;
+    board[24 - pathPosition] = stack.color === color ? count : -count;
+  });
+  board[25] = Number(state.bar?.[color]) || 0;
+  board[0] = -(Number(state.bar?.[opponent]) || 0);
+  return board;
+}
+
+function prepareShortWildbgRequest(game, state, color = state?.turn) {
+  if (!state || state.variant !== 'short' || !color) return null;
+  const dice = (state.dice || []).map(Number);
+  const isDouble = dice.length === 4 && dice.every(die => die === dice[0]);
+  if ((!isDouble && dice.length !== 2)
+    || dice.slice(0, 2).some(die => !Number.isInteger(die) || die < 1 || die > 6)) {
+    return null;
+  }
+  const board = shortStateToWildbgBoard(game, state, color);
+  return board ? {
+    board,
+    die1: dice[0],
+    die2: dice[1],
+    isOnePointer: true,
+  } : null;
+}
+
+function shortWildbgPlayForSequence(game, adapter, state, color, sequence) {
+  let preview = JSON.parse(JSON.stringify(state || {}));
+  const play = [];
+  (sequence || []).forEach(move => {
+    const from = Number(move.from) === game.barPoint(color)
+      ? 25
+      : 24 - game.pathPos(color, Number(move.from), preview);
+    const to = move.bearOff || Number(move.to) === 0
+      ? 0
+      : 24 - game.pathPos(color, Number(move.to), preview);
+    play.push({ from, to });
+    preview = adapter.applySequence(preview, [move], color);
+  });
+  return {
+    play,
+    position: shortStateToWildbgBoard(game, preview, color),
+  };
+}
+
+function validWildbgPlay(play) {
+  return Array.isArray(play) && play.length > 0 && play.length <= 4 && play.every(step => (
+    Number.isInteger(Number(step?.from))
+    && Number(step.from) >= 1
+    && Number(step.from) <= 25
+    && Number.isInteger(Number(step?.to))
+    && Number(step.to) >= 0
+    && Number(step.to) <= 24
+    && Number(step.from) > Number(step.to)
+  ));
+}
+
+function validWildbgPosition(position) {
+  return position && typeof position.length === 'number' && position.length === 26
+    && Array.from(position).every(value => Number.isInteger(Number(value))
+      && Number(value) >= -15 && Number(value) <= 15);
+}
+
+function sameWildbgPlay(left, right) {
+  return left.length === right.length && left.every((step, index) => (
+    Number(step.from) === Number(right[index]?.from)
+    && Number(step.to) === Number(right[index]?.to)
+  ));
+}
+
+function sameWildbgPosition(left, right) {
+  return left && right && left.length === right.length
+    && Array.from(left).every((value, index) => Number(value) === Number(right[index]));
+}
+
+function matchShortWildbgAnalysis(game, state, analysis, color = state?.turn, adapter = null) {
+  const best = analysis?.moves?.[0];
+  if (!game || !state || state.variant !== 'short' || !color || !validWildbgPlay(best?.play)) {
+    return null;
+  }
+  const rules = adapter || createShortNarduGameAdapter(game);
+  const candidates = rules.legalSequences(state, color, { limit: 0 }).map(sequence => ({
+    sequence,
+    ...shortWildbgPlayForSequence(game, rules, state, color, sequence),
+  }));
+  const hasPosition = Object.prototype.hasOwnProperty.call(best, 'position');
+  if (hasPosition && !validWildbgPosition(best.position)) return null;
+  const exact = candidates.find(candidate => sameWildbgPlay(candidate.play, best.play));
+  if (exact) {
+    if (hasPosition && !sameWildbgPosition(exact.position, best.position)) return null;
+    return { ...exact, match: 'play', analysis: best, phase: analysis.phase || null };
+  }
+  if (!hasPosition) return null;
+  const byPosition = candidates.find(candidate => sameWildbgPosition(candidate.position, best.position));
+  return byPosition
+    ? { ...byPosition, match: 'position', analysis: best, phase: analysis.phase || null }
+    : null;
+}
 
 function createBrowserShortBotEngine(game, options = {}) {
-  const engine = createShortBotEngine(createShortNarduGameAdapter(game), options);
+  const adapter = createShortNarduGameAdapter(game);
+  const engine = createShortBotEngine(adapter, options);
   let lastDecision = null;
+
+  function analyzer() {
+    return options.getWildbgAnalyzer?.() || options.wildbgAnalyzer || null;
+  }
+
+  function recordWildbgDecision(state, color, matched) {
+    const described = engine.describeSequence(state, matched.sequence, color);
+    const decision = shortDecisionRecord(state, color, [described], engine.experienceSize());
+    if (!decision) return null;
+    decision.engine = {
+      name: 'wildbg',
+      provenance: 'wildbg-wasm',
+      match: matched.match,
+      phase: matched.phase,
+      equity: Number.isFinite(Number(matched.analysis?.equity))
+        ? Number(matched.analysis.equity)
+        : null,
+      score: Number.isFinite(Number(matched.analysis?.score))
+        ? Number(matched.analysis.score)
+        : null,
+    };
+    return decision;
+  }
+
+  function planFromWildbgAnalysis(state, analysis) {
+    const color = state?.turn;
+    const matched = matchShortWildbgAnalysis(game, state, analysis, color, adapter);
+    if (!matched) return null;
+    lastDecision = recordWildbgDecision(state, color, matched);
+    return matched.sequence.map(move => ({ from: move.from, die: move.die }));
+  }
+
+  function analyticPlan(state, runtimeOptions, wildbgFailure = '') {
+    const color = state.turn;
+    const ranked = engine.rank(state, color, runtimeOptions);
+    lastDecision = shortDecisionRecord(state, color, ranked, engine.experienceSize());
+    if (lastDecision) {
+      lastDecision.engine = {
+        name: 'short-analytic',
+        provenance: wildbgFailure ? 'builtin-fallback' : 'builtin',
+        wildbgFailure: wildbgFailure || null,
+      };
+    }
+    return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
+  }
+
   return {
     plan(state, runtimeOptions = {}) {
       const color = state?.turn;
       if (!state || state.variant !== 'short' || !color) return [];
-      const ranked = engine.rank(state, color, runtimeOptions);
-      lastDecision = shortDecisionRecord(state, color, ranked, engine.experienceSize());
-      return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
+      const request = prepareShortWildbgRequest(game, state, color);
+      const wildbg = analyzer();
+      if (request && typeof wildbg?.analyze === 'function') {
+        try {
+          const analysis = wildbg.analyze(
+            request.board,
+            request.die1,
+            request.die2,
+            request.isOnePointer,
+          );
+          if (!analysis || typeof analysis.then === 'function') {
+            return analyticPlan(state, runtimeOptions, 'async-or-empty-analysis');
+          }
+          const plan = planFromWildbgAnalysis(state, analysis);
+          if (plan) return plan;
+          return analyticPlan(state, runtimeOptions, 'illegal-or-unmatched-analysis');
+        } catch (error) {
+          return analyticPlan(state, runtimeOptions, `analysis-error:${error?.message || error}`);
+        }
+      }
+      return analyticPlan(state, runtimeOptions);
     },
+    prepareWildbgRequest(state) {
+      return prepareShortWildbgRequest(game, state, state?.turn);
+    },
+    planFromWildbgAnalysis,
     rank(state, runtimeOptions = {}) {
       if (!state || state.variant !== 'short' || !state.turn) return [];
       return engine.rank(state, state.turn, runtimeOptions);
@@ -1212,7 +1459,9 @@ function shortDecisionRecord(state, color, ranked, experienceSize) {
 
 function installBrowserShortBotEngine(root = globalThis) {
   if (!root?.NarduGame) return null;
-  const api = createBrowserShortBotEngine(root.NarduGame);
+  const api = createBrowserShortBotEngine(root.NarduGame, {
+    getWildbgAnalyzer: () => root.NarduWildbgAnalyzer,
+  });
   root.NarduShortBotEngine = api;
   return api;
 }
