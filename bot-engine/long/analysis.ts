@@ -12,7 +12,7 @@ import {
 
 const MAX_REPLY_SEQUENCES = 8;
 export const MAX_TACTICAL_CANDIDATES = 4;
-const MAX_DEEP_CANDIDATES = 3;
+const MAX_DEEP_CANDIDATES = MAX_TACTICAL_CANDIDATES;
 const MAX_RECOVERY_SEQUENCES = 6;
 const MAX_CONTINUATION_CANDIDATES = 2;
 const MAX_CONTINUATION_SEQUENCES = 6;
@@ -121,7 +121,7 @@ export function analyzeOpponentReplies(
   const expandDoubles = Boolean(options.expandDoubles);
   const tacticalCandidates = uniquePositionCandidates(
     candidates,
-    expandDoubles ? 3 : MAX_TACTICAL_CANDIDATES,
+    MAX_TACTICAL_CANDIDATES,
   );
   if (tacticalCandidates.length < 2 || !hasAnalysisBudget(budget)) return candidates;
 

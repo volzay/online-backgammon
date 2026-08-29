@@ -1,23 +1,38 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v23';
+const ENGINE_VERSION = 'long-analytic-v24';
+const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
+  strategyProfile: 'v24',
+  maxCandidates: 64,
+  analysisNodeBudget: 480,
+});
 
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
   const engine = createLongBotEngine(adapter, options);
   let lastDecision = null;
 
+  const runtimeDefaults = {
+    ...PRODUCTION_RUNTIME_OPTIONS,
+    ...(options.runtimeDefaults || {}),
+  };
+  const effectiveRuntimeOptions = runtimeOptions => ({
+    ...runtimeDefaults,
+    ...(runtimeOptions || {}),
+  });
+
   return {
     plan(state, runtimeOptions = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
-      const ranked = engine.rank(state, color, runtimeOptions);
+      const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
+      const ranked = engine.rank(state, color, effectiveOptions);
       lastDecision = decisionRecord(
         state,
         color,
         ranked,
-        runtimeOptions.weights,
+        effectiveOptions.weights,
         engine.experienceSize(),
       );
       return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
@@ -26,13 +41,18 @@ export function createBrowserLongBotEngine(game, options = {}) {
     rank(state, runtimeOptions = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
-      return engine.rank(state, color, runtimeOptions);
+      return engine.rank(state, color, effectiveRuntimeOptions(runtimeOptions));
     },
 
     describeSequence(state, sequence, runtimeOptions = {}) {
       const color = runtimeOptions.color || state?.turn;
       if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
-      return engine.describeSequence(state, sequence, color, runtimeOptions);
+      return engine.describeSequence(
+        state,
+        sequence,
+        color,
+        effectiveRuntimeOptions(runtimeOptions),
+      );
     },
 
     evaluateState(state, color = state?.turn, weights = undefined) {
@@ -54,6 +74,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
       return decision;
     },
 
+    productionOptions: Object.freeze({ ...PRODUCTION_RUNTIME_OPTIONS }),
     version: ENGINE_VERSION,
   };
 }

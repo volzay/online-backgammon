@@ -5,7 +5,7 @@ export const LONG_PATHS = {
   dark: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13],
 };
 
-const HEAD_LANDING_DICE = [1, 3, 5, 6];
+const HEAD_LANDING_DICE = [1, 2, 3, 4, 5, 6];
 
 export function opponentOf(color) {
   return color === 'white' ? 'dark' : 'white';
@@ -103,10 +103,15 @@ export function outsideHomePips(state, color) {
 }
 
 export function laggardRouteDebt(state, color) {
-  if (headCheckers(state, color) > 0) return 0;
+  const head = headPoint(color);
   const outside = Object.entries(state.points || {})
     .filter(([, stack]) => stack.color === color)
-    .map(([point, stack]) => ({ pos: pathPos(color, Number(point)), count: Number(stack.count) || 0 }))
+    .map(([point, stack]) => ({
+      pos: pathPos(color, Number(point)),
+      count: Number(point) === Number(head)
+        ? Math.min(1, Number(stack.count) || 0)
+        : Number(stack.count) || 0,
+    }))
     .filter(item => item.pos >= 0 && item.pos < 18);
   if (!outside.length) return 0;
 
@@ -275,10 +280,9 @@ export function opponentHeadBlockScore(state, color) {
   const opponent = opponentOf(color);
   const opponentHeadCount = headCheckers(state, opponent);
   if (opponentHeadCount <= 2) return 0;
-  const importantDice = [1, 3, 5, 6];
   const pressure = 1 + Math.max(0, opponentHeadCount - 4) / 5;
 
-  return importantDice.reduce((score, die) => {
+  return HEAD_LANDING_DICE.reduce((score, die) => {
     const target = pathFor(opponent)[die];
     const stack = target ? stackAt(state, target) : null;
     const dieWeight = die === 1 || die === 3 || die === 5 ? 1.35 : 1.05;
@@ -470,12 +474,12 @@ export function opponentHeadFenceBarrierScore(state, color) {
     if (!target || colorAt(state, target) !== color) return score;
 
     let run = 1;
-    for (let index = die - 1; index >= 0 && colorAt(state, path[index]) === opponent; index -= 1) {
+    for (let index = die - 1; index >= 0 && colorAt(state, path[index]) === color; index -= 1) {
       run += 1;
     }
     for (
       let index = die + 1;
-      index < path.length && colorAt(state, path[index]) === opponent;
+      index < path.length && colorAt(state, path[index]) === color;
       index += 1
     ) {
       run += 1;
@@ -639,7 +643,7 @@ export function blockingPrimeScore(state, color) {
     }, 0);
     const zone = runStart < 7 ? 1.5 : runStart < 13 ? 1.2 : 0.82;
     const closure = runLength >= 6
-      ? 520 + (runLength - 6) * 180
+      ? 520
       : Math.pow(runLength, 3) * (1 + reserves / Math.max(4, runLength * 2));
     score += trapped * closure * zone;
   };

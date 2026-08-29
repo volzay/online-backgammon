@@ -2361,7 +2361,7 @@ as $$
     from public.bot_training_games g
     cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
     where g.difficulty = 'hard'
-      and g.engine_version like 'short-analytic-v2%'
+      and g.engine_version like 'short-analytic-v3%'
       and g.completed_at >= now() - interval '180 days'
   ), labeled as (
     select
@@ -2397,7 +2397,7 @@ as $$
     limit 480
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'creditVersion', 1,
+    'creditVersion', 3,
     'contextKey', context_key,
     'actionKey', action_key,
     'samples', samples,

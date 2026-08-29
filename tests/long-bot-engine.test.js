@@ -80,6 +80,11 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.consumeLastDecision, "function");
   assert.equal(typeof engine.setExperience, "function");
   assert.equal(typeof engine.experienceSize, "function");
+  assert.deepEqual(JSON.parse(JSON.stringify(engine.productionOptions)), {
+    strategyProfile: "v24",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
 });
 
 test("v20 prime metrics value blocked checkers rather than empty board patterns", async () => {
@@ -114,18 +119,170 @@ test("v20 prime metrics value blocked checkers rather than empty board patterns"
   );
 });
 
-test("v20 reply analysis treats a double as four moves", () => {
-  const { engine } = loadBrowserEngine();
-  const ranked = engine.rank(tacticalThreatState(), {
-    strategyProfile: "v20",
-    maxCandidates: 4,
-    analysisNodeBudget: 260,
+test("v24 prime value saturates once six consecutive points block every roll", async () => {
+  const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
+  const sixPointPrime = longState({
+    24: { color: "white", count: 10 },
+    23: { color: "dark", count: 1 },
+    22: { color: "dark", count: 2 },
+    21: { color: "dark", count: 1 },
+    20: { color: "dark", count: 1 },
+    19: { color: "dark", count: 1 },
+    18: { color: "dark", count: 1 },
   });
+  const eightPointPrime = longState({
+    ...sixPointPrime.points,
+    17: { color: "dark", count: 1 },
+    16: { color: "dark", count: 1 },
+  });
+
+  assert.equal(metrics.blockingPrimeRun(sixPointPrime, "dark"), 6);
+  assert.equal(metrics.blockingPrimeRun(eightPointPrime, "dark"), 8);
+  assert.ok(
+    metrics.blockingPrimeScore(eightPointPrime, "dark")
+      <= metrics.blockingPrimeScore(sixPointPrime, "dark"),
+  );
+});
+
+test("head safety and blocking metrics cover every landing die from one through six", async () => {
+  const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
+  const exposed = longState({
+    12: { color: "dark", count: 12 },
+    24: { color: "white", count: 12 },
+  });
+
+  for (let die = 1; die <= 6; die += 1) {
+    const protectedLandings = longState({
+      ...exposed.points,
+      [metrics.LONG_PATHS.white[die]]: { color: "white", count: 1 },
+      [metrics.LONG_PATHS.dark[die]]: { color: "white", count: 1 },
+    });
+
+    assert.ok(
+      metrics.headLandingSupportScore(protectedLandings, "white")
+        > metrics.headLandingSupportScore(exposed, "white"),
+      `die ${die} must improve own head support`,
+    );
+    assert.ok(
+      metrics.opponentHeadBlockScore(protectedLandings, "white")
+        > metrics.opponentHeadBlockScore(exposed, "white"),
+      `die ${die} must strengthen the opponent-head block`,
+    );
+    assert.ok(
+      metrics.opponentHeadFreedomRisk(protectedLandings, "white")
+        < metrics.opponentHeadFreedomRisk(exposed, "white"),
+      `die ${die} must reduce opponent head freedom`,
+    );
+    assert.ok(
+      metrics.headLandingBreakRisk(protectedLandings, exposed, "white") > 0,
+      `die ${die} must register when its landing anchor is broken`,
+    );
+  }
+});
+
+test("opponent head barrier grows monotonically across adjacent own points", async () => {
+  const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
+  const threePointBarrier = longState({
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 12 },
+  });
+  const fourPointBarrier = longState({
+    ...threePointBarrier.points,
+    8: { color: "white", count: 1 },
+  });
+
+  const threePointScore = metrics.opponentHeadFenceBarrierScore(
+    threePointBarrier,
+    "white",
+  );
+  const fourPointScore = metrics.opponentHeadFenceBarrierScore(
+    fourPointBarrier,
+    "white",
+  );
+
+  assert.ok(threePointScore > 0);
+  assert.ok(fourPointScore > threePointScore);
+});
+
+test("v24 reply analysis covers all four reserved candidates and expands doubles", async () => {
+  const { game } = loadBrowserEngine();
+  const analysis = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/analysis.ts"),
+  ).href);
+  const adapterModule = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/nardu-game-adapter.ts"),
+  ).href);
+  const evaluator = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/evaluator.ts"),
+  ).href);
+  const adapter = adapterModule.createNarduGameAdapter(game);
+  const state = tacticalThreatState();
+  const candidates = [];
+  const positions = new Set();
+  for (const sequence of adapter.legalSequences(state, "dark")) {
+    const after = adapter.applySequence(state, sequence, "dark");
+    const key = JSON.stringify(after.points);
+    if (positions.has(key)) continue;
+    positions.add(key);
+    candidates.push({ sequence, after, score: 0, features: {} });
+    if (candidates.length === 4) break;
+  }
+
+  const ranked = analysis.analyzeOpponentReplies(
+    adapter,
+    "dark",
+    candidates,
+    evaluator.mergeWeights(),
+    analysis.createAnalysisBudget(480),
+    { expandDoubles: true },
+  );
   const analyzed = ranked.filter(candidate => candidate.tactical);
 
-  assert.ok(analyzed.length >= 2);
+  assert.equal(candidates.length, 4);
+  assert.equal(analyzed.length, 4);
   assert.ok(analyzed.every(candidate => candidate.tactical.doublesExpanded));
-  assert.ok(analyzed.some(candidate => candidate.tactical.rolls >= 3));
+  assert.ok(analyzed.every(candidate => candidate.tactical.rolls === 21));
+});
+
+test("v24 chooses the robust game-15 move across all rolls instead of hindsight dice", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    4: { color: "white", count: 1 },
+    6: { color: "dark", count: 1 },
+    7: { color: "dark", count: 2 },
+    9: { color: "dark", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "dark", count: 2 },
+    12: { color: "dark", count: 5 },
+    13: { color: "white", count: 1 },
+    16: { color: "dark", count: 1 },
+    17: { color: "dark", count: 1 },
+    18: { color: "white", count: 1 },
+    19: { color: "white", count: 2 },
+    20: { color: "white", count: 2 },
+    21: { color: "dark", count: 1 },
+    23: { color: "dark", count: 1 },
+    24: { color: "white", count: 7 },
+  }, {
+    turn: "white",
+    dice: [3, 2],
+    rolled: [3, 2],
+  });
+
+  const ranked = engine.rank(state);
+  const robust = ranked.find(candidate => (
+    candidate.sequence.map(move => `${move.from}:${move.die}`).join("+") === "24:2+22:3"
+  ));
+  const hindsight = ranked.find(candidate => (
+    candidate.sequence.map(move => `${move.from}:${move.die}`).join("+") === "4:3+24:2"
+  ));
+
+  assert.equal(ranked[0], robust);
+  assert.equal(robust.tactical.rolls, 21);
+  assert.equal(hindsight.tactical.rolls, 21);
+  assert.ok(robust.tactical.worstImpact > hindsight.tactical.worstImpact);
 });
 
 test("v20 only rewards explicitly recorded winning experience", async () => {
@@ -271,6 +428,26 @@ test("evaluation rewards head support and penalizes trapped checkers", () => {
   assert.ok(engine.evaluateState(supported, "dark") > engine.evaluateState(trapped, "dark"));
 });
 
+test("v24 laggard debt rewards releasing the final head checker without a discontinuity", async () => {
+  const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
+  const before = longState({
+    12: { color: "dark", count: 1 },
+    18: { color: "dark", count: 14 },
+    24: { color: "white", count: 15 },
+  });
+  const after = longState({
+    7: { color: "dark", count: 1 },
+    18: { color: "dark", count: 14 },
+    24: { color: "white", count: 15 },
+  });
+
+  assert.ok(metrics.laggardRouteDebt(before, "dark") > 0);
+  assert.ok(
+    metrics.laggardRouteDebt(after, "dark")
+      < metrics.laggardRouteDebt(before, "dark"),
+  );
+});
+
 test("VPD3-MD7P regression escapes the point-six laggard before a developing fence closes", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
@@ -290,11 +467,7 @@ test("VPD3-MD7P regression escapes the point-six laggard before a developing fen
     rolled: [5, 2],
   });
 
-  engine.plan(state, {
-    strategyProfile: "v23",
-    maxCandidates: 64,
-    analysisNodeBudget: 1150,
-  });
+  engine.plan(state);
   const decision = engine.consumeLastDecision();
 
   assert.ok(
@@ -505,7 +678,8 @@ test("8KSQ-PUEY move 12 advances outside instead of shuffling inside home", () =
     { from: 3, to: 2, die: 1 },
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
-  assert.ok(decision.selected.features.preHomeDevelopmentAdjustment > 0);
+  assert.equal(decision.selected.features.outsidePipGain, 7);
+  assert.equal(decision.selected.features.strategyProfile, "v24");
 });
 
 test("ZQBE-SM3L move 37 distributes the route instead of building a six-checker tower", () => {
@@ -564,7 +738,8 @@ test("ZQBE-SM3L move 39 advances the laggard instead of growing a seven-checker 
     { from: 22, to: 19, die: 3 },
   ]);
   assert.equal(decision.selected.features.maxRouteTowerAfter, 6);
-  assert.ok(decision.selected.features.routeDistributionAdjustment > 0);
+  assert.equal(decision.selected.features.outsidePipGain, 7);
+  assert.equal(decision.selected.features.strategyProfile, "v24");
 });
 
 test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home", () => {
@@ -592,7 +767,8 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
     { from: 22, to: 21, die: 1 },
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
-  assert.ok(decision.selected.features.routeContinuityAdjustment > 0);
+  assert.equal(decision.selected.features.outsidePipGain, 5);
+  assert.equal(decision.selected.features.strategyProfile, "v24");
 });
 
 test("48RU-XSRE enters both available checkers instead of shuffling inside home", () => {
@@ -695,7 +871,7 @@ test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () =>
   });
 
   const ranked = engine.rank(state, {
-    strategyProfile: "v23",
+    strategyProfile: "v24",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -736,7 +912,7 @@ test("PRBV-GYBH turn 11 avoids a five-checker tower behind a developing fence", 
   });
 
   const ranked = engine.rank(state, {
-    strategyProfile: "v23",
+    strategyProfile: "v24",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -749,6 +925,70 @@ test("PRBV-GYBH turn 11 avoids a five-checker tower behind a developing fence", 
   assert.ok(
     ranked[0].sequence.filter(move => move.to === 23).length <= 2,
     JSON.stringify(ranked[0].sequence),
+  );
+});
+
+test("latent-trap distribution cannot override unbounded tactical or total loss", async () => {
+  const { prioritizeLatentTrapDistribution } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = longState({
+    12: { color: "dark", count: 4 },
+    24: { color: "white", count: 4 },
+  });
+  const features = {
+    opponentFenceRunBefore: 3,
+    trapBefore: 120,
+    maxRouteTowerAfter: 5,
+    primeScoreGain: 0,
+    opponentMoveBlockGain: 0,
+    distributionDelta: -10,
+    headGain: 0,
+    outsideReduction: 0,
+    outsidePipGain: 10,
+    homeShuffleMoves: 0,
+    outsideDevelopmentMoves: 2,
+    headLandingBreak: 0,
+    fenceClosureDelta: 0,
+    escapeGatewayDelta: 0,
+  };
+  const selected = () => ({
+    score: 0,
+    features: { ...features },
+    tactical: { expectedImpact: 0, worstImpact: 0 },
+  });
+  const distributed = overrides => ({
+    score: -200000000,
+    features: {
+      ...features,
+      maxRouteTowerAfter: 4,
+      distributionDelta: 0,
+    },
+    tactical: { expectedImpact: -30000000, worstImpact: -65000000 },
+    ...overrides,
+  });
+
+  const withinBounds = selected();
+  const acceptable = distributed({});
+  assert.equal(
+    prioritizeLatentTrapDistribution(state, "dark", [withinBounds, acceptable])[0],
+    acceptable,
+  );
+
+  const tacticalBound = selected();
+  const tacticallyUnbounded = distributed({
+    tactical: { expectedImpact: -30000001, worstImpact: -65000000 },
+  });
+  assert.equal(
+    prioritizeLatentTrapDistribution(state, "dark", [tacticalBound, tacticallyUnbounded])[0],
+    tacticalBound,
+  );
+
+  const totalBound = selected();
+  const totallyUnbounded = distributed({ score: -240000001 });
+  assert.equal(
+    prioritizeLatentTrapDistribution(state, "dark", [totalBound, totallyUnbounded])[0],
+    totalBound,
   );
 });
 
@@ -776,10 +1016,16 @@ test("v19 reserves a fifth-place home entry for reply analysis", async () => {
     dice: [1, 5],
     rolled: [1, 5],
   });
-  const candidate = (id, score, outsideReduction, homeShuffleMoves) => ({
+  const candidate = (
     id,
     score,
-    experienceAdjustment: 0,
+    outsideReduction,
+    homeShuffleMoves,
+    experienceAdjustment = 0,
+  ) => ({
+    id,
+    score,
+    experienceAdjustment,
     features: {
       outsideReduction,
       homeShuffleMoves,
@@ -802,6 +1048,133 @@ test("v19 reserves a fifth-place home entry for reply analysis", async () => {
   assert.equal(reserved.length, ranked.length);
   assert.equal(reserved[3].id, "entry");
   assert.deepEqual(new Set(reserved), new Set(ranked));
+
+  const boundaryEntry = candidate("boundary-entry", 8000000, 1, 0);
+  const atBoundary = reserveHomeEntryForTacticalAnalysis(
+    state,
+    "dark",
+    [...ranked.slice(0, 4), boundaryEntry, ranked[5]],
+    4,
+  );
+  assert.equal(atBoundary[3], boundaryEntry);
+
+  const unboundedEntry = candidate("unbounded-entry", 7999999, 1, 0);
+  const beyondBoundary = reserveHomeEntryForTacticalAnalysis(
+    state,
+    "dark",
+    [...ranked.slice(0, 4), unboundedEntry, ranked[5]],
+    4,
+  );
+  assert.equal(beyondBoundary[3].id, "shuffle-4");
+  assert.equal(beyondBoundary[4], unboundedEntry);
+
+  const { outsideHomeCount } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/metrics.ts"),
+  ).href);
+  const forcedLateState = longState({
+    1: { color: "dark", count: 3 },
+    19: { color: "dark", count: 3 },
+    13: { color: "dark", count: 9 },
+  });
+  assert.equal(outsideHomeCount(forcedLateState, "dark"), 6);
+
+  const forcedSelected = candidate("forced-shuffle-1", 10000000, 0, 1);
+  const forcedLeading = [
+    forcedSelected,
+    candidate("forced-shuffle-2", 9700000, 0, 1),
+    candidate("forced-shuffle-3", 9400000, 0, 1),
+    candidate("forced-shuffle-4", 9100000, 0, 1),
+  ];
+  const forcedOther = candidate("forced-other", 7900000, 0, 0);
+  const reserveForcedEntry = entry => reserveHomeEntryForTacticalAnalysis(
+    forcedLateState,
+    "dark",
+    [...forcedLeading, entry, forcedOther],
+    4,
+  );
+
+  const forcedScoreBoundary = candidate("forced-score-boundary", 8000000, 1, 0);
+  assert.equal(reserveForcedEntry(forcedScoreBoundary)[3], forcedScoreBoundary);
+
+  const forcedScoreBeyond = candidate("forced-score-beyond", 7999999, 1, 0);
+  assert.equal(reserveForcedEntry(forcedScoreBeyond)[3].id, "forced-shuffle-4");
+
+  const forcedExperienceBoundary = candidate(
+    "forced-experience-boundary",
+    8000000,
+    1,
+    0,
+    -500000,
+  );
+  assert.equal(reserveForcedEntry(forcedExperienceBoundary)[3], forcedExperienceBoundary);
+
+  const forcedExperienceBeyond = candidate(
+    "forced-experience-beyond",
+    8000000,
+    1,
+    0,
+    -500001,
+  );
+  assert.equal(reserveForcedEntry(forcedExperienceBeyond)[3].id, "forced-shuffle-4");
+});
+
+test("developing-fence escape promotion is bounded by score and experience", async () => {
+  const { isComparableFenceEscape } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const features = {
+    trapDelta: 0,
+    maxRouteTowerAfter: 4,
+    homeShuffleMoves: 0,
+    headLandingBreak: 0,
+  };
+  const selected = {
+    score: 0,
+    experienceAdjustment: 0,
+    features: { ...features },
+    tactical: { plies: 4, expectedImpact: 0, worstImpact: 0 },
+  };
+  const escape = overrides => ({
+    score: -260000000,
+    experienceAdjustment: -500000,
+    features: { ...features },
+    tactical: { plies: 4, expectedImpact: -3000000, worstImpact: -30000000 },
+    ...overrides,
+  });
+
+  assert.equal(isComparableFenceEscape(escape({}), selected), true);
+  assert.equal(
+    isComparableFenceEscape(escape({ score: -260000001 }), selected),
+    false,
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({ experienceAdjustment: -500001 }), selected),
+    false,
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({
+      features: { ...features, trapDelta: -1 },
+    }), selected),
+    false,
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({
+      tactical: { plies: 3, expectedImpact: -3000000, worstImpact: -30000000 },
+    }), selected),
+    false,
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({
+      tactical: { plies: 4, expectedImpact: -3000001, worstImpact: -30000000 },
+    }), selected),
+    false,
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({
+      tactical: { plies: 4, expectedImpact: -3000000, worstImpact: -30000001 },
+    }), selected),
+    false,
+  );
 });
 
 test("trap risk makes the bot escape before improving home points", () => {
@@ -830,7 +1203,7 @@ test("head landing anchors are preserved when the opponent can immediately occup
   const { engine } = loadBrowserEngine();
   const state = tacticalThreatState();
 
-  const plan = engine.plan(state, { maxCandidates: 300 });
+  const plan = engine.plan(state);
   assert.ok(!plan.some(move => move.from === 11));
   assert.ok(plan.some(move => move.from === 7 && move.die === 5));
 });
@@ -1119,7 +1492,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v23");
+  assert.equal(decision.engineVersion, "long-analytic-v24");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -1322,6 +1695,265 @@ test("SGHP-V6KP move 22 advances the deepest laggard before entering a nearer ch
   const plan = engine.plan(state, { maxCandidates: 300, timeLimitMs: 2000 });
   assert.ok(plan.some(move => move.from === 7));
   assert.ok(!plan.some(move => move.from === 24 && move.die === 3));
+});
+
+test("v24 preserves an active six-prime while its laggard is not critically trapped", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 3 },
+    2: { color: "dark", count: 3 },
+    3: { color: "dark", count: 2 },
+    4: { color: "white", count: 3 },
+    5: { color: "dark", count: 2 },
+    6: { color: "dark", count: 1 },
+    8: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    14: { color: "white", count: 1 },
+    15: { color: "dark", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "white", count: 1 },
+    18: { color: "white", count: 2 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    21: { color: "white", count: 1 },
+    22: { color: "dark", count: 2 },
+    23: { color: "white", count: 1 },
+    24: { color: "dark", count: 1 },
+  }, {
+    turn: "white",
+    dice: [5, 2],
+    rolled: [5, 2],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
+  const decision = engine.consumeLastDecision();
+
+  assert.ok(!plan.some(move => move.from === 21));
+  assert.equal(decision.selected.tactical.plies, 4);
+  assert.equal(decision.selected.features.primeRunBefore, 6);
+  assert.equal(decision.selected.features.primeRunAfter, 6);
+  assert.ok(
+    decision.selected.features.primeScoreAfter
+      >= decision.selected.features.primeScoreBefore,
+  );
+  assert.ok(decision.selected.features.trapBefore < 240);
+  assert.equal(decision.selected.features.strategyProfile, "v24");
+});
+
+test("late race preserves an active six-prime that traps opposing checkers", () => {
+  const { engine } = loadBrowserEngine();
+  const positions = [
+    {
+      dice: [5, 2],
+      points: {
+        1: { color: "white", count: 1 },
+        2: { color: "white", count: 2 },
+        3: { color: "white", count: 1 },
+        4: { color: "dark", count: 2 },
+        5: { color: "white", count: 2 },
+        6: { color: "white", count: 3 },
+        7: { color: "dark", count: 2 },
+        13: { color: "dark", count: 1 },
+        14: { color: "dark", count: 1 },
+        16: { color: "white", count: 1 },
+        17: { color: "white", count: 1 },
+        18: { color: "white", count: 1 },
+        19: { color: "white", count: 1 },
+        20: { color: "white", count: 1 },
+        21: { color: "white", count: 1 },
+        22: { color: "dark", count: 6 },
+        23: { color: "dark", count: 2 },
+        24: { color: "dark", count: 1 },
+      },
+    },
+    {
+      dice: [5, 3],
+      points: {
+        1: { color: "white", count: 3 },
+        2: { color: "white", count: 2 },
+        3: { color: "dark", count: 1 },
+        4: { color: "dark", count: 2 },
+        5: { color: "white", count: 3 },
+        6: { color: "white", count: 1 },
+        13: { color: "dark", count: 1 },
+        14: { color: "dark", count: 1 },
+        15: { color: "white", count: 1 },
+        16: { color: "white", count: 1 },
+        17: { color: "white", count: 1 },
+        18: { color: "white", count: 1 },
+        19: { color: "white", count: 1 },
+        20: { color: "white", count: 1 },
+        21: { color: "dark", count: 1 },
+        22: { color: "dark", count: 6 },
+        23: { color: "dark", count: 3 },
+      },
+    },
+  ];
+
+  positions.forEach(({ dice, points }) => {
+    const state = longState(points, {
+      turn: "white",
+      dice,
+      rolled: dice,
+    });
+    engine.plan(state);
+    const decision = engine.consumeLastDecision();
+
+    assert.equal(decision.selected.features.primeRunBefore, 6);
+    assert.equal(decision.selected.features.primeRunAfter, 6);
+    assert.ok(decision.selected.features.primeScoreBefore > 0);
+    assert.ok(
+      decision.selected.features.primeScoreAfter
+        >= decision.selected.features.primeScoreBefore * 0.95,
+    );
+    assert.ok(decision.selected.features.opponentMoveBlockGain > -100);
+    assert.ok(!decision.selected.moves.some(move => move.from >= 16 && move.from <= 21));
+  });
+});
+
+test("late race advances four laggards instead of shuffling a four-prime at home", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 2 },
+    2: { color: "white", count: 3 },
+    3: { color: "white", count: 3 },
+    4: { color: "white", count: 3 },
+    13: { color: "dark", count: 1 },
+    15: { color: "dark", count: 3 },
+    16: { color: "dark", count: 5 },
+    17: { color: "white", count: 1 },
+    18: { color: "white", count: 1 },
+    19: { color: "white", count: 1 },
+    20: { color: "white", count: 1 },
+    22: { color: "dark", count: 3 },
+    23: { color: "dark", count: 3 },
+  }, {
+    turn: "white",
+    dice: [3, 2],
+    rolled: [3, 2],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
+  const decision = engine.consumeLastDecision();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 17, die: 3 },
+    { from: 19, die: 2 },
+  ]);
+  assert.equal(decision.selected.features.primeRunBefore, 4);
+  assert.equal(decision.selected.features.outsidePipGain, 5);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+});
+
+test("late race distributes two entries instead of adding to a six-checker tower", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 4 },
+    2: { color: "white", count: 2 },
+    3: { color: "white", count: 3 },
+    5: { color: "white", count: 1 },
+    6: { color: "white", count: 4 },
+    13: { color: "dark", count: 3 },
+    14: { color: "dark", count: 1 },
+    15: { color: "dark", count: 3 },
+    16: { color: "dark", count: 5 },
+    18: { color: "white", count: 1 },
+    21: { color: "dark", count: 1 },
+    22: { color: "dark", count: 1 },
+    23: { color: "dark", count: 1 },
+  }, {
+    turn: "dark",
+    dice: [6, 4],
+    rolled: [6, 4],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
+  const decision = engine.consumeLastDecision();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 23, die: 6 },
+    { from: 21, die: 4 },
+  ]);
+  assert.equal(decision.selected.features.outsideReduction, 2);
+  assert.equal(decision.selected.features.outsidePipGain, 8);
+  assert.equal(decision.selected.features.maxRouteTowerAfter, 5);
+});
+
+test("late race clears the last dark checker instead of preserving a weak three-prime", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    2: { color: "dark", count: 1 },
+    3: { color: "dark", count: 1 },
+    4: { color: "white", count: 5 },
+    5: { color: "white", count: 1 },
+    6: { color: "dark", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 4 },
+    12: { color: "white", count: 1 },
+    13: { color: "white", count: 3 },
+    14: { color: "dark", count: 1 },
+    17: { color: "dark", count: 5 },
+    18: { color: "dark", count: 5 },
+  }, {
+    turn: "dark",
+    dice: [2, 4],
+    rolled: [2, 4],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
+  const decision = engine.consumeLastDecision();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 1, die: 2 },
+    { from: 23, die: 4 },
+  ]);
+  assert.equal(decision.selected.features.primeRunBefore, 3);
+  assert.equal(decision.selected.features.trapBefore, 0);
+  assert.equal(decision.selected.features.opponentFenceRunBefore, 2);
+  assert.equal(decision.selected.features.outsidePipGain, 6);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+  assert.equal(decision.selected.features.maxRouteTowerAfter, 5);
+});
+
+test("late race advances the last white route checker through a weak three-prime", () => {
+  const { engine } = loadBrowserEngine();
+  const state = longState({
+    1: { color: "white", count: 2 },
+    3: { color: "dark", count: 1 },
+    4: { color: "white", count: 3 },
+    5: { color: "white", count: 4 },
+    6: { color: "white", count: 2 },
+    13: { color: "dark", count: 5 },
+    14: { color: "dark", count: 1 },
+    15: { color: "white", count: 1 },
+    16: { color: "white", count: 1 },
+    17: { color: "white", count: 1 },
+    18: { color: "dark", count: 2 },
+    19: { color: "dark", count: 1 },
+    20: { color: "white", count: 1 },
+    23: { color: "dark", count: 4 },
+    24: { color: "dark", count: 1 },
+  }, {
+    turn: "white",
+    dice: [2, 6],
+    rolled: [2, 6],
+  });
+
+  const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
+  const decision = engine.consumeLastDecision();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
+    { from: 16, die: 6 },
+    { from: 10, die: 2 },
+  ]);
+  assert.equal(decision.selected.features.primeRunBefore, 3);
+  assert.equal(decision.selected.features.trapBefore, 0);
+  assert.equal(decision.selected.features.opponentFenceRunBefore, 2);
+  assert.equal(decision.selected.features.outsidePipGain, 8);
+  assert.equal(decision.selected.features.homeShuffleMoves, 0);
+  assert.equal(decision.selected.features.maxRouteTowerAfter, 4);
 });
 
 test("TB9N-MS4S move 5 releases the crowded head without opening either barrier", () => {

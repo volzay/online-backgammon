@@ -8,16 +8,16 @@ for (let first = 1; first <= 6; first += 1) {
   }
 }
 
-const SHORT_CONTINUATION_ROLLS = [
-  [[1, 1, 1, 1], [3, 5]],
-  [[1, 3], [6, 6, 6, 6]],
-  [[1, 6], [2, 4]],
-  [[2, 2, 2, 2], [1, 5]],
-  [[2, 5], [3, 3, 3, 3]],
-  [[3, 4], [2, 6]],
-  [[4, 6], [1, 2]],
-  [[5, 5, 5, 5], [4, 5]],
-];
+const SHORT_REPLY_POOL_CAP = 32;
+const SHORT_SCORE_WEIGHTS = Object.freeze({
+  base: 0.75,
+  expectedReply: 0.2,
+  worstReply: 0.05,
+});
+const SHORT_STRUCTURAL_DOMINANCE_BASE_MARGIN = 90_000;
+const SHORT_STRUCTURAL_DOMINANCE_EXPOSURE_MARGIN = 2;
+const SHORT_PUBEVAL_SCALE = 10_000_000;
+const SHORT_HANDCRAFTED_BLEND = 0.01;
 
 function clampShort(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -25,6 +25,19 @@ function clampShort(value, min, max) {
 
 function cloneShortState(state) {
   return JSON.parse(JSON.stringify(state || {}));
+}
+
+function shortSequenceSignature(sequence, state, color) {
+  return JSON.stringify((sequence || []).map(move => [
+    Number(move.from) === NarduGame.barPoint(color)
+      ? -1
+      : NarduGame.pathPos(color, Number(move.from), state),
+    move.bearOff || Number(move.to) === 0
+      ? 24
+      : NarduGame.pathPos(color, Number(move.to), state),
+    Number(move.die),
+    Boolean(move.bearOff),
+  ]));
 }
 
 function terminalShortScore(state, color) {
@@ -41,7 +54,7 @@ export function createShortBotEngine(adapter, options = {}) {
   const experience = new Map();
   const experienceSources = new Map();
 
-  function evaluateState(state, color) {
+  function evaluateState(state, color, pubevalPhase = '') {
     const terminal = terminalShortScore(state, color);
     if (terminal !== null) return terminal;
     const opponent = NarduGame.opponentOf(color);
@@ -49,18 +62,20 @@ export function createShortBotEngine(adapter, options = {}) {
     const other = shortMetrics(state, opponent);
     const raceLead = other.pips - own.pips;
     const phase = shortPhase(state, color);
-    const contact = phase === 'contact' || phase === 'bar';
-    if (!contact) {
-      const resultSafety = own.off === 0
-        ? -(other.off * 70000 + (other.off >= 8 ? 180000 : 0))
-        : own.off * 35000;
-      return raceLead * 4800
-        + (own.off - other.off) * 520000
-        + (own.backmost - other.backmost) * 22000
-        + (other.outsideHome - own.outsideHome) * 72000
-        + (other.outsideHomePips - own.outsideHomePips) * 6500
-        + (other.stacks - own.stacks) * 3200
-        + resultSafety;
+    const raceResultSafety = own.off === 0
+      ? -(other.off * 70000 + (other.off >= 8 ? 180000 : 0))
+      : own.off * 35000;
+    const raceScore = raceLead * 4800
+      + (own.off - other.off) * 520000
+      + (own.backmost - other.backmost) * 22000
+      + (other.outsideHome - own.outsideHome) * 72000
+      + (other.outsideHomePips - own.outsideHomePips) * 6500
+      + (other.stacks - own.stacks) * 3200
+      + raceResultSafety;
+    let handcraftedScore = raceScore;
+    if (phase !== 'contact' && phase !== 'bar') {
+      return shortPubevalScore(state, color, pubevalPhase) * SHORT_PUBEVAL_SCALE
+        + handcraftedScore * SHORT_HANDCRAFTED_BLEND;
     }
     const ownBoard = own.homeMade * own.homeMade * (3600 + other.bar * 11000);
     const otherBoard = other.homeMade * other.homeMade * (3600 + own.bar * 11000);
@@ -71,7 +86,7 @@ export function createShortBotEngine(adapter, options = {}) {
     const resultSafety = own.off === 0
       ? -(other.off * 24000 + (other.off >= 8 ? 90000 : 0))
       : own.off * 19000;
-    return raceLead * (contact ? 1180 : 2050)
+    const contactScore = raceLead * 1180
       + (own.off - other.off) * 150000
       + barValue
       + (own.made - other.made) * 10500
@@ -83,6 +98,13 @@ export function createShortBotEngine(adapter, options = {}) {
       + (own.backmost - other.backmost) * 7200
       + (other.outsideHome - own.outsideHome) * 13000
       + resultSafety;
+    if (phase === 'bar') handcraftedScore = contactScore;
+    else {
+      const contactQuality = clampShort(Number(own.contactQuality) || 0, 0, 1);
+      handcraftedScore = raceScore + (contactScore - raceScore) * contactQuality;
+    }
+    return shortPubevalScore(state, color, pubevalPhase) * SHORT_PUBEVAL_SCALE
+      + handcraftedScore * SHORT_HANDCRAFTED_BLEND;
   }
 
   function positionFeatures(before, after, color, sequence) {
@@ -94,6 +116,15 @@ export function createShortBotEngine(adapter, options = {}) {
     const hits = Math.max(0, otherAfter.bar - otherBefore.bar);
     const entries = Math.max(0, ownBefore.bar - ownAfter.bar);
     const offGain = ownAfter.off - ownBefore.off;
+    let preview = cloneShortState(before);
+    let capturedExposure = 0;
+    (sequence || []).forEach(move => {
+      const target = move.bearOff ? null : preview.points?.[Number(move.to)];
+      if (target?.color === opponent && Number(target.count) === 1) {
+        capturedExposure += blotRisk(preview, opponent, Number(move.to));
+      }
+      preview = adapter.applySequence(preview, [move], color);
+    });
     return {
       pipsGain: ownBefore.pips - ownAfter.pips,
       hits,
@@ -102,8 +133,10 @@ export function createShortBotEngine(adapter, options = {}) {
       madeGain: ownAfter.made - ownBefore.made,
       homeMadeGain: ownAfter.homeMade - ownBefore.homeMade,
       primeGain: ownAfter.longestPrime - ownBefore.longestPrime,
+      backmostGain: ownAfter.backmost - ownBefore.backmost,
       exposureDelta: ownAfter.exposure - ownBefore.exposure,
       opponentExposureGain: otherAfter.exposure - otherBefore.exposure,
+      capturedExposure,
       anchorDelta: ownAfter.anchorValue - ownBefore.anchorValue,
       stackDelta: ownAfter.stacks - ownBefore.stacks,
       ownBarAfter: ownAfter.bar,
@@ -166,12 +199,13 @@ export function createShortBotEngine(adapter, options = {}) {
     return clampShort((winWeight - lossWeight * 1.15) / samples * 13000 * confidence, -18000, 18000);
   }
 
-  function baseCandidate(state, color, sequence, baseline = false) {
+  function baseCandidate(state, color, sequence, baseline = false, pubevalPhase = '') {
     const after = adapter.applySequence(state, sequence, color);
     const features = positionFeatures(state, after, color, sequence);
     const exp = descriptor(state, color, features);
-    let score = evaluateState(after, color);
+    let score = evaluateState(after, color, pubevalPhase);
     score += features.hits * 21000;
+    score += features.capturedExposure * 7600 * SHORT_HANDCRAFTED_BLEND;
     score += features.entries * 17000;
     score += features.offGain * 28000;
     score += features.madeGain * 9000;
@@ -190,9 +224,23 @@ export function createShortBotEngine(adapter, options = {}) {
   function analyzeReplies(candidate, color, runtimeOptions) {
     const opponent = NarduGame.opponentOf(color);
     const replyLimit = Math.max(8, Number(runtimeOptions.replyLimit) || 12);
+    const replyPoolLimit = Math.min(
+      SHORT_REPLY_POOL_CAP,
+      Math.max(replyLimit + 8, replyLimit * 2),
+    );
     let expected = 0;
     let worst = Infinity;
     let blockedProbability = 0;
+    let probabilityMass = 0;
+    const reservations = {
+      hitRolls: 0,
+      barEntryRolls: 0,
+      terminalRolls: 0,
+      staticRolls: 0,
+      outsideGeneric: 0,
+    };
+    let replyPoolCandidates = 0;
+    let repliesEvaluated = 0;
     SHORT_REPLY_ROLLS.forEach(({ dice, probability }) => {
       const replyState = cloneShortState(candidate.after);
       replyState.turn = opponent;
@@ -200,99 +248,228 @@ export function createShortBotEngine(adapter, options = {}) {
       replyState.dice = [...dice];
       replyState.rolled = [...dice];
       replyState.turnMoves = [];
-      const replies = adapter.legalSequences(replyState, opponent, { limit: replyLimit });
-      let botScore;
-      if (!replies.length) {
-        blockedProbability += probability;
-        botScore = evaluateState(replyState, color) + 28000;
-      } else {
-        botScore = Math.min(...replies.map(reply => evaluateState(
-          adapter.applySequence(replyState, reply, opponent),
+      const pool = adapter.tacticalSequences
+        ? adapter.tacticalSequences(replyState, opponent, { limit: replyPoolLimit })
+        : adapter.legalSequences(replyState, opponent, { limit: replyPoolLimit });
+      const genericSignatures = new Set(pool.slice(0, replyLimit)
+        .map(sequence => shortSequenceSignature(sequence, replyState, opponent)));
+      const annotated = pool.map(sequence => ({
+        sequence,
+        signature: shortSequenceSignature(sequence, replyState, opponent),
+        features: replySequenceFeatures(replyState, opponent, sequence),
+        botScore: evaluateState(
+          adapter.applySequence(replyState, sequence, opponent),
           color,
-        )));
+          candidate.pubevalPhase,
+        ),
+      }));
+      const generic = annotated.slice(0, replyLimit);
+      const worstStatic = annotated
+        .slice()
+        .sort((left, right) => left.botScore - right.botScore
+          || left.signature.localeCompare(right.signature))[0] || null;
+      const reserved = [
+        ['terminalRolls', strongestReplyFeature(annotated, 'terminal')],
+        ['hitRolls', strongestReplyFeature(annotated, 'hits')],
+        ['barEntryRolls', strongestReplyFeature(annotated, 'entries')],
+        ['staticRolls', worstStatic],
+      ];
+      const selected = [];
+      const selectedSignatures = new Set();
+      reserved.forEach(([counter, item]) => {
+        if (!item || selectedSignatures.has(item.signature) || selected.length >= replyLimit) return;
+        selected.push(item);
+        selectedSignatures.add(item.signature);
+        reservations[counter] += 1;
+        if (!genericSignatures.has(item.signature)) reservations.outsideGeneric += 1;
+      });
+      generic.forEach(item => {
+        if (selected.length >= replyLimit || selectedSignatures.has(item.signature)) return;
+        selected.push(item);
+        selectedSignatures.add(item.signature);
+      });
+      replyPoolCandidates += pool.length;
+      repliesEvaluated += selected.length;
+      let botScore;
+      if (!selected.length) {
+        blockedProbability += probability;
+        botScore = evaluateState(replyState, color, candidate.pubevalPhase) + 28000;
+      } else {
+        botScore = Math.min(...selected.map(reply => reply.botScore));
       }
       expected += botScore * probability;
       worst = Math.min(worst, botScore);
+      probabilityMass += probability;
     });
     const tactical = {
       expectedImpact: expected - candidate.baseScore,
       worstImpact: worst - candidate.baseScore,
       rolls: SHORT_REPLY_ROLLS.length,
+      probabilityMass,
       blockedProbability,
+      replyPoolLimit,
+      replyPoolCandidates,
+      repliesEvaluated,
+      reservations,
       plies: 2,
     };
-    const continuation = analyzeContinuation(candidate.after, color);
     return {
       ...candidate,
       tactical: {
         ...tactical,
-        continuationExpected: continuation.expected,
-        continuationWorst: continuation.worst,
-        continuationRolls: SHORT_CONTINUATION_ROLLS.length,
-        plies: 4,
+        scoreWeights: { ...SHORT_SCORE_WEIGHTS },
       },
-      score: candidate.baseScore * 0.25
-        + expected * 0.30
-        + worst * 0.10
-        + continuation.expected * 0.27
-        + continuation.worst * 0.08,
+      score: candidate.baseScore * SHORT_SCORE_WEIGHTS.base
+        + expected * SHORT_SCORE_WEIGHTS.expectedReply
+        + worst * SHORT_SCORE_WEIGHTS.worstReply,
     };
   }
 
-  function analyzeContinuation(after, color) {
+  function replySequenceFeatures(state, color, sequence) {
     const opponent = NarduGame.opponentOf(color);
-    let total = 0;
-    let worst = Infinity;
-    SHORT_CONTINUATION_ROLLS.forEach(([opponentDice, recoveryDice]) => {
-      const opponentState = cloneShortState(after);
-      opponentState.turn = opponent;
-      opponentState.phase = 'move';
-      opponentState.dice = [...opponentDice];
-      opponentState.rolled = [...opponentDice];
-      opponentState.turnMoves = [];
-      const opponentSequence = adapter.baselineSequence?.(opponentState, opponent) || [];
-      const replied = opponentSequence.length
-        ? adapter.applySequence(opponentState, opponentSequence, opponent)
-        : opponentState;
-      if (replied.winner) {
-        const score = evaluateState(replied, color);
-        total += score;
-        worst = Math.min(worst, score);
-        return;
+    const points = cloneShortState(state.points || {});
+    const barPoint = NarduGame.barPoint(color);
+    let hits = 0;
+    let entries = 0;
+    let bearOffs = 0;
+    let pips = 0;
+    (sequence || []).forEach(move => {
+      const from = Number(move.from);
+      const to = Number(move.to) || 0;
+      if (from === barPoint) entries += 1;
+      if (move.bearOff || to === 0) {
+        bearOffs += 1;
+      } else {
+        const target = points[to];
+        if (move.hit || (target?.color === opponent && Number(target.count) === 1)) hits += 1;
+        points[to] = { color, count: target?.color === color ? Number(target.count) + 1 : 1 };
       }
-      const recoveryState = cloneShortState(replied);
-      recoveryState.turn = color;
-      recoveryState.phase = 'move';
-      recoveryState.dice = [...recoveryDice];
-      recoveryState.rolled = [...recoveryDice];
-      recoveryState.turnMoves = [];
-      const recoverySequence = adapter.baselineSequence?.(recoveryState, color) || [];
-      const recovered = recoverySequence.length
-        ? adapter.applySequence(recoveryState, recoverySequence, color)
-        : recoveryState;
-      const score = evaluateState(recovered, color);
-      total += score;
-      worst = Math.min(worst, score);
+      if (from !== barPoint && points[from]?.color === color) {
+        points[from].count -= 1;
+        if (points[from].count <= 0) delete points[from];
+      }
+      pips += Number(move.die) || 0;
     });
     return {
-      expected: total / SHORT_CONTINUATION_ROLLS.length,
-      worst,
+      hits,
+      entries,
+      terminal: (Number(state.off?.[color]) || 0) + bearOffs >= 15 ? 1 : 0,
+      pips,
     };
+  }
+
+  function strongestReplyFeature(annotated, feature) {
+    return annotated
+      .filter(item => Number(item.features?.[feature]) > 0)
+      .sort((left, right) => (
+        Number(right.features[feature]) - Number(left.features[feature])
+        || left.botScore - right.botScore
+        || Number(right.features.hits) - Number(left.features.hits)
+        || Number(right.features.entries) - Number(left.features.entries)
+        || Number(right.features.pips) - Number(left.features.pips)
+        || left.signature.localeCompare(right.signature)
+      ))[0] || null;
+  }
+
+  function structurallyDominates(left, right) {
+    const sameTacticalProgress = ['pipsGain', 'hits', 'entries', 'offGain']
+      .every(key => Number(left.features[key]) === Number(right.features[key]));
+    if (!sameTacticalProgress) return false;
+    const structuralKeys = ['madeGain', 'homeMadeGain', 'primeGain'];
+    const preservesStructure = structuralKeys
+      .every(key => Number(left.features[key]) >= Number(right.features[key]));
+    const improvesStructure = structuralKeys
+      .some(key => Number(left.features[key]) > Number(right.features[key]));
+    const exposureImprovement = Number(right.features.exposureDelta)
+      - Number(left.features.exposureDelta);
+    return preservesStructure
+      && improvesStructure
+      && exposureImprovement >= SHORT_STRUCTURAL_DOMINANCE_EXPOSURE_MARGIN
+      && left.baseScore - right.baseScore >= SHORT_STRUCTURAL_DOMINANCE_BASE_MARGIN;
+  }
+
+  function removeStructurallyDominated(candidates) {
+    return candidates.filter(candidate => !candidates.some(other => (
+      other !== candidate && structurallyDominates(other, candidate)
+    )));
+  }
+
+  function removePrematureAnchorBreaks(candidates, state, color) {
+    const opponent = NarduGame.opponentOf(color);
+    const other = shortMetrics(state, opponent);
+    if (other.pips < 90) return candidates;
+    return candidates.filter(candidate => {
+      const features = candidate.features;
+      const fragileBreak = features.hits === 0
+        && features.entries === 0
+        && features.offGain === 0
+        && features.madeGain <= 0
+        && features.anchorDelta < 0
+        && features.exposureDelta >= 20;
+      if (!fragileBreak) return true;
+      return !candidates.some(otherCandidate => {
+        const safer = otherCandidate.features;
+        return safer.pipsGain === features.pipsGain
+          && safer.hits === features.hits
+          && safer.entries === features.entries
+          && safer.offGain === features.offGain
+          && safer.madeGain >= features.madeGain
+          && safer.anchorDelta >= 0
+          && safer.exposureDelta <= features.exposureDelta - 20;
+      });
+    });
+  }
+
+  function removeUnsafeBarEntryBlots(candidates, state, color) {
+    if ((Number(state.bar?.[color]) || 0) <= 0) return candidates;
+    const continuesEnteredChecker = sequence => {
+      const entryDestinations = new Set();
+      for (const move of sequence || []) {
+        if (Number(move.from) === NarduGame.barPoint(color)) {
+          if (!move.bearOff && Number(move.to)) entryDestinations.add(Number(move.to));
+        } else if (entryDestinations.has(Number(move.from))) {
+          return true;
+        }
+      }
+      return false;
+    };
+    return candidates.filter(candidate => {
+      const features = candidate.features;
+      const exposedEntry = features.entries > 0
+        && features.hits === 0
+        && features.exposureDelta >= 50
+        && !continuesEnteredChecker(candidate.sequence);
+      if (!exposedEntry) return true;
+      return !candidates.some(otherCandidate => {
+        const safer = otherCandidate.features;
+        return safer.pipsGain === features.pipsGain
+          && safer.hits === features.hits
+          && safer.entries === features.entries
+          && safer.offGain === features.offGain
+          && safer.madeGain >= features.madeGain
+          && continuesEnteredChecker(otherCandidate.sequence)
+          && safer.exposureDelta <= features.exposureDelta - 45;
+      });
+    });
   }
 
   function rank(state, color, runtimeOptions = {}) {
     const maxCandidates = Math.max(6, Number(runtimeOptions.maxCandidates) || 48);
     const analyzeCount = Math.max(4, Number(runtimeOptions.analyzeCandidates) || 6);
-    const sequences = adapter.legalSequences(state, color, { limit: maxCandidates });
+    const sequences = adapter.legalSequences(state, color, { limit: 0 });
     if (!sequences.length) return [];
     const baseline = adapter.baselineSequence?.(state, color) || [];
     if (baseline.length) sequences.push(baseline);
     const unique = new Map();
+    const pubevalPhase = shortPhase(state, color);
     sequences.forEach(sequence => {
       const isBaseline = baseline.length > 0
         && JSON.stringify(sequence.map(move => [move.from, move.die]))
           === JSON.stringify(baseline.map(move => [move.from, move.die]));
-      const item = baseCandidate(state, color, sequence, isBaseline);
+      const item = {
+        ...baseCandidate(state, color, sequence, isBaseline, pubevalPhase),
+        pubevalPhase,
+      };
       const signature = JSON.stringify({
         points: item.after.points,
         bar: item.after.bar,
@@ -302,23 +479,38 @@ export function createShortBotEngine(adapter, options = {}) {
       if (!previous || item.baseScore > previous.baseScore || item.baseline) unique.set(signature, item);
     });
     let prefiltered = Array.from(unique.values())
-      .sort((left, right) => right.baseScore - left.baseScore);
-    if (shortPhase(state, color) === 'bearoff') {
+      .sort((left, right) => right.baseScore - left.baseScore
+        || shortSequenceSignature(left.sequence, state, color)
+          .localeCompare(shortSequenceSignature(right.sequence, state, color)));
+    const phase = shortPhase(state, color);
+    if (phase === 'bearoff') {
       const maximumOff = Math.max(...prefiltered.map(item => item.features.offGain));
       prefiltered = prefiltered.filter(item => item.features.offGain === maximumOff);
     }
-    const selected = prefiltered.slice(0, analyzeCount);
-    const baselineCandidate = prefiltered.find(item => item.baseline);
-    if (baselineCandidate && !selected.includes(baselineCandidate)) {
-      selected[selected.length - 1] = baselineCandidate;
+    if (phase === 'race'
+      && !NarduGame.homeReady(state, color)
+      && shortMetrics(state, color).outsideHome <= 4) {
+      const maximumBackmostGain = Math.max(...prefiltered.map(item => item.features.backmostGain));
+      if (maximumBackmostGain > 0) {
+        prefiltered = prefiltered.filter(item => item.features.backmostGain === maximumBackmostGain);
+      }
     }
+    if (phase === 'contact' || phase === 'bar') {
+      prefiltered = removeStructurallyDominated(prefiltered);
+      prefiltered = removePrematureAnchorBreaks(prefiltered, state, color);
+      prefiltered = removeUnsafeBarEntryBlots(prefiltered, state, color);
+    }
+    prefiltered = prefiltered.slice(0, maxCandidates);
+    const selected = prefiltered.slice(0, Math.min(analyzeCount, 2));
     return selected
       .map(item => {
         const analyzed = analyzeReplies(item, color, runtimeOptions);
         const adjustment = experienceAdjustment(analyzed);
         return { ...analyzed, experienceAdjustment: adjustment, score: analyzed.score + adjustment };
       })
-      .sort((left, right) => right.score - left.score);
+      .sort((left, right) => right.score - left.score
+        || shortSequenceSignature(left.sequence, state, color)
+          .localeCompare(shortSequenceSignature(right.sequence, state, color)));
   }
 
   return {

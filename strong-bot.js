@@ -11,7 +11,7 @@ window.NarduStrongBot = (function () {
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
-  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v2';
+  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v3';
   const DEFAULT_PROFILE = {
     version: 5,
     games: 0,
@@ -1287,11 +1287,17 @@ window.NarduStrongBot = (function () {
     if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
       try {
         syncLocalExperience();
+        const productionOptions = window.NarduLongBotEngine.productionOptions || {};
         const enginePlan = window.NarduLongBotEngine.plan(state, {
-          maxCandidates: Number(runtimeOptions.maxCandidates) || PREFILTER_SEQUENCE_LIMIT,
+          maxCandidates: Number(runtimeOptions.maxCandidates)
+            || Number(productionOptions.maxCandidates)
+            || PREFILTER_SEQUENCE_LIMIT,
           analysisNodeBudget: Number(runtimeOptions.analysisNodeBudget)
+            || Number(productionOptions.analysisNodeBudget)
             || PLAN_ANALYSIS_NODE_BUDGET,
-          strategyProfile: runtimeOptions.strategyProfile || 'v23',
+          strategyProfile: runtimeOptions.strategyProfile
+            || productionOptions.strategyProfile
+            || 'v24',
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
@@ -1463,7 +1469,9 @@ window.NarduStrongBot = (function () {
       }
       const described = targetEngine.describeSequence(turnStart, turnMoves, {
         color: winner,
-        strategyProfile: variant === 'long' ? 'v23' : 'short-v1',
+        strategyProfile: variant === 'long'
+          ? targetEngine.productionOptions?.strategyProfile || 'v24'
+          : 'short-v1',
       });
       if (described?.experience) {
         const features = described.features || {};

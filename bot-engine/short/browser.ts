@@ -1,4 +1,4 @@
-const SHORT_ENGINE_VERSION = 'short-analytic-v2';
+const SHORT_ENGINE_VERSION = 'short-analytic-v3';
 
 export function createBrowserShortBotEngine(game, options = {}) {
   const engine = createShortBotEngine(createShortNarduGameAdapter(game), options);

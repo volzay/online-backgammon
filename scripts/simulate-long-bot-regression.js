@@ -1,38 +1,140 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createHash } = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
+const UINT32_MAX = 0xffffffff;
+const RUNTIME_FILES = ['game.js', 'long-bot-engine.js', 'strong-bot.js'];
+const VALUE_OPTIONS = new Set([
+  'games',
+  'seed',
+  'bot-nodes',
+  'control-nodes',
+  'bot-candidates',
+  'control-candidates',
+  'max-plies',
+  'min-win-rate',
+  'max-severe-loss-rate',
+  'bot-profile',
+  'control-profile',
+  'output',
+  'experience',
+]);
+const FLAG_OPTIONS = new Set(['trace', 'learn']);
+const SUPPORTED_PROFILES = new Set(['v19', 'v24']);
 
-function numericArg(name, fallback) {
-  const index = process.argv.indexOf(`--${name}`);
-  const value = index >= 0 ? Number(process.argv[index + 1]) : NaN;
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+function fingerprintNamedBuffers(entries) {
+  const hash = createHash('sha256');
+  for (const [name, bytes] of entries) {
+    hash.update(name);
+    hash.update('\0');
+    hash.update(bytes);
+    hash.update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
 }
 
-function stringArg(name, fallback = '') {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? String(process.argv[index + 1] || '') : fallback;
+function readRuntimeSnapshot(root = ROOT) {
+  const entries = RUNTIME_FILES.map(file => [file, fs.readFileSync(path.join(root, file))]);
+  return {
+    entries,
+    fingerprint: fingerprintNamedBuffers(entries),
+  };
 }
 
-function ratioArg(name, fallback) {
-  const index = process.argv.indexOf(`--${name}`);
-  const value = index >= 0 ? Number(process.argv[index + 1]) : NaN;
-  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : fallback;
+function runtimeFingerprint(snapshot = readRuntimeSnapshot()) {
+  return snapshot.fingerprint;
 }
 
-function hasFlag(name) {
-  return process.argv.includes(`--${name}`);
+function fileFingerprint(file) {
+  return fingerprintNamedBuffers([[path.basename(file), fs.readFileSync(file)]]);
 }
 
-function loadRuntime(experienceFile) {
-  const experience = experienceFile
-    ? JSON.parse(fs.readFileSync(experienceFile, 'utf8'))
-    : [];
-  const patterns = Array.isArray(experience) ? experience : experience.patterns || [];
+function parseCliTokens(argv, valueOptions = VALUE_OPTIONS, flagOptions = FLAG_OPTIONS) {
+  const values = new Map();
+  const flags = new Set();
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = String(argv[index]);
+    if (!token.startsWith('--') || token.length === 2) {
+      throw new Error(`Unexpected argument: ${token}`);
+    }
+    const name = token.slice(2);
+    if (flagOptions.has(name)) {
+      if (flags.has(name)) throw new Error(`Duplicate option: --${name}`);
+      flags.add(name);
+      continue;
+    }
+    if (!valueOptions.has(name)) throw new Error(`Unknown option: --${name}`);
+    if (values.has(name)) throw new Error(`Duplicate option: --${name}`);
+    const raw = argv[index + 1];
+    if (raw === undefined || String(raw).startsWith('--')) {
+      throw new Error(`Missing value for --${name}`);
+    }
+    values.set(name, String(raw));
+    index += 1;
+  }
+  return { values, flags };
+}
+
+function positiveIntegerOption(parsed, name, fallback, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!parsed.values.has(name)) return fallback;
+  const raw = parsed.values.get(name);
+  if (!/^[1-9]\d*$/.test(raw)) throw new Error(`--${name} must be a positive integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value > maximum) {
+    throw new Error(`--${name} must be a positive integer not greater than ${maximum}`);
+  }
+  return value;
+}
+
+function ratioOption(parsed, name, fallback) {
+  if (!parsed.values.has(name)) return fallback;
+  const value = Number(parsed.values.get(name));
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`--${name} must be a number from 0 to 1`);
+  }
+  return value;
+}
+
+function stringOption(parsed, name, fallback = '') {
+  if (!parsed.values.has(name)) return fallback;
+  const value = parsed.values.get(name).trim();
+  if (!value) throw new Error(`--${name} must not be empty`);
+  return value;
+}
+
+function profileOption(parsed, name, fallback) {
+  const value = stringOption(parsed, name, fallback).toLowerCase();
+  if (!SUPPORTED_PROFILES.has(value)) {
+    throw new Error(`--${name} must be one of: ${[...SUPPORTED_PROFILES].join(', ')}`);
+  }
+  return value;
+}
+
+function readExperienceSnapshot(experienceFile) {
+  const bytes = experienceFile ? fs.readFileSync(experienceFile) : Buffer.from('[]', 'utf8');
+  const experience = JSON.parse(bytes.toString('utf8'));
+  const patterns = Array.isArray(experience) ? experience : experience?.patterns;
+  if (!Array.isArray(patterns)) {
+    throw new Error('Experience file must contain an array or an object with a patterns array');
+  }
+  return {
+    patterns,
+    fingerprint: fingerprintNamedBuffers([['experience.json', bytes]]),
+  };
+}
+
+function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
+  const experienceSnapshot = readExperienceSnapshot(experienceFile);
+  const patterns = experienceSnapshot.patterns;
   const storage = new Map([
     ['narduh-long-bot-experience-v1', JSON.stringify(patterns)],
   ]);
+  const deterministicMath = Object.create(Math);
+  deterministicMath.random = () => {
+    throw new Error('Unseeded Math.random() was used during deterministic simulation');
+  };
   const context = {
     window: {
       localStorage: {
@@ -42,26 +144,30 @@ function loadRuntime(experienceFile) {
     },
     console,
     Date,
-    Math,
+    Math: deterministicMath,
     setTimeout,
     clearTimeout,
   };
   context.window.window = context.window;
   context.globalThis = context.window;
   vm.createContext(context);
+  const runtimeFiles = new Map(runtimeSnapshot.entries);
   for (const file of ['game.js', 'long-bot-engine.js']) {
-    vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), context, { filename: file });
+    vm.runInContext(runtimeFiles.get(file).toString('utf8'), context, { filename: file });
   }
   context.NarduGame = context.window.NarduGame;
   context.NarduLongBotEngine = context.window.NarduLongBotEngine;
-  vm.runInContext(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), context, {
+  vm.runInContext(runtimeFiles.get('strong-bot.js').toString('utf8'), context, {
     filename: 'strong-bot.js',
   });
+  context.window.NarduLongBotEngine.setExperience(patterns, 'simulator');
   return {
     game: context.window.NarduGame,
     engine: context.window.NarduLongBotEngine,
     hardBot: context.window.NarduStrongBot,
     experienceCount: patterns.length,
+    experienceFingerprint: experienceSnapshot.fingerprint,
+    runtimeFingerprint: runtimeSnapshot.fingerprint,
   };
 }
 
@@ -86,7 +192,10 @@ function roll(random) {
 }
 
 function createDiceStream(seed) {
-  const random = xorshift32(seed >>> 0);
+  if (!Number.isInteger(seed) || seed <= 0 || seed > UINT32_MAX) {
+    throw new Error('Dice stream seed must be a non-zero 32-bit integer');
+  }
+  const random = xorshift32(seed);
   return {
     openingDie() {
       return die(random);
@@ -97,23 +206,105 @@ function createDiceStream(seed) {
   };
 }
 
+function deriveStreamSeed(seed, pairIndex, color) {
+  if (!Number.isInteger(seed) || seed <= 0 || seed > UINT32_MAX) {
+    throw new Error('Base seed must be a positive 32-bit integer');
+  }
+  if (!Number.isSafeInteger(pairIndex) || pairIndex < 0) {
+    throw new Error('Pair index must be a non-negative safe integer');
+  }
+  if (color !== 'white' && color !== 'dark') throw new Error(`Invalid stream color: ${color}`);
+  for (let counter = 0; counter <= UINT32_MAX; counter += 1) {
+    const digest = createHash('sha256')
+      .update('nardu-long-bot/dice-stream/v2\0')
+      .update(String(seed))
+      .update('\0')
+      .update(String(pairIndex))
+      .update('\0')
+      .update(color)
+      .update('\0')
+      .update(String(counter))
+      .digest();
+    const derived = digest.readUInt32BE(0);
+    if (derived !== 0) return derived;
+  }
+  throw new Error('Unable to derive a non-zero dice stream seed');
+}
+
+function diceStreamSeeds(seed, pairIndex) {
+  return {
+    white: deriveStreamSeed(seed, pairIndex, 'white'),
+    dark: deriveStreamSeed(seed, pairIndex, 'dark'),
+  };
+}
+
+function validateDerivedStreamSeeds(seeds, pairsPerSeed) {
+  if (!Number.isSafeInteger(pairsPerSeed) || pairsPerSeed < 1) {
+    throw new Error('pairsPerSeed must be a positive safe integer');
+  }
+  const seen = new Map();
+  for (const seed of seeds) {
+    for (let pairIndex = 0; pairIndex < pairsPerSeed; pairIndex += 1) {
+      const derived = diceStreamSeeds(seed, pairIndex);
+      for (const color of ['white', 'dark']) {
+        const value = derived[color];
+        const description = `seed ${seed}, pair ${pairIndex + 1}, ${color}`;
+        if (seen.has(value)) {
+          throw new Error(`Derived dice stream collision: ${description} matches ${seen.get(value)}`);
+        }
+        seen.set(value, description);
+      }
+    }
+  }
+  return seen.size;
+}
+
+function pairedDiceStreams(streamA, streamB) {
+  return { white: streamA, dark: streamB };
+}
+
+function botColorForLeg(leg) {
+  return leg === 0 ? 'white' : 'dark';
+}
+
+function createLegAssignment(seed, pairIndex, leg) {
+  if (leg !== 0 && leg !== 1) throw new Error(`Invalid paired leg: ${leg}`);
+  const seeds = diceStreamSeeds(seed, pairIndex);
+  const streams = pairedDiceStreams(
+    createDiceStream(seeds.white),
+    createDiceStream(seeds.dark),
+  );
+  const botColor = botColorForLeg(leg);
+  return {
+    botColor,
+    controlColor: botColor === 'white' ? 'dark' : 'white',
+    seeds,
+    streams,
+  };
+}
+
 function applyPlan(game, state, plan) {
-  for (const move of plan || []) {
+  for (const move of Array.isArray(plan) ? plan : []) {
     if (!game.applyMove(state, move.from, move.die, { autoEnd: false })) {
       throw new Error(`Illegal plan move ${move.from}/${move.die}`);
     }
     if (state.winner) break;
   }
+  if (!state.winner && state.phase === 'move' && game.hasAnyMoves(state)) {
+    throw new Error(
+      `Bot returned an empty or incomplete plan for ${state.turn}; legal moves remain`,
+    );
+  }
 }
 
 function playGame(pairIndex, leg, runtime, options) {
   const { game, engine } = runtime;
-  const streamA = createDiceStream((options.seed + pairIndex * 0x9e3779b9) >>> 0);
-  const streamB = createDiceStream((options.seed ^ 0xa511e9b3 ^ pairIndex * 0x85ebca6b) >>> 0);
-  const streams = leg === 0
-    ? { white: streamA, dark: streamB }
-    : { white: streamB, dark: streamA };
-  const botColor = leg === 0 ? 'white' : 'dark';
+  const {
+    botColor,
+    controlColor,
+    seeds: streamSeeds,
+    streams,
+  } = createLegAssignment(options.seed, pairIndex, leg);
   const state = game.initialState('long');
   let whiteDie = streams.white.openingDie();
   let darkDie = streams.dark.openingDie();
@@ -131,11 +322,15 @@ function playGame(pairIndex, leg, runtime, options) {
   let plies = 0;
   let botDoubles = 0;
   let controlDoubles = 0;
+  let botRolls = 0;
+  let controlRolls = 0;
   const decisions = [];
   while (!state.winner && plies < options.maxPlies) {
     plies += 1;
     if (state.phase === 'roll') {
       const dice = streams[state.turn].roll();
+      if (state.turn === botColor) botRolls += 1;
+      else controlRolls += 1;
       if (dice.length === 4) {
         if (state.turn === botColor) botDoubles += 1;
         else controlDoubles += 1;
@@ -193,10 +388,14 @@ function playGame(pairIndex, leg, runtime, options) {
     pair: pairIndex + 1,
     leg: leg + 1,
     botColor,
+    controlColor,
+    streamSeeds,
     winner: state.winner,
     botWon: state.winner === botColor,
     resultType: state.resultType || 'normal',
     plies,
+    botRolls,
+    controlRolls,
     botDoubles,
     controlDoubles,
     off: { ...state.off },
@@ -206,24 +405,42 @@ function playGame(pairIndex, leg, runtime, options) {
 }
 
 function main() {
+  const parsed = parseCliTokens(process.argv.slice(2));
+  const games = positiveIntegerOption(parsed, 'games', 100);
+  if (games < 2 || games % 2 !== 0) {
+    throw new Error('--games must be an even number of at least 2 for paired simulation');
+  }
+  const experience = stringOption(parsed, 'experience');
+  const runtimeSnapshot = readRuntimeSnapshot();
+  const simulatorHarnessFingerprint = fileFingerprint(__filename);
+  const runtime = loadRuntime(experience, runtimeSnapshot);
+  const productionOptions = runtime.engine.productionOptions || {};
   const options = {
-    games: numericArg('games', 100),
-    seed: numericArg('seed', 0x19a7b019),
-    botNodes: numericArg('bot-nodes', 64),
-    controlNodes: numericArg('control-nodes', 64),
-    botCandidates: numericArg('bot-candidates', 24),
-    controlCandidates: numericArg('control-candidates', 24),
-    maxPlies: numericArg('max-plies', 320),
-    minWinRate: ratioArg('min-win-rate', 0.7),
-    maxSevereLossRate: ratioArg('max-severe-loss-rate', 0.1),
-    botProfile: stringArg('bot-profile', 'v23'),
-    controlProfile: stringArg('control-profile', 'v19'),
-    output: stringArg('output'),
-    experience: stringArg('experience'),
-    trace: hasFlag('trace'),
-    learn: hasFlag('learn'),
+    games,
+    seed: positiveIntegerOption(parsed, 'seed', 0x19a7b019, UINT32_MAX),
+    botNodes: positiveIntegerOption(
+      parsed,
+      'bot-nodes',
+      Number(productionOptions.analysisNodeBudget) || 480,
+    ),
+    controlNodes: positiveIntegerOption(parsed, 'control-nodes', 64),
+    botCandidates: positiveIntegerOption(
+      parsed,
+      'bot-candidates',
+      Number(productionOptions.maxCandidates) || 64,
+    ),
+    controlCandidates: positiveIntegerOption(parsed, 'control-candidates', 24),
+    maxPlies: positiveIntegerOption(parsed, 'max-plies', 320),
+    minWinRate: ratioOption(parsed, 'min-win-rate', 0.7),
+    maxSevereLossRate: ratioOption(parsed, 'max-severe-loss-rate', 0.1),
+    botProfile: profileOption(parsed, 'bot-profile', productionOptions.strategyProfile || 'v24'),
+    controlProfile: profileOption(parsed, 'control-profile', 'v19'),
+    output: stringOption(parsed, 'output'),
+    experience,
+    trace: parsed.flags.has('trace'),
+    learn: parsed.flags.has('learn'),
   };
-  const runtime = loadRuntime(options.experience);
+  validateDerivedStreamSeeds([options.seed], options.games / 2);
   const results = [];
   const pairCount = Math.ceil(options.games / 2);
   for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
@@ -248,11 +465,16 @@ function main() {
   ));
   const summary = {
     engineVersion: runtime.engine.version,
+    runtimeFingerprint: runtime.runtimeFingerprint,
+    simulatorHarnessFingerprint,
+    experienceFingerprint: runtime.experienceFingerprint,
     experiencePatterns: runtime.experienceCount,
     games: results.length,
     botWins: results.filter(result => result.botWon).length,
     controlWins: results.filter(result => !result.botWon).length,
     severeBotLosses: results.filter(result => !result.botWon && result.resultType !== 'normal').length,
+    botRolls: results.reduce((sum, result) => sum + result.botRolls, 0),
+    controlRolls: results.reduce((sum, result) => sum + result.controlRolls, 0),
     botDoubles: results.reduce((sum, result) => sum + result.botDoubles, 0),
     controlDoubles: results.reduce((sum, result) => sum + result.controlDoubles, 0),
     pairSweeps: completePairs.filter(pair => pair.every(result => result.botWon)).length,
@@ -263,13 +485,40 @@ function main() {
   };
   summary.winRate = summary.botWins / summary.games;
   summary.severeLossRate = summary.severeBotLosses / summary.games;
+  summary.botDoubleRate = summary.botRolls ? summary.botDoubles / summary.botRolls : 0;
+  summary.controlDoubleRate = summary.controlRolls ? summary.controlDoubles / summary.controlRolls : 0;
+  summary.doubleRateDifference = summary.botDoubleRate - summary.controlDoubleRate;
   summary.passed = summary.winRate >= options.minWinRate
     && summary.severeLossRate <= options.maxSevereLossRate;
   const payload = { summary, results };
   results.forEach(result => { delete result._state; });
-  if (options.output) fs.writeFileSync(options.output, JSON.stringify(payload, null, 2));
+  if (options.output) fs.writeFileSync(options.output, `${JSON.stringify(payload, null, 2)}\n`);
   console.log(JSON.stringify(summary));
   if (!summary.passed) process.exitCode = 1;
 }
 
-main();
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error?.stack || error?.message || String(error));
+    process.exitCode = 2;
+  }
+}
+
+module.exports = {
+  botColorForLeg,
+  createDiceStream,
+  createLegAssignment,
+  deriveStreamSeed,
+  diceStreamSeeds,
+  fileFingerprint,
+  fingerprintNamedBuffers,
+  loadRuntime,
+  parseCliTokens,
+  pairedDiceStreams,
+  playGame,
+  readRuntimeSnapshot,
+  runtimeFingerprint,
+  validateDerivedStreamSeeds,
+};
