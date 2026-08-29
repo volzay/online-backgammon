@@ -9,11 +9,32 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <script>
-  /* tiny auth gate — runs before render so unauth'd users bounce to login */
+  /* A direct room link follows the same explicit sign-in or guest-entry rule as the lobby. */
   (function(){
     try {
-      if (!localStorage.getItem('narduh-user')) location.replace('login.html');
-    } catch(e) {}
+      var userKey = 'narduh-user';
+      var guestEntryKey = 'narduh-guest-entry-v1';
+      var raw = localStorage.getItem(userKey);
+      var user = raw ? JSON.parse(raw) : null;
+      var name = String((user && (user.name || user.nickname)) || '').trim();
+      var validName = Boolean(name && name !== '—' && name !== '-');
+      var explicitGuest = user && user.guest === true
+        && localStorage.getItem(guestEntryKey) === '1';
+      var registered = user && user.guest !== true;
+      if (!validName || (!registered && !explicitGuest)) {
+        localStorage.removeItem(userKey);
+        localStorage.removeItem(guestEntryKey);
+        location.replace('login.html');
+      } else if (registered) {
+        localStorage.removeItem(guestEntryKey);
+      }
+    } catch(e) {
+      try {
+        localStorage.removeItem('narduh-user');
+        localStorage.removeItem('narduh-guest-entry-v1');
+      } catch(_) {}
+      location.replace('login.html');
+    }
   })();
 </script>
 </head>

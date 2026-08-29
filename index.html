@@ -9,38 +9,34 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <script>
-  /* tiny auth gate — runs before render so direct lobby visits get a valid guest */
+  /* Keep the lobby private until the visitor explicitly signs in or chooses guest mode. */
   (function(){
-    var key = 'narduh-user';
-    function guestName() {
-      return 'Guest' + (1000 + Math.floor(Math.random() * 9000));
-    }
-    function guestId() {
-      if (window.crypto && window.crypto.randomUUID) return 'guest:' + window.crypto.randomUUID();
-      return 'guest:' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    }
-    function makeGuest() {
-      var name = guestName();
-      return {
-        id: guestId(),
-        name: name,
-        nickname: name,
-        rating: null,
-        tier: '',
-        ratingEligible: false,
-        guest: true,
-        createdAt: new Date().toISOString()
-      };
+    var userKey = 'narduh-user';
+    var guestEntryKey = 'narduh-guest-entry-v1';
+    function redirectToLogin() {
+      location.replace('login.html' + (location.search || '') + (location.hash || ''));
     }
     try {
-      var raw = localStorage.getItem(key);
+      var raw = localStorage.getItem(userKey);
       var user = raw ? JSON.parse(raw) : null;
       var name = String((user && (user.name || user.nickname)) || '').trim();
-      if (!name || name === '—' || name === '-') {
-        localStorage.setItem(key, JSON.stringify(makeGuest()));
+      var validName = Boolean(name && name !== '—' && name !== '-');
+      var explicitGuest = user && user.guest === true
+        && localStorage.getItem(guestEntryKey) === '1';
+      var registered = user && user.guest !== true;
+      if (!validName || (!registered && !explicitGuest)) {
+        localStorage.removeItem(userKey);
+        localStorage.removeItem(guestEntryKey);
+        redirectToLogin();
+      } else if (registered) {
+        localStorage.removeItem(guestEntryKey);
       }
     } catch(e) {
-      try { localStorage.setItem(key, JSON.stringify(makeGuest())); } catch(_) {}
+      try {
+        localStorage.removeItem(userKey);
+        localStorage.removeItem(guestEntryKey);
+      } catch(_) {}
+      redirectToLogin();
     }
   })();
 </script>

@@ -3,6 +3,7 @@
   const THEME_KEY = 'narduh-theme';
   const LANG_KEY = 'narduh-lang';
   const USER_KEY = 'narduh-user';
+  const GUEST_ENTRY_KEY = 'narduh-guest-entry-v1';
   const SOUND_KEY = 'narduh-sound';
   const SHOW_RATING_KEY = 'narduh-show-rating';
   const ACCENT_KEY = 'narduh-accent';
@@ -1036,8 +1037,26 @@
     u = normalizeStoredUser(u) || createGuestUser();
     assignProfileRating(u);
     persistStoredUser(u);
+    if (!u.guest) {
+      try { localStorage.removeItem(GUEST_ENTRY_KEY); } catch (_) {}
+    }
     touchPresence({ force: true });
     return u;
+  }
+  function guestEntryGranted() {
+    try { return localStorage.getItem(GUEST_ENTRY_KEY) === '1'; }
+    catch { return false; }
+  }
+  function beginGuestSession() {
+    const user = setUser(createGuestUser());
+    if (!getUser() || !safeStorageSet(GUEST_ENTRY_KEY, '1')) {
+      try {
+        localStorage.removeItem(USER_KEY);
+        localStorage.removeItem(GUEST_ENTRY_KEY);
+      } catch (_) {}
+      return null;
+    }
+    return user;
   }
   function logout() {
     if (window.NarduSupabase?.configured?.()) {
@@ -1046,13 +1065,28 @@
         .catch(() => {});
     }
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(GUEST_ENTRY_KEY);
     location.href = 'login.html';
   }
   function requireAuth() {
-    if (!getUser()) setUser(createGuestUser());
+    const user = getUser();
+    if (user && (!user.guest || guestEntryGranted())) return user;
+    try {
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(GUEST_ENTRY_KEY);
+    } catch (_) {}
+    if (typeof location.replace === 'function') location.replace('login.html');
+    else location.href = 'login.html';
+    return null;
   }
   function requireGuest() {
-    if (getUser()) location.href = 'index.html';
+    const user = getUser();
+    if (!user) return;
+    if (user.guest && !guestEntryGranted()) {
+      try { localStorage.removeItem(USER_KEY); } catch (_) {}
+      return;
+    }
+    location.href = 'index.html';
   }
 
   /* fill user chips on the page */
@@ -1300,7 +1334,7 @@
     applyAccent, currentAccent,
     applyBoardStyle, currentBoardStyle,
     applyLang, currentLang, dicts,
-    getUser, setUser, logout, requireAuth, requireGuest,
+    getUser, setUser, beginGuestSession, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
     createGuestUser, compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,

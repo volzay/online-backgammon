@@ -197,8 +197,11 @@
   });
 
   document.getElementById('guest-btn').addEventListener('click', () => {
-    const n = 'Guest' + (1000 + Math.floor(Math.random() * 9000));
-    NarduApp.setUser({ name: n, rating: null, tier: '', ratingEligible: false, guest: true });
+    const guest = NarduApp.beginGuestSession();
+    if (!guest) {
+      setMessage('login-message', NarduApp.t('err_session'), 'error');
+      return;
+    }
     NarduApp.clearReauthContext?.();
     location.href = 'index.html';
   });
