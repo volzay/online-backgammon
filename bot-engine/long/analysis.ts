@@ -481,6 +481,19 @@ export function experienceDescriptor(
   const startZone = Number(features.startZoneBefore) || 0;
   const trap = opponentTrapRisk(state, color);
   const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
+  const homeShuffleMoves = Math.max(0, Number(features.homeShuffleMoves) || 0);
+  const hasAvoidableHomeShuffle = Object.prototype.hasOwnProperty.call(
+    features || {},
+    'avoidableHomeShuffleMoves',
+  );
+  const avoidableHomeShuffleMoves = hasAvoidableHomeShuffle
+    ? Math.max(0, Number(features.avoidableHomeShuffleMoves) || 0)
+    : 0;
+  const homeShuffleAction = avoidableHomeShuffleMoves > 0
+    ? 'home:shuffle'
+    : homeShuffleMoves > 0
+      ? hasAvoidableHomeShuffle ? 'home:forced' : 'home:unknown'
+      : 'home:steady';
   const phase = homeReady(state, color)
     ? 'bearoff'
     : opponentOff > 0 && ownOff === 0
@@ -507,7 +520,7 @@ export function experienceDescriptor(
     signedFlag('freedom', features.opponentHeadFreedomDelta),
     signedFlag('distribution', features.distributionDelta),
     Number(features.headLandingBreak || 0) > 0 ? 'support:break' : 'support:keep',
-    Number(features.homeShuffleMoves || 0) > 0 ? 'home:shuffle' : 'home:steady',
+    homeShuffleAction,
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
@@ -526,6 +539,26 @@ export function experienceDescriptor(
       ? 'koks:gain'
       : 'koks:flat';
   const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  // These compact keys preserve the strategic intent that must transfer across
+  // different dice and route signatures. The exact/family keys still provide
+  // precision, while these keys let repeated home-shuffle and fence mistakes
+  // teach the next materially similar position.
+  const behaviorActionKeys = [
+    [
+      signedFlag('entry', features.outsideReduction),
+      signedFlag('progress', features.outsidePipGain),
+      homeShuffleAction,
+      signedFlag('tower', features.routeTowerDelta),
+      Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
+    ].join('|'),
+    [
+      signedFlag('trap', features.trapDelta),
+      signedFlag('fence', features.fenceClosureDelta),
+      signedFlag('gateway', features.escapeGatewayDelta),
+      signedFlag('block', features.opponentMoveBlockGain),
+      signedFlag('latent', features.latentFenceExposureDelta),
+    ].join('|'),
+  ];
 
   const urgency = 1
     + opponentOff * 0.12
@@ -538,6 +571,10 @@ export function experienceDescriptor(
   mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
   mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
   mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
+  mistakeSeverity += Math.min(
+    4,
+    Math.max(0, -(Number(features.latentFenceExposureDelta) || 0)),
+  );
   if (
     Number(features.primeRunBefore || 0) >= 4
     && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -548,8 +585,10 @@ export function experienceDescriptor(
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
-  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.outsideReduction || 0) <= 0) {
-    mistakeSeverity += 1.15 + Math.min(1.2, outside / 8);
+  const outsideAfterMove = Math.max(0, outside - Number(features.outsideReduction || 0));
+  if (outsideAfterMove > 0 && avoidableHomeShuffleMoves > 0) {
+    const baseShuffleSeverity = Number(features.outsideReduction || 0) > 0 ? 0.75 : 1.15;
+    mistakeSeverity += baseShuffleSeverity + Math.min(1.2, outsideAfterMove / 8);
   }
   if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
     mistakeSeverity += 1.4;
@@ -575,8 +614,9 @@ export function experienceDescriptor(
     Number(features.escapeGatewayDelta || 0) < 0 && Number(features.trapBefore || 0) >= 180
       ? Math.min(3, Math.abs(Number(features.escapeGatewayDelta)) / 3)
       : 0,
-    Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
-      ? 1.4 + Math.min(2.2, outside / 5)
+    Math.min(6, Math.max(0, -(Number(features.latentFenceExposureDelta) || 0))),
+    avoidableHomeShuffleMoves > 0 && outsideAfterMove > 0
+      ? 1.1 + Math.min(2.2, outsideAfterMove / 5)
       : 0,
     Number(features.primeRunBefore || 0) >= 4
       && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -594,6 +634,7 @@ export function experienceDescriptor(
     strategicActionKey,
     familyActionKey,
     legacyActionKey,
+    behaviorActionKeys,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
     riskSignal,
     phase,
@@ -645,6 +686,9 @@ export function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
   const strategic = strategicContextKey(descriptor.contextKey);
+  const behaviorActionKeys = Array.isArray(descriptor.behaviorActionKeys)
+    ? descriptor.behaviorActionKeys.filter(Boolean)
+    : [];
   const hasStrategicAction = descriptor.strategicActionKey
     && descriptor.strategicActionKey !== descriptor.familyActionKey;
   const actionKeys = (hasStrategicAction
@@ -652,9 +696,15 @@ export function experienceAdjustment(descriptor, experience) {
       descriptor.actionKey,
       descriptor.strategicActionKey,
       descriptor.familyActionKey,
+      ...behaviorActionKeys,
       descriptor.legacyActionKey,
     ]
-    : [descriptor.actionKey, descriptor.familyActionKey, descriptor.legacyActionKey]
+    : [
+      descriptor.actionKey,
+      descriptor.familyActionKey,
+      ...behaviorActionKeys,
+      descriptor.legacyActionKey,
+    ]
   ).filter(Boolean);
 
   const contextLevels = [
@@ -663,7 +713,9 @@ export function experienceAdjustment(descriptor, experience) {
     { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
     { key: '*', minimum: 16, weight: 0.28 },
   ];
-  const actionWeights = hasStrategicAction ? [1, 0.86, 0.68, 0.5] : [1, 0.76, 0.56];
+  const actionWeights = hasStrategicAction
+    ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
+    : [1, 0.76, ...(behaviorActionKeys.map(() => 0.62)), 0.56];
   const matches = [];
   const seen = new Set();
   actionKeys.forEach((actionKey, index) => {
@@ -687,6 +739,7 @@ export function experienceAdjustment(descriptor, experience) {
 
   let evidenceWeight = 0;
   let weightedLossRate = 0;
+  let weightedLossSeverity = 0;
   let weightedSevereRate = 0;
   let weightedSeverity = 0;
   let weightedSamples = 0;
@@ -696,7 +749,14 @@ export function experienceAdjustment(descriptor, experience) {
     const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
     const evidence = weight * confidence;
     evidenceWeight += evidence;
-    weightedLossRate += Math.min(0.98, (pattern.lossWeight + 0.5) / (pattern.samples + 1.5)) * evidence;
+    // Frequency and severity are different signals. Treating severity-weighted
+    // lossWeight as a loss count used to penalize actions that won most games.
+    weightedLossRate += Math.min(0.98, (pattern.losses + 0.5) / (pattern.samples + 1.5)) * evidence;
+    weightedLossSeverity += (
+      pattern.losses > 0
+        ? Math.max(1, pattern.lossWeight / pattern.losses)
+        : 1
+    ) * evidence;
     weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
     weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
     weightedSamples += pattern.samples * weight;
@@ -705,6 +765,7 @@ export function experienceAdjustment(descriptor, experience) {
   });
   if (!evidenceWeight) return 0;
   const lossRate = weightedLossRate / evidenceWeight;
+  const lossSeverity = weightedLossSeverity / evidenceWeight;
   const severeRate = weightedSevereRate / evidenceWeight;
   const learnedSeverity = weightedSeverity / evidenceWeight;
   const winRate = weightedWinRate / evidenceWeight;
@@ -720,6 +781,7 @@ export function experienceAdjustment(descriptor, experience) {
       * confidence
       * (lossRate - 0.28)
       * (1 + severeRate * 1.5)
+      * (1 + Math.max(0, lossSeverity - 1) * 0.24)
       * (1 + learnedSeverity * 0.2)
       * relevance
     );

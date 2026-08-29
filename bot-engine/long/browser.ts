@@ -1,9 +1,9 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v24';
+const ENGINE_VERSION = 'long-analytic-v25';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
-  strategyProfile: 'v24',
+  strategyProfile: 'v25',
   maxCandidates: 64,
   analysisNodeBudget: 480,
 });

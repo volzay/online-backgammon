@@ -156,7 +156,7 @@ test('simulator fails closed when an engine plan leaves mandatory moves unused',
   assert.throws(() => playGame(0, 0, runtime, {
     seed: 430419993,
     maxPlies: 2,
-    botProfile: 'v24',
+    botProfile: 'v25',
     controlProfile: 'v19',
     botCandidates: 64,
     controlCandidates: 24,
@@ -184,7 +184,7 @@ test('simulator fails closed after applying only the first move of a real multi-
   assert.throws(() => playGame(0, 0, runtime, {
     seed: 430419993,
     maxPlies: 4,
-    botProfile: 'v24',
+    botProfile: 'v25',
     controlProfile: 'v19',
     botCandidates: 64,
     controlCandidates: 24,
@@ -201,7 +201,7 @@ test('simulator CLI rejects invalid numbers, unknown options, and unsupported pr
     { args: ['--games', 'oops'], message: /positive integer/ },
     { args: ['--seed', '4294967296'], message: /not greater than 4294967295/ },
     { args: ['--unknown', '1'], message: /Unknown option/ },
-    { args: ['--games', '2', '--bot-profile', 'v23'], message: /must be one of: v19, v24/ },
+    { args: ['--games', '2', '--bot-profile', 'v23'], message: /must be one of: v19, v25/ },
   ];
   for (const item of cases) {
     const result = spawnSync(process.execPath, [SIMULATOR, ...item.args], { encoding: 'utf8' });
@@ -215,7 +215,7 @@ test('multi-seed certification aggregates independent pair scores without loweri
     seed,
     payload: {
       summary: {
-        engineVersion: 'long-analytic-v24',
+        engineVersion: 'long-analytic-v25',
         games: 2,
         botWins: wins,
         controlWins: 2 - wins,
@@ -429,7 +429,7 @@ function validSeedPayload(seed, fingerprints = {}) {
     },
   ];
   const summary = {
-    engineVersion: 'long-analytic-v24',
+    engineVersion: 'long-analytic-v25',
     runtimeFingerprint: fingerprints.runtime || HASH_A,
     simulatorHarnessFingerprint: fingerprints.simulator || HASH_B,
     experienceFingerprint: fingerprints.experience || HASH_C,
@@ -456,7 +456,7 @@ function validSeedPayload(seed, fingerprints = {}) {
       maxPlies: 320,
       minWinRate: 0,
       maxSevereLossRate: 1,
-      botProfile: 'v24',
+      botProfile: 'v25',
       controlProfile: 'v19',
       output: '/tmp/result.json',
       experience: '',
@@ -482,7 +482,7 @@ function certificationRequest(games = 2, values = [], flags = []) {
 
 function fixtureExecutionIdentity(fingerprints = {}) {
   return {
-    engineVersion: 'long-analytic-v24',
+    engineVersion: 'long-analytic-v25',
     runtimeFingerprint: fingerprints.runtime || HASH_A,
     simulatorHarnessFingerprint: fingerprints.simulator || HASH_B,
     experienceFingerprint: fingerprints.experience || HASH_C,
@@ -660,7 +660,7 @@ test('certification derives exact child defaults and validates requested overrid
     maxPlies: 320,
     minWinRate: 0,
     maxSevereLossRate: 1,
-    botProfile: 'v24',
+    botProfile: 'v25',
     controlProfile: 'v19',
     experience: '',
     trace: false,
@@ -674,7 +674,7 @@ test('certification derives exact child defaults and validates requested overrid
     ['control-candidates', '30'],
     ['max-plies', '400'],
     ['bot-profile', 'V19'],
-    ['control-profile', 'V24'],
+    ['control-profile', 'V25'],
     ['experience', '  /tmp/experience.json  '],
   ], ['trace']), {
     games: 6,
@@ -686,7 +686,7 @@ test('certification derives exact child defaults and validates requested overrid
     minWinRate: 0,
     maxSevereLossRate: 1,
     botProfile: 'v19',
-    controlProfile: 'v24',
+    controlProfile: 'v25',
     experience: '/tmp/experience.json',
     trace: true,
     learn: false,

@@ -10,8 +10,14 @@ window.NarduStrongBot = (function () {
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
-  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v1';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v3';
+  const LEGACY_LONG_EXPERIENCE_KEYS = [
+    'narduh-long-bot-experience-v2',
+    'narduh-long-bot-experience-v1',
+  ];
   const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v4';
+  const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
+  const SHORT_LOCAL_EXPERIENCE_LIMIT = 120;
   const DEFAULT_PROFILE = {
     version: 5,
     games: 0,
@@ -86,8 +92,14 @@ window.NarduStrongBot = (function () {
     const store = storage();
     if (!store) return [];
     try {
+      if (variant !== 'short') {
+        LEGACY_LONG_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
+      }
       const parsed = JSON.parse(store.getItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY) || '[]');
-      return Array.isArray(parsed) ? parsed.slice(0, 120) : [];
+      const limit = variant === 'short'
+        ? SHORT_LOCAL_EXPERIENCE_LIMIT
+        : LONG_LOCAL_EXPERIENCE_LIMIT;
+      return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
     } catch (error) {
       return [];
     }
@@ -97,10 +109,74 @@ window.NarduStrongBot = (function () {
     const store = storage();
     if (!store) return;
     try {
-      store.setItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY, JSON.stringify(patterns.slice(0, 120)));
+      store.setItem(
+        variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY,
+        JSON.stringify(patterns.slice(
+          0,
+          variant === 'short' ? SHORT_LOCAL_EXPERIENCE_LIMIT : LONG_LOCAL_EXPERIENCE_LIMIT,
+        )),
+      );
     } catch (error) {
       // Experience is optional; gameplay remains deterministic without storage.
     }
+  }
+
+  function compareLocalExperience(left, right) {
+    return Math.max(Number(right.lossWeight || 0), Number(right.winWeight || 0))
+      - Math.max(Number(left.lossWeight || 0), Number(left.winWeight || 0))
+      || Number(right.samples || 0) - Number(left.samples || 0)
+      || Number(right.signalWeight || 0) - Number(left.signalWeight || 0);
+  }
+
+  function localExperienceCohort(pattern) {
+    const losses = Number(pattern.losses || 0);
+    const wins = Number(pattern.wins || 0);
+    if (losses > 0 && (wins <= 0 || Number(pattern.lossWeight || 0) >= Number(pattern.winWeight || 0))) {
+      return 'harmful';
+    }
+    return wins > 0 ? 'successful' : 'neutral';
+  }
+
+  function takeLocalExperienceByPhase(patterns, limit) {
+    const groups = new Map();
+    [...patterns].sort(compareLocalExperience).forEach((pattern) => {
+      const phase = String(pattern.contextKey || '').split('|')[0] || 'route';
+      if (!groups.has(phase)) groups.set(phase, []);
+      groups.get(phase).push(pattern);
+    });
+    const selected = [];
+    while (selected.length < limit) {
+      let added = false;
+      groups.forEach((group) => {
+        if (selected.length >= limit || !group.length) return;
+        selected.push(group.shift());
+        added = true;
+      });
+      if (!added) break;
+    }
+    return selected;
+  }
+
+  function retainBalancedLocalExperience(patterns, limit) {
+    const eligible = patterns.filter(
+      pattern => localExperienceCohort(pattern) !== 'neutral',
+    );
+    if (eligible.length <= limit) return eligible.sort(compareLocalExperience);
+
+    const harmful = eligible.filter(pattern => localExperienceCohort(pattern) === 'harmful');
+    const successful = eligible.filter(pattern => localExperienceCohort(pattern) === 'successful');
+    const half = Math.floor(limit / 2);
+    const selected = [
+      ...takeLocalExperienceByPhase(harmful, half),
+      ...takeLocalExperienceByPhase(successful, half),
+    ];
+    const seen = new Set(selected);
+    eligible.sort(compareLocalExperience).forEach((pattern) => {
+      if (selected.length >= limit || seen.has(pattern)) return;
+      seen.add(pattern);
+      selected.push(pattern);
+    });
+    return selected.sort(compareLocalExperience);
   }
 
   function syncLocalExperience() {
@@ -1297,7 +1373,7 @@ window.NarduStrongBot = (function () {
             || PLAN_ANALYSIS_NODE_BUDGET,
           strategyProfile: runtimeOptions.strategyProfile
             || productionOptions.strategyProfile
-            || 'v24',
+            || 'v25',
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;
@@ -1391,50 +1467,63 @@ window.NarduStrongBot = (function () {
 
     decisions.forEach((decision) => {
       const descriptor = decision?.experience || decision?.selected?.experience;
-      const severity = Math.max(0, Number(descriptor?.mistakeSeverity) || 0);
+      const severity = Math.max(
+        0,
+        Number(descriptor?.mistakeSeverity) || 0,
+        Number(descriptor?.riskSignal) || 0,
+      );
       const actor = decision?.actor === 'opponent' ? 'opponent' : 'bot';
-      const successful = actor === 'opponent' ? !botWon : botWon;
+      const successful = (actor === 'opponent' ? !botWon : botWon) && severity < 1.1;
       const harmful = actor === 'bot' && !botWon;
       if (!descriptor?.contextKey || !descriptor?.actionKey) return;
       if (harmful && severity < 0.45) return;
-      const key = `${descriptor.contextKey}::${descriptor.actionKey}`;
-      const pattern = byKey.get(key) || {
-        contextKey: descriptor.contextKey,
-        actionKey: descriptor.actionKey,
-        samples: 0,
-        losses: 0,
-        wins: 0,
-        lossWeight: 0,
-        severeLosses: 0,
-        signalWeight: 0,
-        winWeight: 0,
-      };
-      pattern.samples += 1;
-      if (harmful) {
-        pattern.losses += 1;
-        pattern.lossWeight = (Number(pattern.lossWeight) || 0)
-          + Math.min(3.75, 0.85 + severity * 0.38)
-          + resultLossBonus;
-      }
-      if (harmful && severeLoss) pattern.severeLosses += 1;
-      if (harmful) pattern.signalWeight += severity;
-      if (successful) {
-        pattern.wins = (Number(pattern.wins) || 0) + 1;
-        pattern.winWeight = (Number(pattern.winWeight) || 0)
-          + Math.max(0.75, Math.min(4, Number(decision?.winQuality) || 1));
-      }
-      pattern.updatedAt = new Date().toISOString();
-      byKey.set(key, pattern);
+      if (!harmful && !successful) return;
+      const actionKeys = Array.from(new Set([
+        descriptor.actionKey,
+        descriptor.strategicActionKey,
+        descriptor.familyActionKey,
+        ...(Array.isArray(descriptor.behaviorActionKeys) ? descriptor.behaviorActionKeys : []),
+        descriptor.legacyActionKey,
+      ].filter(Boolean)));
+      actionKeys.forEach((actionKey) => {
+        const key = `${descriptor.contextKey}::${actionKey}`;
+        const pattern = byKey.get(key) || {
+          creditVersion: 4,
+          contextKey: descriptor.contextKey,
+          actionKey,
+          samples: 0,
+          losses: 0,
+          wins: 0,
+          lossWeight: 0,
+          severeLosses: 0,
+          signalWeight: 0,
+          winWeight: 0,
+        };
+        pattern.creditVersion = 4;
+        pattern.samples += 1;
+        if (harmful) {
+          pattern.losses += 1;
+          pattern.lossWeight = (Number(pattern.lossWeight) || 0)
+            + Math.min(3.75, 0.85 + severity * 0.38)
+            + resultLossBonus;
+        }
+        if (harmful && severeLoss) pattern.severeLosses += 1;
+        if (harmful) pattern.signalWeight += severity;
+        if (successful) {
+          pattern.wins = (Number(pattern.wins) || 0) + 1;
+          pattern.winWeight = (Number(pattern.winWeight) || 0)
+            + Math.max(0.75, Math.min(4, Number(decision?.winQuality) || 1));
+        }
+        pattern.updatedAt = new Date().toISOString();
+        byKey.set(key, pattern);
+      });
     });
 
-    const learnedPatterns = Array.from(byKey.values())
-      .sort((left, right) => (
-        Number(right.samples || 0) - Number(left.samples || 0)
-        || Number(right.lossWeight || 0) - Number(left.lossWeight || 0)
-        || Number(right.winWeight || 0) - Number(left.winWeight || 0)
-        || Number(right.signalWeight || 0) - Number(left.signalWeight || 0)
-      ))
-      .slice(0, 120);
+    const eligiblePatterns = Array.from(byKey.values())
+      .filter(pattern => Number(pattern.losses || 0) > 0 || Number(pattern.wins || 0) > 0);
+    const learnedPatterns = variant === 'short'
+      ? eligiblePatterns.sort(compareLocalExperience).slice(0, SHORT_LOCAL_EXPERIENCE_LIMIT)
+      : retainBalancedLocalExperience(eligiblePatterns, LONG_LOCAL_EXPERIENCE_LIMIT);
     saveLocalExperience(learnedPatterns, variant);
     const targetEngine = variant === 'short' ? window.NarduShortBotEngine : window.NarduLongBotEngine;
     targetEngine?.setExperience?.(learnedPatterns, 'local');
@@ -1470,7 +1559,7 @@ window.NarduStrongBot = (function () {
       const described = targetEngine.describeSequence(turnStart, turnMoves, {
         color: winner,
         strategyProfile: variant === 'long'
-          ? targetEngine.productionOptions?.strategyProfile || 'v24'
+          ? targetEngine.productionOptions?.strategyProfile || 'v25'
           : 'short-v1',
       });
       if (described?.experience) {

@@ -24,7 +24,7 @@ const CHILD_KILL_GRACE_MS = 1000;
 const FAMILY_ERROR_RATE = 0.05;
 const PER_BOUND_ERROR_RATE = FAMILY_ERROR_RATE / 2;
 const BONFERRONI_ONE_SIDED_Z = 1.959963984540054;
-const SUPPORTED_PROFILES = new Set(['v19', 'v24']);
+const SUPPORTED_PROFILES = new Set(['v19', 'v25']);
 const VALUE_OPTIONS = new Set([
   'seeds', 'games-per-seed', 'seed-timeout-ms', 'jobs', 'min-win-rate',
   'max-severe-loss-rate', 'output', 'bot-nodes', 'control-nodes',
@@ -40,7 +40,7 @@ const SIMULATOR_OPTION_DEFAULTS = Object.freeze({
   botCandidates: 64,
   controlCandidates: 24,
   maxPlies: 320,
-  botProfile: 'v24',
+  botProfile: 'v25',
   controlProfile: 'v19',
   experience: '',
   trace: false,
@@ -824,7 +824,7 @@ async function main() {
     maxSevereLossRate: ratioOption(parsed, 'max-severe-loss-rate', 0.1),
     requireConfidence: parsed.flags.has('require-confidence'),
   };
-  profileOption(parsed, 'bot-profile', 'v24');
+  profileOption(parsed, 'bot-profile', 'v25');
   profileOption(parsed, 'control-profile', 'v19');
   const pairCount = seeds.length * gamesPerSeed / 2;
   const minimumConfidencePairs = minimumPairsForConfidence(criteria);

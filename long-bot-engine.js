@@ -186,6 +186,40 @@ function opponentFenceRun(state, color) {
   return longest;
 }
 
+function latentFenceExposure(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const rear = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point, stack]) => ({
+      point: Number(point),
+      pos: pathPos(color, Number(point)),
+      count: Number(stack.count) || 0,
+    }))
+    .filter(checker => checker.pos >= 0 && checker.pos < 18)
+    .sort((left, right) => left.pos - right.pos)[0];
+  if (!rear) return 0;
+
+  const window = path.slice(rear.pos + 1, Math.min(18, rear.pos + 7));
+  const occupied = window.reduce((items, point, index) => {
+    const stack = stackAt(state, point);
+    if (stack?.color !== opponent) return items;
+    items.push({ offset: index + 1, count: Number(stack.count) || 0 });
+    return items;
+  }, []);
+  if (occupied.length < 2) return 0;
+
+  const coverage = (occupied.length - 1) * 18
+    + occupied.reduce((total, item) => (
+      total + Math.min(2, item.count) * (7 - item.offset) * 0.7
+    ), 0);
+  const startZonePressure = rear.pos <= 5
+    ? 1.55 + (5 - rear.pos) * 0.08
+    : 1;
+  const stackPressure = 1 + Math.min(4, Math.max(0, rear.count - 1)) * 0.35;
+  return coverage * startZonePressure * stackPressure;
+}
+
 function routeTowerRisk(state, color) {
   if (outsideHomeCount(state, color) <= 0) return 0;
   const fenceRun = opponentFenceRun(state, color);
@@ -1518,6 +1552,19 @@ function experienceDescriptor(
   const startZone = Number(features.startZoneBefore) || 0;
   const trap = opponentTrapRisk(state, color);
   const pipDelta = pipsFor(state, color) - pipsFor(state, opponent);
+  const homeShuffleMoves = Math.max(0, Number(features.homeShuffleMoves) || 0);
+  const hasAvoidableHomeShuffle = Object.prototype.hasOwnProperty.call(
+    features || {},
+    'avoidableHomeShuffleMoves',
+  );
+  const avoidableHomeShuffleMoves = hasAvoidableHomeShuffle
+    ? Math.max(0, Number(features.avoidableHomeShuffleMoves) || 0)
+    : 0;
+  const homeShuffleAction = avoidableHomeShuffleMoves > 0
+    ? 'home:shuffle'
+    : homeShuffleMoves > 0
+      ? hasAvoidableHomeShuffle ? 'home:forced' : 'home:unknown'
+      : 'home:steady';
   const phase = homeReady(state, color)
     ? 'bearoff'
     : opponentOff > 0 && ownOff === 0
@@ -1544,7 +1591,7 @@ function experienceDescriptor(
     signedFlag('freedom', features.opponentHeadFreedomDelta),
     signedFlag('distribution', features.distributionDelta),
     Number(features.headLandingBreak || 0) > 0 ? 'support:break' : 'support:keep',
-    Number(features.homeShuffleMoves || 0) > 0 ? 'home:shuffle' : 'home:steady',
+    homeShuffleAction,
     Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
   ].join('|');
   const familyActionKey = `${legacyActionKey}|${signedFlag('tower', features.routeTowerDelta)}`;
@@ -1563,6 +1610,26 @@ function experienceDescriptor(
       ? 'koks:gain'
       : 'koks:flat';
   const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  // These compact keys preserve the strategic intent that must transfer across
+  // different dice and route signatures. The exact/family keys still provide
+  // precision, while these keys let repeated home-shuffle and fence mistakes
+  // teach the next materially similar position.
+  const behaviorActionKeys = [
+    [
+      signedFlag('entry', features.outsideReduction),
+      signedFlag('progress', features.outsidePipGain),
+      homeShuffleAction,
+      signedFlag('tower', features.routeTowerDelta),
+      Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
+    ].join('|'),
+    [
+      signedFlag('trap', features.trapDelta),
+      signedFlag('fence', features.fenceClosureDelta),
+      signedFlag('gateway', features.escapeGatewayDelta),
+      signedFlag('block', features.opponentMoveBlockGain),
+      signedFlag('latent', features.latentFenceExposureDelta),
+    ].join('|'),
+  ];
 
   const urgency = 1
     + opponentOff * 0.12
@@ -1575,6 +1642,10 @@ function experienceDescriptor(
   mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
   mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
   mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
+  mistakeSeverity += Math.min(
+    4,
+    Math.max(0, -(Number(features.latentFenceExposureDelta) || 0)),
+  );
   if (
     Number(features.primeRunBefore || 0) >= 4
     && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -1585,8 +1656,10 @@ function experienceDescriptor(
   if (Number(features.trapBefore || 0) > 0 && Number(features.trapDelta || 0) <= 0) {
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
-  if (outside > 0 && Number(features.homeShuffleMoves || 0) > 0 && Number(features.outsideReduction || 0) <= 0) {
-    mistakeSeverity += 1.15 + Math.min(1.2, outside / 8);
+  const outsideAfterMove = Math.max(0, outside - Number(features.outsideReduction || 0));
+  if (outsideAfterMove > 0 && avoidableHomeShuffleMoves > 0) {
+    const baseShuffleSeverity = Number(features.outsideReduction || 0) > 0 ? 0.75 : 1.15;
+    mistakeSeverity += baseShuffleSeverity + Math.min(1.2, outsideAfterMove / 8);
   }
   if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
     mistakeSeverity += 1.4;
@@ -1612,8 +1685,9 @@ function experienceDescriptor(
     Number(features.escapeGatewayDelta || 0) < 0 && Number(features.trapBefore || 0) >= 180
       ? Math.min(3, Math.abs(Number(features.escapeGatewayDelta)) / 3)
       : 0,
-    Number(features.homeShuffleMoves || 0) > 0 && outside > 0 && Number(features.outsideReduction || 0) <= 0
-      ? 1.4 + Math.min(2.2, outside / 5)
+    Math.min(6, Math.max(0, -(Number(features.latentFenceExposureDelta) || 0))),
+    avoidableHomeShuffleMoves > 0 && outsideAfterMove > 0
+      ? 1.1 + Math.min(2.2, outsideAfterMove / 5)
       : 0,
     Number(features.primeRunBefore || 0) >= 4
       && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -1631,6 +1705,7 @@ function experienceDescriptor(
     strategicActionKey,
     familyActionKey,
     legacyActionKey,
+    behaviorActionKeys,
     mistakeSeverity: Math.min(8, mistakeSeverity * urgency),
     riskSignal,
     phase,
@@ -1682,6 +1757,9 @@ function experienceAdjustment(descriptor, experience) {
   if (!descriptor || !(experience instanceof Map)) return 0;
   const phase = descriptor.phase || String(descriptor.contextKey || '').split('|')[0] || 'route';
   const strategic = strategicContextKey(descriptor.contextKey);
+  const behaviorActionKeys = Array.isArray(descriptor.behaviorActionKeys)
+    ? descriptor.behaviorActionKeys.filter(Boolean)
+    : [];
   const hasStrategicAction = descriptor.strategicActionKey
     && descriptor.strategicActionKey !== descriptor.familyActionKey;
   const actionKeys = (hasStrategicAction
@@ -1689,9 +1767,15 @@ function experienceAdjustment(descriptor, experience) {
       descriptor.actionKey,
       descriptor.strategicActionKey,
       descriptor.familyActionKey,
+      ...behaviorActionKeys,
       descriptor.legacyActionKey,
     ]
-    : [descriptor.actionKey, descriptor.familyActionKey, descriptor.legacyActionKey]
+    : [
+      descriptor.actionKey,
+      descriptor.familyActionKey,
+      ...behaviorActionKeys,
+      descriptor.legacyActionKey,
+    ]
   ).filter(Boolean);
 
   const contextLevels = [
@@ -1700,7 +1784,9 @@ function experienceAdjustment(descriptor, experience) {
     { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
     { key: '*', minimum: 16, weight: 0.28 },
   ];
-  const actionWeights = hasStrategicAction ? [1, 0.86, 0.68, 0.5] : [1, 0.76, 0.56];
+  const actionWeights = hasStrategicAction
+    ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
+    : [1, 0.76, ...(behaviorActionKeys.map(() => 0.62)), 0.56];
   const matches = [];
   const seen = new Set();
   actionKeys.forEach((actionKey, index) => {
@@ -1724,6 +1810,7 @@ function experienceAdjustment(descriptor, experience) {
 
   let evidenceWeight = 0;
   let weightedLossRate = 0;
+  let weightedLossSeverity = 0;
   let weightedSevereRate = 0;
   let weightedSeverity = 0;
   let weightedSamples = 0;
@@ -1733,7 +1820,14 @@ function experienceAdjustment(descriptor, experience) {
     const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
     const evidence = weight * confidence;
     evidenceWeight += evidence;
-    weightedLossRate += Math.min(0.98, (pattern.lossWeight + 0.5) / (pattern.samples + 1.5)) * evidence;
+    // Frequency and severity are different signals. Treating severity-weighted
+    // lossWeight as a loss count used to penalize actions that won most games.
+    weightedLossRate += Math.min(0.98, (pattern.losses + 0.5) / (pattern.samples + 1.5)) * evidence;
+    weightedLossSeverity += (
+      pattern.losses > 0
+        ? Math.max(1, pattern.lossWeight / pattern.losses)
+        : 1
+    ) * evidence;
     weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
     weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
     weightedSamples += pattern.samples * weight;
@@ -1742,6 +1836,7 @@ function experienceAdjustment(descriptor, experience) {
   });
   if (!evidenceWeight) return 0;
   const lossRate = weightedLossRate / evidenceWeight;
+  const lossSeverity = weightedLossSeverity / evidenceWeight;
   const severeRate = weightedSevereRate / evidenceWeight;
   const learnedSeverity = weightedSeverity / evidenceWeight;
   const winRate = weightedWinRate / evidenceWeight;
@@ -1757,6 +1852,7 @@ function experienceAdjustment(descriptor, experience) {
       * confidence
       * (lossRate - 0.28)
       * (1 + severeRate * 1.5)
+      * (1 + Math.max(0, lossSeverity - 1) * 0.24)
       * (1 + learnedSeverity * 0.2)
       * relevance
     );
@@ -1865,6 +1961,7 @@ function signedFlag(name, value) {
 
 const DEFAULT_MAX_CANDIDATES = 64;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
+const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -1936,6 +2033,9 @@ function createLongBotEngine(adapter, options = {}) {
         candidate.score += candidate.features.advancedStrategyAdjustment;
       }
       candidate.features.strategyProfile = strategyProfile;
+    });
+    annotateAvoidableHomeShuffles(ranked);
+    ranked.forEach((candidate) => {
       candidate.experience = experienceDescriptor(state, color, candidate.features);
       candidate.experienceAdjustment = useExperience
         ? boundedExperienceAdjustment(
@@ -1970,6 +2070,16 @@ function createLongBotEngine(adapter, options = {}) {
       }
     }
     strategicallyRanked = reserveHomeEntryForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
+    strategicallyRanked = reserveRouteContinuityForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
+    strategicallyRanked = reserveDevelopingFenceEscapeForTacticalAnalysis(
       state,
       color,
       strategicallyRanked,
@@ -2041,11 +2151,9 @@ function createLongBotEngine(adapter, options = {}) {
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
     // received realistic reply penalties.
-    const finalCandidates = prioritizeDevelopingFenceEscape(
-      state,
-      color,
-      analyzedCandidates.length ? analyzedCandidates : strategicallyEligible,
-    );
+    let finalCandidates = analyzedCandidates.length
+      ? analyzedCandidates
+      : strategicallyEligible;
     finalCandidates.forEach((candidate) => {
       const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
@@ -2062,6 +2170,11 @@ function createLongBotEngine(adapter, options = {}) {
         : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
+    finalCandidates = prioritizeDevelopingFenceEscape(
+      state,
+      color,
+      finalCandidates.sort((left, right) => right.score - left.score),
+    );
     const sortedCandidates = prioritizeLatentTrapDistribution(
       state,
       color,
@@ -2286,12 +2399,14 @@ function advancedStateMetrics(state, color) {
     primeScore: blockingPrimeScore(state, color),
     primeRun: blockingPrimeRun(state, color),
     opponentMoveBlock: opponentMoveBlockScore(state, color),
+    latentFenceExposure: latentFenceExposure(state, color),
   };
 }
 
 function advancedSequenceStats(beforeMetrics, after, color) {
   const primeScoreAfter = blockingPrimeScore(after, color);
   const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+  const latentFenceExposureAfter = latentFenceExposure(after, color);
   return {
     primeScoreBefore: beforeMetrics.primeScore,
     primeScoreAfter,
@@ -2301,6 +2416,9 @@ function advancedSequenceStats(beforeMetrics, after, color) {
     opponentMoveBlockBefore: beforeMetrics.opponentMoveBlock,
     opponentMoveBlockAfter,
     opponentMoveBlockGain: opponentMoveBlockAfter - beforeMetrics.opponentMoveBlock,
+    latentFenceExposureBefore: beforeMetrics.latentFenceExposure,
+    latentFenceExposureAfter,
+    latentFenceExposureDelta: beforeMetrics.latentFenceExposure - latentFenceExposureAfter,
   };
 }
 
@@ -2356,7 +2474,7 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
 
 function prioritizeRouteContinuity(state, color, ranked) {
   const selected = ranked[0];
-  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+  if (!hasRouteContinuityPriorityContext(state, color, selected)) return ranked;
 
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const selectedProgress = Number(selected.features.outsidePipGain) || 0;
@@ -2367,8 +2485,12 @@ function prioritizeRouteContinuity(state, color, ranked) {
       < Number(selected.features.homeShuffleMoves || 0)
     && Number(candidate.features.outsideReduction || 0) >= selectedEntry
     && Number(candidate.features.outsidePipGain || 0) > selectedProgress
-    && Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
-    && isSafeRouteAlternative(candidate, selected, 8000000, 250000, 250000)
+    && (
+      Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+      || Number(candidate.features.startZoneReduction || 0)
+        > Number(selected.features.startZoneReduction || 0)
+    )
+    && isSafeRouteContinuityAlternative(candidate, selected)
   ));
   if (!continuing.length) return ranked;
 
@@ -2660,6 +2782,7 @@ function reserveHomeEntryForTacticalAnalysis(
   const reserved = entering.find(
     candidate => Number(candidate.features.outsideReduction) === maxEntry,
   );
+  reserved.features.homeEntryTacticalReservation = 1;
   const reservedIndex = ranked.indexOf(reserved);
   if (reservedIndex < slotCount) return ranked;
 
@@ -2670,6 +2793,222 @@ function reserveHomeEntryForTacticalAnalysis(
     reserved,
     ...ranked.filter(candidate => candidate !== reserved && !leadingSet.has(candidate)),
   ];
+}
+
+function reserveRouteContinuityForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (
+    ranked.length <= slotCount
+    || !hasRouteContinuityPriorityContext(state, color, selected)
+  ) {
+    return ranked;
+  }
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedDebt = Number(selected.features.laggardDebtDelta) || 0;
+  const continuing = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.outsideReduction || 0) >= selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) > selectedProgress
+    && (
+      Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+      || Number(candidate.features.startZoneReduction || 0)
+        > Number(selected.features.startZoneReduction || 0)
+    )
+    && isPlausibleRouteContinuityAlternative(candidate, selected)
+  ));
+  if (!continuing.length) return ranked;
+
+  continuing.sort((left, right) => (
+    Number(right.score) - Number(left.score)
+    || Number(right.features.startZoneReduction || 0)
+      - Number(left.features.startZoneReduction || 0)
+    || Number(right.features.outsideReduction || 0)
+      - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+  ));
+  continuing[0].features.routeContinuityTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, slotCount);
+}
+
+function reserveDevelopingFenceEscapeForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  const fenceRun = Number(selected?.features.opponentFenceRunBefore) || 0;
+  const hasLatentRearEscape = Boolean(selected) && ranked.some(candidate => (
+    candidate !== selected
+    && Number(candidate.features.startZoneReduction || 0)
+      > Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      > Number(selected.features.latentFenceExposureDelta || 0)
+  ));
+  if (
+    ranked.length <= slotCount
+    || !selected
+    || homeReady(state, color)
+    || (fenceRun < 2 && !hasLatentRearEscape)
+  ) {
+    return ranked;
+  }
+
+  const selectedUtility = fenceEscapeUtility(selected);
+  const frontier = safetyFenceCandidatePool(ranked, selected).filter(candidate => (
+    candidate !== selected
+    && fenceEscapeUtility(candidate) > selectedUtility + 1
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && (
+      (
+        Number(candidate.score) >= Number(selected.score) - 260000000
+        && Number(candidate.features.primeRunAfter || 0)
+          >= Number(selected.features.primeRunAfter || 0)
+      )
+      || isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
+      || isPlausibleLatentRearFenceEscape(candidate, selected)
+    )
+  ));
+  if (!frontier.length) return ranked;
+
+  frontier.sort((left, right) => (
+    Number(isPlausibleLatentRearFenceEscape(right, selected))
+      - Number(isPlausibleLatentRearFenceEscape(left, selected))
+    || fenceEscapeUtility(right) - fenceEscapeUtility(left)
+    || Number(right.features.fenceClosureDelta || 0)
+      - Number(left.features.fenceClosureDelta || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  frontier[0].features.fenceEscapeTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, slotCount);
+}
+
+function reorderTacticalReservations(ranked, limit) {
+  if (!ranked.length) return ranked;
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  const selected = ranked[0];
+  const reservations = ranked.filter(candidate => (
+    candidate !== selected
+    && (
+      Number(candidate.features.homeEntryTacticalReservation || 0) > 0
+      || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
+      || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+    )
+  ));
+  if (!reservations.length) return ranked;
+
+  reservations.sort((left, right) => (
+    tacticalReservationPriority(left) - tacticalReservationPriority(right)
+    || Number(right.score) - Number(left.score)
+  ));
+  const reserved = uniqueCandidatePositions(reservations).slice(0, slotCount - 1);
+  const reservedSet = new Set(reserved);
+  const leading = [selected];
+  const leadingPositions = new Set([
+    candidatePositionKey(selected),
+    ...reserved.map(candidatePositionKey),
+  ]);
+  for (const candidate of ranked) {
+    if (candidate === selected || reservedSet.has(candidate)) continue;
+    const position = candidatePositionKey(candidate);
+    if (leadingPositions.has(position)) continue;
+    if (leading.length >= slotCount - reserved.length) break;
+    leading.push(candidate);
+    leadingPositions.add(position);
+  }
+  const prioritized = [...leading, ...reserved];
+  const prioritizedSet = new Set(prioritized);
+  return [...prioritized, ...ranked.filter(candidate => !prioritizedSet.has(candidate))];
+}
+
+function tacticalReservationPriority(candidate) {
+  if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
+  if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  return 3;
+}
+
+function uniqueCandidatePositions(candidates) {
+  const seen = new Set();
+  return candidates.filter(candidate => {
+    const key = candidatePositionKey(candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function candidatePositionKey(candidate) {
+  if (!candidate?.after) return `candidate:${String(candidate?.id || '')}`;
+  const points = Object.entries(candidate.after.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(candidate.after.off?.white) || 0}:${Number(candidate.after.off?.dark) || 0}`;
+}
+
+function hasRouteContinuityPriorityContext(state, color, selected) {
+  return Boolean(selected)
+    && !homeReady(state, color)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) > 0
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
+}
+
+function isPlausibleRouteContinuityAlternative(candidate, selected) {
+  const progressGain = Math.max(
+    0,
+    Number(candidate.features.outsidePipGain || 0)
+      - Number(selected.features.outsidePipGain || 0),
+  );
+  const scoreTolerance = Math.min(96000000, 12000000 + progressGain * 12000000);
+  const gatewayTolerance = Math.min(4, Math.max(1.25, progressGain * 0.4));
+  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0) - 2
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - gatewayTolerance
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1;
+}
+
+function isSafeRouteContinuityAlternative(candidate, selected) {
+  if (
+    !candidate.tactical
+    || !selected.tactical
+    || !isPlausibleRouteContinuityAlternative(candidate, selected)
+  ) {
+    return false;
+  }
+  const progressGain = Math.max(
+    0,
+    Number(candidate.features.outsidePipGain || 0)
+      - Number(selected.features.outsidePipGain || 0),
+  );
+  return Number(candidate.tactical.expectedImpact) >= (
+    Number(selected.tactical.expectedImpact) - (1000000 + progressGain * 1000000)
+  )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - (2000000 + progressGain * 4000000)
+    );
 }
 
 function hasHomeEntryPriorityContext(state, color, selected) {
@@ -2881,34 +3220,51 @@ function prioritizeForcedRacePlay(state, color, ranked) {
 
 function prioritizeDevelopingFenceEscape(state, color, ranked) {
   if (!ranked.length || homeReady(state, color)) return ranked;
+  const selected = ranked[0];
   const fenceRun = Math.max(...ranked.map(
     candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
   ));
   const closureBefore = Math.max(...ranked.map(
     candidate => Number(candidate.features.fenceClosureBefore) || 0,
   ));
-  const escapeRelief = candidate => {
-    const closureRelief = Number(candidate.features.fenceClosureDelta) || 0;
-    const gatewayRelief = Number(candidate.features.escapeGatewayDelta) || 0;
-    if (closureRelief < 0 || gatewayRelief < 0) return 0;
-    return closureRelief + gatewayRelief;
-  };
-  const maxEscapeRelief = Math.max(...ranked.map(escapeRelief));
-  const developingFenceIsCritical = fenceRun >= 2
-    && closureBefore >= 36
-    && maxEscapeRelief >= closureBefore * 0.45;
+  const selectedUtility = fenceEscapeUtility(selected);
+  const frontier = safetyFenceCandidatePool(ranked, selected);
+  const maxEscapeUtility = Math.max(...frontier.map(fenceEscapeUtility));
+  const latentRearEscape = frontier.some(candidate => isLatentRearFenceEscape(
+    candidate,
+    selected,
+  ));
+  const developingFenceIsCritical = (fenceRun >= 2 || latentRearEscape)
+    && (
+      closureBefore >= 12
+      || Number(selected.features.fenceClosureDelta || 0) < 0
+      || latentRearEscape
+    )
+    && maxEscapeUtility > selectedUtility + 1;
   if (!developingFenceIsCritical) return ranked;
 
-  const escapeFloor = Math.max(closureBefore * 0.45, maxEscapeRelief * 0.8);
-  const selected = ranked[0];
-  const escaping = ranked.filter(candidate => (
-    escapeRelief(candidate) >= escapeFloor
-    && isComparableFenceEscape(candidate, selected)
+  const escapeFloor = selectedUtility + Math.max(1, (maxEscapeUtility - selectedUtility) * 0.72);
+  const escaping = frontier.filter(candidate => (
+    candidate !== selected
+    && (
+      (
+        fenceEscapeUtility(candidate) >= escapeFloor
+        && (
+          isComparableFenceEscape(candidate, selected)
+          || isCriticalHeadFenceEscape(state, color, candidate, selected)
+        )
+      )
+      || isLatentRearFenceEscape(candidate, selected)
+    )
   ));
   if (!escaping.length) return ranked;
 
   escaping.sort((left, right) => (
-    escapeRelief(right) - escapeRelief(left)
+    Number(isLatentRearFenceEscape(right, selected))
+      - Number(isLatentRearFenceEscape(left, selected))
+    || fenceEscapeUtility(right) - fenceEscapeUtility(left)
+    || Number(right.features.fenceClosureDelta || 0)
+      - Number(left.features.fenceClosureDelta || 0)
     || Number(right.score) - Number(left.score)
   ));
   return promoteCandidate(
@@ -2916,6 +3272,189 @@ function prioritizeDevelopingFenceEscape(state, color, ranked) {
     escaping[0],
     'developingFenceEscapeAdjustment',
   );
+}
+
+function safetyParetoFrontier(ranked) {
+  return ranked.filter(candidate => !ranked.some(other => (
+    other !== candidate
+    && safetyDominates(other, candidate)
+  )));
+}
+
+function safetyFenceCandidatePool(ranked, selected) {
+  return Array.from(new Set([
+    ...safetyParetoFrontier(ranked),
+    ...ranked.filter(candidate => (
+      candidate !== selected
+      && isPlausibleLatentRearFenceEscape(candidate, selected)
+    )),
+  ]));
+}
+
+function safetyDominates(left, right) {
+  const leftTrap = Number(left.features.trapDelta) || 0;
+  const rightTrap = Number(right.features.trapDelta) || 0;
+  const leftFence = Number(left.features.fenceClosureDelta) || 0;
+  const rightFence = Number(right.features.fenceClosureDelta) || 0;
+  const leftGateway = Number(left.features.escapeGatewayDelta) || 0;
+  const rightGateway = Number(right.features.escapeGatewayDelta) || 0;
+  const leftLatent = Number(left.features.latentFenceExposureDelta) || 0;
+  const rightLatent = Number(right.features.latentFenceExposureDelta) || 0;
+  return leftTrap >= rightTrap
+    && leftFence >= rightFence
+    && leftGateway >= rightGateway
+    && leftLatent >= rightLatent
+    && (
+      leftTrap > rightTrap
+      || leftFence > rightFence
+      || leftGateway > rightGateway
+      || leftLatent > rightLatent
+    );
+}
+
+function fenceEscapeUtility(candidate) {
+  return (Number(candidate.features.trapDelta) || 0) * 2
+    + (Number(candidate.features.fenceClosureDelta) || 0)
+    + (Number(candidate.features.escapeGatewayDelta) || 0) * 4
+    + (Number(candidate.features.latentFenceExposureDelta) || 0) * 6;
+}
+
+function isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected) {
+  return headCheckers(state, color) >= 7
+    && Number(selected.features.opponentFenceRunBefore || 0) >= 2
+    && Number(selected.features.fenceClosureDelta || 0) < 0
+    && Number(candidate.features.fenceClosureDelta || 0) >= 0
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - 4
+    && Number(candidate.features.headGain || 0)
+      >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.headLandingBreak || 0) <= 70
+    && Number(candidate.features.primeRunAfter || 0) >= 1;
+}
+
+function isCriticalHeadFenceEscape(state, color, candidate, selected) {
+  if (
+    !candidate.tactical
+    || !selected.tactical
+    || !isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 15000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 15000000
+    );
+}
+
+function isLatentRearFenceEscape(candidate, selected) {
+  if (
+    !candidate?.tactical
+    || !selected?.tactical
+    || !isPlausibleLatentRearFenceEscape(candidate, selected)
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 10000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 15000000
+    );
+}
+
+function isPlausibleLatentRearFenceEscape(candidate, selected) {
+  return Number(candidate.features.startZoneReduction || 0)
+    > Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      > Number(selected.features.latentFenceExposureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && preservesLatentEscapePrime(candidate, selected)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && scoreWithoutExperience(candidate) >= (
+      scoreWithoutExperience(selected) - LATENT_REAR_ESCAPE_SCORE_TOLERANCE
+    );
+}
+
+function preservesLatentEscapePrime(candidate, selected) {
+  const candidateRun = Number(candidate.features.primeRunAfter || 0);
+  const selectedRun = Number(selected.features.primeRunAfter || 0);
+  if (candidateRun >= selectedRun) return true;
+
+  const primeRunBefore = Math.max(
+    Number(candidate.features.primeRunBefore || 0),
+    Number(selected.features.primeRunBefore || 0),
+  );
+  const activeBlockingPrime = primeRunBefore >= 4
+    && Number(candidate.features.primeScoreBefore || 0) > 0
+    && Number(candidate.features.opponentMoveBlockBefore || 0) > 0;
+  return !activeBlockingPrime && candidateRun >= Math.max(1, selectedRun - 1);
+}
+
+function scoreWithoutExperience(candidate) {
+  return Number(candidate.score) - Number(candidate.experienceAdjustment || 0);
+}
+
+function annotateAvoidableHomeShuffles(ranked) {
+  ranked.forEach((candidate) => {
+    const homeShuffleMoves = Math.max(
+      0,
+      Number(candidate.features.homeShuffleMoves) || 0,
+    );
+    if (!homeShuffleMoves) {
+      candidate.features.avoidableHomeShuffleMoves = 0;
+      return;
+    }
+
+    const alternatives = ranked.filter(other => (
+      other !== candidate
+      && Number(other.features.homeShuffleMoves || 0) < homeShuffleMoves
+      && Number(other.features.outsideReduction || 0)
+        >= Number(candidate.features.outsideReduction || 0)
+      && Number(other.features.outsidePipGain || 0)
+        >= Number(candidate.features.outsidePipGain || 0)
+      && Number(other.features.trapDelta || 0)
+        >= Number(candidate.features.trapDelta || 0)
+      && Number(other.features.fenceClosureDelta || 0)
+        >= Number(candidate.features.fenceClosureDelta || 0)
+      && Number(other.features.escapeGatewayDelta || 0)
+        >= Number(candidate.features.escapeGatewayDelta || 0)
+      && Number(other.features.latentFenceExposureDelta || 0)
+        >= Number(candidate.features.latentFenceExposureDelta || 0)
+      && Number(other.features.routeTowerDelta || 0)
+        >= Number(candidate.features.routeTowerDelta || 0)
+      && Number(other.features.maxRouteTowerAfter || 0)
+        <= Number(candidate.features.maxRouteTowerAfter || 0)
+      && Number(other.features.headGain || 0)
+        >= Number(candidate.features.headGain || 0)
+      && Number(other.features.startZoneReduction || 0)
+        >= Number(candidate.features.startZoneReduction || 0)
+      && Number(other.features.primeRunAfter || 0)
+        >= Number(candidate.features.primeRunAfter || 0)
+      && Number(other.features.primeScoreAfter || 0)
+        >= Number(candidate.features.primeScoreAfter || 0)
+      && Number(other.features.opponentMoveBlockAfter || 0)
+        >= Number(candidate.features.opponentMoveBlockAfter || 0)
+    ));
+    const minimumNecessary = alternatives.length
+      ? Math.min(...alternatives.map(other => Number(other.features.homeShuffleMoves) || 0))
+      : homeShuffleMoves;
+    candidate.features.avoidableHomeShuffleMoves = Math.max(
+      0,
+      homeShuffleMoves - minimumNecessary,
+    );
+  });
+  return ranked;
 }
 
 function isComparableFenceEscape(candidate, selected) {
@@ -3043,9 +3582,9 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v24';
+const ENGINE_VERSION = 'long-analytic-v25';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
-  strategyProfile: 'v24',
+  strategyProfile: 'v25',
   maxCandidates: 64,
   analysisNodeBudget: 480,
 });

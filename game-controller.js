@@ -724,7 +724,8 @@ window.NarduController = (function () {
   function botFinalStatePayload() {
     const payload = botAnalysisPayload();
     const memory = payload.analysis?.botMemory;
-    if (memory && typeof memory === 'object') {
+    const isGuest = window.NarduApp?.getUser?.()?.guest === true;
+    if (!isGuest && memory && typeof memory === 'object') {
       payload.analysis.botMemory = {
         ...memory,
         decisions: [],
@@ -846,8 +847,9 @@ window.NarduController = (function () {
   function ensureBotFinalStatePublished() {
     if (state?.gameOverPublishedAt) return Promise.resolve(true);
     if (gameOverPublishPromise) return gameOverPublishPromise;
-    // The complete decision log is archived separately. Keeping it out of the
-    // authoritative room finalizer prevents long games from timing out here.
+    // A guest archive must exactly match the immutable room snapshot, including
+    // decisions. Registered games keep the compact RPC payload and archive the
+    // complete log separately to avoid finalizer timeouts on long games.
     const payload = botFinalStatePayload();
     gameOverPublishPromise = (async () => {
       let lastError = null;

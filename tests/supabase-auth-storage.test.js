@@ -49,14 +49,20 @@ async function loadClient(storage) {
 
 test('Supabase auth token storage evicts reproducible game caches before losing a session', async () => {
   const storage = quotaStorage({
-    'narduh-long-bot-server-experience-v5': 'x'.repeat(620),
+    'narduh-long-bot-server-experience-v7': 'x'.repeat(620),
+    'narduh-long-bot-experience-v3': 'current-memory',
+    'narduh-long-bot-experience-v2': 'stale-memory',
+    'narduh-long-bot-experience-v1': 'legacy-memory',
     'narduh-user': JSON.stringify({ id: 'user-1', name: 'warlord', history: [] }),
     'sb-other-auth-token': 'active-session',
   });
   const client = await loadClient(storage);
 
   assert.doesNotThrow(() => client.storage.setItem('sb-project-auth-token', 'token'.repeat(40)));
-  assert.equal(storage.getItem('narduh-long-bot-server-experience-v5'), null);
+  assert.equal(storage.getItem('narduh-long-bot-server-experience-v7'), null);
+  assert.equal(storage.getItem('narduh-long-bot-experience-v3'), null);
+  assert.equal(storage.getItem('narduh-long-bot-experience-v2'), null);
+  assert.equal(storage.getItem('narduh-long-bot-experience-v1'), null);
   assert.equal(storage.getItem('sb-project-auth-token'), 'token'.repeat(40));
   assert.equal(storage.getItem('sb-other-auth-token'), 'active-session');
   assert.match(storage.getItem('narduh-user'), /warlord/);

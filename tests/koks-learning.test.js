@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v1";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v3";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -167,14 +167,14 @@ test("the winner's real turn is reconstructed from game history", () => {
   assert.match(captured[0].experience.actionKey, /prime:/);
 });
 
-test("the v20 opponent-memory RPC preserves severity and winning examples", () => {
+test("the v25 opponent-memory RPC preserves severity and winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-winning-opponent-v20.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v25.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -190,14 +190,14 @@ test("the v20 opponent-memory RPC preserves severity and winning examples", () =
   assert.match(migration, /actor = 'opponent'/);
   assert.match(migration, /as successful/);
   assert.match(migration, /as win_weight/);
-  assert.match(migration, /'creditVersion', 3/);
+  assert.match(migration, /'creditVersion', 4/);
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v24 bot dependency", () => {
+test("production entry points cache-bust every v25 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260827-long-strategy-v24";
+  const version = "20260829-long-strategy-v25";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

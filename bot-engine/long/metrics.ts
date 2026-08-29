@@ -182,6 +182,40 @@ export function opponentFenceRun(state, color) {
   return longest;
 }
 
+export function latentFenceExposure(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const rear = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color)
+    .map(([point, stack]) => ({
+      point: Number(point),
+      pos: pathPos(color, Number(point)),
+      count: Number(stack.count) || 0,
+    }))
+    .filter(checker => checker.pos >= 0 && checker.pos < 18)
+    .sort((left, right) => left.pos - right.pos)[0];
+  if (!rear) return 0;
+
+  const window = path.slice(rear.pos + 1, Math.min(18, rear.pos + 7));
+  const occupied = window.reduce((items, point, index) => {
+    const stack = stackAt(state, point);
+    if (stack?.color !== opponent) return items;
+    items.push({ offset: index + 1, count: Number(stack.count) || 0 });
+    return items;
+  }, []);
+  if (occupied.length < 2) return 0;
+
+  const coverage = (occupied.length - 1) * 18
+    + occupied.reduce((total, item) => (
+      total + Math.min(2, item.count) * (7 - item.offset) * 0.7
+    ), 0);
+  const startZonePressure = rear.pos <= 5
+    ? 1.55 + (5 - rear.pos) * 0.08
+    : 1;
+  const stackPressure = 1 + Math.min(4, Math.max(0, rear.count - 1)) * 0.35;
+  return coverage * startZonePressure * stackPressure;
+}
+
 export function routeTowerRisk(state, color) {
   if (outsideHomeCount(state, color) <= 0) return 0;
   const fenceRun = opponentFenceRun(state, color);

@@ -26,12 +26,14 @@ import {
   pathPos,
   pipsFor,
   koksRescuePressure,
+  latentFenceExposure,
   startZoneCount,
   startZoneExitMoveCount,
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
+const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -103,6 +105,9 @@ export function createLongBotEngine(adapter, options = {}) {
         candidate.score += candidate.features.advancedStrategyAdjustment;
       }
       candidate.features.strategyProfile = strategyProfile;
+    });
+    annotateAvoidableHomeShuffles(ranked);
+    ranked.forEach((candidate) => {
       candidate.experience = experienceDescriptor(state, color, candidate.features);
       candidate.experienceAdjustment = useExperience
         ? boundedExperienceAdjustment(
@@ -137,6 +142,16 @@ export function createLongBotEngine(adapter, options = {}) {
       }
     }
     strategicallyRanked = reserveHomeEntryForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
+    strategicallyRanked = reserveRouteContinuityForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
+    strategicallyRanked = reserveDevelopingFenceEscapeForTacticalAnalysis(
       state,
       color,
       strategicallyRanked,
@@ -208,11 +223,9 @@ export function createLongBotEngine(adapter, options = {}) {
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
     // received realistic reply penalties.
-    const finalCandidates = prioritizeDevelopingFenceEscape(
-      state,
-      color,
-      analyzedCandidates.length ? analyzedCandidates : strategicallyEligible,
-    );
+    let finalCandidates = analyzedCandidates.length
+      ? analyzedCandidates
+      : strategicallyEligible;
     finalCandidates.forEach((candidate) => {
       const previousExperienceAdjustment = Number(candidate.experienceAdjustment) || 0;
       candidate.experience = experienceDescriptor(
@@ -229,6 +242,11 @@ export function createLongBotEngine(adapter, options = {}) {
         : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
+    finalCandidates = prioritizeDevelopingFenceEscape(
+      state,
+      color,
+      finalCandidates.sort((left, right) => right.score - left.score),
+    );
     const sortedCandidates = prioritizeLatentTrapDistribution(
       state,
       color,
@@ -453,12 +471,14 @@ function advancedStateMetrics(state, color) {
     primeScore: blockingPrimeScore(state, color),
     primeRun: blockingPrimeRun(state, color),
     opponentMoveBlock: opponentMoveBlockScore(state, color),
+    latentFenceExposure: latentFenceExposure(state, color),
   };
 }
 
 function advancedSequenceStats(beforeMetrics, after, color) {
   const primeScoreAfter = blockingPrimeScore(after, color);
   const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+  const latentFenceExposureAfter = latentFenceExposure(after, color);
   return {
     primeScoreBefore: beforeMetrics.primeScore,
     primeScoreAfter,
@@ -468,6 +488,9 @@ function advancedSequenceStats(beforeMetrics, after, color) {
     opponentMoveBlockBefore: beforeMetrics.opponentMoveBlock,
     opponentMoveBlockAfter,
     opponentMoveBlockGain: opponentMoveBlockAfter - beforeMetrics.opponentMoveBlock,
+    latentFenceExposureBefore: beforeMetrics.latentFenceExposure,
+    latentFenceExposureAfter,
+    latentFenceExposureDelta: beforeMetrics.latentFenceExposure - latentFenceExposureAfter,
   };
 }
 
@@ -523,7 +546,7 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
 
 function prioritizeRouteContinuity(state, color, ranked) {
   const selected = ranked[0];
-  if (!hasHomeEntryPriorityContext(state, color, selected)) return ranked;
+  if (!hasRouteContinuityPriorityContext(state, color, selected)) return ranked;
 
   const selectedEntry = Number(selected.features.outsideReduction) || 0;
   const selectedProgress = Number(selected.features.outsidePipGain) || 0;
@@ -534,8 +557,12 @@ function prioritizeRouteContinuity(state, color, ranked) {
       < Number(selected.features.homeShuffleMoves || 0)
     && Number(candidate.features.outsideReduction || 0) >= selectedEntry
     && Number(candidate.features.outsidePipGain || 0) > selectedProgress
-    && Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
-    && isSafeRouteAlternative(candidate, selected, 8000000, 250000, 250000)
+    && (
+      Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+      || Number(candidate.features.startZoneReduction || 0)
+        > Number(selected.features.startZoneReduction || 0)
+    )
+    && isSafeRouteContinuityAlternative(candidate, selected)
   ));
   if (!continuing.length) return ranked;
 
@@ -827,6 +854,7 @@ export function reserveHomeEntryForTacticalAnalysis(
   const reserved = entering.find(
     candidate => Number(candidate.features.outsideReduction) === maxEntry,
   );
+  reserved.features.homeEntryTacticalReservation = 1;
   const reservedIndex = ranked.indexOf(reserved);
   if (reservedIndex < slotCount) return ranked;
 
@@ -837,6 +865,222 @@ export function reserveHomeEntryForTacticalAnalysis(
     reserved,
     ...ranked.filter(candidate => candidate !== reserved && !leadingSet.has(candidate)),
   ];
+}
+
+export function reserveRouteContinuityForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (
+    ranked.length <= slotCount
+    || !hasRouteContinuityPriorityContext(state, color, selected)
+  ) {
+    return ranked;
+  }
+
+  const selectedEntry = Number(selected.features.outsideReduction) || 0;
+  const selectedProgress = Number(selected.features.outsidePipGain) || 0;
+  const selectedDebt = Number(selected.features.laggardDebtDelta) || 0;
+  const continuing = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.outsideReduction || 0) >= selectedEntry
+    && Number(candidate.features.outsidePipGain || 0) > selectedProgress
+    && (
+      Number(candidate.features.laggardDebtDelta || 0) >= selectedDebt
+      || Number(candidate.features.startZoneReduction || 0)
+        > Number(selected.features.startZoneReduction || 0)
+    )
+    && isPlausibleRouteContinuityAlternative(candidate, selected)
+  ));
+  if (!continuing.length) return ranked;
+
+  continuing.sort((left, right) => (
+    Number(right.score) - Number(left.score)
+    || Number(right.features.startZoneReduction || 0)
+      - Number(left.features.startZoneReduction || 0)
+    || Number(right.features.outsideReduction || 0)
+      - Number(left.features.outsideReduction || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+  ));
+  continuing[0].features.routeContinuityTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, slotCount);
+}
+
+export function reserveDevelopingFenceEscapeForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  const fenceRun = Number(selected?.features.opponentFenceRunBefore) || 0;
+  const hasLatentRearEscape = Boolean(selected) && ranked.some(candidate => (
+    candidate !== selected
+    && Number(candidate.features.startZoneReduction || 0)
+      > Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      > Number(selected.features.latentFenceExposureDelta || 0)
+  ));
+  if (
+    ranked.length <= slotCount
+    || !selected
+    || homeReady(state, color)
+    || (fenceRun < 2 && !hasLatentRearEscape)
+  ) {
+    return ranked;
+  }
+
+  const selectedUtility = fenceEscapeUtility(selected);
+  const frontier = safetyFenceCandidatePool(ranked, selected).filter(candidate => (
+    candidate !== selected
+    && fenceEscapeUtility(candidate) > selectedUtility + 1
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && (
+      (
+        Number(candidate.score) >= Number(selected.score) - 260000000
+        && Number(candidate.features.primeRunAfter || 0)
+          >= Number(selected.features.primeRunAfter || 0)
+      )
+      || isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
+      || isPlausibleLatentRearFenceEscape(candidate, selected)
+    )
+  ));
+  if (!frontier.length) return ranked;
+
+  frontier.sort((left, right) => (
+    Number(isPlausibleLatentRearFenceEscape(right, selected))
+      - Number(isPlausibleLatentRearFenceEscape(left, selected))
+    || fenceEscapeUtility(right) - fenceEscapeUtility(left)
+    || Number(right.features.fenceClosureDelta || 0)
+      - Number(left.features.fenceClosureDelta || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  frontier[0].features.fenceEscapeTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, slotCount);
+}
+
+function reorderTacticalReservations(ranked, limit) {
+  if (!ranked.length) return ranked;
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  const selected = ranked[0];
+  const reservations = ranked.filter(candidate => (
+    candidate !== selected
+    && (
+      Number(candidate.features.homeEntryTacticalReservation || 0) > 0
+      || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
+      || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+    )
+  ));
+  if (!reservations.length) return ranked;
+
+  reservations.sort((left, right) => (
+    tacticalReservationPriority(left) - tacticalReservationPriority(right)
+    || Number(right.score) - Number(left.score)
+  ));
+  const reserved = uniqueCandidatePositions(reservations).slice(0, slotCount - 1);
+  const reservedSet = new Set(reserved);
+  const leading = [selected];
+  const leadingPositions = new Set([
+    candidatePositionKey(selected),
+    ...reserved.map(candidatePositionKey),
+  ]);
+  for (const candidate of ranked) {
+    if (candidate === selected || reservedSet.has(candidate)) continue;
+    const position = candidatePositionKey(candidate);
+    if (leadingPositions.has(position)) continue;
+    if (leading.length >= slotCount - reserved.length) break;
+    leading.push(candidate);
+    leadingPositions.add(position);
+  }
+  const prioritized = [...leading, ...reserved];
+  const prioritizedSet = new Set(prioritized);
+  return [...prioritized, ...ranked.filter(candidate => !prioritizedSet.has(candidate))];
+}
+
+function tacticalReservationPriority(candidate) {
+  if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
+  if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  return 3;
+}
+
+function uniqueCandidatePositions(candidates) {
+  const seen = new Set();
+  return candidates.filter(candidate => {
+    const key = candidatePositionKey(candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function candidatePositionKey(candidate) {
+  if (!candidate?.after) return `candidate:${String(candidate?.id || '')}`;
+  const points = Object.entries(candidate.after.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(candidate.after.off?.white) || 0}:${Number(candidate.after.off?.dark) || 0}`;
+}
+
+function hasRouteContinuityPriorityContext(state, color, selected) {
+  return Boolean(selected)
+    && !homeReady(state, color)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) > 0
+    && Number(selected.features.homeShuffleMoves || 0) > 0;
+}
+
+function isPlausibleRouteContinuityAlternative(candidate, selected) {
+  const progressGain = Math.max(
+    0,
+    Number(candidate.features.outsidePipGain || 0)
+      - Number(selected.features.outsidePipGain || 0),
+  );
+  const scoreTolerance = Math.min(96000000, 12000000 + progressGain * 12000000);
+  const gatewayTolerance = Math.min(4, Math.max(1.25, progressGain * 0.4));
+  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0) - 2
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - gatewayTolerance
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1;
+}
+
+function isSafeRouteContinuityAlternative(candidate, selected) {
+  if (
+    !candidate.tactical
+    || !selected.tactical
+    || !isPlausibleRouteContinuityAlternative(candidate, selected)
+  ) {
+    return false;
+  }
+  const progressGain = Math.max(
+    0,
+    Number(candidate.features.outsidePipGain || 0)
+      - Number(selected.features.outsidePipGain || 0),
+  );
+  return Number(candidate.tactical.expectedImpact) >= (
+    Number(selected.tactical.expectedImpact) - (1000000 + progressGain * 1000000)
+  )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - (2000000 + progressGain * 4000000)
+    );
 }
 
 function hasHomeEntryPriorityContext(state, color, selected) {
@@ -1048,34 +1292,51 @@ function prioritizeForcedRacePlay(state, color, ranked) {
 
 function prioritizeDevelopingFenceEscape(state, color, ranked) {
   if (!ranked.length || homeReady(state, color)) return ranked;
+  const selected = ranked[0];
   const fenceRun = Math.max(...ranked.map(
     candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
   ));
   const closureBefore = Math.max(...ranked.map(
     candidate => Number(candidate.features.fenceClosureBefore) || 0,
   ));
-  const escapeRelief = candidate => {
-    const closureRelief = Number(candidate.features.fenceClosureDelta) || 0;
-    const gatewayRelief = Number(candidate.features.escapeGatewayDelta) || 0;
-    if (closureRelief < 0 || gatewayRelief < 0) return 0;
-    return closureRelief + gatewayRelief;
-  };
-  const maxEscapeRelief = Math.max(...ranked.map(escapeRelief));
-  const developingFenceIsCritical = fenceRun >= 2
-    && closureBefore >= 36
-    && maxEscapeRelief >= closureBefore * 0.45;
+  const selectedUtility = fenceEscapeUtility(selected);
+  const frontier = safetyFenceCandidatePool(ranked, selected);
+  const maxEscapeUtility = Math.max(...frontier.map(fenceEscapeUtility));
+  const latentRearEscape = frontier.some(candidate => isLatentRearFenceEscape(
+    candidate,
+    selected,
+  ));
+  const developingFenceIsCritical = (fenceRun >= 2 || latentRearEscape)
+    && (
+      closureBefore >= 12
+      || Number(selected.features.fenceClosureDelta || 0) < 0
+      || latentRearEscape
+    )
+    && maxEscapeUtility > selectedUtility + 1;
   if (!developingFenceIsCritical) return ranked;
 
-  const escapeFloor = Math.max(closureBefore * 0.45, maxEscapeRelief * 0.8);
-  const selected = ranked[0];
-  const escaping = ranked.filter(candidate => (
-    escapeRelief(candidate) >= escapeFloor
-    && isComparableFenceEscape(candidate, selected)
+  const escapeFloor = selectedUtility + Math.max(1, (maxEscapeUtility - selectedUtility) * 0.72);
+  const escaping = frontier.filter(candidate => (
+    candidate !== selected
+    && (
+      (
+        fenceEscapeUtility(candidate) >= escapeFloor
+        && (
+          isComparableFenceEscape(candidate, selected)
+          || isCriticalHeadFenceEscape(state, color, candidate, selected)
+        )
+      )
+      || isLatentRearFenceEscape(candidate, selected)
+    )
   ));
   if (!escaping.length) return ranked;
 
   escaping.sort((left, right) => (
-    escapeRelief(right) - escapeRelief(left)
+    Number(isLatentRearFenceEscape(right, selected))
+      - Number(isLatentRearFenceEscape(left, selected))
+    || fenceEscapeUtility(right) - fenceEscapeUtility(left)
+    || Number(right.features.fenceClosureDelta || 0)
+      - Number(left.features.fenceClosureDelta || 0)
     || Number(right.score) - Number(left.score)
   ));
   return promoteCandidate(
@@ -1083,6 +1344,189 @@ function prioritizeDevelopingFenceEscape(state, color, ranked) {
     escaping[0],
     'developingFenceEscapeAdjustment',
   );
+}
+
+function safetyParetoFrontier(ranked) {
+  return ranked.filter(candidate => !ranked.some(other => (
+    other !== candidate
+    && safetyDominates(other, candidate)
+  )));
+}
+
+function safetyFenceCandidatePool(ranked, selected) {
+  return Array.from(new Set([
+    ...safetyParetoFrontier(ranked),
+    ...ranked.filter(candidate => (
+      candidate !== selected
+      && isPlausibleLatentRearFenceEscape(candidate, selected)
+    )),
+  ]));
+}
+
+function safetyDominates(left, right) {
+  const leftTrap = Number(left.features.trapDelta) || 0;
+  const rightTrap = Number(right.features.trapDelta) || 0;
+  const leftFence = Number(left.features.fenceClosureDelta) || 0;
+  const rightFence = Number(right.features.fenceClosureDelta) || 0;
+  const leftGateway = Number(left.features.escapeGatewayDelta) || 0;
+  const rightGateway = Number(right.features.escapeGatewayDelta) || 0;
+  const leftLatent = Number(left.features.latentFenceExposureDelta) || 0;
+  const rightLatent = Number(right.features.latentFenceExposureDelta) || 0;
+  return leftTrap >= rightTrap
+    && leftFence >= rightFence
+    && leftGateway >= rightGateway
+    && leftLatent >= rightLatent
+    && (
+      leftTrap > rightTrap
+      || leftFence > rightFence
+      || leftGateway > rightGateway
+      || leftLatent > rightLatent
+    );
+}
+
+function fenceEscapeUtility(candidate) {
+  return (Number(candidate.features.trapDelta) || 0) * 2
+    + (Number(candidate.features.fenceClosureDelta) || 0)
+    + (Number(candidate.features.escapeGatewayDelta) || 0) * 4
+    + (Number(candidate.features.latentFenceExposureDelta) || 0) * 6;
+}
+
+function isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected) {
+  return headCheckers(state, color) >= 7
+    && Number(selected.features.opponentFenceRunBefore || 0) >= 2
+    && Number(selected.features.fenceClosureDelta || 0) < 0
+    && Number(candidate.features.fenceClosureDelta || 0) >= 0
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - 4
+    && Number(candidate.features.headGain || 0)
+      >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.headLandingBreak || 0) <= 70
+    && Number(candidate.features.primeRunAfter || 0) >= 1;
+}
+
+function isCriticalHeadFenceEscape(state, color, candidate, selected) {
+  if (
+    !candidate.tactical
+    || !selected.tactical
+    || !isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 15000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 15000000
+    );
+}
+
+function isLatentRearFenceEscape(candidate, selected) {
+  if (
+    !candidate?.tactical
+    || !selected?.tactical
+    || !isPlausibleLatentRearFenceEscape(candidate, selected)
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.expectedImpact) >= (
+      Number(selected.tactical.expectedImpact) - 10000000
+    )
+    && Number(candidate.tactical.worstImpact) >= (
+      Number(selected.tactical.worstImpact) - 15000000
+    );
+}
+
+function isPlausibleLatentRearFenceEscape(candidate, selected) {
+  return Number(candidate.features.startZoneReduction || 0)
+    > Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      > Number(selected.features.latentFenceExposureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && preservesLatentEscapePrime(candidate, selected)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && scoreWithoutExperience(candidate) >= (
+      scoreWithoutExperience(selected) - LATENT_REAR_ESCAPE_SCORE_TOLERANCE
+    );
+}
+
+function preservesLatentEscapePrime(candidate, selected) {
+  const candidateRun = Number(candidate.features.primeRunAfter || 0);
+  const selectedRun = Number(selected.features.primeRunAfter || 0);
+  if (candidateRun >= selectedRun) return true;
+
+  const primeRunBefore = Math.max(
+    Number(candidate.features.primeRunBefore || 0),
+    Number(selected.features.primeRunBefore || 0),
+  );
+  const activeBlockingPrime = primeRunBefore >= 4
+    && Number(candidate.features.primeScoreBefore || 0) > 0
+    && Number(candidate.features.opponentMoveBlockBefore || 0) > 0;
+  return !activeBlockingPrime && candidateRun >= Math.max(1, selectedRun - 1);
+}
+
+function scoreWithoutExperience(candidate) {
+  return Number(candidate.score) - Number(candidate.experienceAdjustment || 0);
+}
+
+export function annotateAvoidableHomeShuffles(ranked) {
+  ranked.forEach((candidate) => {
+    const homeShuffleMoves = Math.max(
+      0,
+      Number(candidate.features.homeShuffleMoves) || 0,
+    );
+    if (!homeShuffleMoves) {
+      candidate.features.avoidableHomeShuffleMoves = 0;
+      return;
+    }
+
+    const alternatives = ranked.filter(other => (
+      other !== candidate
+      && Number(other.features.homeShuffleMoves || 0) < homeShuffleMoves
+      && Number(other.features.outsideReduction || 0)
+        >= Number(candidate.features.outsideReduction || 0)
+      && Number(other.features.outsidePipGain || 0)
+        >= Number(candidate.features.outsidePipGain || 0)
+      && Number(other.features.trapDelta || 0)
+        >= Number(candidate.features.trapDelta || 0)
+      && Number(other.features.fenceClosureDelta || 0)
+        >= Number(candidate.features.fenceClosureDelta || 0)
+      && Number(other.features.escapeGatewayDelta || 0)
+        >= Number(candidate.features.escapeGatewayDelta || 0)
+      && Number(other.features.latentFenceExposureDelta || 0)
+        >= Number(candidate.features.latentFenceExposureDelta || 0)
+      && Number(other.features.routeTowerDelta || 0)
+        >= Number(candidate.features.routeTowerDelta || 0)
+      && Number(other.features.maxRouteTowerAfter || 0)
+        <= Number(candidate.features.maxRouteTowerAfter || 0)
+      && Number(other.features.headGain || 0)
+        >= Number(candidate.features.headGain || 0)
+      && Number(other.features.startZoneReduction || 0)
+        >= Number(candidate.features.startZoneReduction || 0)
+      && Number(other.features.primeRunAfter || 0)
+        >= Number(candidate.features.primeRunAfter || 0)
+      && Number(other.features.primeScoreAfter || 0)
+        >= Number(candidate.features.primeScoreAfter || 0)
+      && Number(other.features.opponentMoveBlockAfter || 0)
+        >= Number(candidate.features.opponentMoveBlockAfter || 0)
+    ));
+    const minimumNecessary = alternatives.length
+      ? Math.min(...alternatives.map(other => Number(other.features.homeShuffleMoves) || 0))
+      : homeShuffleMoves;
+    candidate.features.avoidableHomeShuffleMoves = Math.max(
+      0,
+      homeShuffleMoves - minimumNecessary,
+    );
+  });
+  return ranked;
 }
 
 export function isComparableFenceEscape(candidate, selected) {

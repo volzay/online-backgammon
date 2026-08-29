@@ -72,6 +72,7 @@ function finishedGameContext({
   mode = "bot",
   deferFinalState = false,
   autoFinish = true,
+  guest = false,
 } = {}) {
   const elements = new Map();
   const makeElement = initialId => {
@@ -132,7 +133,11 @@ function finishedGameContext({
     setTimeout(callback, ms) { return setTimeout(callback, Math.min(Number(ms) || 0, 5)); },
     requestAnimationFrame(callback) { callback(); },
     NarduApp: {
-      getUser() { return { id: "user-1", name: "Tester", guest: false }; },
+      getUser() {
+        return guest
+          ? { id: "guest:test", name: "Наблюдатель", guest: true }
+          : { id: "user-1", name: "Tester", guest: false };
+      },
       paintUser() {},
     },
     NarduRooms: {
@@ -405,6 +410,27 @@ test("finished bot analysis reaches both rating finalization and the training ar
   assert.equal(roomCalls.archives, 1);
 });
 
+test("guest training archive waits for the full authoritative decision log", async () => {
+  const { roomCalls, releaseFinalState } = finishedGameContext({
+    guest: true,
+    deferFinalState: true,
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(roomCalls.finishCalls, 1);
+  assert.equal(roomCalls.archives, 0);
+  assert.equal(roomCalls.finalStatePayload.analysis.botMemory.decisions.length, 1);
+
+  releaseFinalState();
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(roomCalls.archives, 1);
+  assert.deepEqual(
+    roomCalls.finalStatePayload.analysis.botMemory.decisions,
+    roomCalls.archivePayload.analysis.botMemory.decisions,
+  );
+});
+
 test("the first game-over action wins when lobby and another game are clicked", async () => {
   const { document, location, roomCalls } = finishedGameContext();
   const lobbyButton = document.getElementById("go-lobby");
@@ -473,6 +499,71 @@ test("saving a new game reopens an archived room", async () => {
   assert.equal(updates[1].closed_reason, "finished");
 });
 
+test("guest hard-bot finalization uses the versioned room update", async () => {
+  const updates = [];
+  const filters = [];
+  let rpcCalls = 0;
+  let signOutCalls = 0;
+  const builder = {
+    update(value) { updates.push(value); return this; },
+    eq(column, value) { filters.push([column, value]); return this; },
+    select() { return this; },
+    async maybeSingle() { return { data: { game_version: 4 }, error: null }; },
+  };
+  const client = {
+    auth: {
+      async signOut() { signOutCalls += 1; },
+    },
+    from(table) {
+      assert.equal(table, "rooms");
+      return builder;
+    },
+    async rpc() {
+      rpcCalls += 1;
+      return { data: null, error: new Error("guest must not call authenticated finalizer") };
+    },
+  };
+  const context = {
+    window: {
+      NarduApp: {
+        getUser() { return { name: "Наблюдатель", guest: true }; },
+      },
+      NarduSupabase: {
+        configured() { return true; },
+        async client() { return client; },
+      },
+    },
+    localStorage: memoryStorage(),
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+  const decisions = [{ id: "guest-hard-1", experience: { actionKey: "route:safe" } }];
+  const finalState = {
+    phase: "over",
+    winner: "white",
+    analysis: { botMemory: { decisions } },
+  };
+
+  const result = await context.window.NarduRooms.finishRoomGame("TEST-RM1", finalState, 3);
+
+  assert.equal(result.version, 4);
+  assert.equal(signOutCalls, 1);
+  assert.equal(rpcCalls, 0);
+  assert.equal(updates[0].status, "over");
+  assert.deepEqual(updates[0].game_state.analysis.botMemory.decisions, decisions);
+  assert.deepEqual(filters, [["code", "TEST-RM1"], ["game_version", 3]]);
+});
+
 test("bot training archive does not overwrite a live rematch state", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   const start = schema.indexOf("create or replace function public.archive_bot_training_game");
@@ -481,6 +572,36 @@ test("bot training archive does not overwrite a live rematch state", () => {
 
   assert.match(archiveFunction, /target_state := p_final_state;/);
   assert.doesNotMatch(archiveFunction, /game_state\s*=\s*p_final_state/);
+});
+
+test("guest bot archive keeps exact-state protection and archives final-state decisions", () => {
+  const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
+  const archiveStart = schema.indexOf("create or replace function public.archive_bot_training_game");
+  const archiveEnd = schema.indexOf("revoke all on function public.archive_bot_training_game", archiveStart);
+  const archiveFunction = schema.slice(archiveStart, archiveEnd);
+  const triggerStart = schema.indexOf("create or replace function public.archive_finished_bot_training_game");
+  const triggerEnd = schema.indexOf("drop trigger if exists rooms_archive_finished_bot_training", triggerStart);
+  const triggerFunction = schema.slice(triggerStart, triggerEnd);
+
+  assert.match(archiveFunction, /jsonb_array_length\(coalesce\(target_state->'analysis'->'botMemory'->'decisions'/);
+  assert.match(
+    archiveFunction,
+    /coalesce\(p_final_state->'analysis'->'botMemory'->'decisions',[\s\S]*<> coalesce\(target_state->'analysis'->'botMemory'->'decisions'/,
+  );
+  assert.match(triggerFunction, /jsonb_array_length\(decisions\) = 0 then/);
+  assert.match(triggerFunction, /decision_count, decisions, final_state/);
+  assert.match(triggerFunction, /jsonb_array_length\(decisions\),\s*decisions,\s*target_state/);
+});
+
+test("anonymous room updates cannot mutate a registered hard-bot room", () => {
+  const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
+  const policyStart = schema.indexOf('create policy "anonymous guests can update guest rooms"');
+  const policyEnd = schema.indexOf('drop policy if exists "authenticated users can join waiting rooms"', policyStart);
+  const policy = schema.slice(policyStart, policyEnd);
+
+  assert.match(policy, /host_user_id is not null/);
+  assert.match(policy, /coalesce\(game_state->>'mode', game_state->'analysis'->>'mode', ''\) = 'bot'/);
+  assert.match(policy, /host_user_id is null or guest_user_id is null/);
 });
 
 test("cached server experience is applied before a slow refresh RPC finishes", async () => {
@@ -493,7 +614,7 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v5", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v7", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     patterns: [pattern],

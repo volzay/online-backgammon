@@ -4,7 +4,7 @@
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
-  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v5";
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v7";
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v4";
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
@@ -743,10 +743,14 @@
         body: JSON.stringify({ state: finalState, version: Number(version) || 0 }),
       });
     }
-    const { client } = await roomClientContext();
+    const { client, authUser, guest } = await roomClientContext();
+    const payload = JSON.parse(JSON.stringify(finalState || {}));
+    if (guest && !authUser?.id) {
+      return putGameState(normalizedCode, payload, version);
+    }
     const { data, error } = await client.rpc("finish_room_game", {
       p_room_code: normalizedCode,
-      p_final_state: JSON.parse(JSON.stringify(finalState || {})),
+      p_final_state: payload,
     });
     if (error) throw supabaseError(error, "Could not finish room game.");
     return data || { ok: true };

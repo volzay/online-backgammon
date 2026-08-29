@@ -81,7 +81,7 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.setExperience, "function");
   assert.equal(typeof engine.experienceSize, "function");
   assert.deepEqual(JSON.parse(JSON.stringify(engine.productionOptions)), {
-    strategyProfile: "v24",
+    strategyProfile: "v25",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -119,7 +119,7 @@ test("v20 prime metrics value blocked checkers rather than empty board patterns"
   );
 });
 
-test("v24 prime value saturates once six consecutive points block every roll", async () => {
+test("v25 prime value saturates once six consecutive points block every roll", async () => {
   const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
   const sixPointPrime = longState({
     24: { color: "white", count: 10 },
@@ -206,7 +206,7 @@ test("opponent head barrier grows monotonically across adjacent own points", asy
   assert.ok(fourPointScore > threePointScore);
 });
 
-test("v24 reply analysis covers all four reserved candidates and expands doubles", async () => {
+test("v25 reply analysis covers all four reserved candidates and expands doubles", async () => {
   const { game } = loadBrowserEngine();
   const analysis = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/analysis.ts"),
@@ -246,7 +246,7 @@ test("v24 reply analysis covers all four reserved candidates and expands doubles
   assert.ok(analyzed.every(candidate => candidate.tactical.rolls === 21));
 });
 
-test("v24 chooses the robust game-15 move across all rolls instead of hindsight dice", () => {
+test("v25 chooses the robust game-15 move across all rolls instead of hindsight dice", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     4: { color: "white", count: 1 },
@@ -428,7 +428,7 @@ test("evaluation rewards head support and penalizes trapped checkers", () => {
   assert.ok(engine.evaluateState(supported, "dark") > engine.evaluateState(trapped, "dark"));
 });
 
-test("v24 laggard debt rewards releasing the final head checker without a discontinuity", async () => {
+test("v25 laggard debt rewards releasing the final head checker without a discontinuity", async () => {
   const metrics = await import(pathToFileURL(path.join(ROOT, "bot-engine/long/metrics.ts")).href);
   const before = longState({
     12: { color: "dark", count: 1 },
@@ -679,7 +679,7 @@ test("8KSQ-PUEY move 12 advances outside instead of shuffling inside home", () =
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
   assert.equal(decision.selected.features.outsidePipGain, 7);
-  assert.equal(decision.selected.features.strategyProfile, "v24");
+  assert.equal(decision.selected.features.strategyProfile, "v25");
 });
 
 test("ZQBE-SM3L move 37 distributes the route instead of building a six-checker tower", () => {
@@ -739,7 +739,7 @@ test("ZQBE-SM3L move 39 advances the laggard instead of growing a seven-checker 
   ]);
   assert.equal(decision.selected.features.maxRouteTowerAfter, 6);
   assert.equal(decision.selected.features.outsidePipGain, 7);
-  assert.equal(decision.selected.features.strategyProfile, "v24");
+  assert.equal(decision.selected.features.strategyProfile, "v25");
 });
 
 test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home", () => {
@@ -768,7 +768,7 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
   assert.equal(decision.selected.features.outsidePipGain, 5);
-  assert.equal(decision.selected.features.strategyProfile, "v24");
+  assert.equal(decision.selected.features.strategyProfile, "v25");
 });
 
 test("48RU-XSRE enters both available checkers instead of shuffling inside home", () => {
@@ -871,7 +871,7 @@ test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () =>
   });
 
   const ranked = engine.rank(state, {
-    strategyProfile: "v24",
+    strategyProfile: "v25",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -912,7 +912,7 @@ test("PRBV-GYBH turn 11 avoids a five-checker tower behind a developing fence", 
   });
 
   const ranked = engine.rank(state, {
-    strategyProfile: "v24",
+    strategyProfile: "v25",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -1492,7 +1492,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v24");
+  assert.equal(decision.engineVersion, "long-analytic-v25");
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -1697,7 +1697,7 @@ test("SGHP-V6KP move 22 advances the deepest laggard before entering a nearer ch
   assert.ok(!plan.some(move => move.from === 24 && move.die === 3));
 });
 
-test("v24 preserves an active six-prime while its laggard is not critically trapped", () => {
+test("v25 preserves an active six-prime while its laggard is not critically trapped", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 3 },
@@ -1738,7 +1738,7 @@ test("v24 preserves an active six-prime while its laggard is not critically trap
       >= decision.selected.features.primeScoreBefore,
   );
   assert.ok(decision.selected.features.trapBefore < 240);
-  assert.equal(decision.selected.features.strategyProfile, "v24");
+  assert.equal(decision.selected.features.strategyProfile, "v25");
 });
 
 test("late race preserves an active six-prime that traps opposing checkers", () => {
@@ -2167,7 +2167,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
-  assert.match(schema, /'creditVersion', 3/);
+  assert.match(schema, /'creditVersion', 4/);
   assert.match(schema, /'wins', wins/);
   assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
@@ -2180,7 +2180,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v5/);
+  assert.match(client, /narduh-long-bot-server-experience-v7/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);

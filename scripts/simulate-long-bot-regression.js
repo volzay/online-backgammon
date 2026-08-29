@@ -22,7 +22,7 @@ const VALUE_OPTIONS = new Set([
   'experience',
 ]);
 const FLAG_OPTIONS = new Set(['trace', 'learn']);
-const SUPPORTED_PROFILES = new Set(['v19', 'v24']);
+const SUPPORTED_PROFILES = new Set(['v19', 'v25']);
 
 function fingerprintNamedBuffers(entries) {
   const hash = createHash('sha256');
@@ -129,7 +129,7 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const experienceSnapshot = readExperienceSnapshot(experienceFile);
   const patterns = experienceSnapshot.patterns;
   const storage = new Map([
-    ['narduh-long-bot-experience-v1', JSON.stringify(patterns)],
+    ['narduh-long-bot-experience-v3', JSON.stringify(patterns)],
   ]);
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {
@@ -433,7 +433,7 @@ function main() {
     maxPlies: positiveIntegerOption(parsed, 'max-plies', 320),
     minWinRate: ratioOption(parsed, 'min-win-rate', 0.7),
     maxSevereLossRate: ratioOption(parsed, 'max-severe-loss-rate', 0.1),
-    botProfile: profileOption(parsed, 'bot-profile', productionOptions.strategyProfile || 'v24'),
+    botProfile: profileOption(parsed, 'bot-profile', productionOptions.strategyProfile || 'v25'),
     controlProfile: profileOption(parsed, 'control-profile', 'v19'),
     output: stringOption(parsed, 'output'),
     experience,
