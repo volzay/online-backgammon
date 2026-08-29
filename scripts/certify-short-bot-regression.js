@@ -36,19 +36,19 @@ const VALUE_OPTIONS = new Set(['output', 'checkpoint-dir', 'jobs', 'seed-timeout
 const FLAG_OPTIONS = new Set();
 
 const OFFICIAL_SUITE = Object.freeze({
-  id: 'short-heldout-v2-drand-6418748',
+  id: 'short-heldout-v3-drand-6419263',
   derivation: 'first non-zero uint32be from SHA-256("nardu-short-bot/certification-v2\\0" + engineCommit + "\\0" + round + "\\0" + randomness + "\\0" + index + "\\0" + counter)',
-  engineCommit: 'd7ff86f7569648a7cf0c5dd0ed7a93eba58d8e4b',
+  engineCommit: 'ed5c23384ad38e016304991508ddfa184679eaec',
   beacon: Object.freeze({
     network: 'drand-mainnet',
-    round: 6418748,
-    randomness: '6d75fb90fa2fadaf78fc220836fe3b20af76906ed135b5e4a80f22727fd03c0c',
-    signature: 'b627331bea8501602e647c843b0b698129550bbb4fdb159d98011c57e1f5275789dc6a22b854b2dcb53faabfbc2060081903cf6734090e4506beddc404c819089dc7dd5a00e94a73d0d3925984a54e5bb2a4c59bb4524a868ef5eaa22cc05b34',
+    round: 6419263,
+    randomness: '4f6f46a92655efdebc245b0bf43652d98bd60ab6b1c751bd5397d0ae09cee81d',
+    signature: '95884078caadaf6f5545527d6c37f533512984b5c584fd7b40c04a3bc1c99f61bc3859f0259b3269123e043584eec178089f4e83055fe73b5f320f55a3c75a01f89d4f1aa78866a36f7d1a4bca86f9015b8fd42be9aad9da502cf071d51d24ae',
   }),
-  seeds: Object.freeze([2729353550, 1335326699, 513081538, 3238188421, 2278980036]),
+  seeds: Object.freeze([2221044440, 439839141, 3047035989, 2308075387, 2277016493]),
   gamesPerSeed: 20,
 });
-const OFFICIAL_SUITE_FINGERPRINT = 'sha256:2df4acfe4e9661326a60d9a3bca7539cabd7a6e251bfd25ae56119e8a1b7d377';
+const OFFICIAL_SUITE_FINGERPRINT = 'sha256:6e723f5b73877006eef856b56dce740eba9e24d957c5f100b852d54faed0ef1e';
 const OFFICIAL_CRITERIA = Object.freeze({ minWinRate: 0.67, maxSevereLossRate: 0.1 });
 const CHILD_OPTIONS = Object.freeze({
   games: OFFICIAL_SUITE.gamesPerSeed,

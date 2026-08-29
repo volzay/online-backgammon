@@ -141,13 +141,13 @@ function recordsFor(totalWins, totalSevereLosses = 0) {
 
 test('official short suite is frozen, unique, and cannot be weakened through CLI options', () => {
   assert.deepEqual([...certifier.OFFICIAL_SUITE.seeds], [
-    2729353550, 1335326699, 513081538, 3238188421, 2278980036,
+    2221044440, 439839141, 3047035989, 2308075387, 2277016493,
   ]);
-  assert.equal(certifier.OFFICIAL_SUITE.engineCommit, 'd7ff86f7569648a7cf0c5dd0ed7a93eba58d8e4b');
-  assert.equal(certifier.OFFICIAL_SUITE.beacon.round, 6418748);
+  assert.equal(certifier.OFFICIAL_SUITE.engineCommit, 'ed5c23384ad38e016304991508ddfa184679eaec');
+  assert.equal(certifier.OFFICIAL_SUITE.beacon.round, 6419263);
   assert.equal(
     certifier.OFFICIAL_SUITE.beacon.randomness,
-    '6d75fb90fa2fadaf78fc220836fe3b20af76906ed135b5e4a80f22727fd03c0c',
+    '4f6f46a92655efdebc245b0bf43652d98bd60ab6b1c751bd5397d0ae09cee81d',
   );
   assert.equal(certifier.OFFICIAL_SUITE.gamesPerSeed, 20);
   assert.deepEqual(certifier.deriveOfficialSeeds(
