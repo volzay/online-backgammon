@@ -6,12 +6,14 @@
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
   const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v8";
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 5;
-  const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v4";
+  const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v5";
+  const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
   const shortBotExperiencePromises = new Map();
+  let shortBotExperienceLoadGeneration = 0;
 
   function validatedLongBotExperience(patterns) {
     if (!Array.isArray(patterns)) return null;
@@ -56,12 +58,26 @@
     }
   }
 
+  function validatedShortBotExperience(patterns) {
+    if (!Array.isArray(patterns)) return null;
+    return patterns.every(pattern => (
+      pattern
+      && typeof pattern === "object"
+      && Number(pattern.creditVersion) === SHORT_BOT_EXPERIENCE_CREDIT_VERSION
+    )) ? patterns : null;
+  }
+
   function readShortBotExperienceCache(playerKey) {
     try {
       const cached = JSON.parse(localStorage.getItem(SHORT_BOT_EXPERIENCE_CACHE_KEY) || "null");
       if (!cached || Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) return [];
       if (String(cached.playerKey || "") !== String(playerKey || "")) return [];
-      return Array.isArray(cached.patterns) ? cached.patterns : [];
+      const patterns = Number(cached.creditVersion) === SHORT_BOT_EXPERIENCE_CREDIT_VERSION
+        ? validatedShortBotExperience(cached.patterns)
+        : null;
+      if (patterns) return patterns;
+      localStorage.removeItem(SHORT_BOT_EXPERIENCE_CACHE_KEY);
+      return [];
     } catch {
       return [];
     }
@@ -69,10 +85,16 @@
 
   function writeShortBotExperienceCache(patterns, playerKey) {
     try {
+      const validated = validatedShortBotExperience(patterns);
+      if (!validated) {
+        localStorage.removeItem(SHORT_BOT_EXPERIENCE_CACHE_KEY);
+        return;
+      }
       localStorage.setItem(SHORT_BOT_EXPERIENCE_CACHE_KEY, JSON.stringify({
         savedAt: Date.now(),
         playerKey: String(playerKey || ""),
-        patterns: Array.isArray(patterns) ? patterns : [],
+        creditVersion: SHORT_BOT_EXPERIENCE_CREDIT_VERSION,
+        patterns: validated,
       }));
     } catch {
       // Server experience remains optional when browser storage is unavailable.
@@ -854,12 +876,27 @@
       || "",
     ).trim().slice(0, 32);
     const playerKey = resolvedPlayerName.toLocaleLowerCase();
+    const loadGeneration = ++shortBotExperienceLoadGeneration;
     const cachedPatterns = refresh ? [] : readShortBotExperienceCache(playerKey);
+    window.NarduShortBotEngine.setExperience([], "server");
+    window.NarduShortBotEngine.setExperience([], "server-cache");
     if (cachedPatterns.length) {
       window.NarduShortBotEngine.setExperience(cachedPatterns, "server-cache");
     }
     if (shortBotExperiencePromises.has(playerKey) && !refresh) {
-      return cachedPatterns.length ? cachedPatterns : shortBotExperiencePromises.get(playerKey);
+      const currentPromise = shortBotExperiencePromises.get(playerKey).then(patterns => {
+        const validated = validatedShortBotExperience(patterns);
+        if (validated && loadGeneration === shortBotExperienceLoadGeneration) {
+          window.NarduShortBotEngine.setExperience(validated, "server");
+          writeShortBotExperienceCache(validated, playerKey);
+        }
+        return validated || [];
+      });
+      if (cachedPatterns.length) {
+        currentPromise.catch(() => {});
+        return cachedPatterns;
+      }
+      return currentPromise;
     }
     const experiencePromise = (async () => {
       const client = await supabase();
@@ -867,10 +904,16 @@
         p_player_name: resolvedPlayerName || null,
       });
       if (error) throw supabaseError(error, "Could not load short-bot experience.");
-      const patterns = Array.isArray(data) ? data : [];
-      window.NarduShortBotEngine.setExperience([], "server-cache");
-      window.NarduShortBotEngine.setExperience(patterns, "server");
-      writeShortBotExperienceCache(patterns, playerKey);
+      const patterns = validatedShortBotExperience(data);
+      if (!patterns) {
+        console.warn("Ignored incompatible short-bot experience generation.");
+        return cachedPatterns;
+      }
+      if (loadGeneration === shortBotExperienceLoadGeneration) {
+        window.NarduShortBotEngine.setExperience([], "server-cache");
+        window.NarduShortBotEngine.setExperience(patterns, "server");
+        writeShortBotExperienceCache(patterns, playerKey);
+      }
       return patterns;
     })().catch(error => {
       shortBotExperiencePromises.delete(playerKey);

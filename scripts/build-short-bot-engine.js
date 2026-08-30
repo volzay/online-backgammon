@@ -22,7 +22,9 @@ function buildShortBotEngine() {
   const body = SOURCES.map(file => (
     `\n/* ${file} */\n${stripModuleSyntax(fs.readFileSync(path.join(ROOT, file), "utf8"))}`
   )).join("\n");
-  fs.writeFileSync(OUTPUT, `/* generated from bot-engine/short/*.ts */\n(function () {\n  'use strict';\n${body}\n}());\n`);
+  const temporaryOutput = `${OUTPUT}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryOutput, `/* generated from bot-engine/short/*.ts */\n(function () {\n  'use strict';\n${body}\n}());\n`);
+  fs.renameSync(temporaryOutput, OUTPUT);
   console.log(`Short bot engine written to ${path.relative(ROOT, OUTPUT)}`);
 }
 

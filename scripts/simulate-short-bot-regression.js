@@ -212,7 +212,7 @@ function createWildbgAnalyzer(runtimeSnapshot) {
   const revision = String(exports.wildbg_revision());
   if (!version || !revision) throw new Error('Frozen WildBG module has incomplete provenance');
   const analyzer = Object.freeze({
-    analyze(pips, dieOne, dieTwo, onePointer = true) {
+    analyze(pips, dieOne, dieTwo, onePointer = false) {
       if (!pips || Number(pips.length) !== 26) {
         throw new Error('WildBG analyze requires an exact 26-point position');
       }

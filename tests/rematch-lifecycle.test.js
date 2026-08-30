@@ -730,6 +730,127 @@ test("long-bot experience rejects old RPC generations and caches only v26 data",
   assert.equal(cached.patterns[0].creditVersion, 5);
 });
 
+test("short-bot experience accepts only the gammon-aware v5 generation", async () => {
+  async function loadWith(data) {
+    const localStorage = memoryStorage();
+    const applied = [];
+    const context = {
+      window: {
+        NarduApp: { getUser() { return { nickname: "tester1" }; } },
+        NarduSupabase: {
+          configured() { return true; },
+          async client() {
+            return { async rpc() { return { data, error: null }; } };
+          },
+        },
+        NarduShortBotEngine: {
+          setExperience(patterns, source) { applied.push({ patterns, source }); },
+        },
+      },
+      localStorage,
+      console: { warn() {} },
+      Date,
+      Math,
+      JSON,
+      Map,
+      Uint8Array,
+      TextEncoder,
+      fetch,
+    };
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+      filename: "rooms-client.js",
+    });
+    const loaded = await context.window.NarduRooms.loadShortBotExperience();
+    return { localStorage, applied, loaded };
+  }
+
+  const oldResult = await loadWith([{
+    creditVersion: 4,
+    contextKey: "race|old-one-pointer",
+    actionKey: "risk:high",
+  }]);
+  assert.equal(oldResult.loaded.length, 0);
+  assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
+  assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
+  assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
+  assert.equal(oldResult.localStorage.getItem("narduh-short-bot-server-experience-v5"), null);
+
+  const currentPattern = {
+    creditVersion: 5,
+    contextKey: "race|gammon-aware",
+    actionKey: "risk:low",
+  };
+  const currentResult = await loadWith([currentPattern]);
+  assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
+  assert.equal(currentResult.applied.at(-1).source, "server");
+  const cached = JSON.parse(
+    currentResult.localStorage.getItem("narduh-short-bot-server-experience-v5"),
+  );
+  assert.equal(cached.creditVersion, 5);
+  assert.equal(cached.patterns[0].creditVersion, 5);
+});
+
+test("short-bot experience ignores a late response for the previous player", async () => {
+  const localStorage = memoryStorage();
+  const applied = [];
+  const pending = new Map();
+  const context = {
+    window: {
+      NarduApp: { getUser() { return null; } },
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return {
+            rpc(_name, args) {
+              return new Promise(resolve => pending.set(args.p_player_name, resolve));
+            },
+          };
+        },
+      },
+      NarduShortBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage,
+    console: { warn() {} },
+    Date,
+    Math,
+    JSON,
+    Map,
+    Promise,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const first = context.window.NarduRooms.loadShortBotExperience({ playerName: "tester1" });
+  while (!pending.has("tester1")) await new Promise(resolve => setImmediate(resolve));
+  const second = context.window.NarduRooms.loadShortBotExperience({ playerName: "warlord" });
+  while (!pending.has("warlord")) await new Promise(resolve => setImmediate(resolve));
+  pending.get("warlord")({ data: [{
+    creditVersion: 5,
+    contextKey: "contact|warlord",
+    actionKey: "safe",
+  }], error: null });
+  await second;
+  pending.get("tester1")({ data: [{
+    creditVersion: 5,
+    contextKey: "contact|tester1",
+    actionKey: "stale",
+  }], error: null });
+  await first;
+
+  const nonEmpty = applied.filter(item => item.patterns.length > 0);
+  assert.equal(nonEmpty.at(-1).patterns[0].contextKey, "contact|warlord");
+  const cached = JSON.parse(localStorage.getItem("narduh-short-bot-server-experience-v5"));
+  assert.equal(cached.playerKey, "warlord");
+});
+
 test("resolved long-bot experience is reapplied when browser storage is unavailable", async () => {
   const pattern = {
     creditVersion: 5,

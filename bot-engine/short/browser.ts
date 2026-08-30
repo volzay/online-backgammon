@@ -1,4 +1,4 @@
-const SHORT_ENGINE_VERSION = 'short-analytic-v4';
+const SHORT_ENGINE_VERSION = 'short-analytic-v5';
 
 export function shortStateToWildbgBoard(game, state, color = state?.turn) {
   if (!game || !state || state.variant !== 'short' || !color) return null;
@@ -29,7 +29,10 @@ export function prepareShortWildbgRequest(game, state, color = state?.turn) {
     board,
     die1: dice[0],
     die2: dice[1],
-    isOnePointer: true,
+    // The product distinguishes normal, Mars (gammon), and Koks
+    // (backgammon) results. Money-game equity preserves those different
+    // values; one-pointer scoring deliberately treats them as equal.
+    isOnePointer: false,
   } : null;
 }
 

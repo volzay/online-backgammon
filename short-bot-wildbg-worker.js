@@ -45,7 +45,7 @@ function normalizedAnalysisRequest(payload) {
     dieOne,
     dieTwo,
     onePointer: Boolean(
-      payload?.isOnePointer ?? payload?.onePointer ?? payload?.one_pointer ?? true,
+      payload?.isOnePointer ?? payload?.onePointer ?? payload?.one_pointer ?? false,
     ),
   };
 }

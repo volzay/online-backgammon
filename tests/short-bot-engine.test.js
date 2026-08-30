@@ -133,7 +133,7 @@ function deterministicReachableShortPositions(game, seed, turns = 16) {
 
 test("short hard bot installs a dedicated analytical engine", () => {
   const context = runtime();
-  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v4");
+  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v5");
   assert.equal(typeof context.NarduShortBotEngine.rank, "function");
   assert.equal(typeof context.NarduShortBotEngine.setExperience, "function");
   assert.equal(typeof context.NarduShortBotEngine.prepareWildbgRequest, "function");
@@ -157,7 +157,7 @@ test("short hard bot makes the 7 point with opening 6-1", () => {
   );
   const decision = context.NarduShortBotEngine.consumeLastDecision();
   assert.equal(decision.selected.tactical.rolls, 21);
-  assert.equal(decision.engineVersion, "short-analytic-v4");
+  assert.equal(decision.engineVersion, "short-analytic-v5");
   assert.equal(decision.engine.provenance, "builtin");
 });
 
@@ -187,7 +187,7 @@ test("short WildBG request maps white and dark positions into the active-player 
   const whiteRequest = context.NarduShortBotEngine.prepareWildbgRequest(white);
   assert.equal(whiteRequest.die1, 6);
   assert.equal(whiteRequest.die2, 1);
-  assert.equal(whiteRequest.isOnePointer, true);
+  assert.equal(whiteRequest.isOnePointer, false);
   assert.deepEqual(Array.from(whiteRequest.board), wildbgBoardFixture(game, white, "white"));
   assert.equal(whiteRequest.board[0], -2);
   assert.equal(whiteRequest.board[1], -4);
@@ -397,7 +397,7 @@ test("short hard bot automatically uses a synchronous global WildBG analyzer", (
   ]);
   assert.equal(request.die1, 6);
   assert.equal(request.die2, 1);
-  assert.equal(request.isOnePointer, true);
+  assert.equal(request.isOnePointer, false);
   assert.deepEqual(request.board, wildbgBoardFixture(context.NarduGame, state, "white"));
   assert.equal(
     context.NarduShortBotEngine.consumeLastDecision().engine.provenance,
@@ -1187,24 +1187,29 @@ test("short experience keeps local and server knowledge in separate mergeable so
 test("short engine is loaded before the shared hard-bot dispatcher", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   assert.ok(room.indexOf("short-bot-engine.js") < room.indexOf("strong-bot.js"));
-  assert.match(room, /short-bot-engine\.js\?v=20260829-short-analytic-v4/);
+  assert.match(room, /short-bot-engine\.js\?v=20260830-short-analytic-v5/);
 });
 
 test("short learning has a separate server RPC and archive accepts both variants", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase", "short-bot-analytic-v4.sql"),
+    path.join(ROOT, "supabase", "short-bot-analytic-v5.sql"),
     "utf8",
   );
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
+  const rpcDefinition = /create or replace function public\.get_short_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   assert.match(schema, /get_short_bot_experience_patterns\(\s*p_player_name text default null/);
-  assert.match(schema, /engine_version like 'short-analytic-v4%'/);
+  assert.match(schema, /engine_version like 'short-analytic-v5%'/);
   assert.match(schema, /not in \('long', 'short'\)/);
   assert.ok((schema.match(/not in \('long', 'short'\)/g) || []).length >= 2);
   assert.match(client, /loadShortBotExperience/);
   assert.match(client, /get_short_bot_experience_patterns/);
-  assert.match(client, /narduh-short-bot-server-experience-v4/);
-  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v4/);
-  assert.match(migration, /engine_version like 'short-analytic-v4%'/);
-  assert.match(migration, /'creditVersion', 4/);
+  assert.match(client, /narduh-short-bot-server-experience-v5/);
+  assert.match(client, /SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5/);
+  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v5/);
+  assert.match(migration, /engine_version like 'short-analytic-v5%'/);
+  assert.match(migration, /'creditVersion', 5/);
+  assert.equal(migration.match(rpcDefinition)?.[0], schema.match(rpcDefinition)?.[0]);
+  assert.match(migration, /^begin;/m);
+  assert.match(migration, /^commit;/m);
 });

@@ -16,7 +16,13 @@ window.NarduStrongBot = (function () {
     'narduh-long-bot-experience-v2',
     'narduh-long-bot-experience-v1',
   ];
-  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v4';
+  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v5';
+  const LEGACY_SHORT_EXPERIENCE_KEYS = [
+    'narduh-short-bot-experience-v4',
+    'narduh-short-bot-experience-v3',
+    'narduh-short-bot-experience-v2',
+    'narduh-short-bot-experience-v1',
+  ];
   const LONG_OPPONENT_CAPTURE_VERSION = 1;
   const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
   const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
@@ -95,7 +101,9 @@ window.NarduStrongBot = (function () {
     const store = storage();
     if (!store) return [];
     try {
-      if (variant !== 'short') {
+      if (variant === 'short') {
+        LEGACY_SHORT_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
+      } else {
         LEGACY_LONG_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
       }
       const parsed = JSON.parse(store.getItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY) || '[]');

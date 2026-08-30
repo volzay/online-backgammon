@@ -16,6 +16,16 @@
     "narduh-long-bot-experience-v3",
     "narduh-long-bot-experience-v2",
     "narduh-long-bot-experience-v1",
+    "narduh-short-bot-server-experience-v5",
+    "narduh-short-bot-server-experience-v4",
+    "narduh-short-bot-server-experience-v3",
+    "narduh-short-bot-server-experience-v2",
+    "narduh-short-bot-server-experience-v1",
+    "narduh-short-bot-experience-v5",
+    "narduh-short-bot-experience-v4",
+    "narduh-short-bot-experience-v3",
+    "narduh-short-bot-experience-v2",
+    "narduh-short-bot-experience-v1",
     "narduh-room-reload-snapshot",
   ]);
   const AUTH_RECLAIM_PREFIXES = [

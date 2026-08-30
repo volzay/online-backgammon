@@ -191,6 +191,7 @@ test('worker adapter accepts the production board/dice contract', () => {
   assert.match(worker, /payload\?\.board \|\| payload\?\.pips/);
   assert.match(worker, /payload\?\.die1 \?\? payload\?\.dieOne/);
   assert.match(worker, /payload\?\.isOnePointer \?\? payload\?\.onePointer/);
+  assert.match(worker, /payload\?\.one_pointer \?\? false/);
   assert.match(worker, /new Int8Array|Int8Array\.from/);
 });
 
