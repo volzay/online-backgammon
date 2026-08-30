@@ -10,12 +10,15 @@ window.NarduStrongBot = (function () {
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
-  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v3';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v4';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
+    'narduh-long-bot-experience-v3',
     'narduh-long-bot-experience-v2',
     'narduh-long-bot-experience-v1',
   ];
   const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v4';
+  const LONG_OPPONENT_CAPTURE_VERSION = 1;
+  const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
   const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
   const SHORT_LOCAL_EXPERIENCE_LIMIT = 120;
   const DEFAULT_PROFILE = {
@@ -1476,7 +1479,7 @@ window.NarduStrongBot = (function () {
       const successful = (actor === 'opponent' ? !botWon : botWon) && severity < 1.1;
       const harmful = actor === 'bot' && !botWon;
       if (!descriptor?.contextKey || !descriptor?.actionKey) return;
-      if (harmful && severity < 0.45) return;
+      if (harmful && severity < (variant === 'long' ? LONG_HARM_SIGNAL_THRESHOLD : 0.45)) return;
       if (!harmful && !successful) return;
       const actionKeys = Array.from(new Set([
         descriptor.actionKey,
@@ -1488,7 +1491,7 @@ window.NarduStrongBot = (function () {
       actionKeys.forEach((actionKey) => {
         const key = `${descriptor.contextKey}::${actionKey}`;
         const pattern = byKey.get(key) || {
-          creditVersion: 4,
+          creditVersion: 5,
           contextKey: descriptor.contextKey,
           actionKey,
           samples: 0,
@@ -1499,7 +1502,7 @@ window.NarduStrongBot = (function () {
           signalWeight: 0,
           winWeight: 0,
         };
-        pattern.creditVersion = 4;
+        pattern.creditVersion = 5;
         pattern.samples += 1;
         if (harmful) {
           pattern.losses += 1;
@@ -1571,6 +1574,7 @@ window.NarduStrongBot = (function () {
         captured.push({
           id: `opponent-${captured.length + 1}-${described.experience.contextKey}`,
           actor: 'opponent',
+          captureVersion: LONG_OPPONENT_CAPTURE_VERSION,
           color: winner,
           dice: [...(turnStart.dice || [])],
           winQuality,
@@ -1616,7 +1620,10 @@ window.NarduStrongBot = (function () {
       ) {
         return;
       }
-      const move = { from: Number(event.from), die: Number(event.die) };
+      const from = Number(event.from);
+      const die = Number(event.die);
+      const to = Number(NarduGame.moveTo(turnColor, from, die, replay)) || 0;
+      const move = { from, to, die, bearOff: to === 0 };
       if (NarduGame.applyMove(replay, move.from, move.die, { autoEnd: false })) {
         turnMoves.push(move);
       }

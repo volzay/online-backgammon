@@ -49,7 +49,9 @@ async function loadClient(storage) {
 
 test('Supabase auth token storage evicts reproducible game caches before losing a session', async () => {
   const storage = quotaStorage({
+    'narduh-long-bot-server-experience-v8': 'x'.repeat(620),
     'narduh-long-bot-server-experience-v7': 'x'.repeat(620),
+    'narduh-long-bot-experience-v4': 'current-memory',
     'narduh-long-bot-experience-v3': 'current-memory',
     'narduh-long-bot-experience-v2': 'stale-memory',
     'narduh-long-bot-experience-v1': 'legacy-memory',
@@ -59,7 +61,9 @@ test('Supabase auth token storage evicts reproducible game caches before losing 
   const client = await loadClient(storage);
 
   assert.doesNotThrow(() => client.storage.setItem('sb-project-auth-token', 'token'.repeat(40)));
+  assert.equal(storage.getItem('narduh-long-bot-server-experience-v8'), null);
   assert.equal(storage.getItem('narduh-long-bot-server-experience-v7'), null);
+  assert.equal(storage.getItem('narduh-long-bot-experience-v4'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v3'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v2'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v1'), null);

@@ -27,6 +27,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: git clone --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" source
 
+      - name: Download Node.js runtime action
+        run: git clone --depth=1 --branch v4 https://github.com/actions/setup-node.git .local-actions/setup-node
+
+      - name: Use Node.js 24
+        uses: ./.local-actions/setup-node
+        with:
+          node-version: '24'
+
       - name: Build static site
         working-directory: source
         env:
@@ -35,6 +43,7 @@ jobs:
           SITE_BASE_URL: https://volzay.github.io/online-backgammon
         run: |
           npm ci
+          npm test
           npm run build
 
       - name: Prepare Pages artifact

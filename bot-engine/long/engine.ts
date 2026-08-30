@@ -16,6 +16,7 @@ import {
   homeEntryMoveCount,
   homeReady,
   homeShuffleMoveCount,
+  immediateHeadFenceRun,
   lateEntryPressure,
   offCount,
   opponentOf,
@@ -34,6 +35,7 @@ import {
 const DEFAULT_MAX_CANDIDATES = 64;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
+const IMMINENT_HEAD_FENCE_SCORE_TOLERANCE = 8000000;
 
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -242,6 +244,11 @@ export function createLongBotEngine(adapter, options = {}) {
         : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
+    finalCandidates = prioritizeImminentHeadFenceAnchor(
+      state,
+      color,
+      finalCandidates.sort((left, right) => right.score - left.score),
+    );
     finalCandidates = prioritizeDevelopingFenceEscape(
       state,
       color,
@@ -939,7 +946,15 @@ export function reserveDevelopingFenceEscapeForTacticalAnalysis(
   }
 
   const selectedUtility = fenceEscapeUtility(selected);
-  const frontier = safetyFenceCandidatePool(ranked, selected).filter(candidate => (
+  const frontier = Array.from(new Set([
+    ...safetyFenceCandidatePool(ranked, selected),
+    ...ranked.filter(candidate => isPlausibleImminentHeadFenceAnchor(
+      state,
+      color,
+      candidate,
+      selected,
+    )),
+  ])).filter(candidate => (
     candidate !== selected
     && fenceEscapeUtility(candidate) > selectedUtility + 1
     && Number(candidate.features.maxRouteTowerAfter || 0)
@@ -959,7 +974,9 @@ export function reserveDevelopingFenceEscapeForTacticalAnalysis(
   if (!frontier.length) return ranked;
 
   frontier.sort((left, right) => (
-    Number(isPlausibleLatentRearFenceEscape(right, selected))
+    Number(isPlausibleImminentHeadFenceAnchor(state, color, right, selected))
+      - Number(isPlausibleImminentHeadFenceAnchor(state, color, left, selected))
+    || Number(isPlausibleLatentRearFenceEscape(right, selected))
       - Number(isPlausibleLatentRearFenceEscape(left, selected))
     || fenceEscapeUtility(right) - fenceEscapeUtility(left)
     || Number(right.features.fenceClosureDelta || 0)
@@ -1346,6 +1363,32 @@ function prioritizeDevelopingFenceEscape(state, color, ranked) {
   );
 }
 
+function prioritizeImminentHeadFenceAnchor(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected) return ranked;
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && isAnalyzedImminentHeadFenceAnchor(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(right.features.latentFenceExposureDelta || 0)
+      - Number(left.features.latentFenceExposureDelta || 0)
+    || Number(right.tactical.continuationWorst || 0)
+      - Number(left.tactical.continuationWorst || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'imminentHeadFenceEscapeAdjustment',
+  );
+  promoted[0].features.imminentHeadFenceEscape = 1;
+  return promoted;
+}
+
 function safetyParetoFrontier(ranked) {
   return ranked.filter(candidate => !ranked.some(other => (
     other !== candidate
@@ -1389,6 +1432,57 @@ function fenceEscapeUtility(candidate) {
     + (Number(candidate.features.fenceClosureDelta) || 0)
     + (Number(candidate.features.escapeGatewayDelta) || 0) * 4
     + (Number(candidate.features.latentFenceExposureDelta) || 0) * 6;
+}
+
+export function isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected) {
+  const headRemaining = headCheckers(state, color);
+  const fenceRun = immediateHeadFenceRun(state, color);
+  const head = headPoint(color);
+  const anchorsBeyondFence = candidate.sequence?.some(move => (
+    Number(move.from) === Number(head)
+    && pathPos(color, Number(move.to)) === fenceRun + 1
+  ));
+  return headRemaining >= 3
+    && headRemaining <= 6
+    && fenceRun >= 3
+    && fenceRun <= 5
+    && Number(selected.features.headGain || 0) === 0
+    && Number(candidate.features.headGain || 0) > 0
+    && anchorsBeyondFence
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      >= Number(selected.features.latentFenceExposureDelta || 0) + 24
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.features.fenceClosureDelta || 0) >= -4
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - 4
+    && Number(candidate.features.headLandingBreak || 0)
+      <= Number(selected.features.headLandingBreak || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && scoreWithoutExperience(candidate) >= (
+      scoreWithoutExperience(selected) - IMMINENT_HEAD_FENCE_SCORE_TOLERANCE
+    );
+}
+
+export function isAnalyzedImminentHeadFenceAnchor(state, color, candidate, selected) {
+  if (
+    !candidate.tactical
+    || !selected.tactical
+    || !isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected)
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.plies || 0) >= 4
+    && Number(candidate.tactical.continuationExpected || 0)
+      >= Number(selected.tactical.continuationExpected || 0)
+    && Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.continuationWorst || 0);
 }
 
 function isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected) {

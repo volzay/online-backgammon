@@ -2226,6 +2226,7 @@ as $$
         nullif(substring(g.engine_version from 'v([0-9]{1,4})$'), '')::integer,
         0
       ) as engine_generation,
+      coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) as capture_version,
       coalesce(nullif(decision->>'actor', ''), 'bot') as actor,
       greatest(0.75, least(4, coalesce(public.long_bot_safe_numeric(decision->'winQuality'), 1))) as win_quality,
       coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
@@ -2285,7 +2286,8 @@ as $$
         else 1
       end as player_weight,
       case
-        when actor = 'opponent' then 4.0
+        when actor = 'opponent' and capture_version >= 1 then 4.0
+        when actor = 'opponent' then 0.0
         when engine_generation >= 25 then 4.0
         when engine_generation >= 24 then 3.0
         when engine_generation >= 23 then 1.0
@@ -2301,7 +2303,12 @@ as $$
       *,
       actor = 'bot' and winner <> bot_color and harm_signal >= 1.1 as harmful,
       (actor = 'bot' and winner = bot_color and harm_signal < 1.1)
-        or (actor = 'opponent' and winner <> bot_color and harm_signal < 1.1) as successful
+        or (
+          actor = 'opponent'
+          and capture_version >= 1
+          and winner <> bot_color
+          and harm_signal < 1.1
+        ) as successful
     from signals
   ), expanded as (
     select
@@ -2475,7 +2482,7 @@ as $$
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
-      'creditVersion', 4,
+      'creditVersion', 5,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,

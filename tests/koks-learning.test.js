@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v3";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v4";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -162,19 +162,92 @@ test("the winner's real turn is reconstructed from game history", () => {
   const captured = context.window.NarduStrongBot.captureOpponentDecisions(state, "dark");
   assert.equal(captured.length, 1);
   assert.equal(captured[0].actor, "opponent");
+  assert.equal(captured[0].captureVersion, 1);
   assert.equal(captured[0].color, "white");
   assert.equal(captured[0].selected.moves.length, sequence.length);
   assert.match(captured[0].experience.actionKey, /prime:/);
 });
 
-test("the v25 opponent-memory RPC preserves severity and winning examples", () => {
+test("winner reconstruction preserves destinations and bear-off moves", () => {
+  const context = {
+    window: {
+      localStorage: { getItem() { return null; }, setItem() {} },
+    },
+    console,
+    Date,
+    Math,
+    setTimeout,
+    clearTimeout,
+  };
+  context.window.window = context.window;
+  context.globalThis = context.window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "game.js"), "utf8"), context, {
+    filename: "game.js",
+  });
+  context.NarduGame = context.window.NarduGame;
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "long-bot-engine.js"), "utf8"), context, {
+    filename: "long-bot-engine.js",
+  });
+  context.NarduLongBotEngine = context.window.NarduLongBotEngine;
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), context, {
+    filename: "strong-bot.js",
+  });
+
+  const game = context.window.NarduGame;
+  const seed = game.initialState("long");
+  seed.points = {
+    2: { color: "white", count: 1 },
+    12: { color: "dark", count: 15 },
+  };
+  seed.off = { white: 14, dark: 0 };
+  seed.score = { white: 0, dark: 0 };
+  seed.winner = null;
+  seed.resultType = null;
+  seed.phase = "roll";
+  seed.turn = "white";
+  seed.firstMoveDone = { white: true, dark: true };
+  game.initialState = () => JSON.parse(JSON.stringify(seed));
+
+  const finalState = {
+    ...JSON.parse(JSON.stringify(seed)),
+    winner: "white",
+    resultType: "normal",
+    phase: "over",
+    history: [
+      { color: "white", from: 1, to: "снято", die: 2 },
+      { color: "white", from: 2, to: 1, die: 1 },
+      { color: "white", roll: "1:2" },
+    ],
+  };
+
+  const captured = context.window.NarduStrongBot.captureOpponentDecisions(
+    finalState,
+    "dark",
+  );
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].captureVersion, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(captured[0].selected.moves)),
+    [
+      { from: 2, to: 1, die: 1, bearOff: false },
+      { from: 1, to: 0, die: 2, bearOff: true },
+    ],
+  );
+  assert.equal(captured[0].selected.features.offGain, 1);
+  assert.equal(captured[0].selected.features.bearOffMoves, 1);
+  assert.equal(captured[0].selected.features.routeSignature, "7>7+7>8");
+  assert.match(captured[0].experience.actionKey, /off:yes/);
+});
+
+test("the v26 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v25.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v26.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -187,22 +260,37 @@ test("the v25 opponent-memory RPC preserves severity and winning examples", () =
   assert.match(migration, /^begin;/m);
   assert.match(migration, /p_player_name text default null/);
   assert.match(migration, /then 3\s+else 1\s+end as player_weight/);
-  assert.match(migration, /actor = 'opponent'/);
+  assert.match(migration, /captureVersion/);
+  assert.match(migration, /actor = 'opponent' and capture_version >= 1/);
   assert.match(migration, /as successful/);
   assert.match(migration, /as win_weight/);
-  assert.match(migration, /'creditVersion', 4/);
+  assert.match(migration, /'creditVersion', 5/);
   assert.match(migration, /^commit;/m);
 });
 
-test("production entry points cache-bust every v25 bot dependency", () => {
+test("production entry points cache-bust every v26 bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260829-long-strategy-v25";
+  const version = "20260830-qqrz-fence-v26";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`rooms-client\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`supabase-client\\.js\\?v=${version}`));
+  assert.match(room, new RegExp(`game-controller\\.js\\?v=${version}`));
   assert.match(lobby, new RegExp(`rooms-client\\.js\\?v=${version}`));
   assert.match(lobby, new RegExp(`supabase-client\\.js\\?v=${version}`));
+});
+
+test("Pages deploy tests Node 24 builds without marketplace action resolution", () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT, ".github/workflows/pages.yml"),
+    "utf8",
+  );
+
+  assert.match(workflow, /git clone --depth=1 --branch v4 https:\/\/github\.com\/actions\/setup-node\.git/);
+  assert.match(workflow, /uses: \.\/\.local-actions\/setup-node/);
+  assert.match(workflow, /node-version: '24'/);
+  assert.match(workflow, /npm ci\s+npm test\s+npm run build/);
+  assert.doesNotMatch(workflow, /^\s*uses:\s+[\w.-]+\/[\w.-]+@/m);
 });

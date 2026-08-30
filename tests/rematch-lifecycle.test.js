@@ -607,6 +607,7 @@ test("anonymous room updates cannot mutate a registered hard-bot room", () => {
 test("cached server experience is applied before a slow refresh RPC finishes", async () => {
   const localStorage = memoryStorage();
   const pattern = {
+    creditVersion: 5,
     contextKey: "late-entry|h0|o1|po0|tr4|pd3",
     actionKey: "head:flat|entry:flat|trap:flat|freedom:flat|distribution:gain|support:keep|home:shuffle|off:no",
     samples: 5,
@@ -614,9 +615,10 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v7", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v8", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
+    creditVersion: 5,
     patterns: [pattern],
   }));
   const applied = [];
@@ -659,8 +661,124 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
   const loaded = await context.window.NarduRooms.loadLongBotExperience();
   assert.equal(loaded.length, 1);
   assert.equal(loaded[0].contextKey, pattern.contextKey);
-  assert.equal(applied[0].source, "server-cache");
-  assert.equal(applied[0].patterns[0].actionKey, pattern.actionKey);
+  const cachedApplication = applied.find(item => item.source === "server-cache" && item.patterns.length);
+  assert.equal(cachedApplication.patterns[0].actionKey, pattern.actionKey);
+  assert.ok(applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.equal(rpcCalls[0].name, "get_long_bot_experience_patterns");
   assert.equal(rpcCalls[0].args.p_player_name, "warlord");
+});
+
+test("long-bot experience rejects old RPC generations and caches only v26 data", async () => {
+  async function loadWith(data) {
+    const localStorage = memoryStorage();
+    const applied = [];
+    const context = {
+      window: {
+        NarduApp: { getUser() { return { nickname: "warlord" }; } },
+        NarduSupabase: {
+          configured() { return true; },
+          async client() {
+            return { async rpc() { return { data, error: null }; } };
+          },
+        },
+        NarduLongBotEngine: {
+          setExperience(patterns, source) { applied.push({ patterns, source }); },
+        },
+      },
+      localStorage,
+      console: { warn() {} },
+      Date,
+      Math,
+      JSON,
+      Map,
+      Uint8Array,
+      TextEncoder,
+      fetch,
+    };
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+      filename: "rooms-client.js",
+    });
+    const loaded = await context.window.NarduRooms.loadLongBotExperience();
+    return { localStorage, applied, loaded };
+  }
+
+  const oldPattern = {
+    creditVersion: 4,
+    contextKey: "route|old",
+    actionKey: "route:0>0",
+  };
+  const oldResult = await loadWith([oldPattern]);
+  assert.equal(oldResult.loaded.length, 0);
+  assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
+  assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
+  assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
+  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v8"), null);
+
+  const currentPattern = {
+    creditVersion: 5,
+    contextKey: "route|current",
+    actionKey: "route:12>8",
+  };
+  const currentResult = await loadWith([currentPattern]);
+  assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
+  assert.equal(currentResult.applied.at(-1).source, "server");
+  const cached = JSON.parse(
+    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v8"),
+  );
+  assert.equal(cached.creditVersion, 5);
+  assert.equal(cached.patterns[0].creditVersion, 5);
+});
+
+test("resolved long-bot experience is reapplied when browser storage is unavailable", async () => {
+  const pattern = {
+    creditVersion: 5,
+    contextKey: "route|storage-unavailable",
+    actionKey: "route:12>8",
+  };
+  const applied = [];
+  let rpcCalls = 0;
+  const context = {
+    window: {
+      NarduApp: { getUser() { return { nickname: "warlord" }; } },
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return {
+            async rpc() {
+              rpcCalls += 1;
+              return { data: [pattern], error: null };
+            },
+          };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage: {
+      getItem() { throw new Error("storage unavailable"); },
+      setItem() { throw new Error("storage unavailable"); },
+      removeItem() { throw new Error("storage unavailable"); },
+    },
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  await context.window.NarduRooms.loadLongBotExperience();
+  await context.window.NarduRooms.loadLongBotExperience();
+
+  assert.equal(rpcCalls, 1);
+  const lastServerApplication = applied.filter(item => item.source === "server").at(-1);
+  assert.equal(lastServerApplication.patterns[0].actionKey, pattern.actionKey);
 });

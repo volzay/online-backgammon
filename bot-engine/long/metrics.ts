@@ -182,6 +182,18 @@ export function opponentFenceRun(state, color) {
   return longest;
 }
 
+export function immediateHeadFenceRun(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  let run = 0;
+
+  for (let index = 1; index <= 6; index += 1) {
+    if (colorAt(state, path[index]) !== opponent) break;
+    run += 1;
+  }
+  return run;
+}
+
 export function latentFenceExposure(state, color) {
   const opponent = opponentOf(color);
   const path = pathFor(color);

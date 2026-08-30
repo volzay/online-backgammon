@@ -109,6 +109,221 @@ function rankFixtureAgainstHeavyMemory(points, dice, safeSequence) {
   }
 }
 
+const QQRZ_DECISION_11_POINTS = {
+  1: { color: "dark", count: 2 },
+  2: { color: "dark", count: 1 },
+  3: { color: "dark", count: 2 },
+  4: { color: "dark", count: 1 },
+  6: { color: "dark", count: 1 },
+  7: { color: "dark", count: 1 },
+  9: { color: "white", count: 1 },
+  10: { color: "white", count: 1 },
+  11: { color: "white", count: 1 },
+  12: { color: "dark", count: 5 },
+  14: { color: "white", count: 1 },
+  17: { color: "white", count: 1 },
+  18: { color: "white", count: 1 },
+  19: { color: "white", count: 2 },
+  20: { color: "dark", count: 1 },
+  21: { color: "white", count: 1 },
+  22: { color: "white", count: 1 },
+  23: { color: "dark", count: 1 },
+  24: { color: "white", count: 5 },
+};
+
+test("QQRZ-K8RX releases the head before a three-point fence can close", () => {
+  const ranked = rankFixture(QQRZ_DECISION_11_POINTS, [5, 4]);
+
+  assert.equal(ranked[0].features.opponentFenceRunBefore, 3);
+  assert.ok(ranked[0].features.trapBefore >= 180);
+  assert.ok(ranked[0].sequence.some(move => move.from === 12));
+  assert.equal(ranked[0].features.headGain, 1);
+  assert.ok(ranked[0].features.latentFenceExposureDelta > 0);
+  assert.equal(ranked[0].features.imminentHeadFenceEscape, 1);
+  assert.ok(ranked[0].tactical);
+});
+
+test("QQRZ-K8RX safety override survives hostile learned memory", () => {
+  const ranked = rankFixtureAgainstHeavyMemory(
+    QQRZ_DECISION_11_POINTS,
+    [5, 4],
+    [{ from: 1, die: 5 }, { from: 12, die: 4 }],
+  );
+
+  assert.ok(ranked[0].sequence.some(move => move.from === 12));
+  assert.equal(ranked[0].features.imminentHeadFenceEscape, 1);
+  assert.ok(ranked[0].experienceAdjustment < 0);
+});
+
+test("QQRZ imminent head-fence override has strict safety boundaries", async () => {
+  const {
+    isAnalyzedImminentHeadFenceAnchor,
+    isPlausibleImminentHeadFenceAnchor,
+  } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = roomState({
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    20: { color: "dark", count: 10 },
+    24: { color: "white", count: 12 },
+  }, [5, 4]);
+  const features = {
+    headGain: 0,
+    latentFenceExposureDelta: 0,
+    trapDelta: 10,
+    primeRunAfter: 4,
+    fenceClosureDelta: 0,
+    escapeGatewayDelta: 32,
+    headLandingBreak: 0,
+    maxRouteTowerAfter: 2,
+    homeShuffleMoves: 0,
+  };
+  const selected = { score: 0, experienceAdjustment: 0, features };
+  const anchor = score => ({
+    score,
+    experienceAdjustment: 0,
+    sequence: [{ from: 12, to: 8, die: 4 }],
+    features: {
+      ...features,
+      headGain: 1,
+      latentFenceExposureDelta: 24,
+      trapDelta: 11,
+      fenceClosureDelta: -4,
+      escapeGatewayDelta: 28,
+    },
+  });
+
+  assert.equal(
+    isPlausibleImminentHeadFenceAnchor(state, "dark", anchor(-8000000), selected),
+    true,
+  );
+  assert.equal(
+    isPlausibleImminentHeadFenceAnchor(state, "dark", anchor(-8000001), selected),
+    false,
+  );
+  selected.tactical = {
+    plies: 4,
+    continuationExpected: -50000000,
+    continuationWorst: -88000000,
+  };
+  const analyzedAnchor = anchor(-8000000);
+  analyzedAnchor.tactical = {
+    plies: 4,
+    continuationExpected: -27000000,
+    continuationWorst: -58000000,
+  };
+  assert.equal(
+    isAnalyzedImminentHeadFenceAnchor(state, "dark", analyzedAnchor, selected),
+    true,
+  );
+  assert.equal(
+    isAnalyzedImminentHeadFenceAnchor(state, "dark", {
+      ...analyzedAnchor,
+      tactical: { ...analyzedAnchor.tactical, plies: 3 },
+    }, selected),
+    false,
+  );
+  assert.equal(
+    isAnalyzedImminentHeadFenceAnchor(state, "dark", {
+      ...analyzedAnchor,
+      tactical: { ...analyzedAnchor.tactical, continuationExpected: -50000001 },
+    }, selected),
+    false,
+  );
+  assert.equal(
+    isAnalyzedImminentHeadFenceAnchor(state, "dark", {
+      ...analyzedAnchor,
+      tactical: { ...analyzedAnchor.tactical, continuationWorst: -88000001 },
+    }, selected),
+    false,
+  );
+  const nonImmediateState = roomState({
+    8: { color: "white", count: 1 },
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    20: { color: "dark", count: 10 },
+    24: { color: "white", count: 12 },
+  }, [5, 4]);
+  assert.equal(
+    isPlausibleImminentHeadFenceAnchor(
+      nonImmediateState,
+      "dark",
+      anchor(-8000000),
+      selected,
+    ),
+    false,
+  );
+});
+
+test("QQRZ imminent head anchor wins a contested tactical reservation", async () => {
+  const { reserveDevelopingFenceEscapeForTacticalAnalysis } = await import(
+    pathToFileURL(path.join(ROOT, "bot-engine/long/engine.ts")).href
+  );
+  const state = roomState({
+    9: { color: "white", count: 1 },
+    10: { color: "white", count: 1 },
+    11: { color: "white", count: 1 },
+    12: { color: "dark", count: 5 },
+    20: { color: "dark", count: 10 },
+    24: { color: "white", count: 12 },
+  }, [5, 4]);
+  const candidate = (id, score, overrides = {}) => ({
+    id,
+    score,
+    experienceAdjustment: 0,
+    sequence: [],
+    features: {
+      headGain: 0,
+      opponentFenceRunBefore: 3,
+      startZoneReduction: 0,
+      latentFenceExposureDelta: 0,
+      trapDelta: 10,
+      primeRunAfter: 4,
+      fenceClosureDelta: 0,
+      escapeGatewayDelta: 32,
+      headLandingBreak: 0,
+      maxRouteTowerAfter: 2,
+      homeShuffleMoves: 0,
+      outsideReduction: 0,
+      ...overrides,
+    },
+  });
+  const selected = candidate("selected", 100000000);
+  const latent = candidate("latent", 96000000, {
+    startZoneReduction: 1,
+    latentFenceExposureDelta: 30,
+  });
+  const imminent = candidate("imminent", 95000000, {
+    headGain: 1,
+    latentFenceExposureDelta: 24,
+    trapDelta: 11,
+    fenceClosureDelta: -4,
+    escapeGatewayDelta: 28,
+  });
+  imminent.sequence = [{ from: 12, to: 8, die: 4 }];
+  const ranked = [
+    selected,
+    candidate("ordinary-1", 99000000),
+    candidate("ordinary-2", 98000000),
+    candidate("ordinary-3", 97000000),
+    latent,
+    imminent,
+  ];
+
+  const reserved = reserveDevelopingFenceEscapeForTacticalAnalysis(
+    state,
+    "dark",
+    ranked,
+    4,
+  );
+  assert.ok(reserved.slice(0, 4).some(item => item.id === "imminent"));
+  assert.equal(imminent.features.fenceEscapeTacticalReservation, 1);
+});
+
 test("2XLZ-QD33 decision 2 releases the head without worsening the forming fence", () => {
   const ranked = rankFixture({
     6: { color: "dark", count: 1 },
