@@ -131,6 +131,321 @@ const QQRZ_DECISION_11_POINTS = {
   24: { color: "white", count: 5 },
 };
 
+const FIVE_F44_DECISION_13_POINTS = {
+  1: { color: "dark", count: 1 },
+  3: { color: "dark", count: 1 },
+  4: { color: "white", count: 1 },
+  5: { color: "white", count: 1 },
+  6: { color: "dark", count: 1 },
+  7: { color: "white", count: 1 },
+  8: { color: "dark", count: 2 },
+  9: { color: "dark", count: 1 },
+  10: { color: "white", count: 1 },
+  11: { color: "white", count: 1 },
+  12: { color: "dark", count: 5 },
+  13: { color: "white", count: 1 },
+  14: { color: "white", count: 1 },
+  15: { color: "dark", count: 1 },
+  19: { color: "white", count: 2 },
+  20: { color: "white", count: 1 },
+  21: { color: "dark", count: 2 },
+  22: { color: "dark", count: 1 },
+  24: { color: "white", count: 5 },
+};
+
+const FIVE_F44_DECISION_27_POINTS = {
+  1: { color: "white", count: 1 },
+  2: { color: "white", count: 2 },
+  3: { color: "white", count: 2 },
+  4: { color: "white", count: 3 },
+  5: { color: "white", count: 2 },
+  6: { color: "dark", count: 6 },
+  8: { color: "dark", count: 2 },
+  13: { color: "white", count: 1 },
+  15: { color: "dark", count: 3 },
+  16: { color: "dark", count: 2 },
+  17: { color: "white", count: 1 },
+  18: { color: "white", count: 1 },
+  19: { color: "white", count: 1 },
+  20: { color: "dark", count: 1 },
+  22: { color: "dark", count: 1 },
+  24: { color: "white", count: 1 },
+};
+
+const FIVE_F44_DECISION_20_POINTS = {
+  1: { color: "dark", count: 2 },
+  2: { color: "white", count: 1 },
+  4: { color: "white", count: 1 },
+  5: { color: "white", count: 2 },
+  6: { color: "dark", count: 3 },
+  7: { color: "white", count: 1 },
+  8: { color: "dark", count: 3 },
+  9: { color: "white", count: 1 },
+  10: { color: "white", count: 1 },
+  11: { color: "white", count: 1 },
+  12: { color: "dark", count: 2 },
+  13: { color: "white", count: 1 },
+  14: { color: "white", count: 1 },
+  15: { color: "dark", count: 2 },
+  17: { color: "white", count: 1 },
+  18: { color: "white", count: 1 },
+  19: { color: "white", count: 1 },
+  20: { color: "white", count: 1 },
+  21: { color: "dark", count: 3 },
+  24: { color: "white", count: 1 },
+};
+
+test("5F44-A8EA blocks the opponent's critical head exit before the fence closes", () => {
+  const ranked = rankFixture(FIVE_F44_DECISION_13_POINTS, [4, 2]);
+  const selected = ranked[0];
+  const archivedMove = ranked.find(candidate => candidate.sequence.some(move => (
+    move.from === 12 && move.to === 8 && move.die === 4
+  )));
+
+  assert.ok(selected.sequence.some(move => (
+    move.from === 22 && move.to === 18 && move.die === 4
+  )));
+  assert.ok(selected.sequence.some(move => (
+    move.from === 1 && move.to === 23 && move.die === 2
+  )));
+  assert.equal(selected.features.contestedOpponentHeadExit, 1);
+  assert.ok(selected.tactical.expectedImpact >= archivedMove.tactical.expectedImpact + 10000000);
+  assert.ok(selected.tactical.worstImpact >= archivedMove.tactical.worstImpact + 30000000);
+  assert.ok(
+    selected.tactical.continuationWorst
+      >= archivedMove.tactical.continuationWorst + 15000000,
+  );
+});
+
+test("5F44-A8EA critical head-exit block survives hostile learned memory", () => {
+  const ranked = rankFixtureAgainstHeavyMemory(
+    FIVE_F44_DECISION_13_POINTS,
+    [4, 2],
+    [{ from: 1, die: 2 }, { from: 22, die: 4 }],
+  );
+
+  assert.ok(ranked[0].sequence.some(move => (
+    move.from === 22 && move.to === 18 && move.die === 4
+  )));
+  assert.equal(ranked[0].features.contestedOpponentHeadExit, 1);
+  assert.ok(ranked[0].experienceAdjustment < 0);
+});
+
+test("contested opponent-head exit promotion keeps strict structural boundaries", async () => {
+  const { isAnalyzedContestedOpponentHeadExit } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = roomState({
+    1: { color: "dark", count: 5 },
+    12: { color: "dark", count: 9 },
+    22: { color: "dark", count: 1 },
+    24: { color: "white", count: 5 },
+    13: { color: "white", count: 10 },
+  }, [4, 2]);
+  const selected = {
+    score: 60000000,
+    experienceAdjustment: 0,
+    sequence: [{ from: 12, to: 8, die: 4 }],
+    after: roomState({
+      1: { color: "dark", count: 5 },
+      8: { color: "dark", count: 1 },
+      12: { color: "dark", count: 8 },
+      22: { color: "dark", count: 1 },
+      24: { color: "white", count: 5 },
+      13: { color: "white", count: 10 },
+    }, []),
+    features: {
+      outsideReduction: 0,
+      trapDelta: 0,
+      fenceClosureDelta: 0,
+      maxRouteTowerAfter: 3,
+      homeShuffleMoves: 0,
+      headLandingBreak: 0,
+      primeRunAfter: 3,
+    },
+    tactical: {
+      plies: 4,
+      expectedImpact: -20000000,
+      worstImpact: -80000000,
+      recoveryWorst: -90000000,
+      continuationExpected: -50000000,
+      continuationWorst: -85000000,
+    },
+  };
+  const candidate = (overrides = {}) => ({
+    score: 0,
+    experienceAdjustment: 0,
+    sequence: [{ from: 22, to: 18, die: 4 }],
+    after: roomState({
+      1: { color: "dark", count: 5 },
+      12: { color: "dark", count: 9 },
+      18: { color: "dark", count: 1 },
+      24: { color: "white", count: 5 },
+      13: { color: "white", count: 10 },
+    }, []),
+    features: {
+      outsideReduction: 1,
+      trapDelta: 0,
+      fenceClosureDelta: 0,
+      maxRouteTowerAfter: 3,
+      homeShuffleMoves: 0,
+      headLandingBreak: 0,
+      primeRunAfter: 2,
+    },
+    tactical: {
+      plies: 4,
+      expectedImpact: -10000000,
+      worstImpact: -50000000,
+      recoveryWorst: -60000000,
+      continuationExpected: -40000000,
+      continuationWorst: -70000000,
+    },
+    ...overrides,
+  });
+
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate(), selected),
+    true,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(
+      roomState({ ...state.points, 24: { color: "white", count: 3 } }, [4, 2]),
+      "dark",
+      candidate(),
+      selected,
+    ),
+    false,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate({ score: -1 }), selected),
+    false,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate({
+      features: { ...candidate().features, primeRunAfter: 1 },
+    }), selected),
+    false,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate({
+      tactical: { ...candidate().tactical, expectedImpact: -10000001 },
+    }), selected),
+    false,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate({
+      tactical: { ...candidate().tactical, continuationWorst: undefined },
+    }), selected),
+    false,
+  );
+});
+
+test("an early contested head exit is reserved before fence metrics increase", async () => {
+  const { reserveDevelopingFenceEscapeForTacticalAnalysis } = await import(
+    pathToFileURL(path.join(ROOT, "bot-engine/long/engine.ts")).href
+  );
+  const state = roomState({
+    1: { color: "dark", count: 5 },
+    12: { color: "dark", count: 9 },
+    22: { color: "dark", count: 1 },
+    13: { color: "white", count: 10 },
+    24: { color: "white", count: 5 },
+  }, [4, 2]);
+  const after = points => roomState(points, []);
+  const candidate = (id, score, points, overrides = {}) => ({
+    id,
+    score,
+    experienceAdjustment: 0,
+    sequence: [],
+    after: after(points),
+    features: {
+      startZoneReduction: 0,
+      outsideReduction: 0,
+      homeShuffleMoves: 0,
+      trapDelta: 0,
+      fenceClosureDelta: 0,
+      escapeGatewayDelta: 0,
+      latentFenceExposureDelta: 0,
+      primeRunAfter: 2,
+      maxRouteTowerAfter: 2,
+      headLandingBreak: 0,
+      opponentFenceRunBefore: 0,
+      ...overrides,
+    },
+  });
+  const selectedPoints = {
+    1: { color: "dark", count: 5 },
+    8: { color: "dark", count: 1 },
+    12: { color: "dark", count: 8 },
+    22: { color: "dark", count: 1 },
+    13: { color: "white", count: 10 },
+    24: { color: "white", count: 5 },
+  };
+  const selected = candidate("selected", 100000000, selectedPoints);
+  const contested = candidate("contested", 50000000, {
+    1: { color: "dark", count: 5 },
+    12: { color: "dark", count: 9 },
+    18: { color: "dark", count: 1 },
+    13: { color: "white", count: 10 },
+    24: { color: "white", count: 5 },
+  }, { outsideReduction: 1 });
+  contested.sequence = [{ from: 22, to: 18, die: 4 }];
+  const ranked = [
+    selected,
+    candidate("ordinary-1", 90000000, selectedPoints),
+    candidate("ordinary-2", 80000000, selectedPoints),
+    candidate("ordinary-3", 70000000, selectedPoints),
+    contested,
+  ];
+
+  const reserved = reserveDevelopingFenceEscapeForTacticalAnalysis(
+    state,
+    "dark",
+    ranked,
+    4,
+  );
+
+  assert.ok(reserved.indexOf(contested) >= 0 && reserved.indexOf(contested) < 4);
+  assert.equal(contested.features.fenceEscapeTacticalReservation, 1);
+  assert.equal(contested.features.contestedHeadExitTacticalReservation, 1);
+});
+
+test("5F44-A8EA learned memory cannot restore an avoidable home shuffle", () => {
+  const ranked = rankFixtureAgainstHeavyMemory(
+    FIVE_F44_DECISION_27_POINTS,
+    [1, 6],
+    [{ from: 8, die: 1 }, { from: 20, die: 6 }],
+  );
+  const selected = ranked[0];
+
+  assert.ok(selected.sequence.some(move => (
+    move.from === 8 && move.to === 7 && move.die === 1
+  )));
+  assert.ok(selected.sequence.some(move => (
+    move.from === 20 && move.to === 14 && move.die === 6
+  )));
+  assert.equal(selected.features.homeShuffleMoves, 0);
+  assert.equal(selected.features.fenceEscapeTacticalReservation, 1);
+  assert.equal(selected.features.experienceSafetyOverride, 1);
+  assert.ok(selected.experienceAdjustment < 0);
+});
+
+test("5F44-A8EA records choices before strategic eligibility removes alternatives", () => {
+  const engine = loadEngine();
+  const state = roomState(FIVE_F44_DECISION_20_POINTS, [1, 6]);
+
+  engine.plan(state, {
+    strategyProfile: "v25",
+    maxCandidates: 64,
+    analysisNodeBudget: 480,
+  });
+  const decision = engine.consumeLastDecision();
+
+  assert.equal(decision.alternatives.length, 0);
+  assert.equal(decision.choiceCount, 2);
+  assert.equal(decision.selected.features.choiceCount, 2);
+});
+
 test("QQRZ-K8RX releases the head before a three-point fence can close", () => {
   const ranked = rankFixture(QQRZ_DECISION_11_POINTS, [5, 4]);
 

@@ -10,8 +10,9 @@ window.NarduStrongBot = (function () {
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
-  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v4';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v5';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
+    'narduh-long-bot-experience-v4',
     'narduh-long-bot-experience-v3',
     'narduh-long-bot-experience-v2',
     'narduh-long-bot-experience-v1',
@@ -1447,6 +1448,14 @@ window.NarduStrongBot = (function () {
       .map(move => ({ from: move.from, die: move.die }));
   }
 
+  function hasMeaningfulBotChoice(decision) {
+    const recordedChoiceCount = Number(decision?.choiceCount);
+    if (Number.isFinite(recordedChoiceCount) && recordedChoiceCount > 0) {
+      return recordedChoiceCount > 1;
+    }
+    return true;
+  }
+
   function learnFromGame(state, botColor) {
     if (!state?.winner || !botColor) return null;
     const botWon = state.winner === botColor;
@@ -1484,6 +1493,7 @@ window.NarduStrongBot = (function () {
         Number(descriptor?.riskSignal) || 0,
       );
       const actor = decision?.actor === 'opponent' ? 'opponent' : 'bot';
+      if (actor === 'bot' && !hasMeaningfulBotChoice(decision)) return;
       const successful = (actor === 'opponent' ? !botWon : botWon) && severity < 1.1;
       const harmful = actor === 'bot' && !botWon;
       if (!descriptor?.contextKey || !descriptor?.actionKey) return;

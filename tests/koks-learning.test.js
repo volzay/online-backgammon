@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v4";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v5";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -240,14 +240,14 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
   assert.match(captured[0].experience.actionKey, /off:yes/);
 });
 
-test("the v26 opponent-memory RPC preserves severity and valid winning examples", () => {
+test("the v27 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v26.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v27.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -271,7 +271,7 @@ test("the v26 opponent-memory RPC preserves severity and valid winning examples"
 test("production entry points cache-bust every current bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260830-zuzw-short-v5";
+  const version = "20260831-5f44-long-v27";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

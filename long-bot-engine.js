@@ -1975,6 +1975,7 @@ const DEFAULT_MAX_CANDIDATES = 64;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
 const IMMINENT_HEAD_FENCE_SCORE_TOLERANCE = 8000000;
+const CONTESTED_HEAD_EXIT_SCORE_TOLERANCE = 60000000;
 
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
@@ -2025,6 +2026,11 @@ function createLongBotEngine(adapter, options = {}) {
         features,
       });
     }
+
+    const choiceCount = uniqueCandidatePositions(ranked).length;
+    ranked.forEach((candidate) => {
+      candidate.features.choiceCount = choiceCount;
+    });
 
     const maxKoksRescue = Math.max(...ranked.map(
       candidate => Number(candidate.features.startZoneReduction) || 0,
@@ -2183,6 +2189,11 @@ function createLongBotEngine(adapter, options = {}) {
         : 0;
       candidate.score += candidate.experienceAdjustment - previousExperienceAdjustment;
     });
+    finalCandidates = prioritizeContestedOpponentHeadExit(
+      state,
+      color,
+      finalCandidates.sort((left, right) => right.score - left.score),
+    );
     finalCandidates = prioritizeImminentHeadFenceAnchor(
       state,
       color,
@@ -2875,11 +2886,14 @@ function reserveDevelopingFenceEscapeForTacticalAnalysis(
     && Number(candidate.features.latentFenceExposureDelta || 0)
       > Number(selected.features.latentFenceExposureDelta || 0)
   ));
+  const hasContestedHeadExit = Boolean(selected) && ranked.some(candidate => (
+    candidate !== selected
+    && isPlausibleContestedOpponentHeadExit(state, color, candidate, selected)
+  ));
   if (
-    ranked.length <= slotCount
-    || !selected
+    !selected
     || homeReady(state, color)
-    || (fenceRun < 2 && !hasLatentRearEscape)
+    || (fenceRun < 2 && !hasLatentRearEscape && !hasContestedHeadExit)
   ) {
     return ranked;
   }
@@ -2887,33 +2901,48 @@ function reserveDevelopingFenceEscapeForTacticalAnalysis(
   const selectedUtility = fenceEscapeUtility(selected);
   const frontier = Array.from(new Set([
     ...safetyFenceCandidatePool(ranked, selected),
+    ...ranked.filter(candidate => isPlausibleContestedOpponentHeadExit(
+      state,
+      color,
+      candidate,
+      selected,
+    )),
     ...ranked.filter(candidate => isPlausibleImminentHeadFenceAnchor(
       state,
       color,
       candidate,
       selected,
     )),
-  ])).filter(candidate => (
-    candidate !== selected
-    && fenceEscapeUtility(candidate) > selectedUtility + 1
-    && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
-    && Number(candidate.features.homeShuffleMoves || 0)
-      <= Number(selected.features.homeShuffleMoves || 0)
-    && (
-      (
-        Number(candidate.score) >= Number(selected.score) - 260000000
-        && Number(candidate.features.primeRunAfter || 0)
-          >= Number(selected.features.primeRunAfter || 0)
-      )
-      || isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
-      || isPlausibleLatentRearFenceEscape(candidate, selected)
-    )
-  ));
+  ])).filter((candidate) => {
+    const contestedHeadExit = isPlausibleContestedOpponentHeadExit(
+      state,
+      color,
+      candidate,
+      selected,
+    );
+    return candidate !== selected
+      && (contestedHeadExit || fenceEscapeUtility(candidate) > selectedUtility + 1)
+      && Number(candidate.features.maxRouteTowerAfter || 0)
+        <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+      && Number(candidate.features.homeShuffleMoves || 0)
+        <= Number(selected.features.homeShuffleMoves || 0)
+      && (
+        contestedHeadExit
+        || (
+          Number(candidate.score) >= Number(selected.score) - 260000000
+          && Number(candidate.features.primeRunAfter || 0)
+            >= Number(selected.features.primeRunAfter || 0)
+        )
+        || isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected)
+        || isPlausibleLatentRearFenceEscape(candidate, selected)
+      );
+  });
   if (!frontier.length) return ranked;
 
   frontier.sort((left, right) => (
-    Number(isPlausibleImminentHeadFenceAnchor(state, color, right, selected))
+    Number(isPlausibleContestedOpponentHeadExit(state, color, right, selected))
+      - Number(isPlausibleContestedOpponentHeadExit(state, color, left, selected))
+    || Number(isPlausibleImminentHeadFenceAnchor(state, color, right, selected))
       - Number(isPlausibleImminentHeadFenceAnchor(state, color, left, selected))
     || Number(isPlausibleLatentRearFenceEscape(right, selected))
       - Number(isPlausibleLatentRearFenceEscape(left, selected))
@@ -2923,6 +2952,10 @@ function reserveDevelopingFenceEscapeForTacticalAnalysis(
     || Number(right.score) - Number(left.score)
   ));
   frontier[0].features.fenceEscapeTacticalReservation = 1;
+  if (isPlausibleContestedOpponentHeadExit(state, color, frontier[0], selected)) {
+    frontier[0].features.contestedHeadExitTacticalReservation = 1;
+  }
+  if (ranked.length <= slotCount) return ranked;
   return reorderTacticalReservations(ranked, slotCount);
 }
 
@@ -3295,11 +3328,40 @@ function prioritizeDevelopingFenceEscape(state, color, ranked) {
       - Number(left.features.fenceClosureDelta || 0)
     || Number(right.score) - Number(left.score)
   ));
+  if (isExperienceOverruledFenceEscape(escaping[0], selected)) {
+    escaping[0].features.experienceSafetyOverride = 1;
+  }
   return promoteCandidate(
     ranked,
     escaping[0],
     'developingFenceEscapeAdjustment',
   );
+}
+
+function prioritizeContestedOpponentHeadExit(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected) return ranked;
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && isAnalyzedContestedOpponentHeadExit(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(right.tactical.worstImpact || 0)
+      - Number(left.tactical.worstImpact || 0)
+    || Number(right.tactical.continuationWorst || 0)
+      - Number(left.tactical.continuationWorst || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'contestedOpponentHeadExitAdjustment',
+  );
+  promoted[0].features.contestedOpponentHeadExit = 1;
+  return promoted;
 }
 
 function prioritizeImminentHeadFenceAnchor(state, color, ranked) {
@@ -3371,6 +3433,88 @@ function fenceEscapeUtility(candidate) {
     + (Number(candidate.features.fenceClosureDelta) || 0)
     + (Number(candidate.features.escapeGatewayDelta) || 0) * 4
     + (Number(candidate.features.latentFenceExposureDelta) || 0) * 6;
+}
+
+function newlyBlockedOpponentHeadLanding(state, color, candidate, selected) {
+  if (!candidate?.after || !selected?.after) return false;
+  const opponent = opponentOf(color);
+  const landingPoints = new Set(pathFor(opponent).slice(1, 7).map(Number));
+  return candidate.sequence?.some(move => {
+    const target = Number(move.to);
+    return !move.bearOff
+      && landingPoints.has(target)
+      && colorAt(candidate.after, target) === color
+      && colorAt(selected.after, target) !== color;
+  });
+}
+
+function hasFiniteTacticalMetrics(candidate, keys) {
+  return keys.every((key) => (
+    candidate?.tactical?.[key] !== null
+    && candidate?.tactical?.[key] !== undefined
+    && Number.isFinite(Number(candidate.tactical[key]))
+  ));
+}
+
+function isPlausibleContestedOpponentHeadExit(state, color, candidate, selected) {
+  const opponent = opponentOf(color);
+  return headCheckers(state, opponent) >= 4
+    && newlyBlockedOpponentHeadLanding(state, color, candidate, selected)
+    && Number(candidate.features.outsideReduction || 0)
+      > Number(selected.features.outsideReduction || 0)
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.headLandingBreak || 0)
+      <= Number(selected.features.headLandingBreak || 0)
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0) - 1
+    && scoreWithoutExperience(candidate) >= (
+      scoreWithoutExperience(selected) - CONTESTED_HEAD_EXIT_SCORE_TOLERANCE
+    );
+}
+
+function isAnalyzedContestedOpponentHeadExit(state, color, candidate, selected) {
+  if (
+    !candidate?.tactical
+    || !selected?.tactical
+    || !isPlausibleContestedOpponentHeadExit(state, color, candidate, selected)
+    || !hasFiniteTacticalMetrics(candidate, [
+      'plies',
+      'expectedImpact',
+      'worstImpact',
+      'recoveryWorst',
+      'continuationExpected',
+      'continuationWorst',
+    ])
+    || !hasFiniteTacticalMetrics(selected, [
+      'plies',
+      'expectedImpact',
+      'worstImpact',
+      'recoveryWorst',
+      'continuationExpected',
+      'continuationWorst',
+    ])
+  ) {
+    return false;
+  }
+  return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.plies || 0) >= 4
+    && Number(candidate.tactical.expectedImpact || 0)
+      >= Number(selected.tactical.expectedImpact || 0) + 10000000
+    && Number(candidate.tactical.worstImpact || 0)
+      >= Number(selected.tactical.worstImpact || 0) + 30000000
+    && Number(candidate.tactical.recoveryWorst || 0)
+      >= Number(selected.tactical.recoveryWorst || 0) + 30000000
+    && Number(candidate.tactical.continuationExpected || 0)
+      >= Number(selected.tactical.continuationExpected || 0) + 10000000
+    && Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.continuationWorst || 0) + 15000000;
 }
 
 function isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected) {
@@ -3564,9 +3708,13 @@ function annotateAvoidableHomeShuffles(ranked) {
 
 function isComparableFenceEscape(candidate, selected) {
   if (!candidate?.tactical || !selected?.tactical) return false;
+  const experienceSafetyOverride = isExperienceOverruledFenceEscape(candidate, selected);
   return Number(candidate.score) >= Number(selected.score) - 260000000
-    && Number(candidate.experienceAdjustment || 0) >= (
-      Number(selected.experienceAdjustment || 0) - 500000
+    && (
+      Number(candidate.experienceAdjustment || 0) >= (
+        Number(selected.experienceAdjustment || 0) - 500000
+      )
+      || experienceSafetyOverride
     )
     && Number(candidate.features.trapDelta || 0)
       >= Number(selected.features.trapDelta || 0)
@@ -3583,6 +3731,48 @@ function isComparableFenceEscape(candidate, selected) {
       <= Number(selected.features.homeShuffleMoves || 0)
     && Number(candidate.features.headLandingBreak || 0)
       <= Number(selected.features.headLandingBreak || 0) + 12;
+}
+
+function isExperienceOverruledFenceEscape(candidate, selected) {
+  const requiredTacticalMetrics = [
+    'plies',
+    'expectedImpact',
+    'worstImpact',
+    'recoveryExpected',
+    'recoveryWorst',
+  ];
+  if (
+    !candidate?.tactical
+    || !selected?.tactical
+    || !hasFiniteTacticalMetrics(candidate, requiredTacticalMetrics)
+    || !hasFiniteTacticalMetrics(selected, requiredTacticalMetrics)
+  ) return false;
+  return Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+    && Number(candidate.experienceAdjustment || 0)
+      < Number(selected.experienceAdjustment || 0) - 500000
+    && scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      > Number(selected.features.latentFenceExposureDelta || 0)
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.plies || 0) >= 4
+    && Number(candidate.tactical.expectedImpact || 0)
+      >= Number(selected.tactical.expectedImpact || 0) + 10000000
+    && Number(candidate.tactical.worstImpact || 0)
+      >= Number(selected.tactical.worstImpact || 0) + 30000000
+    && Number(candidate.tactical.recoveryExpected || 0)
+      >= Number(selected.tactical.recoveryExpected || 0)
+    && Number(candidate.tactical.recoveryWorst || 0)
+      >= Number(selected.tactical.recoveryWorst || 0);
 }
 
 function strategicSafetyAdjustment(state, color, features) {
@@ -3687,7 +3877,7 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v26';
+const ENGINE_VERSION = 'long-analytic-v27';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -3766,6 +3956,10 @@ function createBrowserLongBotEngine(game, options = {}) {
 }
 
 function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
+  const choiceCount = Math.max(
+    1,
+    ...ranked.map(candidate => Number(candidate.features?.choiceCount) || 0),
+  );
   const candidates = ranked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
@@ -3804,6 +3998,7 @@ function decisionRecord(state, color, ranked, weights = undefined, experienceSiz
     id: positionFingerprint(state, color),
     at: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
+    choiceCount,
     experienceSize: Math.max(0, Number(experienceSize) || 0),
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))

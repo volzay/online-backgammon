@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v26';
+const ENGINE_VERSION = 'long-analytic-v27';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -80,6 +80,10 @@ export function createBrowserLongBotEngine(game, options = {}) {
 }
 
 function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
+  const choiceCount = Math.max(
+    1,
+    ...ranked.map(candidate => Number(candidate.features?.choiceCount) || 0),
+  );
   const candidates = ranked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
@@ -118,6 +122,7 @@ function decisionRecord(state, color, ranked, weights = undefined, experienceSiz
     id: positionFingerprint(state, color),
     at: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
+    choiceCount,
     experienceSize: Math.max(0, Number(experienceSize) || 0),
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))

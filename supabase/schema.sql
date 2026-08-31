@@ -2228,6 +2228,10 @@ as $$
       ) as engine_generation,
       coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) as capture_version,
       coalesce(nullif(decision->>'actor', ''), 'bot') as actor,
+      coalesce(
+        public.long_bot_safe_numeric(decision->'choiceCount'),
+        2
+      ) as choice_count,
       greatest(0.75, least(4, coalesce(public.long_bot_safe_numeric(decision->'winQuality'), 1))) as win_quality,
       coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
       coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
@@ -2301,8 +2305,10 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and winner = bot_color and harm_signal < 1.1)
+      actor = 'bot' and engine_generation >= 27 and choice_count > 1
+        and winner <> bot_color and harm_signal >= 1.1 as harmful,
+      (actor = 'bot' and engine_generation >= 27 and choice_count > 1
+        and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
           and capture_version >= 1

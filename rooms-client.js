@@ -4,7 +4,7 @@
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
-  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v8";
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v9";
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 5;
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v5";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5;
@@ -13,6 +13,7 @@
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
   const shortBotExperiencePromises = new Map();
+  let longBotExperienceLoadGeneration = 0;
   let shortBotExperienceLoadGeneration = 0;
 
   function validatedLongBotExperience(patterns) {
@@ -827,6 +828,7 @@
       || "",
     ).trim().slice(0, 32);
     const playerKey = resolvedPlayerName.toLocaleLowerCase();
+    const loadGeneration = ++longBotExperienceLoadGeneration;
     const cachedPatterns = refresh ? [] : readLongBotExperienceCache(playerKey);
     window.NarduLongBotEngine.setExperience([], "server");
     window.NarduLongBotEngine.setExperience([], "server-cache");
@@ -834,12 +836,20 @@
       window.NarduLongBotEngine.setExperience(cachedPatterns, "server-cache");
     }
     if (longBotExperiencePromises.has(playerKey) && !refresh) {
-      if (cachedPatterns.length) return cachedPatterns;
-      return longBotExperiencePromises.get(playerKey).then(patterns => {
+      const currentPromise = longBotExperiencePromises.get(playerKey).then(patterns => {
         const validated = validatedLongBotExperience(patterns);
-        if (validated) window.NarduLongBotEngine.setExperience(validated, "server");
+        if (validated && loadGeneration === longBotExperienceLoadGeneration) {
+          window.NarduLongBotEngine.setExperience([], "server-cache");
+          window.NarduLongBotEngine.setExperience(validated, "server");
+          writeLongBotExperienceCache(validated, playerKey);
+        }
         return validated || [];
       });
+      if (cachedPatterns.length) {
+        currentPromise.catch(() => {});
+        return cachedPatterns;
+      }
+      return currentPromise;
     }
     const experiencePromise = (async () => {
       const client = await supabase();
@@ -852,14 +862,19 @@
         console.warn("Ignored incompatible long-bot experience generation.");
         return cachedPatterns;
       }
-      window.NarduLongBotEngine.setExperience(patterns, "server");
-      writeLongBotExperienceCache(patterns, playerKey);
+      if (loadGeneration === longBotExperienceLoadGeneration) {
+        window.NarduLongBotEngine.setExperience([], "server-cache");
+        window.NarduLongBotEngine.setExperience(patterns, "server");
+        writeLongBotExperienceCache(patterns, playerKey);
+      }
       return patterns;
-    })().catch(error => {
-      longBotExperiencePromises.delete(playerKey);
-      throw error;
-    });
+    })();
     longBotExperiencePromises.set(playerKey, experiencePromise);
+    experiencePromise.finally(() => {
+      if (longBotExperiencePromises.get(playerKey) === experiencePromise) {
+        longBotExperiencePromises.delete(playerKey);
+      }
+    }).catch(() => {});
     if (cachedPatterns.length && !refresh) {
       experiencePromise.catch(() => {});
       return cachedPatterns;
@@ -915,11 +930,13 @@
         writeShortBotExperienceCache(patterns, playerKey);
       }
       return patterns;
-    })().catch(error => {
-      shortBotExperiencePromises.delete(playerKey);
-      throw error;
-    });
+    })();
     shortBotExperiencePromises.set(playerKey, experiencePromise);
+    experiencePromise.finally(() => {
+      if (shortBotExperiencePromises.get(playerKey) === experiencePromise) {
+        shortBotExperiencePromises.delete(playerKey);
+      }
+    }).catch(() => {});
     if (cachedPatterns.length && !refresh) {
       experiencePromise.catch(() => {});
       return cachedPatterns;

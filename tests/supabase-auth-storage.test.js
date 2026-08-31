@@ -53,7 +53,8 @@ test('Supabase auth token storage evicts reproducible game caches before losing 
     'narduh-long-bot-server-experience-v7': 'x'.repeat(620),
     'narduh-short-bot-server-experience-v5': 'x'.repeat(620),
     'narduh-short-bot-experience-v4': 'x'.repeat(620),
-    'narduh-long-bot-experience-v4': 'current-memory',
+    'narduh-long-bot-experience-v5': 'current-memory',
+    'narduh-long-bot-experience-v4': 'stale-memory',
     'narduh-long-bot-experience-v3': 'current-memory',
     'narduh-long-bot-experience-v2': 'stale-memory',
     'narduh-long-bot-experience-v1': 'legacy-memory',
@@ -67,6 +68,7 @@ test('Supabase auth token storage evicts reproducible game caches before losing 
   assert.equal(storage.getItem('narduh-long-bot-server-experience-v7'), null);
   assert.equal(storage.getItem('narduh-short-bot-server-experience-v5'), null);
   assert.equal(storage.getItem('narduh-short-bot-experience-v4'), null);
+  assert.equal(storage.getItem('narduh-long-bot-experience-v5'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v4'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v3'), null);
   assert.equal(storage.getItem('narduh-long-bot-experience-v2'), null);

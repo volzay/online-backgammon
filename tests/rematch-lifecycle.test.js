@@ -615,7 +615,7 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v8", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v9", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     creditVersion: 5,
@@ -668,7 +668,254 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
   assert.equal(rpcCalls[0].args.p_player_name, "warlord");
 });
 
-test("long-bot experience rejects old RPC generations and caches only v26 data", async () => {
+test("fresh long-bot experience replaces its cache source instead of doubling it", async () => {
+  const localStorage = memoryStorage();
+  const cachedPattern = {
+    creditVersion: 5,
+    contextKey: "route|cached",
+    actionKey: "route:cached",
+  };
+  const freshPattern = {
+    creditVersion: 5,
+    contextKey: "route|fresh",
+    actionKey: "route:fresh",
+  };
+  localStorage.setItem("narduh-long-bot-server-experience-v9", JSON.stringify({
+    savedAt: Date.now(),
+    playerKey: "warlord",
+    creditVersion: 5,
+    patterns: [cachedPattern],
+  }));
+  const applied = [];
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return { async rpc() { return { data: [freshPattern], error: null }; } };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage,
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const loaded = await context.window.NarduRooms.loadLongBotExperience({
+    playerName: "warlord",
+  });
+  assert.equal(loaded[0].actionKey, cachedPattern.actionKey);
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const freshIndex = applied.findIndex(item => (
+    item.source === "server" && item.patterns[0]?.actionKey === freshPattern.actionKey
+  ));
+  assert.ok(freshIndex > 0);
+  assert.equal(applied[freshIndex - 1].source, "server-cache");
+  assert.equal(applied[freshIndex - 1].patterns.length, 0);
+});
+
+test("late long-bot experience cannot replace the current player's memory", async () => {
+  let resolveWarlord;
+  const warlordPattern = {
+    creditVersion: 5,
+    contextKey: "route|warlord",
+    actionKey: "route:warlord",
+  };
+  const testerPattern = {
+    creditVersion: 5,
+    contextKey: "route|tester1",
+    actionKey: "route:tester1",
+  };
+  const applied = [];
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return {
+            rpc(_name, args) {
+              if (args.p_player_name === "warlord") {
+                return new Promise(resolve => { resolveWarlord = resolve; });
+              }
+              return Promise.resolve({ data: [testerPattern], error: null });
+            },
+          };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage: memoryStorage(),
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const staleLoad = context.window.NarduRooms.loadLongBotExperience({
+    refresh: true,
+    playerName: "warlord",
+  });
+  await context.window.NarduRooms.loadLongBotExperience({
+    refresh: true,
+    playerName: "tester1",
+  });
+  resolveWarlord({ data: [warlordPattern], error: null });
+  await staleLoad;
+
+  const appliedServerActions = applied
+    .filter(item => item.source === "server" && item.patterns.length)
+    .map(item => item.patterns[0].actionKey);
+  assert.deepEqual(appliedServerActions, [testerPattern.actionKey]);
+});
+
+test("a completed long-bot experience request does not freeze later refreshes", async () => {
+  let rpcCalls = 0;
+  const applied = [];
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return {
+            async rpc() {
+              rpcCalls += 1;
+              return {
+                data: [{
+                  creditVersion: 5,
+                  contextKey: `route|load-${rpcCalls}`,
+                  actionKey: `route:load-${rpcCalls}`,
+                }],
+                error: null,
+              };
+            },
+          };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+    localStorage: memoryStorage(),
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const first = await context.window.NarduRooms.loadLongBotExperience({
+    playerName: "warlord",
+  });
+  await Promise.resolve();
+  const second = await context.window.NarduRooms.loadLongBotExperience({
+    playerName: "warlord",
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(rpcCalls, 2);
+  assert.equal(first[0].actionKey, "route:load-1");
+  assert.equal(second[0].actionKey, "route:load-1");
+  const latestServerPattern = applied
+    .filter(item => item.source === "server" && item.patterns.length)
+    .at(-1);
+  assert.equal(latestServerPattern.patterns[0].actionKey, "route:load-2");
+});
+
+test("an old failed refresh cannot delete a newer long-bot request", async () => {
+  const pending = [];
+  let rpcCalls = 0;
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return {
+            rpc() {
+              rpcCalls += 1;
+              return new Promise(resolve => pending.push(resolve));
+            },
+          };
+        },
+      },
+      NarduLongBotEngine: { setExperience() {} },
+    },
+    localStorage: memoryStorage(),
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const stale = context.window.NarduRooms.loadLongBotExperience({
+    refresh: true,
+    playerName: "warlord",
+  });
+  const current = context.window.NarduRooms.loadLongBotExperience({
+    refresh: true,
+    playerName: "warlord",
+  });
+  while (pending.length < 2) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  const staleFailure = assert.rejects(stale, /stale load failed/);
+  pending[0]({ data: null, error: { message: "stale load failed" } });
+  await staleFailure;
+
+  const reusedCurrent = context.window.NarduRooms.loadLongBotExperience({
+    playerName: "warlord",
+  });
+  assert.equal(rpcCalls, 2);
+  pending[1]({
+    data: [{ creditVersion: 5, contextKey: "route|fresh", actionKey: "route:fresh" }],
+    error: null,
+  });
+  await current;
+  const loaded = await reusedCurrent;
+
+  assert.equal(loaded[0].actionKey, "route:fresh");
+  assert.equal(rpcCalls, 2);
+});
+
+test("long-bot experience rejects old RPC generations and caches only v27 data", async () => {
   async function loadWith(data) {
     const localStorage = memoryStorage();
     const applied = [];
@@ -713,7 +960,7 @@ test("long-bot experience rejects old RPC generations and caches only v26 data",
   assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
   assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
-  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v8"), null);
+  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v9"), null);
 
   const currentPattern = {
     creditVersion: 5,
@@ -724,7 +971,7 @@ test("long-bot experience rejects old RPC generations and caches only v26 data",
   assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
   assert.equal(currentResult.applied.at(-1).source, "server");
   const cached = JSON.parse(
-    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v8"),
+    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v9"),
   );
   assert.equal(cached.creditVersion, 5);
   assert.equal(cached.patterns[0].creditVersion, 5);
@@ -851,7 +1098,7 @@ test("short-bot experience ignores a late response for the previous player", asy
   assert.equal(cached.playerKey, "warlord");
 });
 
-test("resolved long-bot experience is reapplied when browser storage is unavailable", async () => {
+test("long-bot experience refreshes when browser storage is unavailable", async () => {
   const pattern = {
     creditVersion: 5,
     contextKey: "route|storage-unavailable",
@@ -899,7 +1146,7 @@ test("resolved long-bot experience is reapplied when browser storage is unavaila
   await context.window.NarduRooms.loadLongBotExperience();
   await context.window.NarduRooms.loadLongBotExperience();
 
-  assert.equal(rpcCalls, 1);
+  assert.equal(rpcCalls, 2);
   const lastServerApplication = applied.filter(item => item.source === "server").at(-1);
   assert.equal(lastServerApplication.patterns[0].actionKey, pattern.actionKey);
 });

@@ -1492,7 +1492,8 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v26");
+  assert.equal(decision.engineVersion, "long-analytic-v27");
+  assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
   assert.ok(decision.selected.experience);
@@ -2180,7 +2181,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v8/);
+  assert.match(client, /narduh-long-bot-server-experience-v9/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);
