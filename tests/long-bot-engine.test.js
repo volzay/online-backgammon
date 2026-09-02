@@ -1115,7 +1115,11 @@ test("v19 reserves a fifth-place home entry for reply analysis", async () => {
     0,
     -500001,
   );
-  assert.equal(reserveForcedEntry(forcedExperienceBeyond)[3].id, "forced-shuffle-4");
+  assert.equal(
+    reserveForcedEntry(forcedExperienceBeyond)[3],
+    forcedExperienceBeyond,
+    "learned penalties must not remove a safe entry from tactical analysis",
+  );
 });
 
 test("developing-fence escape promotion is bounded by score and experience", async () => {
@@ -1492,7 +1496,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v27");
+  assert.equal(decision.engineVersion, "long-analytic-v28");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -2181,7 +2185,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v9/);
+  assert.match(client, /narduh-long-bot-server-experience-v10/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);

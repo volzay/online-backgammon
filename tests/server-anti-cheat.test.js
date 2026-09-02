@@ -25,10 +25,32 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let server;
 let dataDir;
 let roomCounter = 0;
+let serverOutput = "";
+
+function captureServerOutput(chunk) {
+  serverOutput = `${serverOutput}${chunk}`.slice(-16 * 1024);
+}
+
+function serverStartDiagnostics() {
+  const status = server?.exitCode === null
+    ? "still running"
+    : `exited with code ${server?.exitCode ?? "unknown"}${server?.signalCode ? ` (${server.signalCode})` : ""}`;
+  const output = serverOutput.trim() || "<no child output>";
+  return [
+    `runtime=${process.execPath}`,
+    `address=127.0.0.1:${PORT}`,
+    `dataDir=${dataDir}`,
+    `child=${status}`,
+    `output:\n${output}`,
+  ].join("\n");
+}
 
 async function waitForServer() {
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
+    if (server?.exitCode !== null) {
+      throw new Error(`server exited before becoming ready\n${serverStartDiagnostics()}`);
+    }
     try {
       const response = await fetch(`${BASE}/index.html`);
       if (response.ok) return;
@@ -37,7 +59,7 @@ async function waitForServer() {
     }
     await sleep(150);
   }
-  throw new Error("server did not start in time");
+  throw new Error(`server did not start in time\n${serverStartDiagnostics()}`);
 }
 
 async function createRoom() {
@@ -65,7 +87,8 @@ function putGame(code, state, version = 0) {
 
 test.before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "nardy-anticheat-"));
-  server = spawn("node", [path.join(ROOT, "server.js")], {
+  serverOutput = "";
+  server = spawn(process.execPath, [path.join(ROOT, "server.js")], {
     env: {
       ...process.env,
       PORT: String(PORT),
@@ -73,8 +96,11 @@ test.before(async () => {
       DATA_DIR: dataDir,
       ADMIN_PASSWORD: "test",
     },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  server.stdout.on("data", captureServerOutput);
+  server.stderr.on("data", captureServerOutput);
+  server.on("error", error => captureServerOutput(`${error.stack || error}\n`));
   await waitForServer();
 });
 

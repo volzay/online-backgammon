@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { randomUUID } = require("crypto");
 
 const ROOT = path.join(__dirname, "..");
 const OUTPUT = path.join(ROOT, "long-bot-engine.js");
@@ -11,6 +12,20 @@ const SOURCES = [
   "bot-engine/long/nardu-game-adapter.ts",
   "bot-engine/long/browser.ts",
 ];
+
+function writeOutputAtomically(output, contents, fileSystem = fs) {
+  const temporaryOutput = `${output}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fileSystem.writeFileSync(temporaryOutput, contents);
+    fileSystem.renameSync(temporaryOutput, output);
+  } finally {
+    try {
+      fileSystem.unlinkSync(temporaryOutput);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+}
 
 function stripModuleSyntax(source) {
   return source
@@ -28,10 +43,14 @@ function buildLongBotEngine() {
     })
     .join("\n");
 
-  fs.writeFileSync(OUTPUT, `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n${body}\n}());\n`);
+  writeOutputAtomically(
+    OUTPUT,
+    `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n${body}\n}());\n`,
+  );
   console.log(`Long bot engine written to ${path.relative(ROOT, OUTPUT)}`);
 }
 
 if (require.main === module) buildLongBotEngine();
 
 module.exports = buildLongBotEngine;
+module.exports.writeOutputAtomically = writeOutputAtomically;

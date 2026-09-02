@@ -1,7 +1,7 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v27';
+const ENGINE_VERSION = 'long-analytic-v28';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -12,6 +12,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
   const engine = createLongBotEngine(adapter, options);
   let lastDecision = null;
+  let decisionSerial = 0;
 
   const runtimeDefaults = {
     ...PRODUCTION_RUNTIME_OPTIONS,
@@ -24,21 +25,29 @@ export function createBrowserLongBotEngine(game, options = {}) {
 
   return {
     plan(state, runtimeOptions = {}) {
+      // Never let a failed/empty ranking leak telemetry from the previous turn.
+      lastDecision = null;
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
       const ranked = engine.rank(state, color, effectiveOptions);
-      lastDecision = decisionRecord(
+      const recorded = decisionRecord(
         state,
         color,
         ranked,
         effectiveOptions.weights,
         engine.experienceSize(),
+        decisionSerial + 1,
       );
+      if (recorded) {
+        decisionSerial += 1;
+        lastDecision = recorded;
+      }
       return (ranked[0]?.sequence || []).map(move => ({ from: move.from, die: move.die }));
     },
 
     rank(state, runtimeOptions = {}) {
+      lastDecision = null;
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       return engine.rank(state, color, effectiveRuntimeOptions(runtimeOptions));
@@ -79,7 +88,14 @@ export function createBrowserLongBotEngine(game, options = {}) {
   };
 }
 
-function decisionRecord(state, color, ranked, weights = undefined, experienceSize = 0) {
+function decisionRecord(
+  state,
+  color,
+  ranked,
+  weights = undefined,
+  experienceSize = 0,
+  serial = 1,
+) {
   const choiceCount = Math.max(
     1,
     ...ranked.map(candidate => Number(candidate.features?.choiceCount) || 0),
@@ -118,8 +134,11 @@ function decisionRecord(state, color, ranked, weights = undefined, experienceSiz
   }));
   if (!candidates.length) return null;
 
+  const positionId = positionFingerprint(state, color);
   return {
-    id: positionFingerprint(state, color),
+    id: `${positionId}-${Date.now().toString(36)}-${String(Math.max(1, Number(serial) || 1)).padStart(4, '0')}`,
+    positionId,
+    source: 'engine',
     at: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
     choiceCount,

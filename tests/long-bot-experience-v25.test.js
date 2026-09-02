@@ -167,7 +167,7 @@ test('v25 marks a home shuffle as harmful while any checker still remains outsid
   assert.ok(descriptor.mistakeSeverity >= 0.8);
   assert.ok(descriptor.riskSignal >= 1.3);
   assert.ok(descriptor.behaviorActionKeys.includes(
-    'entry:gain|progress:gain|home:shuffle|tower:flat|off:no',
+    'entry:gain|progress:gain|home:shuffle|tower:flat|prime:flat|prime-run:0|off:no',
   ));
 });
 
@@ -587,7 +587,7 @@ test('v27 RPC excludes forced choices, publishes balanced cohorts and matches th
   assert.match(migration, /else 0\.0\s+end as engine_weight/);
   assert.match(migration, /player_weight \* engine_weight/);
   assert.match(migration, /'creditVersion', 5/);
-  assert.match(client, /narduh-long-bot-server-experience-v9/);
+  assert.match(client, /narduh-long-bot-server-experience-v10/);
   assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v5'/);
   assert.match(fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8'), /narduh-long-bot-experience-v5/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);

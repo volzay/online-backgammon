@@ -271,7 +271,7 @@ test("the v27 opponent-memory RPC preserves severity and valid winning examples"
 test("production entry points cache-bust every current bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260831-5f44-long-v27";
+  const version = "20260902-bbxr-long-v28";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

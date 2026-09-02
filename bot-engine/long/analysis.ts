@@ -549,6 +549,8 @@ export function experienceDescriptor(
       signedFlag('progress', features.outsidePipGain),
       homeShuffleAction,
       signedFlag('tower', features.routeTowerDelta),
+      signedFlag('prime', features.primeScoreGain),
+      `prime-run:${Math.max(0, Number(features.primeRunAfter) || 0)}`,
       Number(features.bearOffMoves || 0) > 0 ? 'off:yes' : 'off:no',
     ].join('|'),
     [

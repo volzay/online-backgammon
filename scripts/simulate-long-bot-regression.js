@@ -129,7 +129,7 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const experienceSnapshot = readExperienceSnapshot(experienceFile);
   const patterns = experienceSnapshot.patterns;
   const storage = new Map([
-    ['narduh-long-bot-experience-v3', JSON.stringify(patterns)],
+    ['narduh-long-bot-experience-v5', JSON.stringify(patterns)],
   ]);
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {
@@ -168,6 +168,16 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
     experienceCount: patterns.length,
     experienceFingerprint: experienceSnapshot.fingerprint,
     runtimeFingerprint: runtimeSnapshot.fingerprint,
+  };
+}
+
+function loadIsolatedRuntimes(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
+  const treatment = loadRuntime(experienceFile, runtimeSnapshot);
+  const control = loadRuntime(undefined, runtimeSnapshot);
+  return {
+    ...treatment,
+    controlEngine: control.engine,
+    controlExperienceCount: control.experienceCount,
   };
 }
 
@@ -298,7 +308,10 @@ function applyPlan(game, state, plan) {
 }
 
 function playGame(pairIndex, leg, runtime, options) {
-  const { game, engine } = runtime;
+  const { game, engine, controlEngine } = runtime;
+  if (!engine?.plan || !controlEngine?.plan || engine === controlEngine) {
+    throw new Error('Simulator requires isolated treatment and control engine instances');
+  }
   const {
     botColor,
     controlColor,
@@ -344,18 +357,19 @@ function playGame(pairIndex, leg, runtime, options) {
     }
     const actingColor = state.turn;
     const actingProfile = actingColor === botColor ? options.botProfile : options.controlProfile;
+    const actingEngine = actingColor === botColor ? engine : controlEngine;
     const plan = actingColor === botColor
-      ? engine.plan(state, {
+      ? actingEngine.plan(state, {
         maxCandidates: options.botCandidates,
         analysisNodeBudget: options.botNodes,
         strategyProfile: options.botProfile,
       })
-      : engine.plan(state, {
+      : actingEngine.plan(state, {
         maxCandidates: options.controlCandidates,
         analysisNodeBudget: options.controlNodes,
         strategyProfile: options.controlProfile,
       });
-    const decision = engine.consumeLastDecision?.();
+    const decision = actingEngine.consumeLastDecision?.();
     if (actingColor === botColor && decision) {
       state.analysis ||= {};
       state.analysis.botMemory ||= { format: 2, decisions: [] };
@@ -413,7 +427,7 @@ function main() {
   const experience = stringOption(parsed, 'experience');
   const runtimeSnapshot = readRuntimeSnapshot();
   const simulatorHarnessFingerprint = fileFingerprint(__filename);
-  const runtime = loadRuntime(experience, runtimeSnapshot);
+  const runtime = loadIsolatedRuntimes(experience, runtimeSnapshot);
   const productionOptions = runtime.engine.productionOptions || {};
   const options = {
     games,
@@ -515,6 +529,7 @@ module.exports = {
   fileFingerprint,
   fingerprintNamedBuffers,
   loadRuntime,
+  loadIsolatedRuntimes,
   parseCliTokens,
   pairedDiceStreams,
   playGame,

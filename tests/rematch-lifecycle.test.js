@@ -73,6 +73,7 @@ function finishedGameContext({
   deferFinalState = false,
   autoFinish = true,
   guest = false,
+  decisionRecovery = null,
 } = {}) {
   const elements = new Map();
   const makeElement = initialId => {
@@ -174,6 +175,17 @@ function finishedGameContext({
         roomCalls.lobbyOptions = options;
         location.href = "index.html";
       },
+    },
+    NarduStrongBot: {
+      recoverBotDecisions() {
+        return decisionRecovery || {
+          available: true,
+          expectedBotDecisions: 0,
+          positions: [],
+          decisions: [],
+        };
+      },
+      captureOpponentDecisions() { return []; },
     },
   };
   const context = {
@@ -431,6 +443,30 @@ test("guest training archive waits for the full authoritative decision log", asy
   );
 });
 
+test("bot training archive fails closed when reconstructed turn coverage is incomplete", async () => {
+  const { roomCalls, controller } = finishedGameContext({
+    decisionRecovery: {
+      available: true,
+      expectedBotDecisions: 1,
+      positions: ["lb4-deadbeef"],
+      decisions: [],
+    },
+  });
+  await new Promise(resolve => setTimeout(resolve, 25));
+
+  assert.equal(roomCalls.archives, 0);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(controller.getState().analysis.botMemory.coverage)),
+    {
+      expectedBotDecisions: 1,
+      recordedBotDecisions: 0,
+      recoveredBotDecisions: 0,
+      complete: false,
+      checkedAt: controller.getState().analysis.botMemory.coverage.checkedAt,
+    },
+  );
+});
+
 test("the first game-over action wins when lobby and another game are clicked", async () => {
   const { document, location, roomCalls } = finishedGameContext();
   const lobbyButton = document.getElementById("go-lobby");
@@ -615,7 +651,7 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v9", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v10", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     creditVersion: 5,
@@ -680,7 +716,7 @@ test("fresh long-bot experience replaces its cache source instead of doubling it
     contextKey: "route|fresh",
     actionKey: "route:fresh",
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v9", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v10", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     creditVersion: 5,
@@ -960,7 +996,7 @@ test("long-bot experience rejects old RPC generations and caches only v27 data",
   assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
   assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
-  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v9"), null);
+  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v10"), null);
 
   const currentPattern = {
     creditVersion: 5,
@@ -971,7 +1007,7 @@ test("long-bot experience rejects old RPC generations and caches only v27 data",
   assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
   assert.equal(currentResult.applied.at(-1).source, "server");
   const cached = JSON.parse(
-    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v9"),
+    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v10"),
   );
   assert.equal(cached.creditVersion, 5);
   assert.equal(cached.patterns[0].creditVersion, 5);

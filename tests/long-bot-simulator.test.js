@@ -11,6 +11,7 @@ const {
   createLegAssignment,
   diceStreamSeeds,
   fileFingerprint,
+  loadIsolatedRuntimes,
   loadRuntime,
   pairedDiceStreams,
   playGame,
@@ -149,8 +150,58 @@ test('runtime snapshot and fingerprints describe immutable bytes actually loaded
   }
 });
 
+test('treatment experience and adaptive learning stay isolated from the control engine', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-bot-isolation-test-'));
+  const experienceFile = path.join(directory, 'experience.json');
+  fs.writeFileSync(experienceFile, JSON.stringify({
+    patterns: [{
+      creditVersion: 5,
+      contextKey: 'route|imported-isolation-test',
+      actionKey: 'head:1|entry:0|off:0|shuffle:0',
+      samples: 4,
+      losses: 4,
+      lossWeight: 5,
+    }],
+  }));
+
+  try {
+    const runtime = loadIsolatedRuntimes(experienceFile);
+    assert.notEqual(runtime.engine, runtime.controlEngine);
+    assert.ok(runtime.engine.experienceSize() > 0);
+    assert.equal(runtime.controlEngine.experienceSize(), 0);
+    assert.equal(runtime.controlExperienceCount, 0);
+
+    const importedSize = runtime.engine.experienceSize();
+    runtime.hardBot.learnFromGame({
+      variant: 'long',
+      winner: 'white',
+      resultType: 'normal',
+      analysis: {
+        botMemory: {
+          decisions: [{
+            actor: 'bot',
+            choiceCount: 2,
+            winQuality: 1,
+            experience: {
+              contextKey: 'route|adaptive-isolation-test',
+              actionKey: 'head:0|entry:1|off:0|shuffle:0',
+              mistakeSeverity: 0,
+              riskSignal: 0,
+            },
+          }],
+        },
+      },
+    }, 'white');
+
+    assert.ok(runtime.engine.experienceSize() > importedSize);
+    assert.equal(runtime.controlEngine.experienceSize(), 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('simulator fails closed when an engine plan leaves mandatory moves unused', () => {
-  const runtime = loadRuntime();
+  const runtime = loadIsolatedRuntimes();
   runtime.engine.plan = () => [];
 
   assert.throws(() => playGame(0, 0, runtime, {
@@ -167,7 +218,7 @@ test('simulator fails closed when an engine plan leaves mandatory moves unused',
 });
 
 test('simulator fails closed after applying only the first move of a real multi-move plan', () => {
-  const runtime = loadRuntime();
+  const runtime = loadIsolatedRuntimes();
   const originalPlan = runtime.engine.plan.bind(runtime.engine);
   let originalMultiMovePlan = null;
   let returnedPartialPlan = null;
