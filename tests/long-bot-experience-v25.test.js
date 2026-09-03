@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
-const EXPERIENCE_KEY = 'narduh-long-bot-experience-v5';
+const EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
 
 async function analysisModule() {
   return import(pathToFileURL(path.join(ROOT, 'bot-engine/long/analysis.ts')).href);
@@ -28,6 +28,7 @@ function loadStrongBot(storage = memoryStorage()) {
     window: {
       localStorage: storage,
       NarduLongBotEngine: {
+        version: 'long-analytic-v29',
         setExperience(patterns, source) { applied.push({ patterns, source }); },
       },
     },
@@ -42,6 +43,36 @@ function loadStrongBot(storage = memoryStorage()) {
     filename: 'strong-bot.js',
   });
   return { context, storage, applied };
+}
+
+function completeV29Memory(decisions) {
+  const normalized = decisions.map(decision => decision.actor === 'opponent'
+    ? {
+      captureVersion: 2,
+      engineVersion: 'long-analytic-v29',
+      choiceCount: 2,
+      ...decision,
+    }
+    : {
+      actor: 'bot',
+      source: 'engine',
+      engineVersion: 'long-analytic-v29',
+      choiceCount: 2,
+      experienceFrozen: true,
+      experienceFingerprint: 'lbe6-v25-fixture',
+      ...decision,
+    });
+  const botCount = normalized.filter(decision => decision.actor !== 'opponent').length;
+  return {
+    engineVersion: 'long-analytic-v29',
+    decisions: normalized,
+    coverage: {
+      expectedBotDecisions: botCount,
+      recordedBotDecisions: botCount,
+      recoveredBotDecisions: 0,
+      complete: botCount > 0,
+    },
+  };
 }
 
 test('v25 treats loss frequency separately from loss severity', async () => {
@@ -266,12 +297,21 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     winner: 'white',
     resultType: 'normal',
     analysis: {
-      botMemory: {
-        decisions: [
-          { actor: 'bot', experience: losingDescriptor },
-          { actor: 'opponent', winQuality: 2.5, experience: winningDescriptor },
-        ],
-      },
+      botMemory: completeV29Memory([
+          {
+            actor: 'bot',
+            engineVersion: 'long-analytic-v29',
+            choiceCount: 2,
+            experience: losingDescriptor,
+          },
+          {
+            actor: 'opponent',
+            engineVersion: 'long-analytic-v29',
+            choiceCount: 2,
+            winQuality: 2.5,
+            experience: winningDescriptor,
+          },
+        ]),
     },
   }, 'dark');
 
@@ -288,7 +328,7 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     losingDescriptor.legacyActionKey,
   ].forEach((actionKey) => {
     const pattern = byKey.get(`${losingDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 5);
+    assert.equal(pattern.creditVersion, 6);
     assert.equal(pattern.losses, 1);
     assert.equal(pattern.wins, 0);
   });
@@ -300,7 +340,7 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     winningDescriptor.legacyActionKey,
   ].forEach((actionKey) => {
     const pattern = byKey.get(`${winningDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 5);
+    assert.equal(pattern.creditVersion, 6);
     assert.equal(pattern.losses, 0);
     assert.equal(pattern.wins, 1);
     assert.equal(pattern.winWeight, 2.5);
@@ -369,8 +409,11 @@ test('v25 local learning discards zero-signal wins instead of teaching lucky mis
     resultType: 'normal',
     analysis: {
       botMemory: {
+        engineVersion: 'long-analytic-v29',
         decisions: [{
           actor: 'bot',
+          engineVersion: 'long-analytic-v29',
+          choiceCount: 2,
           experience: {
             contextKey: 'route|lucky',
             actionKey: 'home:shuffle',
@@ -394,8 +437,11 @@ test('v26 local learning uses the same 1.1 harmful threshold as the server', () 
     resultType: 'normal',
     analysis: {
       botMemory: {
+        engineVersion: 'long-analytic-v29',
         decisions: [{
           actor: 'bot',
+          engineVersion: 'long-analytic-v29',
+          choiceCount: 2,
           experience: {
             contextKey: 'route|weak-signal',
             actionKey: 'route:weak-signal',
@@ -419,8 +465,10 @@ test('v27 local learning ignores a forced single-choice move in a lost game', ()
     resultType: 'mars',
     analysis: {
       botMemory: {
+        engineVersion: 'long-analytic-v29',
         decisions: [{
           actor: 'bot',
+          engineVersion: 'long-analytic-v29',
           choiceCount: 1,
           experience: {
             contextKey: 'late-entry|forced-loss',
@@ -445,8 +493,11 @@ test('v25 does not learn a risky move merely because the opponent won', () => {
     resultType: 'normal',
     analysis: {
       botMemory: {
+        engineVersion: 'long-analytic-v29',
         decisions: [{
           actor: 'opponent',
+          engineVersion: 'long-analytic-v29',
+          choiceCount: 2,
           winQuality: 3,
           experience: {
             contextKey: 'route|lucky-opponent',
@@ -470,6 +521,8 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
     const phase = phases[index % phases.length];
     decisions.push({
       actor: 'bot',
+      engineVersion: 'long-analytic-v29',
+      choiceCount: 2,
       experience: {
         contextKey: `${phase}|loss-${index}`,
         actionKey: `exact:loss-${index}`,
@@ -483,6 +536,8 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
     });
     decisions.push({
       actor: 'opponent',
+      engineVersion: 'long-analytic-v29',
+      choiceCount: 2,
       winQuality: 2,
       experience: {
         contextKey: `${phase}|win-${index}`,
@@ -501,7 +556,7 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
     variant: 'long',
     winner: 'white',
     resultType: 'mars',
-    analysis: { botMemory: { decisions } },
+    analysis: { botMemory: completeV29Memory(decisions) },
   }, 'dark');
 
   const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
@@ -514,10 +569,10 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
   assert.equal(new Set(successful.map(pattern => pattern.contextKey.split('|')[0])).size, phases.length);
 });
 
-test('v27 RPC excludes forced choices, publishes balanced cohorts and matches the schema', () => {
+test('v29 RPC excludes forced choices, publishes balanced cohorts and matches the schema', () => {
   const schema = fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8');
   const migration = fs.readFileSync(
-    path.join(ROOT, 'supabase/long-bot-strategy-v27.sql'),
+    path.join(ROOT, 'supabase/long-bot-strategy-v29.sql'),
     'utf8',
   );
   const client = fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8');
@@ -554,18 +609,18 @@ test('v27 RPC excludes forced choices, publishes balanced cohorts and matches th
     migration,
     /when not \(features \? 'avoidableHomeShuffleMoves'\)\s+and coalesce\(public\.long_bot_safe_numeric\(features->'homeShuffleMoves'\), 0\) > 0\s+then 'unknown'/,
   );
-  assert.match(rpc, /case when engine_generation >= 25 then descriptor->>'actionKey' end/);
+  assert.match(rpc, /case when engine_generation = 29 then descriptor->>'actionKey' end/);
   assert.match(rpc, /decision->'choiceCount'/);
-  assert.match(rpc, /public\.long_bot_safe_numeric\(decision->'choiceCount'\),\s+2\s+\) as choice_count/);
+  assert.match(rpc, /public\.long_bot_safe_numeric\(decision->'choiceCount'\) as choice_count/);
   assert.doesNotMatch(rpc, /jsonb_array_length\(decision->'alternatives'\)/);
   assert.match(
     rpc,
-    /actor = 'bot' and engine_generation >= 27 and choice_count > 1\s+and winner <> bot_color/,
+    /actor = 'bot' and engine_generation = 29 and choice_count > 1\s+and winner <> bot_color/,
   );
-  assert.match(rpc, /case when engine_generation >= 25 then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
+  assert.match(rpc, /case when engine_generation = 29 then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
   assert.match(
     rpc,
-    /actor = 'opponent'\s+and capture_version >= 1\s+and winner <> bot_color\s+and harm_signal < 1\.1\s+\) as successful/,
+    /actor = 'opponent'\s+and capture_version >= 2\s+and choice_count > 1\s+and winner <> bot_color\s+and harm_signal < 1\.1\s+\) as successful/,
   );
   assert.match(migration, /\) action\s+where \(harmful or successful\) and engine_weight > 0/);
   assert.match(migration, /count\(\*\)::integer as samples/);
@@ -579,16 +634,14 @@ test('v27 RPC excludes forced choices, publishes balanced cohorts and matches th
   assert.match(migration, /limit 640/);
   assert.match(migration, /winner = bot_color and harm_signal < 1\.1/);
   assert.match(migration, /decision->'captureVersion'/);
-  assert.match(migration, /when actor = 'opponent' and capture_version >= 1 then 4\.0/);
+  assert.match(migration, /when actor = 'opponent' and capture_version >= 2 then 4\.0/);
   assert.match(migration, /when actor = 'opponent' then 0\.0/);
-  assert.match(migration, /when engine_generation >= 25 then 4\.0/);
-  assert.match(migration, /when engine_generation >= 24 then 3\.0/);
-  assert.match(migration, /when engine_generation >= 23 then 1\.0/);
+  assert.match(migration, /when engine_generation = 29 then 4\.0/);
   assert.match(migration, /else 0\.0\s+end as engine_weight/);
   assert.match(migration, /player_weight \* engine_weight/);
-  assert.match(migration, /'creditVersion', 5/);
-  assert.match(client, /narduh-long-bot-server-experience-v10/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v5'/);
+  assert.match(migration, /'creditVersion', 6/);
+  assert.match(client, /narduh-long-bot-server-experience-v11/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v6'/);
   assert.match(fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8'), /narduh-long-bot-experience-v5/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
 });

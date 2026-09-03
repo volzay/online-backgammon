@@ -643,7 +643,7 @@ test("anonymous room updates cannot mutate a registered hard-bot room", () => {
 test("cached server experience is applied before a slow refresh RPC finishes", async () => {
   const localStorage = memoryStorage();
   const pattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "late-entry|h0|o1|po0|tr4|pd3",
     actionKey: "head:flat|entry:flat|trap:flat|freedom:flat|distribution:gain|support:keep|home:shuffle|off:no",
     samples: 5,
@@ -651,10 +651,10 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v10", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v11", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
-    creditVersion: 5,
+    creditVersion: 6,
     patterns: [pattern],
   }));
   const applied = [];
@@ -707,19 +707,19 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
 test("fresh long-bot experience replaces its cache source instead of doubling it", async () => {
   const localStorage = memoryStorage();
   const cachedPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|cached",
     actionKey: "route:cached",
   };
   const freshPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|fresh",
     actionKey: "route:fresh",
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v10", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v11", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
-    creditVersion: 5,
+    creditVersion: 6,
     patterns: [cachedPattern],
   }));
   const applied = [];
@@ -767,12 +767,12 @@ test("fresh long-bot experience replaces its cache source instead of doubling it
 test("late long-bot experience cannot replace the current player's memory", async () => {
   let resolveWarlord;
   const warlordPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|warlord",
     actionKey: "route:warlord",
   };
   const testerPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|tester1",
     actionKey: "route:tester1",
   };
@@ -841,7 +841,7 @@ test("a completed long-bot experience request does not freeze later refreshes", 
               rpcCalls += 1;
               return {
                 data: [{
-                  creditVersion: 5,
+                  creditVersion: 6,
                   contextKey: `route|load-${rpcCalls}`,
                   actionKey: `route:load-${rpcCalls}`,
                 }],
@@ -941,7 +941,7 @@ test("an old failed refresh cannot delete a newer long-bot request", async () =>
   });
   assert.equal(rpcCalls, 2);
   pending[1]({
-    data: [{ creditVersion: 5, contextKey: "route|fresh", actionKey: "route:fresh" }],
+    data: [{ creditVersion: 6, contextKey: "route|fresh", actionKey: "route:fresh" }],
     error: null,
   });
   await current;
@@ -951,7 +951,7 @@ test("an old failed refresh cannot delete a newer long-bot request", async () =>
   assert.equal(rpcCalls, 2);
 });
 
-test("long-bot experience rejects old RPC generations and caches only v27 data", async () => {
+test("long-bot experience rejects old RPC generations and caches only v29 data", async () => {
   async function loadWith(data) {
     const localStorage = memoryStorage();
     const applied = [];
@@ -996,10 +996,10 @@ test("long-bot experience rejects old RPC generations and caches only v27 data",
   assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
   assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
-  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v10"), null);
+  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v11"), null);
 
   const currentPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|current",
     actionKey: "route:12>8",
   };
@@ -1007,10 +1007,10 @@ test("long-bot experience rejects old RPC generations and caches only v27 data",
   assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
   assert.equal(currentResult.applied.at(-1).source, "server");
   const cached = JSON.parse(
-    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v10"),
+    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v11"),
   );
-  assert.equal(cached.creditVersion, 5);
-  assert.equal(cached.patterns[0].creditVersion, 5);
+  assert.equal(cached.creditVersion, 6);
+  assert.equal(cached.patterns[0].creditVersion, 6);
 });
 
 test("short-bot experience accepts only the gammon-aware v5 generation", async () => {
@@ -1136,7 +1136,7 @@ test("short-bot experience ignores a late response for the previous player", asy
 
 test("long-bot experience refreshes when browser storage is unavailable", async () => {
   const pattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "route|storage-unavailable",
     actionKey: "route:12>8",
   };

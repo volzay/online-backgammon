@@ -10,8 +10,9 @@ window.NarduStrongBot = (function () {
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
-  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v5';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
+    'narduh-long-bot-experience-v5',
     'narduh-long-bot-experience-v4',
     'narduh-long-bot-experience-v3',
     'narduh-long-bot-experience-v2',
@@ -24,7 +25,9 @@ window.NarduStrongBot = (function () {
     'narduh-short-bot-experience-v2',
     'narduh-short-bot-experience-v1',
   ];
-  const LONG_OPPONENT_CAPTURE_VERSION = 1;
+  const LONG_EXPERIENCE_CREDIT_VERSION = 6;
+  const SHORT_EXPERIENCE_CREDIT_VERSION = 5;
+  const LONG_OPPONENT_CAPTURE_VERSION = 2;
   const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
   const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
   const SHORT_LOCAL_EXPERIENCE_LIMIT = 120;
@@ -219,6 +222,64 @@ window.NarduStrongBot = (function () {
     return `lb4-${(hash >>> 0).toString(16).padStart(8, '0')}`;
   }
 
+  function resultingPositionKey(state) {
+    const points = Object.entries(state?.points || {})
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([point, stack]) => `${point}:${String(stack?.color || '')}:${Number(stack?.count) || 0}`)
+      .join('|');
+    return [
+      points,
+      `${Number(state?.off?.white) || 0}:${Number(state?.off?.dark) || 0}`,
+      `${Number(state?.bar?.white) || 0}:${Number(state?.bar?.dark) || 0}`,
+    ].join('::');
+  }
+
+  function uniqueResultingPositionChoiceCount(state, color = state?.turn) {
+    try {
+      const positions = new Set();
+      NarduGame.bestMoveSequences(state, color)
+        .filter(sequence => sequence.length)
+        .forEach((sequence) => {
+          const preview = cloneState(state);
+          preview.points ||= {};
+          preview.off ||= { white: 0, dark: 0 };
+          preview.bar ||= { white: 0, dark: 0 };
+          sequence.forEach((move) => {
+            const from = Number(move?.from);
+            const to = Number(move?.to) || 0;
+            const fromBar = state?.variant === 'short'
+              && from === Number(NarduGame.barPoint?.(color));
+            if (fromBar) {
+              preview.bar[color] = Math.max(0, (Number(preview.bar[color]) || 0) - 1);
+            } else if (preview.points?.[from]) {
+              preview.points[from].count -= 1;
+              if (preview.points[from].count <= 0) delete preview.points[from];
+            }
+            if (move?.bearOff || to === 0) {
+              preview.off[color] = (Number(preview.off[color]) || 0) + 1;
+              return;
+            }
+            const target = preview.points?.[to];
+            if (
+              state?.variant === 'short'
+              && target?.color
+              && target.color !== color
+              && Number(target.count) === 1
+            ) {
+              preview.bar[target.color] = (Number(preview.bar[target.color]) || 0) + 1;
+              delete preview.points[to];
+            }
+            if (!preview.points[to]) preview.points[to] = { color, count: 0 };
+            preview.points[to].count += 1;
+          });
+          positions.add(resultingPositionKey(preview));
+        });
+      return Math.max(1, positions.size);
+    } catch (error) {
+      return 1;
+    }
+  }
+
   function fallbackDecisionMoves(state, sequence) {
     const preview = cloneState(state);
     return (Array.isArray(sequence) ? sequence : []).map(move => {
@@ -239,15 +300,7 @@ window.NarduStrongBot = (function () {
     const positionId = longPositionFingerprint(state, color);
     fallbackDecisionSerial += 1;
     const moves = fallbackDecisionMoves(state, sequence);
-    let choiceCount = 1;
-    try {
-      choiceCount = Math.max(
-        1,
-        NarduGame.bestMoveSequences(state, color).filter(candidate => candidate.length).length,
-      );
-    } catch (ignored) {
-      choiceCount = 1;
-    }
+    const choiceCount = uniqueResultingPositionChoiceCount(state, color);
     lastFallbackDecision = {
       id: `${positionId}-fallback-${Date.now().toString(36)}-${String(fallbackDecisionSerial).padStart(4, '0')}`,
       positionId,
@@ -1463,6 +1516,7 @@ window.NarduStrongBot = (function () {
     if ((state?.variant || 'long') === 'long' && window.NarduLongBotEngine?.plan) {
       try {
         syncLocalExperience();
+        window.NarduLongBotEngine.freezeExperience?.();
         const productionOptions = window.NarduLongBotEngine.productionOptions || {};
         const enginePlan = window.NarduLongBotEngine.plan(state, {
           maxCandidates: Number(runtimeOptions.maxCandidates)
@@ -1552,6 +1606,64 @@ window.NarduStrongBot = (function () {
     return true;
   }
 
+  function hasCompleteLongTrainingMemory(memory, decisions, engineVersion) {
+    if (!memory || String(memory.engineVersion || '') !== engineVersion) return false;
+    const coverage = memory.coverage;
+    const expected = coverage?.expectedBotDecisions;
+    const recorded = coverage?.recordedBotDecisions;
+    const recovered = coverage?.recoveredBotDecisions;
+    if (
+      coverage?.complete !== true
+      || !Number.isInteger(expected)
+      || !Number.isInteger(recorded)
+      || !Number.isInteger(recovered)
+      || expected <= 0
+      || recorded < 0
+      || recovered < 0
+      || expected !== recorded + recovered
+    ) {
+      return false;
+    }
+
+    const botDecisions = decisions.filter(
+      decision => (decision?.actor === 'opponent' ? 'opponent' : 'bot') === 'bot',
+    );
+    if (botDecisions.length !== expected) return false;
+    const liveFingerprints = new Set();
+    return decisions.every((decision) => {
+      const rawActor = String(decision?.actor || 'bot');
+      if (rawActor !== 'bot' && rawActor !== 'opponent') return false;
+      const actor = rawActor;
+      if (
+        String(decision?.engineVersion || '') !== engineVersion
+        || typeof decision?.choiceCount !== 'number'
+        || !Number.isInteger(decision.choiceCount)
+        || decision.choiceCount < 1
+      ) {
+        return false;
+      }
+      if (actor === 'opponent') {
+        return typeof decision?.captureVersion === 'number'
+          && Number.isInteger(decision.captureVersion)
+          && decision.captureVersion >= LONG_OPPONENT_CAPTURE_VERSION;
+      }
+      if (decision?.source === 'history-recovery') {
+        return typeof decision?.captureVersion === 'number'
+          && Number.isInteger(decision.captureVersion)
+          && decision.captureVersion >= LONG_OPPONENT_CAPTURE_VERSION;
+      }
+      if (
+        decision?.source !== 'engine'
+        || decision?.experienceFrozen !== true
+        || !String(decision?.experienceFingerprint || '')
+      ) {
+        return false;
+      }
+      liveFingerprints.add(String(decision.experienceFingerprint));
+      return liveFingerprints.size <= 1;
+    });
+  }
+
   function learnFromGame(state, botColor) {
     if (!state?.winner || !botColor) return null;
     const botWon = state.winner === botColor;
@@ -1567,19 +1679,35 @@ window.NarduStrongBot = (function () {
       `${pattern.contextKey}::${pattern.actionKey}`,
       { ...pattern },
     ]));
-    const archivedDecisions = Array.isArray(state.analysis?.botMemory?.decisions)
-      ? state.analysis.botMemory.decisions
+    const archivedMemory = state.analysis?.botMemory;
+    const archivedEngineVersion = String(archivedMemory?.engineVersion || '');
+    const currentLongEngineVersion = String(window.NarduLongBotEngine?.version || '');
+    const compatibleLongGeneration = variant !== 'long'
+      || (currentLongEngineVersion && archivedEngineVersion === currentLongEngineVersion);
+    const archivedDecisions = Array.isArray(archivedMemory?.decisions)
+      ? archivedMemory.decisions
       : [];
+    const validLongMemory = variant !== 'long'
+      || hasCompleteLongTrainingMemory(
+        archivedMemory,
+        archivedDecisions,
+        currentLongEngineVersion,
+      );
     const hasOpponentDecisions = archivedDecisions.some(decision => decision?.actor === 'opponent');
-    const decisions = hasOpponentDecisions
-      ? archivedDecisions
-      : [...archivedDecisions, ...captureOpponentDecisions(state, botColor)];
+    const decisions = !compatibleLongGeneration || !validLongMemory
+      ? []
+      : hasOpponentDecisions
+        ? archivedDecisions
+        : [...archivedDecisions, ...captureOpponentDecisions(state, botColor)];
     const resultLossBonus = state.resultType === 'koks'
       ? 1.5
       : state.resultType === 'mars'
         ? 0.75
         : 0;
     const severeLoss = !botWon && (state.resultType === 'mars' || state.resultType === 'koks');
+    const experienceCreditVersion = variant === 'short'
+      ? SHORT_EXPERIENCE_CREDIT_VERSION
+      : LONG_EXPERIENCE_CREDIT_VERSION;
 
     decisions.forEach((decision) => {
       const descriptor = decision?.experience || decision?.selected?.experience;
@@ -1589,7 +1717,11 @@ window.NarduStrongBot = (function () {
         Number(descriptor?.riskSignal) || 0,
       );
       const actor = decision?.actor === 'opponent' ? 'opponent' : 'bot';
-      if (actor === 'bot' && !hasMeaningfulBotChoice(decision)) return;
+      if (variant === 'long' && (
+        String(decision?.engineVersion || '') !== currentLongEngineVersion
+        || !Number.isFinite(Number(decision?.choiceCount))
+      )) return;
+      if (!hasMeaningfulBotChoice(decision)) return;
       const successful = (actor === 'opponent' ? !botWon : botWon) && severity < 1.1;
       const harmful = actor === 'bot' && !botWon;
       if (!descriptor?.contextKey || !descriptor?.actionKey) return;
@@ -1605,7 +1737,7 @@ window.NarduStrongBot = (function () {
       actionKeys.forEach((actionKey) => {
         const key = `${descriptor.contextKey}::${actionKey}`;
         const pattern = byKey.get(key) || {
-          creditVersion: 5,
+          creditVersion: experienceCreditVersion,
           contextKey: descriptor.contextKey,
           actionKey,
           samples: 0,
@@ -1616,7 +1748,7 @@ window.NarduStrongBot = (function () {
           signalWeight: 0,
           winWeight: 0,
         };
-        pattern.creditVersion = 5;
+        pattern.creditVersion = experienceCreditVersion;
         pattern.samples += 1;
         if (harmful) {
           pattern.losses += 1;
@@ -1745,13 +1877,16 @@ window.NarduStrongBot = (function () {
       const positionId = variant === 'long'
         ? longPositionFingerprint(turn.state, winner)
         : `short-${captured.length + 1}`;
+      const choiceCount = uniqueResultingPositionChoiceCount(turn.state, winner);
       captured.push({
         id: `opponent-${captured.length + 1}-${positionId}`,
         positionId,
         actor: 'opponent',
         captureVersion: LONG_OPPONENT_CAPTURE_VERSION,
+        engineVersion: targetEngine.version || `${variant}-history-capture`,
         color: winner,
         dice: [...(turn.state.dice || [])],
+        choiceCount,
         winQuality,
         selected: {
           moves: turn.moves,
@@ -1802,16 +1937,7 @@ window.NarduStrongBot = (function () {
       }
       if (!described?.experience) return;
 
-      let choiceCount = 1;
-      try {
-        choiceCount = Math.max(
-          1,
-          NarduGame.bestMoveSequences(turn.state, botColor)
-            .filter(sequence => sequence.length).length,
-        );
-      } catch (error) {
-        choiceCount = 1;
-      }
+      const choiceCount = uniqueResultingPositionChoiceCount(turn.state, botColor);
       const features = described.features || {};
       const recoveredDecision = {
         id: `${positionId}-history-${String(result.expectedBotDecisions).padStart(4, '0')}`,
@@ -1861,5 +1987,6 @@ window.NarduStrongBot = (function () {
     captureOpponentDecisions,
     recoverBotDecisions,
     learningProfile,
+    syncLocalExperience,
   };
 })();

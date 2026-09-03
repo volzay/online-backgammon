@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v5";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v6";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -20,7 +20,7 @@ function learnSingleLoss(resultType) {
   const context = {
     window: {
       localStorage,
-      NarduLongBotEngine: { setExperience() {} },
+      NarduLongBotEngine: { version: "long-analytic-v29", setExperience() {} },
     },
     console,
     Date,
@@ -40,7 +40,20 @@ function learnSingleLoss(resultType) {
     resultType,
     analysis: {
       botMemory: {
+        engineVersion: "long-analytic-v29",
+        coverage: {
+          expectedBotDecisions: 1,
+          recordedBotDecisions: 1,
+          recoveredBotDecisions: 0,
+          complete: true,
+        },
         decisions: [{
+          actor: "bot",
+          source: "engine",
+          engineVersion: "long-analytic-v29",
+          choiceCount: 2,
+          experienceFrozen: true,
+          experienceFingerprint: "lbe6-koks-test",
           experience: {
             contextKey: "koks-rescue|test",
             actionKey: "start:stuck",
@@ -76,7 +89,7 @@ test("winning opponent tactics are stored as positive experience", () => {
         getItem(key) { return values.get(key) ?? null; },
         setItem(key, value) { values.set(key, String(value)); },
       },
-      NarduLongBotEngine: { setExperience() {} },
+      NarduLongBotEngine: { version: "long-analytic-v29", setExperience() {} },
     },
     console,
     Date,
@@ -94,15 +107,35 @@ test("winning opponent tactics are stored as positive experience", () => {
     resultType: "normal",
     analysis: {
       botMemory: {
-        decisions: [{
-          actor: "opponent",
-          winQuality: 2.5,
-          experience: {
-            contextKey: "route|opponent-win",
-            actionKey: "prime:gain|block:gain",
-            mistakeSeverity: 0,
+        engineVersion: "long-analytic-v29",
+        coverage: {
+          expectedBotDecisions: 1,
+          recordedBotDecisions: 1,
+          recoveredBotDecisions: 0,
+          complete: true,
+        },
+        decisions: [
+          {
+            actor: "bot",
+            source: "engine",
+            engineVersion: "long-analytic-v29",
+            choiceCount: 1,
+            experienceFrozen: true,
+            experienceFingerprint: "lbe6-opponent-test",
           },
-        }],
+          {
+            actor: "opponent",
+            captureVersion: 2,
+            engineVersion: "long-analytic-v29",
+            choiceCount: 2,
+            winQuality: 2.5,
+            experience: {
+              contextKey: "route|opponent-win",
+              actionKey: "prime:gain|block:gain",
+              mistakeSeverity: 0,
+            },
+          },
+        ],
       },
     },
   }, "dark");
@@ -162,7 +195,7 @@ test("the winner's real turn is reconstructed from game history", () => {
   const captured = context.window.NarduStrongBot.captureOpponentDecisions(state, "dark");
   assert.equal(captured.length, 1);
   assert.equal(captured[0].actor, "opponent");
-  assert.equal(captured[0].captureVersion, 1);
+  assert.equal(captured[0].captureVersion, 2);
   assert.equal(captured[0].color, "white");
   assert.equal(captured[0].selected.moves.length, sequence.length);
   assert.match(captured[0].experience.actionKey, /prime:/);
@@ -226,7 +259,7 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
     "dark",
   );
   assert.equal(captured.length, 1);
-  assert.equal(captured[0].captureVersion, 1);
+  assert.equal(captured[0].captureVersion, 2);
   assert.deepEqual(
     JSON.parse(JSON.stringify(captured[0].selected.moves)),
     [
@@ -240,14 +273,14 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
   assert.match(captured[0].experience.actionKey, /off:yes/);
 });
 
-test("the v27 opponent-memory RPC preserves severity and valid winning examples", () => {
+test("the v29 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v27.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v29.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -261,17 +294,21 @@ test("the v27 opponent-memory RPC preserves severity and valid winning examples"
   assert.match(migration, /p_player_name text default null/);
   assert.match(migration, /then 3\s+else 1\s+end as player_weight/);
   assert.match(migration, /captureVersion/);
-  assert.match(migration, /actor = 'opponent' and capture_version >= 1/);
+  assert.match(migration, /actor = 'opponent'[\s\S]*?capture_version >= 2[\s\S]*?choice_count > 1/);
   assert.match(migration, /as successful/);
   assert.match(migration, /as win_weight/);
-  assert.match(migration, /'creditVersion', 5/);
+  assert.match(migration, /'creditVersion', 6/);
   assert.match(migration, /^commit;/m);
 });
 
 test("production entry points cache-bust every current bot dependency", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const version = "20260902-bbxr-long-v28";
+  const login = fs.readFileSync(path.join(ROOT, "login.html"), "utf8");
+  const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
+  const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
+  const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
+  const version = "20260904-guks-ap76-long-v29";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
@@ -280,6 +317,9 @@ test("production entry points cache-bust every current bot dependency", () => {
   assert.match(room, new RegExp(`game-controller\\.js\\?v=${version}`));
   assert.match(lobby, new RegExp(`rooms-client\\.js\\?v=${version}`));
   assert.match(lobby, new RegExp(`supabase-client\\.js\\?v=${version}`));
+  [login, register, settings, homegate].forEach(source => {
+    assert.match(source, new RegExp(`supabase-client\\.js\\?v=${version}`));
+  });
 });
 
 test("Pages deploy tests Node 24 builds without marketplace action resolution", () => {

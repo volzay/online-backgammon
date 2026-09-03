@@ -1,7 +1,8 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v28';
+const ENGINE_VERSION = 'long-analytic-v29';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v29:';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -11,8 +12,14 @@ const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
 export function createBrowserLongBotEngine(game, options = {}) {
   const adapter = createNarduGameAdapter(game);
   const engine = createLongBotEngine(adapter, options);
+  const experienceStorage = Object.prototype.hasOwnProperty.call(options, 'experienceStorage')
+    ? options.experienceStorage
+    : safeSessionStorage();
   let lastDecision = null;
   let decisionSerial = 0;
+  let experienceFrozen = false;
+  let experienceSessionKey = '';
+  const pendingExperienceSources = new Map();
 
   const runtimeDefaults = {
     ...PRODUCTION_RUNTIME_OPTIONS,
@@ -37,6 +44,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
         ranked,
         effectiveOptions.weights,
         engine.experienceSize(),
+        experienceSnapshot(),
         decisionSerial + 1,
       );
       if (recorded) {
@@ -70,12 +78,45 @@ export function createBrowserLongBotEngine(game, options = {}) {
     },
 
     setExperience(patterns, source = 'runtime') {
-      return engine.setExperience(patterns, source);
+      const sourceKey = String(source || 'runtime');
+      const snapshot = Array.isArray(patterns)
+        ? patterns.map(pattern => ({ ...pattern }))
+        : [];
+      if (experienceFrozen) {
+        pendingExperienceSources.set(sourceKey, snapshot);
+        return engine.experienceSize();
+      }
+      return engine.setExperience(snapshot, sourceKey);
     },
 
     experienceSize() {
       return engine.experienceSize();
     },
+
+    experienceSnapshotEntries() {
+      return engine.experienceSnapshotEntries();
+    },
+
+    beginExperienceSession(sessionKey = '') {
+      experienceFrozen = false;
+      engine.setExperience([], 'frozen-session');
+      pendingExperienceSources.forEach((patterns, source) => {
+        engine.setExperience(patterns, source);
+      });
+      pendingExperienceSources.clear();
+      experienceSessionKey = String(sessionKey || '');
+      if (restoreFrozenExperience()) experienceFrozen = true;
+      return experienceSnapshot();
+    },
+
+    freezeExperience(sessionKey = experienceSessionKey) {
+      experienceSessionKey = String(sessionKey || experienceSessionKey || '');
+      experienceFrozen = true;
+      persistFrozenExperience();
+      return experienceSnapshot();
+    },
+
+    experienceSnapshot,
 
     consumeLastDecision() {
       const decision = lastDecision;
@@ -86,6 +127,66 @@ export function createBrowserLongBotEngine(game, options = {}) {
     productionOptions: Object.freeze({ ...PRODUCTION_RUNTIME_OPTIONS }),
     version: ENGINE_VERSION,
   };
+
+  function experienceSnapshot() {
+    const serialized = engine.experienceSnapshotEntries();
+    const input = JSON.stringify(serialized);
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return {
+      fingerprint: `lbe6-${(hash >>> 0).toString(16).padStart(8, '0')}`,
+      size: engine.experienceSize(),
+      frozen: experienceFrozen,
+    };
+  }
+
+  function frozenStorageKey() {
+    return experienceSessionKey ? `${FROZEN_EXPERIENCE_PREFIX}${experienceSessionKey}` : '';
+  }
+
+  function restoreFrozenExperience() {
+    const key = frozenStorageKey();
+    if (!key || !experienceStorage?.getItem) return false;
+    try {
+      const saved = JSON.parse(experienceStorage.getItem(key) || 'null');
+      if (saved?.engineVersion !== ENGINE_VERSION || !Array.isArray(saved.patterns)) return false;
+      engine.setExperience(saved.patterns, 'frozen-session');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function persistFrozenExperience() {
+    const key = frozenStorageKey();
+    if (!key || !experienceStorage?.setItem) return false;
+    try {
+      for (let index = (Number(experienceStorage.length) || 0) - 1; index >= 0; index -= 1) {
+        const storedKey = experienceStorage.key?.(index);
+        if (storedKey?.startsWith(FROZEN_EXPERIENCE_PREFIX) && storedKey !== key) {
+          experienceStorage.removeItem?.(storedKey);
+        }
+      }
+      experienceStorage.setItem(key, JSON.stringify({
+        engineVersion: ENGINE_VERSION,
+        patterns: engine.experienceSnapshotPatterns(),
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function safeSessionStorage() {
+  try {
+    return globalThis.sessionStorage || null;
+  } catch {
+    return null;
+  }
 }
 
 function decisionRecord(
@@ -94,6 +195,7 @@ function decisionRecord(
   ranked,
   weights = undefined,
   experienceSize = 0,
+  experienceSnapshot = null,
   serial = 1,
 ) {
   const choiceCount = Math.max(
@@ -143,6 +245,8 @@ function decisionRecord(
     engineVersion: ENGINE_VERSION,
     choiceCount,
     experienceSize: Math.max(0, Number(experienceSize) || 0),
+    experienceFingerprint: String(experienceSnapshot?.fingerprint || ''),
+    experienceFrozen: Boolean(experienceSnapshot?.frozen),
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
       : {},

@@ -4,8 +4,8 @@
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
-  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v10";
-  const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 5;
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v11";
+  const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v5";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

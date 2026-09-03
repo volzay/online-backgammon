@@ -402,6 +402,10 @@ window.NarduController = (function () {
     remoteCode = state.roomCode;
   }
 
+  function longBotExperienceSessionKey(roomCode = remoteCode || state?.roomCode || '') {
+    return `${String(roomCode || 'local')}:${Number(state?.startedAt) || 0}`;
+  }
+
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
     cancelBotTurnActivity();
@@ -443,6 +447,12 @@ window.NarduController = (function () {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     attachRuntimeStateFields(roomCode);
+    if (mode === 'bot' && variant === 'long' && botDifficulty === 'hard') {
+      window.NarduLongBotEngine?.beginExperienceSession?.(
+        longBotExperienceSessionKey(roomCode),
+      );
+      window.NarduStrongBot?.syncLocalExperience?.();
+    }
     remoteVersion = 0;
     botAnalysisReady = false;
     botAnalysisDisabled = false;
@@ -496,6 +506,12 @@ window.NarduController = (function () {
           state = restored;
           adoptBotIdentity(state);
           attachRuntimeStateFields(roomCode);
+          if (variant === 'long' && botDifficulty === 'hard') {
+            window.NarduLongBotEngine?.beginExperienceSession?.(
+              longBotExperienceSessionKey(roomCode),
+            );
+            window.NarduStrongBot?.syncLocalExperience?.();
+          }
           persistBotGameConfig(roomCode, url);
           pending = null;
           undoStack = [];
@@ -524,14 +540,23 @@ window.NarduController = (function () {
     const load = variant === 'short'
       ? window.NarduRooms?.loadShortBotExperience?.()
       : window.NarduRooms?.loadLongBotExperience?.();
-    if (!load?.then) {
+    const startWithFrozenExperience = () => {
+      if (variant === 'long') {
+        window.NarduStrongBot?.syncLocalExperience?.();
+        window.NarduLongBotEngine?.freezeExperience?.(
+          longBotExperienceSessionKey(),
+        );
+      }
       ensureAutoProgress(delay);
+    };
+    if (!load?.then) {
+      startWithFrozenExperience();
       return;
     }
     Promise.race([
       load.catch(error => console.warn('Could not load shared bot experience', error?.message || error)),
       new Promise(resolve => setTimeout(resolve, 4500)),
-    ]).finally(() => ensureAutoProgress(delay));
+    ]).finally(startWithFrozenExperience);
   }
 
   function preloadWildbgForHardShortBot() {

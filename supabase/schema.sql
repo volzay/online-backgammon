@@ -565,6 +565,7 @@ declare
   memory jsonb := coalesce(target_state->'analysis'->'botMemory', '{}'::jsonb);
   decisions jsonb := coalesce(memory->'decisions', '[]'::jsonb);
   outcome jsonb := coalesce(memory->'outcome', '{}'::jsonb);
+  coverage jsonb := coalesce(memory->'coverage', '{}'::jsonb);
   resolved_bot_color text;
 begin
   if coalesce(target_state->>'mode', '') <> 'bot'
@@ -574,6 +575,31 @@ begin
     or jsonb_typeof(decisions) <> 'array'
     or jsonb_array_length(decisions) = 0 then
     return new;
+  end if;
+
+  -- v29 experience is valid only when every expected bot turn was captured.
+  -- Older long archives and short games remain readable and keep their
+  -- existing archival behavior, but cannot accidentally satisfy this gate.
+  if coalesce(target_state->>'variant', new.variant) = 'long'
+    and coalesce(memory->>'engineVersion', '') = 'long-analytic-v29' then
+    if jsonb_typeof(coverage) <> 'object'
+      or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
+      or jsonb_typeof(coverage->'expectedBotDecisions') <> 'number'
+      or jsonb_typeof(coverage->'recordedBotDecisions') <> 'number'
+      or jsonb_typeof(coverage->'recoveredBotDecisions') <> 'number' then
+      return new;
+    end if;
+    if coalesce(coverage->>'expectedBotDecisions', '') !~ '^[0-9]+$'
+      or coalesce(coverage->>'recordedBotDecisions', '') !~ '^[0-9]+$'
+      or coalesce(coverage->>'recoveredBotDecisions', '') !~ '^[0-9]+$' then
+      return new;
+    end if;
+    if (coverage->>'expectedBotDecisions')::numeric <= 0
+      or (coverage->>'expectedBotDecisions')::numeric <>
+        (coverage->>'recordedBotDecisions')::numeric
+          + (coverage->>'recoveredBotDecisions')::numeric then
+      return new;
+    end if;
   end if;
 
   resolved_bot_color := coalesce(
@@ -664,6 +690,37 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
   and coalesce(room.game_state->>'winner', '') in ('white', 'dark')
   and jsonb_typeof(room.game_state->'analysis'->'botMemory'->'decisions') = 'array'
   and jsonb_array_length(room.game_state->'analysis'->'botMemory'->'decisions') > 0
+  and case
+    when coalesce(room.game_state->>'variant', room.variant) = 'long'
+      and coalesce(
+        room.game_state->'analysis'->'botMemory'->>'engineVersion',
+        ''
+      ) = 'long-analytic-v29' then
+      coalesce(
+        room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
+        'false'::jsonb
+      ) = 'true'::jsonb
+      and case
+        when coalesce(
+          room.game_state->'analysis'->'botMemory'->'coverage'->>'expectedBotDecisions',
+          ''
+        ) ~ '^[0-9]+$'
+          and coalesce(
+            room.game_state->'analysis'->'botMemory'->'coverage'->>'recordedBotDecisions',
+            ''
+          ) ~ '^[0-9]+$'
+          and coalesce(
+            room.game_state->'analysis'->'botMemory'->'coverage'->>'recoveredBotDecisions',
+            ''
+          ) ~ '^[0-9]+$' then
+          (room.game_state->'analysis'->'botMemory'->'coverage'->>'expectedBotDecisions')::numeric > 0
+          and (room.game_state->'analysis'->'botMemory'->'coverage'->>'expectedBotDecisions')::numeric =
+            (room.game_state->'analysis'->'botMemory'->'coverage'->>'recordedBotDecisions')::numeric
+              + (room.game_state->'analysis'->'botMemory'->'coverage'->>'recoveredBotDecisions')::numeric
+        else false
+      end
+    else true
+  end
 on conflict (room_code) do update
 set
   room_id = excluded.room_id,
@@ -2018,6 +2075,7 @@ declare
   memory jsonb;
   decisions jsonb;
   outcome jsonb;
+  coverage jsonb;
   saved_id uuid;
   saved_count integer;
   resolved_bot_color text;
@@ -2110,6 +2168,26 @@ begin
   decisions := coalesce(memory->'decisions', '[]'::jsonb);
   if jsonb_typeof(decisions) <> 'array' then
     decisions := '[]'::jsonb;
+  end if;
+  coverage := coalesce(memory->'coverage', '{}'::jsonb);
+  if coalesce(target_state->>'variant', target_room.variant) = 'long'
+    and coalesce(memory->>'engineVersion', '') = 'long-analytic-v29' then
+    if jsonb_typeof(coverage) <> 'object'
+      or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
+      or jsonb_typeof(coverage->'expectedBotDecisions') <> 'number'
+      or jsonb_typeof(coverage->'recordedBotDecisions') <> 'number'
+      or jsonb_typeof(coverage->'recoveredBotDecisions') <> 'number'
+      or coalesce(coverage->>'expectedBotDecisions', '') !~ '^[0-9]+$'
+      or coalesce(coverage->>'recordedBotDecisions', '') !~ '^[0-9]+$'
+      or coalesce(coverage->>'recoveredBotDecisions', '') !~ '^[0-9]+$' then
+      raise exception 'Long bot v29 training payload has incomplete decision coverage.';
+    end if;
+    if (coverage->>'expectedBotDecisions')::numeric <= 0
+      or (coverage->>'expectedBotDecisions')::numeric <>
+        (coverage->>'recordedBotDecisions')::numeric
+          + (coverage->>'recoveredBotDecisions')::numeric then
+      raise exception 'Long bot v29 training payload has inconsistent decision coverage.';
+    end if;
   end if;
   outcome := coalesce(memory->'outcome', '{}'::jsonb);
   resolved_bot_color := coalesce(
@@ -2216,33 +2294,100 @@ stable
 security definer
 set search_path = public
 as $$
-  with raw_decisions as (
+  with valid_games as (
+    select g.*
+    from public.bot_training_games g
+    where g.difficulty = 'hard'
+      and g.engine_version = 'long-analytic-v29'
+      and g.completed_at >= now() - interval '180 days'
+      and jsonb_typeof(g.decisions) = 'array'
+      and coalesce(g.final_state->>'variant', '') = 'long'
+      and g.final_state->'analysis'->'botMemory'->>'engineVersion' = g.engine_version
+      and coalesce(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'complete',
+        'false'::jsonb
+      ) = 'true'::jsonb
+      and public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
+      ) > 0
+      and public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
+      ) = coalesce(public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'recordedBotDecisions'
+      ), -1) + coalesce(public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'recoveredBotDecisions'
+      ), -1)
+      and public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
+      ) = (
+        select count(*)::numeric
+        from jsonb_array_elements(case
+          when jsonb_typeof(g.decisions) = 'array' then g.decisions
+          else '[]'::jsonb
+        end) covered(decision)
+        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+      )
+      and not exists (
+        select 1
+        from jsonb_array_elements(case
+          when jsonb_typeof(g.decisions) = 'array' then g.decisions
+          else '[]'::jsonb
+        end) incompatible(decision)
+        where not (
+          (
+            coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+            and (
+              (
+                decision->>'source' = 'engine'
+                and decision->>'engineVersion' = 'long-analytic-v29'
+                and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
+                and coalesce(decision->>'experienceFingerprint', '') <> ''
+              )
+              or (
+                decision->>'source' = 'history-recovery'
+                and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+                and decision->>'engineVersion' = 'long-analytic-v29'
+              )
+            )
+          )
+          or (
+            decision->>'actor' = 'opponent'
+            and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+            and decision->>'engineVersion' = 'long-analytic-v29'
+          )
+        )
+      )
+      and (
+        select count(distinct decision->>'experienceFingerprint')
+        from jsonb_array_elements(case
+          when jsonb_typeof(g.decisions) = 'array' then g.decisions
+          else '[]'::jsonb
+        end) fingerprinted(decision)
+        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+          and decision->>'source' = 'engine'
+      ) <= 1
+  ), raw_decisions as (
     select
       g.winner,
       g.bot_color,
       g.result_type,
       g.player_name,
+      g.completed_at,
       coalesce(
         nullif(substring(g.engine_version from 'v([0-9]{1,4})$'), '')::integer,
         0
       ) as engine_generation,
       coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) as capture_version,
       coalesce(nullif(decision->>'actor', ''), 'bot') as actor,
-      coalesce(
-        public.long_bot_safe_numeric(decision->'choiceCount'),
-        2
-      ) as choice_count,
+      public.long_bot_safe_numeric(decision->'choiceCount') as choice_count,
       greatest(0.75, least(4, coalesce(public.long_bot_safe_numeric(decision->'winQuality'), 1))) as win_quality,
       coalesce(decision->'experience', decision->'selected'->'experience') as descriptor,
       coalesce(decision->'selected'->'features', '{}'::jsonb) as features,
       coalesce(decision->'selected'->'tactical', '{}'::jsonb) as tactical,
       coalesce(trim(p_player_name), '') <> ''
         and lower(g.player_name) = lower(trim(p_player_name)) as personalized
-    from public.bot_training_games g
+    from valid_games g
     cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
-    where g.difficulty = 'hard'
-      and g.engine_version like 'long-analytic-%'
-      and g.completed_at >= now() - interval '180 days'
   ), signals as (
     select
       *,
@@ -2290,13 +2435,9 @@ as $$
         else 1
       end as player_weight,
       case
-        when actor = 'opponent' and capture_version >= 1 then 4.0
+        when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
-        when engine_generation >= 25 then 4.0
-        when engine_generation >= 24 then 3.0
-        when engine_generation >= 23 then 1.0
-        when engine_generation >= 22 then 0.75
-        when engine_generation >= 20 then 0.5
+        when engine_generation = 29 then 4.0
         else 0.0
       end as engine_weight
     from raw_decisions
@@ -2305,13 +2446,14 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation >= 27 and choice_count > 1
+      actor = 'bot' and engine_generation = 29 and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation >= 27 and choice_count > 1
+      (actor = 'bot' and engine_generation = 29 and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
-          and capture_version >= 1
+          and capture_version >= 2
+          and choice_count > 1
           and winner <> bot_color
           and harm_signal < 1.1
         ) as successful
@@ -2327,18 +2469,19 @@ as $$
       win_quality,
       player_weight,
       engine_weight,
-      personalized
+      personalized,
+      completed_at
     from labeled
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation >= 25 then descriptor->>'actionKey' end),
-        (case when engine_generation >= 25 then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation >= 25 then coalesce(
+        (case when engine_generation = 29 then descriptor->>'actionKey' end),
+        (case when engine_generation = 29 then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation = 29 then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation >= 25 then coalesce(
+        (case when engine_generation = 29 then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2349,8 +2492,8 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation >= 25 then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation >= 25 then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation = 29 then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation = 29 then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
@@ -2449,7 +2592,8 @@ as $$
       )::integer as severe_losses,
       sum(case when harmful then harm_signal else 0 end)::double precision as signal_weight,
       sum(case when successful then win_quality * player_weight * engine_weight else 0 end)::double precision as win_weight,
-      bool_or(personalized) as personalized
+      bool_or(personalized) as personalized,
+      max(completed_at) as updated_at
     from expanded
     group by context_key, action_key
   ), eligible as (
@@ -2488,7 +2632,7 @@ as $$
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
-      'creditVersion', 5,
+      'creditVersion', 6,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,
@@ -2497,7 +2641,8 @@ as $$
       'lossWeight', loss_weight,
       'severeLosses', severe_losses,
       'signalWeight', signal_weight,
-      'winWeight', win_weight
+      'winWeight', win_weight,
+      'updatedAt', updated_at
     ) order by
       personalized desc,
       greatest(loss_weight, win_weight) desc,

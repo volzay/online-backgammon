@@ -129,7 +129,7 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const experienceSnapshot = readExperienceSnapshot(experienceFile);
   const patterns = experienceSnapshot.patterns;
   const storage = new Map([
-    ['narduh-long-bot-experience-v5', JSON.stringify(patterns)],
+    ['narduh-long-bot-experience-v6', JSON.stringify(patterns)],
   ]);
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {
@@ -319,6 +319,8 @@ function playGame(pairIndex, leg, runtime, options) {
     streams,
   } = createLegAssignment(options.seed, pairIndex, leg);
   const state = game.initialState('long');
+  engine.beginExperienceSession?.();
+  engine.freezeExperience?.();
   let whiteDie = streams.white.openingDie();
   let darkDie = streams.dark.openingDie();
   while (whiteDie === darkDie) {
@@ -396,6 +398,16 @@ function playGame(pairIndex, leg, runtime, options) {
   }
   if (!state.winner) {
     throw new Error(`Game ${pairIndex * 2 + leg + 1} exceeded ${options.maxPlies} plies`);
+  }
+  const botMemory = state.analysis?.botMemory;
+  if (botMemory && Array.isArray(botMemory.decisions)) {
+    botMemory.engineVersion = engine.version;
+    botMemory.coverage = {
+      expectedBotDecisions: botMemory.decisions.length,
+      recordedBotDecisions: botMemory.decisions.length,
+      recoveredBotDecisions: 0,
+      complete: botMemory.decisions.length > 0,
+    };
   }
   return {
     game: pairIndex * 2 + leg + 1,

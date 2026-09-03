@@ -644,6 +644,7 @@ export function experienceDescriptor(
 }
 
 export function normalizeExperiencePatterns(patterns = []) {
+  const contributions = new Map();
   const normalized = new Map();
   (Array.isArray(patterns) ? patterns : []).forEach((pattern) => {
     const contextKey = String(pattern?.contextKey || pattern?.context_key || '');
@@ -673,6 +674,29 @@ export function normalizeExperiencePatterns(patterns = []) {
         Number(pattern.winWeight ?? pattern.win_weight) || 0,
       ),
     };
+    // Exact duplicates are correlated snapshots, not independent games. Keep
+    // the strongest one instead of multiplying its evidence by array order.
+    // Source precedence is resolved by the engine before normalization.
+    const current = contributions.get(key);
+    const evidenceRank = item => [
+      item.samples,
+      item.losses + item.wins,
+      item.lossWeight + item.winWeight,
+      item.signalWeight,
+      item.severeLosses,
+    ];
+    const candidateRank = evidenceRank(contribution);
+    const currentRank = evidenceRank(current || {});
+    const firstDifference = candidateRank.findIndex(
+      (value, index) => value !== currentRank[index],
+    );
+    const isStronger = !current
+      || (firstDifference >= 0 && candidateRank[firstDifference] > currentRank[firstDifference]);
+    if (isStronger) contributions.set(key, contribution);
+  });
+
+  contributions.forEach((contribution, key) => {
+    const { contextKey, actionKey } = contribution;
     mergePattern(normalized, key, contribution, contextKey, actionKey);
 
     const phase = contextKey.split('|')[0] || 'route';
@@ -718,26 +742,29 @@ export function experienceAdjustment(descriptor, experience) {
   const actionWeights = hasStrategicAction
     ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
     : [1, 0.76, ...(behaviorActionKeys.map(() => 0.62)), 0.56];
-  const matches = [];
-  const seen = new Set();
-  actionKeys.forEach((actionKey, index) => {
-    const level = contextLevels.find((candidate) => {
-      const pattern = experience.get(`${candidate.key}::${actionKey}`);
-      if (!pattern) return false;
+  let match;
+  for (const level of contextLevels) {
+    for (let index = 0; index < actionKeys.length; index += 1) {
+      const actionKey = actionKeys[index];
+      const pattern = experience.get(`${level.key}::${actionKey}`);
+      if (!pattern) continue;
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
       const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
-      return pattern.samples >= candidate.minimum || severeEvidence || winningEvidence;
-    });
-    if (!level) return;
-    const mapKey = `${level.key}::${actionKey}`;
-    if (seen.has(mapKey)) return;
-    seen.add(mapKey);
-    matches.push({
-      pattern: experience.get(mapKey),
-      weight: level.weight * (actionWeights[index] || 0.4),
-    });
-  });
-  if (!matches.length) return 0;
+      if (pattern.samples < level.minimum && !severeEvidence && !winningEvidence) continue;
+      match = {
+        pattern,
+        weight: level.weight * (actionWeights[index] || 0.4),
+      };
+      break;
+    }
+    if (match) break;
+  }
+  if (!match) return 0;
+
+  // Exact, strategic, family, behavior and legacy keys describe the same
+  // decision. Use the first qualifying representation instead of counting
+  // correlated aliases as independent games.
+  const matches = [match];
 
   let evidenceWeight = 0;
   let weightedLossRate = 0;

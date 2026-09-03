@@ -569,7 +569,10 @@ test("9TCS-H9F9 move 31 enters a checker instead of shuffling inside home", () =
   assert.equal(maxOutsideReduction, 1);
   assert.equal(decision.selected.features.outsideReduction, maxOutsideReduction);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
-  assert.ok(decision.selected.features.homeEntryPriorityAdjustment > 0);
+  assert.ok(
+    decision.selected.features.homeEntryPriorityAdjustment > 0
+      || decision.selected.features.tacticalHomeProgressAdjustment > 0,
+  );
   assert.ok(decision.alternatives.some(candidate => candidate.features.homeShuffleMoves > 0));
 });
 
@@ -1496,7 +1499,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v28");
+  assert.equal(decision.engineVersion, "long-analytic-v29");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -2172,12 +2175,12 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
-  assert.match(schema, /'creditVersion', 5/);
+  assert.match(schema, /'creditVersion', 6/);
   assert.match(schema, /'wins', wins/);
   assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
   assert.match(schema, /familyActionKey/);
-  assert.match(schema, /engine_version like 'long-analytic-%'/);
+  assert.match(schema, /engine_version = 'long-analytic-v29'/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
   assert.match(schema, /rooms_archive_finished_bot_training/);
   assert.match(schema, /archive_finished_bot_training_game/);
@@ -2185,7 +2188,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v10/);
+  assert.match(client, /narduh-long-bot-server-experience-v11/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);
