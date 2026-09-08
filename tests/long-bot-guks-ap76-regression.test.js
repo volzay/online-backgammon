@@ -81,7 +81,7 @@ function hostileMemory(gameState, safeSequence, unsafeSequence) {
   }).experience;
   return [
     {
-      creditVersion: 6,
+      creditVersion: 7,
       contextKey: safe.contextKey,
       actionKey: safe.actionKey,
       samples: 120,
@@ -93,7 +93,7 @@ function hostileMemory(gameState, safeSequence, unsafeSequence) {
       winWeight: 0,
     },
     {
-      creditVersion: 6,
+      creditVersion: 7,
       contextKey: unsafe.contextKey,
       actionKey: unsafe.actionKey,
       samples: 120,
@@ -233,7 +233,7 @@ test('long-bot experience is immutable during a game and carries a fingerprint',
   const target = engine();
   target.beginExperienceSession();
   const first = [{
-    creditVersion: 6,
+    creditVersion: 7,
     contextKey: 'route|snapshot-a',
     actionKey: 'route:a',
     samples: 4,
@@ -242,7 +242,7 @@ test('long-bot experience is immutable during a game and carries a fingerprint',
     winWeight: 4,
   }];
   const second = [{
-    creditVersion: 6,
+    creditVersion: 7,
     contextKey: 'route|snapshot-b',
     actionKey: 'route:b',
     samples: 5,

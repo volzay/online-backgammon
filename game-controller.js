@@ -72,6 +72,8 @@ window.NarduController = (function () {
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
   const GAME_OVER_SOUND_GAP_MS = 260;
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
+  const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
+  const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
   let gameplaySoundBusyUntil = 0;
   const UI_TEXT = {
     ru: {
@@ -537,18 +539,29 @@ window.NarduController = (function () {
       ensureAutoProgress(delay);
       return;
     }
-    const load = variant === 'short'
-      ? window.NarduRooms?.loadShortBotExperience?.()
-      : window.NarduRooms?.loadLongBotExperience?.();
     const startWithFrozenExperience = () => {
       if (variant === 'long') {
         window.NarduStrongBot?.syncLocalExperience?.();
-        window.NarduLongBotEngine?.freezeExperience?.(
+        const snapshot = window.NarduLongBotEngine?.freezeExperience?.(
           longBotExperienceSessionKey(),
         );
+        recordLongBotExperienceLoad({
+          frozen: true,
+          fingerprint: snapshot?.fingerprint || '',
+          experienceSize: Number(snapshot?.size) || 0,
+        });
       }
       ensureAutoProgress(delay);
     };
+    if (variant === 'long') {
+      loadLongBotExperienceBeforeStart()
+        .catch(error => {
+          console.warn('Could not load shared bot experience', error?.message || error);
+        })
+        .finally(startWithFrozenExperience);
+      return;
+    }
+    const load = window.NarduRooms?.loadShortBotExperience?.();
     if (!load?.then) {
       startWithFrozenExperience();
       return;
@@ -557,6 +570,87 @@ window.NarduController = (function () {
       load.catch(error => console.warn('Could not load shared bot experience', error?.message || error)),
       new Promise(resolve => setTimeout(resolve, 4500)),
     ]).finally(startWithFrozenExperience);
+  }
+
+  async function loadLongBotExperienceBeforeStart() {
+    const loader = window.NarduRooms?.loadLongBotExperience;
+    const startedAt = Date.now();
+    if (typeof loader !== 'function') {
+      recordLongBotExperienceLoad({
+        status: 'unavailable',
+        durationMs: 0,
+        attempts: 0,
+      });
+      throw new Error('Long-bot experience loader is unavailable');
+    }
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS; attempt += 1) {
+      recordLongBotExperienceLoad({
+        status: 'loading',
+        startedAt: new Date(startedAt).toISOString(),
+        attempt,
+        attempts: attempt,
+      });
+      try {
+        const patterns = await promiseWithTimeout(
+          loader({ refresh: attempt > 1 }),
+          LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS,
+          'Long-bot experience request timed out',
+        );
+        const experienceSize = Number(window.NarduLongBotEngine?.experienceSize?.()) || 0;
+        recordLongBotExperienceLoad({
+          status: 'ready',
+          durationMs: Date.now() - startedAt,
+          attempts: attempt,
+          patternCount: Array.isArray(patterns) ? patterns.length : 0,
+          experienceSize,
+          error: '',
+        });
+        return patterns;
+      } catch (error) {
+        lastError = error;
+        recordLongBotExperienceLoad({
+          status: attempt < LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS ? 'retrying' : 'failed',
+          durationMs: Date.now() - startedAt,
+          attempts: attempt,
+          error: String(error?.message || error || 'Unknown experience error').slice(0, 240),
+        });
+      }
+    }
+    throw lastError || new Error('Could not load long-bot experience');
+  }
+
+  function promiseWithTimeout(promise, timeoutMs, message) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      Promise.resolve(promise).then(
+        value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function recordLongBotExperienceLoad(update) {
+    if (variant !== 'long' || mode !== 'bot' || botDifficulty !== 'hard' || !state) return;
+    state.analysis ||= {};
+    const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
+      ? state.analysis.botMemory
+      : {};
+    state.analysis.botMemory = {
+      ...memory,
+      experienceLoad: {
+        ...(memory.experienceLoad || {}),
+        ...update,
+        updatedAt: new Date().toISOString(),
+      },
+    };
   }
 
   function preloadWildbgForHardShortBot() {

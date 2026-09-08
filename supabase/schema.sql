@@ -577,11 +577,14 @@ begin
     return new;
   end if;
 
-  -- v29 experience is valid only when every expected bot turn was captured.
+  -- v29+ experience is valid only when every expected bot turn was captured.
   -- Older long archives and short games remain readable and keep their
   -- existing archival behavior, but cannot accidentally satisfy this gate.
   if coalesce(target_state->>'variant', new.variant) = 'long'
-    and coalesce(memory->>'engineVersion', '') = 'long-analytic-v29' then
+    and coalesce(memory->>'engineVersion', '') in (
+      'long-analytic-v29',
+      'long-analytic-v30'
+    ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
       or jsonb_typeof(coverage->'expectedBotDecisions') <> 'number'
@@ -695,7 +698,7 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
       and coalesce(
         room.game_state->'analysis'->'botMemory'->>'engineVersion',
         ''
-      ) = 'long-analytic-v29' then
+      ) in ('long-analytic-v29', 'long-analytic-v30') then
       coalesce(
         room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
         'false'::jsonb
@@ -2171,7 +2174,10 @@ begin
   end if;
   coverage := coalesce(memory->'coverage', '{}'::jsonb);
   if coalesce(target_state->>'variant', target_room.variant) = 'long'
-    and coalesce(memory->>'engineVersion', '') = 'long-analytic-v29' then
+    and coalesce(memory->>'engineVersion', '') in (
+      'long-analytic-v29',
+      'long-analytic-v30'
+    ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
       or jsonb_typeof(coverage->'expectedBotDecisions') <> 'number'
@@ -2180,13 +2186,13 @@ begin
       or coalesce(coverage->>'expectedBotDecisions', '') !~ '^[0-9]+$'
       or coalesce(coverage->>'recordedBotDecisions', '') !~ '^[0-9]+$'
       or coalesce(coverage->>'recoveredBotDecisions', '') !~ '^[0-9]+$' then
-      raise exception 'Long bot v29 training payload has incomplete decision coverage.';
+      raise exception 'Long bot v29+ training payload has incomplete decision coverage.';
     end if;
     if (coverage->>'expectedBotDecisions')::numeric <= 0
       or (coverage->>'expectedBotDecisions')::numeric <>
         (coverage->>'recordedBotDecisions')::numeric
           + (coverage->>'recoveredBotDecisions')::numeric then
-      raise exception 'Long bot v29 training payload has inconsistent decision coverage.';
+      raise exception 'Long bot v29+ training payload has inconsistent decision coverage.';
     end if;
   end if;
   outcome := coalesce(memory->'outcome', '{}'::jsonb);
@@ -2298,7 +2304,7 @@ as $$
     select g.*
     from public.bot_training_games g
     where g.difficulty = 'hard'
-      and g.engine_version = 'long-analytic-v29'
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -2339,21 +2345,21 @@ as $$
             and (
               (
                 decision->>'source' = 'engine'
-                and decision->>'engineVersion' = 'long-analytic-v29'
+                and decision->>'engineVersion' = g.engine_version
                 and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
                 and coalesce(decision->>'experienceFingerprint', '') <> ''
               )
               or (
                 decision->>'source' = 'history-recovery'
                 and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-                and decision->>'engineVersion' = 'long-analytic-v29'
+                and decision->>'engineVersion' = g.engine_version
               )
             )
           )
           or (
             decision->>'actor' = 'opponent'
             and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-            and decision->>'engineVersion' = 'long-analytic-v29'
+            and decision->>'engineVersion' = g.engine_version
           )
         )
       )
@@ -2437,7 +2443,8 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
-        when engine_generation = 29 then 4.0
+        when engine_generation = 30 then 4.0
+        when engine_generation = 29 then 3.0
         else 0.0
       end as engine_weight
     from raw_decisions
@@ -2446,9 +2453,9 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation = 29 and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation = 29 and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -2475,13 +2482,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation = 29 then descriptor->>'actionKey' end),
-        (case when engine_generation = 29 then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation = 29 then coalesce(
+        (case when engine_generation in (29, 30) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation = 29 then coalesce(
+        (case when engine_generation in (29, 30) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2492,8 +2499,8 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation = 29 then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation = 29 then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
@@ -2632,7 +2639,7 @@ as $$
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
-      'creditVersion', 6,
+      'creditVersion', 7,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,

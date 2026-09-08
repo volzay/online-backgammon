@@ -5,6 +5,7 @@
   ];
   let clientPromise = null;
   const AUTH_RECLAIM_EXACT_KEYS = new Set([
+    "narduh-long-bot-server-experience-v12",
     "narduh-long-bot-server-experience-v11",
     "narduh-long-bot-server-experience-v10",
     "narduh-long-bot-server-experience-v9",
@@ -15,6 +16,7 @@
     "narduh-long-bot-server-experience-v4",
     "narduh-long-bot-server-experience-v3",
     "narduh-long-bot-server-experience-v2",
+    "narduh-long-bot-experience-v7",
     "narduh-long-bot-experience-v6",
     "narduh-long-bot-experience-v5",
     "narduh-long-bot-experience-v4",

@@ -155,7 +155,7 @@ test('treatment experience and adaptive learning stay isolated from the control 
   const experienceFile = path.join(directory, 'experience.json');
   fs.writeFileSync(experienceFile, JSON.stringify({
     patterns: [{
-      creditVersion: 6,
+      creditVersion: 7,
       contextKey: 'route|imported-isolation-test',
       actionKey: 'head:1|entry:0|off:0|shuffle:0',
       samples: 4,
@@ -191,7 +191,7 @@ test('treatment experience and adaptive learning stay isolated from the control 
             engineVersion: runtime.engine.version,
             choiceCount: 2,
             experienceFrozen: true,
-            experienceFingerprint: 'lbe6-simulator-isolation',
+            experienceFingerprint: 'lbe7-simulator-isolation',
             winQuality: 1,
             experience: {
               contextKey: 'route|adaptive-isolation-test',

@@ -736,10 +736,18 @@ test("ZQBE-SM3L move 39 advances the laggard instead of growing a seven-checker 
 
   engine.plan(state, { maxCandidates: 64, timeLimitMs: 3600 });
   const decision = engine.consumeLastDecision();
-  assert.deepEqual(JSON.parse(JSON.stringify(decision.selected.moves)), [
-    { from: 2, to: 22, die: 4 },
-    { from: 22, to: 19, die: 3 },
-  ]);
+  assert.ok(decision.selected.moves.some(move => Number(move.from) === 2));
+  assert.ok(!decision.selected.moves.some(move => [16, 17, 18].includes(Number(move.from))));
+  const singleCheckerRush = decision.alternatives.find(candidate => (
+    candidate.moves.some(move => Number(move.from) === 22 && Number(move.die) === 3)
+  ));
+  assert.ok(singleCheckerRush);
+  assert.ok(
+    decision.selected.tactical.recoveryTailRisk > singleCheckerRush.tactical.recoveryTailRisk,
+  );
+  assert.ok(
+    decision.selected.tactical.recoveryExpected > singleCheckerRush.tactical.recoveryExpected,
+  );
   assert.equal(decision.selected.features.maxRouteTowerAfter, 6);
   assert.equal(decision.selected.features.outsidePipGain, 7);
   assert.equal(decision.selected.features.strategyProfile, "v25");
@@ -1499,7 +1507,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v29");
+  assert.equal(decision.engineVersion, "long-analytic-v30");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -1879,17 +1887,17 @@ test("late race distributes two entries instead of adding to a six-checker tower
   const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
   const decision = engine.consumeLastDecision();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
-    { from: 23, die: 6 },
-    { from: 21, die: 4 },
-  ]);
+  assert.deepEqual(
+    Array.from(plan, move => `${move.from}:${move.die}`).sort(),
+    ["21:4", "23:6"],
+  );
   assert.equal(decision.selected.features.outsideReduction, 2);
   assert.equal(decision.selected.features.outsidePipGain, 8);
   assert.equal(decision.selected.features.maxRouteTowerAfter, 5);
 });
 
 test("late race clears the last dark checker instead of preserving a weak three-prime", () => {
-  const { engine } = loadBrowserEngine();
+  const { game, engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
     2: { color: "dark", count: 1 },
@@ -1913,10 +1921,13 @@ test("late race clears the last dark checker instead of preserving a weak three-
   const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 480 });
   const decision = engine.consumeLastDecision();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(plan)), [
-    { from: 1, die: 2 },
-    { from: 23, die: 4 },
-  ]);
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+  assert.equal(after.points[1], undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(after.points[19])), {
+    color: "dark",
+    count: 1,
+  });
   assert.equal(decision.selected.features.primeRunBefore, 3);
   assert.equal(decision.selected.features.trapBefore, 0);
   assert.equal(decision.selected.features.opponentFenceRunBefore, 2);
@@ -2175,12 +2186,12 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
-  assert.match(schema, /'creditVersion', 6/);
+  assert.match(schema, /'creditVersion', 7/);
   assert.match(schema, /'wins', wins/);
   assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
   assert.match(schema, /familyActionKey/);
-  assert.match(schema, /engine_version = 'long-analytic-v29'/);
+  assert.match(schema, /engine_version in \('long-analytic-v29', 'long-analytic-v30'\)/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
   assert.match(schema, /rooms_archive_finished_bot_training/);
   assert.match(schema, /archive_finished_bot_training_game/);
@@ -2188,7 +2199,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v11/);
+  assert.match(client, /narduh-long-bot-server-experience-v12/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);

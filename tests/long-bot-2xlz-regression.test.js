@@ -267,8 +267,10 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       plies: 4,
       expectedImpact: -20000000,
       worstImpact: -80000000,
+      recoveryTailRisk: -70000000,
       recoveryWorst: -90000000,
       continuationExpected: -50000000,
+      continuationTailRisk: -50000000,
       continuationWorst: -85000000,
     },
   };
@@ -296,8 +298,10 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       plies: 4,
       expectedImpact: -10000000,
       worstImpact: -50000000,
+      recoveryTailRisk: -50000000,
       recoveryWorst: -60000000,
       continuationExpected: -40000000,
+      continuationTailRisk: -40000000,
       continuationWorst: -70000000,
     },
     ...overrides,
@@ -426,7 +430,9 @@ test("5F44-A8EA learned memory cannot restore an avoidable home shuffle", () => 
   )));
   assert.equal(selected.features.homeShuffleMoves, 0);
   assert.equal(selected.features.fenceEscapeTacticalReservation, 1);
-  assert.equal(selected.features.experienceSafetyOverride, 1);
+  assert.equal(selected.tactical.distributionComplete, true);
+  assert.equal(selected.tactical.recoveryDistributionComplete, true);
+  assert.equal(selected.tactical.continuationDistributionComplete, true);
   assert.ok(selected.experienceAdjustment < 0);
 });
 
@@ -522,12 +528,14 @@ test("QQRZ imminent head-fence override has strict safety boundaries", async () 
   selected.tactical = {
     plies: 4,
     continuationExpected: -50000000,
+    continuationTailRisk: -50000000,
     continuationWorst: -88000000,
   };
   const analyzedAnchor = anchor(-8000000);
   analyzedAnchor.tactical = {
     plies: 4,
     continuationExpected: -27000000,
+    continuationTailRisk: -27000000,
     continuationWorst: -58000000,
   };
   assert.equal(
@@ -544,7 +552,7 @@ test("QQRZ imminent head-fence override has strict safety boundaries", async () 
   assert.equal(
     isAnalyzedImminentHeadFenceAnchor(state, "dark", {
       ...analyzedAnchor,
-      tactical: { ...analyzedAnchor.tactical, continuationExpected: -50000001 },
+      tactical: { ...analyzedAnchor.tactical, continuationTailRisk: -50000001 },
     }, selected),
     false,
   );

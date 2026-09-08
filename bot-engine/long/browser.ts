@@ -1,8 +1,8 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v29';
-const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v29:';
+const ENGINE_VERSION = 'long-analytic-v30';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v30:';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -137,7 +137,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
       hash = Math.imul(hash, 16777619);
     }
     return {
-      fingerprint: `lbe6-${(hash >>> 0).toString(16).padStart(8, '0')}`,
+      fingerprint: `lbe7-${(hash >>> 0).toString(16).padStart(8, '0')}`,
       size: engine.experienceSize(),
       frozen: experienceFrozen,
     };
@@ -214,14 +214,24 @@ function decisionRecord(
       expectedImpact: Math.round(candidate.tactical.expectedImpact),
       worstImpact: Math.round(candidate.tactical.worstImpact),
       rolls: candidate.tactical.rolls,
+      distributionWeight: Number(candidate.tactical.distributionWeight) || 0,
+      distributionComplete: Boolean(candidate.tactical.distributionComplete),
       adjustment: Math.round(candidate.tactical.adjustment),
       recoveryExpected: Math.round(Number(candidate.tactical.recoveryExpected) || 0),
       recoveryWorst: Math.round(Number(candidate.tactical.recoveryWorst) || 0),
       recoveryRolls: Number(candidate.tactical.recoveryRolls) || 0,
+      recoveryTailRisk: Math.round(Number(candidate.tactical.recoveryTailRisk) || 0),
+      recoveryTailWeight: Number(candidate.tactical.recoveryTailWeight) || 0,
+      recoveryWeight: Number(candidate.tactical.recoveryWeight) || 0,
+      recoveryDistributionComplete: Boolean(candidate.tactical.recoveryDistributionComplete),
       deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
       continuationExpected: Math.round(Number(candidate.tactical.continuationExpected) || 0),
       continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
       continuationRolls: Number(candidate.tactical.continuationRolls) || 0,
+      continuationTailRisk: Math.round(Number(candidate.tactical.continuationTailRisk) || 0),
+      continuationTailWeight: Number(candidate.tactical.continuationTailWeight) || 0,
+      continuationWeight: Number(candidate.tactical.continuationWeight) || 0,
+      continuationDistributionComplete: Boolean(candidate.tactical.continuationDistributionComplete),
       continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
       blockedProbability: Number(candidate.tactical.blockedProbability) || 0,
       expectedReplySequences: Number(candidate.tactical.expectedReplySequences) || 0,

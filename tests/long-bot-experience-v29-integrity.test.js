@@ -6,8 +6,8 @@ const vm = require('node:vm');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
-const EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
-const LEGACY_EXPERIENCE_KEY = 'narduh-long-bot-experience-v5';
+const EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
+const LEGACY_EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
 const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v5';
 
 function memoryStorage(initial = {}) {
@@ -146,7 +146,7 @@ test('v29 counts unique resulting positions for recovered and opponent decisions
   assert.equal(recovered.decisions[0].choiceCount, 1);
 });
 
-test('v29 removes v5 memory and does not learn a forced winning demonstration', () => {
+test('v29 fixtures discard the previous local generation and do not learn a forced win', () => {
   const storage = memoryStorage({
     [LEGACY_EXPERIENCE_KEY]: JSON.stringify([{
       creditVersion: 5,
@@ -174,7 +174,7 @@ test('v29 removes v5 memory and does not learn a forced winning demonstration', 
   assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
 });
 
-test('v29 writes new local evidence with credit generation 6', () => {
+test('the current learning bridge writes local evidence with credit generation 7', () => {
   const { context, storage } = loadStrongBot();
   const decision = liveV29Decision();
   context.window.NarduStrongBot.learnFromGame({
@@ -188,7 +188,7 @@ test('v29 writes new local evidence with credit generation 6', () => {
 
   const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
   assert.equal(learned.length, 1);
-  assert.equal(learned[0].creditVersion, 6);
+  assert.equal(learned[0].creditVersion, 7);
 });
 
 test('v29 does not import a completed game from the previous engine generation', () => {
@@ -245,7 +245,7 @@ test('v29 rejects a decision without an explicit engine generation', () => {
 
 test('v29 loads existing local experience before the first frozen decision', () => {
   const pattern = {
-    creditVersion: 6,
+    creditVersion: 7,
     contextKey: 'route|fresh-page',
     actionKey: 'route:known',
     samples: 4,

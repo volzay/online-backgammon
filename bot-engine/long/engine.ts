@@ -164,43 +164,27 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       strategicallyRanked,
     );
-    const tacticallyRanked = analyzeOpponentReplies(
-      adapter,
-      color,
-      strategicallyRanked,
-      weights,
-      budget,
-      { expandDoubles: advancedStrategy },
-    );
-    if (advancedStrategy) {
-      tacticallyRanked.forEach((candidate) => {
-        const adjustment = advancedTacticalAdjustment(state, color, candidate);
-        candidate.features.advancedTacticalAdjustment = adjustment;
-        candidate.score += adjustment;
-      });
-      tacticallyRanked.sort((left, right) => right.score - left.score);
-    }
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
-    const maxEntry = Math.max(...tacticallyRanked.map(
+    const maxEntry = Math.max(...strategicallyRanked.map(
       candidate => Number(candidate.features.outsideReduction) || 0,
     ));
-    const fenceRun = Math.max(...tacticallyRanked.map(
+    const fenceRun = Math.max(...strategicallyRanked.map(
       candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
     ));
     const nonSevereTowerCandidates = fenceRun >= 5
-      ? tacticallyRanked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
+      ? strategicallyRanked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
       : [];
-    const hasSevereTowerCandidate = tacticallyRanked.some(
+    const hasSevereTowerCandidate = strategicallyRanked.some(
       candidate => Number(candidate.features.maxRouteTowerAfter) >= 7,
     );
     let strategicallyEligible = hasSevereTowerCandidate && nonSevereTowerCandidates.length
       ? nonSevereTowerCandidates
       : trapPressure > 850 && outside <= 8 && maxEntry > 0 && fenceRun < 4
-        ? tacticallyRanked.filter(
+        ? strategicallyRanked.filter(
           candidate => Number(candidate.features.outsideReduction) === maxEntry,
         )
-        : tacticallyRanked;
+        : strategicallyRanked;
     const headRemaining = headCheckers(state, color);
     const maxHeadRelease = Math.max(...strategicallyEligible.map(
       candidate => Number(candidate.features.headGain) || 0,
@@ -235,11 +219,67 @@ export function createLongBotEngine(adapter, options = {}) {
         );
       }
     }
+    // Tactical work is intentionally delayed until every structural policy has
+    // selected its shortlist. Otherwise the budget can be spent on candidates
+    // which are later discarded, leaving the actual move without dice analysis.
+    const tacticalPool = tacticalCoveragePool(strategicallyEligible, strategicallyRanked);
+    const advancedTacticallyAdjusted = new Set();
+    const applyAdvancedTacticalAdjustment = (candidate) => {
+      if (!advancedStrategy || advancedTacticallyAdjusted.has(candidate)) return;
+      const adjustment = advancedTacticalAdjustment(state, color, candidate);
+      candidate.features.advancedTacticalAdjustment = adjustment;
+      candidate.score += adjustment;
+      advancedTacticallyAdjusted.add(candidate);
+    };
+    const tacticallyRanked = analyzeOpponentReplies(
+      adapter,
+      color,
+      tacticalPool,
+      weights,
+      budget,
+      {
+        expandDoubles: advancedStrategy,
+        beforeDeepCandidate: advancedStrategy
+          ? applyAdvancedTacticalAdjustment
+          : null,
+        beforeDeepSelection: advancedStrategy
+          ? (primaryCandidates) => {
+            let reprioritized = [...primaryCandidates]
+              .sort((left, right) => right.score - left.score);
+            reprioritized = reserveHomeEntryForTacticalAnalysis(
+              state,
+              color,
+              reprioritized,
+            );
+            reprioritized = reserveRouteContinuityForTacticalAnalysis(
+              state,
+              color,
+              reprioritized,
+            );
+            return reserveDevelopingFenceEscapeForTacticalAnalysis(
+              state,
+              color,
+              reprioritized,
+            );
+          }
+          : null,
+      },
+    );
+    if (advancedStrategy) {
+      tacticallyRanked.forEach(applyAdvancedTacticalAdjustment);
+      tacticallyRanked.sort((left, right) => right.score - left.score);
+    }
+    const deeplyAnalyzedCandidates = strategicallyEligible.filter(
+      candidate => Number(candidate.tactical?.plies || 0) >= 4,
+    );
     const analyzedCandidates = strategicallyEligible.filter(candidate => candidate.tactical);
     // Never promote an unchecked move merely because analyzed candidates
-    // received realistic reply penalties.
-    let finalCandidates = analyzedCandidates.length
-      ? analyzedCandidates
+    // received realistic reply penalties. Prefer the adaptive four-ply beam;
+    // fall back to complete primary analysis only when the deep budget ran out.
+    let finalCandidates = deeplyAnalyzedCandidates.length
+      ? deeplyAnalyzedCandidates
+      : analyzedCandidates.length
+        ? analyzedCandidates
       : strategicallyEligible;
     finalCandidates = prioritizeSevereReplySafety(
       state,
@@ -281,16 +321,20 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       developedCandidates,
     );
-    const coldRanked = prioritizeSevereReplySafety(
+    const coldRanked = prioritizeCriticalClearedHeadLaggardEscape(
       state,
       color,
-      prioritizeRouteContinuity(
+      prioritizeSevereReplySafety(
         state,
         color,
-        prioritizeTransitionBearOff(
+        prioritizeRouteContinuity(
           state,
           color,
-          prioritizeAvailableHomeEntry(state, color, distributedCandidates),
+          prioritizeTransitionBearOff(
+            state,
+            color,
+            prioritizeAvailableHomeEntry(state, color, distributedCandidates),
+          ),
         ),
       ),
     );
@@ -416,6 +460,24 @@ function experienceSourcePriority(source) {
   if (source === 'server-cache') return 30;
   if (source === 'local') return 20;
   return 10;
+}
+
+function tacticalCoveragePool(eligible, ranked) {
+  const pool = [];
+  const included = new Set();
+  eligible.forEach((candidate) => {
+    if (!candidate || included.has(candidate)) return;
+    included.add(candidate);
+    pool.push(candidate);
+  });
+  // A policy singleton may still receive a reference candidate, but references
+  // must never displace eligible moves from the tactical/deep beam.
+  ranked.forEach((candidate) => {
+    if (pool.length >= 2 || !candidate || included.has(candidate)) return;
+    included.add(candidate);
+    pool.push(candidate);
+  });
+  return pool;
 }
 
 function normalizeAnalysisNodeBudget(value, fallback) {
@@ -661,8 +723,23 @@ function prioritizeSevereReplySafety(state, color, ranked) {
       >= Number(selected.tactical.expectedImpact || 0) - 5000000
     && Number(candidate.tactical.worstImpact || 0)
       >= Number(selected.tactical.worstImpact || 0) + 30000000
-    && Number(candidate.tactical.continuationWorst || 0)
-      >= Number(selected.tactical.continuationWorst || 0) - 15000000
+    && (
+      Number(candidate.tactical.continuationWorst || 0)
+        >= Number(selected.tactical.continuationWorst || 0) - 15000000
+      || (
+        Math.min(
+          Number(candidate.tactical.worstImpact || 0),
+          Number(candidate.tactical.recoveryWorst || 0),
+          Number(candidate.tactical.continuationWorst || 0),
+        ) >= Math.min(
+          Number(selected.tactical.worstImpact || 0),
+          Number(selected.tactical.recoveryWorst || 0),
+          Number(selected.tactical.continuationWorst || 0),
+        ) + 30000000
+        && Number(candidate.tactical.continuationTailRisk || 0)
+          >= Number(selected.tactical.continuationTailRisk || 0) - 30000000
+      )
+    )
   ));
   if (!alternatives.length) return ranked;
 
@@ -683,6 +760,60 @@ function prioritizeSevereReplySafety(state, color, ranked) {
     || Number(right.score) - Number(left.score)
   ));
   return promoteCandidate(ranked, alternatives[0], 'severeReplySafetyAdjustment');
+}
+
+function prioritizeCriticalClearedHeadLaggardEscape(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected?.tactical
+    || homeReady(state, color)
+    || headCheckers(state, color) > 0
+    || headCheckers(state, opponentOf(color)) > 0
+    || Number(selected.features.trapBefore || 0) < 240
+    || Number(selected.features.primeRunBefore || 0) < 5
+  ) {
+    return ranked;
+  }
+
+  const selectedDebt = Number(selected.features.laggardDebtDelta || 0);
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && candidate.tactical
+    && Number(candidate.tactical.plies || 0) >= 4
+    && Number(candidate.features.laggardDebtDelta || 0) >= Math.max(120, selectedDebt + 120)
+    && Number(candidate.features.startZoneReduction || 0)
+      > Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.outsidePipGain || 0)
+      > Number(selected.features.outsidePipGain || 0)
+    && Number(candidate.features.homeEntryMoves || 0)
+      <= Number(selected.features.homeEntryMoves || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && Number(candidate.features.primeRunAfter || 0) >= 3
+    && Number(candidate.score) >= Number(selected.score) - 12000000
+    && Number(candidate.tactical.expectedImpact || 0)
+      >= Number(selected.tactical.expectedImpact || 0) - 2000000
+    && Number(candidate.tactical.worstImpact || 0)
+      >= Number(selected.tactical.worstImpact || 0) + 8000000
+    && Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.continuationTailRisk || 0)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(right.features.laggardDebtDelta || 0)
+      - Number(left.features.laggardDebtDelta || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+    || Number(right.tactical.worstImpact || 0)
+      - Number(left.tactical.worstImpact || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  return promoteCandidate(
+    ranked,
+    alternatives[0],
+    'criticalLaggardEscapeAdjustment',
+  );
 }
 
 function prioritizeTacticallyDominantHomeProgress(state, color, ranked) {
@@ -721,8 +852,8 @@ function prioritizeTacticallyDominantHomeProgress(state, color, ranked) {
       >= Number(selected.tactical.expectedImpact || 0)
     && Number(candidate.tactical.worstImpact || 0)
       >= Number(selected.tactical.worstImpact || 0)
-    && Number(candidate.tactical.continuationExpected || 0)
-      >= Number(selected.tactical.continuationExpected || 0)
+    && Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.continuationTailRisk || 0)
     && Number(candidate.tactical.continuationWorst || 0)
       >= Number(selected.tactical.continuationWorst || 0)
   ));
@@ -902,7 +1033,24 @@ function prioritizeSafeEarlyDevelopment(state, color, ranked) {
 
 function isSaferEarlyAlternative(candidate, selected) {
   if (!candidate.tactical || !selected.tactical) return false;
-  return Number(candidate.score) >= Number(selected.score) - 25000000
+  const completeTacticalDominance = Number(candidate.tactical.plies || 0) >= 4
+    && Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
+    && Number(candidate.tactical.expectedImpact || 0)
+      >= Number(selected.tactical.expectedImpact || 0)
+    && Number(candidate.tactical.worstImpact || 0)
+      >= Number(selected.tactical.worstImpact || 0)
+    && Number(candidate.tactical.recoveryTailRisk || 0)
+      + Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.recoveryTailRisk || 0)
+        + Number(selected.tactical.continuationTailRisk || 0)
+    && Number(candidate.tactical.recoveryWorst || 0)
+      + Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.recoveryWorst || 0)
+        + Number(selected.tactical.continuationWorst || 0);
+  return (
+    Number(candidate.score) >= Number(selected.score) - 25000000
+    || completeTacticalDominance
+  )
     && Number(candidate.experienceAdjustment || 0) >= (
       Number(selected.experienceAdjustment || 0) - 500000
     )
@@ -1125,8 +1273,7 @@ export function reserveHomeEntryForTacticalAnalysis(
   const selected = ranked[0];
   const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
   if (
-    ranked.length <= slotCount
-    || !hasHomeEntryPriorityContext(state, color, selected)
+    !hasHomeEntryPriorityContext(state, color, selected)
   ) {
     return ranked;
   }
@@ -1166,8 +1313,7 @@ export function reserveRouteContinuityForTacticalAnalysis(
   const selected = ranked[0];
   const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
   if (
-    ranked.length <= slotCount
-    || !hasRouteContinuityPriorityContext(state, color, selected)
+    !hasRouteContinuityPriorityContext(state, color, selected)
   ) {
     return ranked;
   }
@@ -1376,8 +1522,12 @@ function isPlausibleRouteContinuityAlternative(candidate, selected) {
       >= Number(selected.features.trapDelta || 0)
     && Number(candidate.features.fenceClosureDelta || 0)
       >= Number(selected.features.fenceClosureDelta || 0) - 2
-    && Number(candidate.features.escapeGatewayDelta || 0)
-      >= Number(selected.features.escapeGatewayDelta || 0) - gatewayTolerance
+    && (
+      Number(candidate.features.outsideReduction || 0)
+        > Number(selected.features.outsideReduction || 0)
+      || Number(candidate.features.escapeGatewayDelta || 0)
+        >= Number(selected.features.escapeGatewayDelta || 0) - gatewayTolerance
+    )
     && Number(candidate.features.primeRunAfter || 0)
       >= Number(selected.features.primeRunAfter || 0)
     && Number(candidate.features.maxRouteTowerAfter || 0)
@@ -1871,16 +2021,18 @@ export function isAnalyzedContestedOpponentHeadExit(state, color, candidate, sel
       'plies',
       'expectedImpact',
       'worstImpact',
+      'recoveryTailRisk',
       'recoveryWorst',
-      'continuationExpected',
+      'continuationTailRisk',
       'continuationWorst',
     ])
     || !hasFiniteTacticalMetrics(selected, [
       'plies',
       'expectedImpact',
       'worstImpact',
+      'recoveryTailRisk',
       'recoveryWorst',
-      'continuationExpected',
+      'continuationTailRisk',
       'continuationWorst',
     ])
   ) {
@@ -1892,10 +2044,16 @@ export function isAnalyzedContestedOpponentHeadExit(state, color, candidate, sel
       >= Number(selected.tactical.expectedImpact || 0) + 10000000
     && Number(candidate.tactical.worstImpact || 0)
       >= Number(selected.tactical.worstImpact || 0) + 30000000
+    && Number(candidate.tactical.recoveryTailRisk || 0)
+      + Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.recoveryTailRisk || 0)
+        + Number(selected.tactical.continuationTailRisk || 0) + 30000000
     && Number(candidate.tactical.recoveryWorst || 0)
-      >= Number(selected.tactical.recoveryWorst || 0) + 30000000
-    && Number(candidate.tactical.continuationExpected || 0)
-      >= Number(selected.tactical.continuationExpected || 0) + 10000000
+      + Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.recoveryWorst || 0)
+        + Number(selected.tactical.continuationWorst || 0) + 30000000
+    && Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.continuationTailRisk || 0) + 10000000
     && Number(candidate.tactical.continuationWorst || 0)
       >= Number(selected.tactical.continuationWorst || 0) + 15000000;
 }
@@ -1930,8 +2088,11 @@ export function isPlausibleImminentHeadFenceAnchor(state, color, candidate, sele
       <= Number(selected.features.maxRouteTowerAfter || 0) + 1
     && Number(candidate.features.homeShuffleMoves || 0)
       <= Number(selected.features.homeShuffleMoves || 0)
-    && scoreWithoutExperience(candidate) >= (
-      scoreWithoutExperience(selected) - IMMINENT_HEAD_FENCE_SCORE_TOLERANCE
+    && (
+      Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+      || scoreWithoutExperience(candidate) >= (
+        scoreWithoutExperience(selected) - IMMINENT_HEAD_FENCE_SCORE_TOLERANCE
+      )
     );
 }
 
@@ -1940,19 +2101,38 @@ export function isAnalyzedImminentHeadFenceAnchor(state, color, candidate, selec
     !candidate.tactical
     || !selected.tactical
     || !isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected)
+    || !hasFiniteTacticalMetrics(candidate, [
+      'plies',
+      'continuationTailRisk',
+      'continuationWorst',
+    ])
+    || !hasFiniteTacticalMetrics(selected, [
+      'plies',
+      'continuationTailRisk',
+      'continuationWorst',
+    ])
   ) {
     return false;
   }
+  const completeReservation = Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+    && candidate.tactical.distributionComplete === true
+    && candidate.tactical.recoveryDistributionComplete === true
+    && candidate.tactical.continuationDistributionComplete === true;
   return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
     && Number(candidate.tactical.plies || 0) >= 4
-    && Number(candidate.tactical.continuationExpected || 0)
-      >= Number(selected.tactical.continuationExpected || 0)
-    && Number(candidate.tactical.continuationWorst || 0)
-      >= Number(selected.tactical.continuationWorst || 0);
+    && (
+      completeReservation
+      || (
+        Number(candidate.tactical.continuationTailRisk || 0)
+          >= Number(selected.tactical.continuationTailRisk || 0)
+        && Number(candidate.tactical.continuationWorst || 0)
+          >= Number(selected.tactical.continuationWorst || 0)
+      )
+    );
 }
 
 function isPlausibleCriticalHeadFenceEscape(state, color, candidate, selected) {
-  return headCheckers(state, color) >= 7
+  return headCheckers(state, color) >= 4
     && Number(selected.features.opponentFenceRunBefore || 0) >= 2
     && Number(selected.features.fenceClosureDelta || 0) < 0
     && Number(candidate.features.fenceClosureDelta || 0) >= 0
@@ -2174,11 +2354,11 @@ export function isComparableFenceEscape(candidate, selected) {
       Number(selected.tactical.worstImpact) - 30000000
     )
     && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
     && Number(candidate.features.homeShuffleMoves || 0)
       <= Number(selected.features.homeShuffleMoves || 0)
     && Number(candidate.features.headLandingBreak || 0)
-      <= Number(selected.features.headLandingBreak || 0) + 12;
+      <= Number(selected.features.headLandingBreak || 0) + 24;
 }
 
 export function isExperienceOverruledFenceEscape(candidate, selected) {
@@ -2186,7 +2366,7 @@ export function isExperienceOverruledFenceEscape(candidate, selected) {
     'plies',
     'expectedImpact',
     'worstImpact',
-    'recoveryExpected',
+    'recoveryTailRisk',
     'recoveryWorst',
   ];
   if (
@@ -2217,8 +2397,8 @@ export function isExperienceOverruledFenceEscape(candidate, selected) {
       >= Number(selected.tactical.expectedImpact || 0) + 10000000
     && Number(candidate.tactical.worstImpact || 0)
       >= Number(selected.tactical.worstImpact || 0) + 30000000
-    && Number(candidate.tactical.recoveryExpected || 0)
-      >= Number(selected.tactical.recoveryExpected || 0)
+    && Number(candidate.tactical.recoveryTailRisk || 0)
+      >= Number(selected.tactical.recoveryTailRisk || 0)
     && Number(candidate.tactical.recoveryWorst || 0)
       >= Number(selected.tactical.recoveryWorst || 0);
 }

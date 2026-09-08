@@ -129,7 +129,7 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const experienceSnapshot = readExperienceSnapshot(experienceFile);
   const patterns = experienceSnapshot.patterns;
   const storage = new Map([
-    ['narduh-long-bot-experience-v6', JSON.stringify(patterns)],
+    ['narduh-long-bot-experience-v7', JSON.stringify(patterns)],
   ]);
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {

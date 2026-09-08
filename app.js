@@ -1325,6 +1325,14 @@
     }
     touchPresence({ force: true });
     setInterval(() => touchPresence(), GUEST_PRESENCE_MS);
+    if (document.querySelector('.lobby-head')) {
+      const user = getUser();
+      Promise.resolve().then(() => window.NarduRooms?.loadLongBotExperience?.({
+        playerName: user?.nickname || user?.name || '',
+      })).catch(error => {
+        console.warn('Could not prefetch long-bot experience', error?.message || error);
+      });
+    }
     paintSound();
     wirePasswordToggles();
   }

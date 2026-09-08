@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v6";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v7";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -20,7 +20,7 @@ function learnSingleLoss(resultType) {
   const context = {
     window: {
       localStorage,
-      NarduLongBotEngine: { version: "long-analytic-v29", setExperience() {} },
+      NarduLongBotEngine: { version: "long-analytic-v30", setExperience() {} },
     },
     console,
     Date,
@@ -40,7 +40,7 @@ function learnSingleLoss(resultType) {
     resultType,
     analysis: {
       botMemory: {
-        engineVersion: "long-analytic-v29",
+        engineVersion: "long-analytic-v30",
         coverage: {
           expectedBotDecisions: 1,
           recordedBotDecisions: 1,
@@ -50,10 +50,10 @@ function learnSingleLoss(resultType) {
         decisions: [{
           actor: "bot",
           source: "engine",
-          engineVersion: "long-analytic-v29",
+          engineVersion: "long-analytic-v30",
           choiceCount: 2,
           experienceFrozen: true,
-          experienceFingerprint: "lbe6-koks-test",
+          experienceFingerprint: "lbe7-koks-test",
           experience: {
             contextKey: "koks-rescue|test",
             actionKey: "start:stuck",
@@ -89,7 +89,7 @@ test("winning opponent tactics are stored as positive experience", () => {
         getItem(key) { return values.get(key) ?? null; },
         setItem(key, value) { values.set(key, String(value)); },
       },
-      NarduLongBotEngine: { version: "long-analytic-v29", setExperience() {} },
+      NarduLongBotEngine: { version: "long-analytic-v30", setExperience() {} },
     },
     console,
     Date,
@@ -107,7 +107,7 @@ test("winning opponent tactics are stored as positive experience", () => {
     resultType: "normal",
     analysis: {
       botMemory: {
-        engineVersion: "long-analytic-v29",
+        engineVersion: "long-analytic-v30",
         coverage: {
           expectedBotDecisions: 1,
           recordedBotDecisions: 1,
@@ -118,15 +118,15 @@ test("winning opponent tactics are stored as positive experience", () => {
           {
             actor: "bot",
             source: "engine",
-            engineVersion: "long-analytic-v29",
+            engineVersion: "long-analytic-v30",
             choiceCount: 1,
             experienceFrozen: true,
-            experienceFingerprint: "lbe6-opponent-test",
+            experienceFingerprint: "lbe7-opponent-test",
           },
           {
             actor: "opponent",
             captureVersion: 2,
-            engineVersion: "long-analytic-v29",
+            engineVersion: "long-analytic-v30",
             choiceCount: 2,
             winQuality: 2.5,
             experience: {
@@ -273,14 +273,14 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
   assert.match(captured[0].experience.actionKey, /off:yes/);
 });
 
-test("the v29 opponent-memory RPC preserves severity and valid winning examples", () => {
+test("the v30 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v29.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v30.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -297,7 +297,7 @@ test("the v29 opponent-memory RPC preserves severity and valid winning examples"
   assert.match(migration, /actor = 'opponent'[\s\S]*?capture_version >= 2[\s\S]*?choice_count > 1/);
   assert.match(migration, /as successful/);
   assert.match(migration, /as win_weight/);
-  assert.match(migration, /'creditVersion', 6/);
+  assert.match(migration, /'creditVersion', 7/);
   assert.match(migration, /^commit;/m);
 });
 
@@ -308,7 +308,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
-  const version = "20260904-guks-ap76-long-v29";
+  const version = "20260908-dice-tactical-long-v30";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
