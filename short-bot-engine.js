@@ -835,7 +835,7 @@ function createShortBotEngine(adapter, options = {}) {
       prefiltered = removeSeverePositionDominance(prefiltered, state, color);
     }
     prefiltered = prefiltered.slice(0, maxCandidates);
-    const selected = prefiltered.slice(0, Math.min(analyzeCount, 2));
+    const selected = prefiltered.slice(0, Math.min(analyzeCount, prefiltered.length));
     const analyzed = selected
       .map(item => {
         const analyzed = analyzeReplies(item, color, runtimeOptions);
@@ -853,11 +853,14 @@ function createShortBotEngine(adapter, options = {}) {
     evaluateState,
     describeSequence(state, sequence, color) {
       const item = baseCandidate(state, color, sequence);
+      const adjustment = experienceAdjustment(item);
       return {
         sequence: item.sequence,
-        score: item.score,
+        score: item.score + adjustment,
+        baseScore: item.baseScore,
         features: item.features,
         experience: item.experience,
+        experienceAdjustment: adjustment,
       };
     },
     setExperience(patterns, source = 'runtime') {
@@ -1209,7 +1212,11 @@ function applyKnownShortSequence(game, state, sequence, color) {
 
 
 /* bot-engine/short/browser.ts */
-const SHORT_ENGINE_VERSION = 'short-analytic-v5';
+const SHORT_ENGINE_VERSION = 'short-analytic-v6';
+const SHORT_WILDBG_NEAR_EQUITY_MARGIN = 0.025;
+const SHORT_WILDBG_REAR_ESCAPE_EQUITY_MARGIN = 0.1;
+const SHORT_WILDBG_EXPERIENCE_EQUITY_SCALE = 900_000;
+const SHORT_WILDBG_EQUITY_EPSILON = 0.000001;
 
 function shortStateToWildbgBoard(game, state, color = state?.turn) {
   if (!game || !state || state.variant !== 'short' || !color) return null;
@@ -1297,27 +1304,52 @@ function sameWildbgPosition(left, right) {
 }
 
 function matchShortWildbgAnalysis(game, state, analysis, color = state?.turn, adapter = null) {
+  return matchShortWildbgCandidates(game, state, analysis, color, adapter)[0] || null;
+}
+
+function matchShortWildbgCandidates(game, state, analysis, color = state?.turn, adapter = null) {
   const best = analysis?.moves?.[0];
   if (!game || !state || state.variant !== 'short' || !color || !validWildbgPlay(best?.play)) {
-    return null;
+    return [];
   }
   const rules = adapter || createShortNarduGameAdapter(game);
   const candidates = rules.legalSequences(state, color, { limit: 0 }).map(sequence => ({
     sequence,
     ...shortWildbgPlayForSequence(game, rules, state, color, sequence),
   }));
-  const hasPosition = Object.prototype.hasOwnProperty.call(best, 'position');
-  if (hasPosition && !validWildbgPosition(best.position)) return null;
-  const exact = candidates.find(candidate => sameWildbgPlay(candidate.play, best.play));
-  if (exact) {
-    if (hasPosition && !sameWildbgPosition(exact.position, best.position)) return null;
-    return { ...exact, match: 'play', analysis: best, phase: analysis.phase || null };
+  function matchMove(move, wildbgRank) {
+    if (!validWildbgPlay(move?.play)) return null;
+    const hasPosition = Object.prototype.hasOwnProperty.call(move, 'position');
+    if (hasPosition && !validWildbgPosition(move.position)) return null;
+    const exact = candidates.find(candidate => sameWildbgPlay(candidate.play, move.play));
+    if (exact) {
+      if (hasPosition && !sameWildbgPosition(exact.position, move.position)) return null;
+      return {
+        ...exact,
+        match: 'play',
+        analysis: move,
+        phase: analysis.phase || null,
+        wildbgRank,
+      };
+    }
+    if (!hasPosition) return null;
+    const byPosition = candidates.find(candidate => sameWildbgPosition(candidate.position, move.position));
+    return byPosition ? {
+      ...byPosition,
+      match: 'position',
+      analysis: move,
+      phase: analysis.phase || null,
+      wildbgRank,
+    } : null;
   }
-  if (!hasPosition) return null;
-  const byPosition = candidates.find(candidate => sameWildbgPosition(candidate.position, best.position));
-  return byPosition
-    ? { ...byPosition, match: 'position', analysis: best, phase: analysis.phase || null }
-    : null;
+  const first = matchMove(best, 0);
+  if (!first) return [];
+  const matched = [first];
+  (analysis.moves || []).slice(1).forEach((move, index) => {
+    const item = matchMove(move, index + 1);
+    if (item) matched.push(item);
+  });
+  return matched;
 }
 
 function createBrowserShortBotEngine(game, options = {}) {
@@ -1329,10 +1361,241 @@ function createBrowserShortBotEngine(game, options = {}) {
     return options.getWildbgAnalyzer?.() || options.wildbgAnalyzer || null;
   }
 
-  function recordWildbgDecision(state, color, matched) {
-    const described = engine.describeSequence(state, matched.sequence, color);
-    const decision = shortDecisionRecord(state, color, [described], engine.experienceSize());
+  function wildbgValue(matched) {
+    if (Number.isFinite(Number(matched?.analysis?.equity))) {
+      return Number(matched.analysis.equity);
+    }
+    return Number.isFinite(Number(matched?.analysis?.score))
+      ? Number(matched.analysis.score)
+      : null;
+  }
+
+  function severeLossProbability(matched) {
+    const probabilities = matched?.analysis?.probabilities;
+    if (!probabilities) return null;
+    const gammon = Number(probabilities.lose_gammon);
+    // WildBG's gammon probability already includes backgammons.
+    return Number.isFinite(gammon) ? Math.max(0, gammon) : null;
+  }
+
+  function assessWildbgCandidates(state, color, analysis) {
+    return matchShortWildbgCandidates(game, state, analysis, color, adapter).map(matched => {
+      const described = engine.describeSequence(state, matched.sequence, color);
+      return {
+        matched,
+        described,
+        equity: wildbgValue(matched),
+        severeLossProbability: severeLossProbability(matched),
+        after: adapter.applySequence(state, matched.sequence, color),
+      };
+    });
+  }
+
+  function sameTacticalProgress(left, right) {
+    return ['pipsGain', 'hits', 'entries', 'offGain'].every(key => (
+      Number(left?.[key]) === Number(right?.[key])
+    ));
+  }
+
+  function structurallyDominatesWildbg(left, right) {
+    if (!sameTacticalProgress(left?.described?.features, right?.described?.features)) return false;
+    const leftFeatures = left.described.features;
+    const rightFeatures = right.described.features;
+    const maximize = ['madeGain', 'homeMadeGain', 'primeGain', 'anchorDelta', 'backmostGain'];
+    const preserves = maximize.every(key => Number(leftFeatures[key]) >= Number(rightFeatures[key]));
+    const safer = Number(leftFeatures.exposureDelta) <= Number(rightFeatures.exposureDelta)
+      && Number(leftFeatures.stackDelta) <= Number(rightFeatures.stackDelta);
+    if (!preserves || !safer) return false;
+    return maximize.some(key => Number(leftFeatures[key]) > Number(rightFeatures[key]))
+      || Number(leftFeatures.exposureDelta) < Number(rightFeatures.exposureDelta)
+      || Number(leftFeatures.stackDelta) < Number(rightFeatures.stackDelta);
+  }
+
+  function rearBlot(state, color) {
+    const own = Object.entries(state.points || {})
+      .filter(([, stack]) => stack.color === color)
+      .map(([point, stack]) => ({
+        point: Number(point),
+        count: Number(stack.count) || 0,
+        pos: game.pathPos(color, Number(point), state),
+      }))
+      .sort((left, right) => left.pos - right.pos);
+    const rear = own[0];
+    return rear?.count === 1 && rear.pos <= 5 ? rear : null;
+  }
+
+  function replyHitProbability(state, color, point) {
+    const opponent = game.opponentOf(color);
+    let hitWeight = 0;
+    let totalWeight = 0;
+    for (let first = 1; first <= 6; first += 1) {
+      for (let second = first; second <= 6; second += 1) {
+        const weight = first === second ? 1 : 2;
+        const reply = JSON.parse(JSON.stringify(state || {}));
+        reply.turn = opponent;
+        reply.phase = 'move';
+        reply.dice = first === second
+          ? [first, first, first, first]
+          : [first, second];
+        reply.rolled = [...reply.dice];
+        reply.turnMoves = [];
+        const canHit = adapter.legalSequences(reply, opponent, { limit: 0 })
+          .some(sequence => sequence.some(move => Number(move.to) === Number(point)));
+        if (canHit) hitWeight += weight;
+        totalWeight += weight;
+      }
+    }
+    return totalWeight === 36 ? hitWeight / totalWeight : 0;
+  }
+
+  function chooseBearoffTie(candidates, selected, phase) {
+    if (phase !== 'bearoff' || !Number.isFinite(selected.equity)) return null;
+    const tied = candidates.filter(candidate => (
+      Number.isFinite(candidate.equity)
+      && selected.equity - candidate.equity <= SHORT_WILDBG_EQUITY_EPSILON
+    ));
+    return tied.sort((left, right) => (
+      Number(right.described.features.offGain) - Number(left.described.features.offGain)
+      || Number(left.described.features.homeShuffleMoves) - Number(right.described.features.homeShuffleMoves)
+      || Number(right.described.features.backmostGain) - Number(left.described.features.backmostGain)
+      || right.equity - left.equity
+      || left.matched.wildbgRank - right.matched.wildbgRank
+    ))[0] || null;
+  }
+
+  function chooseCriticalRearEscape(state, color, candidates, selected, phase) {
+    if ((phase !== 'contact' && phase !== 'bar') || !Number.isFinite(selected.equity)) return null;
+    const rear = rearBlot(state, color);
+    if (!rear) return null;
+    const selectedHitProbability = replyHitProbability(selected.after, color, rear.point);
+    if (selectedHitProbability < 0.45) return null;
+    if (selected.after.points?.[rear.point]?.color !== color
+      || Number(selected.after.points[rear.point].count) !== 1) return null;
+    const opponent = game.opponentOf(color);
+    const own = shortMetrics(state, color);
+    const other = shortMetrics(state, opponent);
+    if (own.off > 0 || (other.off <= 0 && own.pips - other.pips < 15)) return null;
+    const selectedSevere = selected.severeLossProbability;
+    if (!Number.isFinite(selectedSevere) || selectedSevere < 0.08) return null;
+    return candidates
+      .filter(candidate => {
+        if (!Number.isFinite(candidate.equity)
+          || selected.equity - candidate.equity > SHORT_WILDBG_REAR_ESCAPE_EQUITY_MARGIN) return false;
+        if (!sameTacticalProgress(candidate.described.features, selected.described.features)) return false;
+        const features = candidate.described.features;
+        const severe = candidate.severeLossProbability;
+        const rearAfter = candidate.after.points?.[rear.point];
+        if (rearAfter?.color === color && Number(rearAfter.count) === 1) return false;
+        if (Number(features.backmostGain) < Number(selected.described.features.backmostGain) + 5
+          || Number(features.exposureDelta) > Number(selected.described.features.exposureDelta) - 25
+          || !Number.isFinite(severe)
+          || selectedSevere - severe < 0.08
+          || severe > selectedSevere * 0.35) return false;
+        const candidateRear = rearBlot(candidate.after, color);
+        const candidateHitProbability = candidateRear
+          ? replyHitProbability(candidate.after, color, candidateRear.point)
+          : 0;
+        return candidateHitProbability <= 0.1
+          && selectedHitProbability - candidateHitProbability >= 0.35;
+      })
+      .sort((left, right) => (
+        Number(left.described.features.exposureDelta) - Number(right.described.features.exposureDelta)
+        || Number(right.described.features.backmostGain) - Number(left.described.features.backmostGain)
+        || left.severeLossProbability - right.severeLossProbability
+        || right.equity - left.equity
+      ))[0] || null;
+  }
+
+  function chooseStructuralNearTie(candidates, selected, phase) {
+    if ((phase !== 'contact' && phase !== 'bar') || !Number.isFinite(selected.equity)) return null;
+    return candidates
+      .filter(candidate => (
+        Number.isFinite(candidate.equity)
+        && selected.equity - candidate.equity <= SHORT_WILDBG_NEAR_EQUITY_MARGIN
+        && structurallyDominatesWildbg(candidate, selected)
+      ))
+      .sort((left, right) => right.equity - left.equity
+        || left.matched.wildbgRank - right.matched.wildbgRank)[0] || null;
+  }
+
+  function chooseExperiencedNearTie(candidates, selected) {
+    if (!Number.isFinite(selected.equity)) return null;
+    const adjusted = candidates
+      .filter(candidate => Number.isFinite(candidate.equity)
+        && selected.equity - candidate.equity <= SHORT_WILDBG_NEAR_EQUITY_MARGIN)
+      .map(candidate => ({
+        candidate,
+        adjustedEquity: candidate.equity
+          + Number(candidate.described.experienceAdjustment || 0)
+            / SHORT_WILDBG_EXPERIENCE_EQUITY_SCALE,
+      }))
+      .sort((left, right) => right.adjustedEquity - left.adjustedEquity
+        || right.candidate.equity - left.candidate.equity
+        || left.candidate.matched.wildbgRank - right.candidate.matched.wildbgRank);
+    const best = adjusted[0];
+    const original = adjusted.find(item => item.candidate === selected);
+    return best && original && best.candidate !== selected
+      && best.adjustedEquity > original.adjustedEquity + 0.002
+      ? best.candidate
+      : null;
+  }
+
+  function selectWildbgCandidate(state, color, analysis) {
+    const candidates = assessWildbgCandidates(state, color, analysis);
+    if (!candidates.length) return null;
+    const original = candidates[0];
+    let chosen = original;
+    let reason = 'wildbg-top';
+    const phase = shortPhase(state, color);
+    const bearoff = chooseBearoffTie(candidates, chosen, phase);
+    if (bearoff && bearoff !== chosen) {
+      chosen = bearoff;
+      reason = 'equal-equity-bearoff';
+    }
+    if (reason === 'wildbg-top') {
+      const rearEscape = chooseCriticalRearEscape(state, color, candidates, chosen, phase);
+      if (rearEscape && rearEscape !== chosen) {
+        chosen = rearEscape;
+        reason = 'critical-rear-blot-rescue';
+      }
+    }
+    if (reason === 'wildbg-top') {
+      const structural = chooseStructuralNearTie(candidates, chosen, phase);
+      if (structural && structural !== chosen) {
+        chosen = structural;
+        reason = 'near-equity-structural-safety';
+      }
+    }
+    if (reason === 'wildbg-top') {
+      const experienced = chooseExperiencedNearTie(candidates, chosen);
+      if (experienced && experienced !== chosen) {
+        chosen = experienced;
+        reason = 'near-equity-experience';
+      }
+    }
+    return { candidates, original, chosen, reason, phase };
+  }
+
+  function recordWildbgDecision(state, color, selection) {
+    const ordered = [
+      selection.chosen,
+      ...selection.candidates.filter(candidate => candidate !== selection.chosen),
+    ];
+    const described = ordered.map(candidate => ({
+      ...candidate.described,
+      wildbgRank: candidate.matched.wildbgRank,
+      wildbgEquity: candidate.equity,
+      wildbgProbabilities: candidate.matched.analysis?.probabilities || null,
+    }));
+    const decision = shortDecisionRecord(
+      state,
+      color,
+      described,
+      engine.experienceSize(),
+      selection.candidates.length,
+    );
     if (!decision) return null;
+    const matched = selection.chosen.matched;
     decision.engine = {
       name: 'wildbg',
       provenance: 'wildbg-wasm',
@@ -1344,16 +1607,22 @@ function createBrowserShortBotEngine(game, options = {}) {
       score: Number.isFinite(Number(matched.analysis?.score))
         ? Number(matched.analysis.score)
         : null,
+      originalRank: selection.original.matched.wildbgRank,
+      originalEquity: selection.original.equity,
+      selectedRank: matched.wildbgRank,
+      candidateCount: selection.candidates.length,
+      choiceReason: selection.reason,
+      policyPhase: selection.phase,
     };
     return decision;
   }
 
   function planFromWildbgAnalysis(state, analysis) {
     const color = state?.turn;
-    const matched = matchShortWildbgAnalysis(game, state, analysis, color, adapter);
-    if (!matched) return null;
-    lastDecision = recordWildbgDecision(state, color, matched);
-    return matched.sequence.map(move => ({ from: move.from, die: move.die }));
+    const selection = selectWildbgCandidate(state, color, analysis);
+    if (!selection) return null;
+    lastDecision = recordWildbgDecision(state, color, selection);
+    return selection.chosen.matched.sequence.map(move => ({ from: move.from, die: move.die }));
   }
 
   function analyticPlan(state, runtimeOptions, wildbgFailure = '') {
@@ -1422,7 +1691,7 @@ function createBrowserShortBotEngine(game, options = {}) {
   };
 }
 
-function shortDecisionRecord(state, color, ranked, experienceSize) {
+function shortDecisionRecord(state, color, ranked, experienceSize, choiceCount = null) {
   const candidates = ranked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
@@ -1434,6 +1703,11 @@ function shortDecisionRecord(state, color, ranked, experienceSize) {
     tactical: candidate.tactical ? { ...candidate.tactical } : null,
     experience: { ...candidate.experience },
     experienceAdjustment: Math.round(candidate.experienceAdjustment || 0),
+    wildbgRank: Number.isInteger(candidate.wildbgRank) ? candidate.wildbgRank : null,
+    wildbgEquity: Number.isFinite(candidate.wildbgEquity) ? candidate.wildbgEquity : null,
+    wildbgProbabilities: candidate.wildbgProbabilities
+      ? { ...candidate.wildbgProbabilities }
+      : null,
   }));
   if (!candidates.length) return null;
   const source = `${color}|${(state.dice || []).join(',')}|${JSON.stringify(state.points)}|${JSON.stringify(state.bar)}|${JSON.stringify(state.off)}`;
@@ -1447,6 +1721,7 @@ function shortDecisionRecord(state, color, ranked, experienceSize) {
     at: new Date().toISOString(),
     engineVersion: SHORT_ENGINE_VERSION,
     experienceSize,
+    choiceCount: Number.isInteger(choiceCount) && choiceCount > 0 ? choiceCount : candidates.length,
     color,
     dice: [...(state.dice || [])],
     position: {

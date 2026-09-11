@@ -8,7 +8,7 @@ const { pathToFileURL } = require('node:url');
 const ROOT = path.join(__dirname, '..');
 const EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
 const LEGACY_EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
-const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v5';
+const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v6';
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -524,7 +524,7 @@ test('v29 local learning rejects unfrozen or mixed experience snapshots', () => 
   assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
 });
 
-test('short learning keeps its credit generation at 5', () => {
+test('short learning writes the v6 policy credit generation', () => {
   const { context, storage } = loadStrongBot();
   context.window.NarduStrongBot.learnFromGame({
     variant: 'short',
@@ -548,7 +548,67 @@ test('short learning keeps its credit generation at 5', () => {
 
   const learned = JSON.parse(storage.values.get(SHORT_EXPERIENCE_KEY));
   assert.equal(learned.length, 1);
-  assert.equal(learned[0].creditVersion, 5);
+  assert.equal(learned[0].creditVersion, 6);
+});
+
+test('short v6 migrates compatible local v5 experience before its first move', () => {
+  const previousKey = 'narduh-short-bot-experience-v5';
+  const storage = memoryStorage({
+    [previousKey]: JSON.stringify([{
+      creditVersion: 5,
+      contextKey: 'contact|saved-v5',
+      actionKey: 'risk:low',
+      samples: 4,
+      wins: 3,
+      winWeight: 3,
+    }]),
+  });
+  const { context } = loadStrongBot(storage);
+  const applied = [];
+  context.window.NarduShortBotEngine = {
+    setExperience(patterns, source) { applied.push({ patterns, source }); },
+    plan() { return [{ from: 1, die: 1 }]; },
+  };
+
+  context.window.NarduStrongBot.plan({ variant: 'short' });
+
+  assert.equal(storage.getItem(previousKey), null);
+  const migrated = JSON.parse(storage.getItem(SHORT_EXPERIENCE_KEY));
+  assert.equal(migrated.length, 1);
+  assert.equal(migrated[0].creditVersion, 6);
+  assert.equal(migrated[0].contextKey, 'contact|saved-v5');
+  assert.equal(applied.at(-1).source, 'local');
+  assert.equal(applied.at(-1).patterns[0].creditVersion, 6);
+});
+
+test('short v6 keeps v5 experience available when migration storage is full', () => {
+  const previousKey = 'narduh-short-bot-experience-v5';
+  const storage = memoryStorage({
+    [previousKey]: JSON.stringify([{
+      creditVersion: 5,
+      contextKey: 'contact|quota-v5',
+      actionKey: 'risk:low',
+      samples: 2,
+    }]),
+  });
+  const originalSetItem = storage.setItem;
+  storage.setItem = (key, value) => {
+    if (key === SHORT_EXPERIENCE_KEY) throw new Error('quota');
+    originalSetItem.call(storage, key, value);
+  };
+  const { context } = loadStrongBot(storage);
+  const applied = [];
+  context.window.NarduShortBotEngine = {
+    setExperience(patterns, source) { applied.push({ patterns, source }); },
+    plan() { return [{ from: 1, die: 1 }]; },
+  };
+
+  context.window.NarduStrongBot.plan({ variant: 'short' });
+
+  assert.notEqual(storage.getItem(previousKey), null);
+  assert.equal(storage.getItem(SHORT_EXPERIENCE_KEY), null);
+  assert.equal(applied.at(-1).patterns[0].creditVersion, 6);
+  assert.equal(applied.at(-1).patterns[0].contextKey, 'contact|quota-v5');
 });
 
 test('v29 prefers an exact context alias over a global exact-action alias', async () => {

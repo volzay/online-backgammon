@@ -2692,7 +2692,10 @@ as $$
     from public.bot_training_games g
     cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
     where g.difficulty = 'hard'
-      and g.engine_version like 'short-analytic-v5%'
+      and (
+        g.engine_version like 'short-analytic-v6%'
+        or g.engine_version like 'short-analytic-v5%'
+      )
       and g.completed_at >= now() - interval '180 days'
   ), labeled as (
     select
@@ -2708,27 +2711,32 @@ as $$
     from decisions
     where coalesce(descriptor->>'contextKey', '') <> ''
       and coalesce(descriptor->>'actionKey', '') <> ''
+  ), eligible as (
+    select *
+    from labeled
+    where (harmful and severity >= 0.45)
+      or (successful and severity < 1.1)
   ), grouped as (
     select
       context_key,
       action_key,
-      sum(player_weight)::integer as samples,
-      sum(case when harmful then player_weight else 0 end)::integer as losses,
-      sum(case when successful then player_weight else 0 end)::integer as wins,
+      count(*)::integer as samples,
+      count(*) filter (where harmful)::integer as losses,
+      count(*) filter (where successful)::integer as wins,
       sum(case when harmful then player_weight * (
         0.85 + least(3.75, severity * 0.38)
         + case when result_type = 'koks' then 1.5 when result_type = 'mars' then 0.75 else 0 end
       ) else 0 end)::double precision as loss_weight,
-      sum(case when harmful and result_type in ('mars', 'koks') then player_weight else 0 end)::integer as severe_losses,
+      count(*) filter (where harmful and result_type in ('mars', 'koks'))::integer as severe_losses,
       sum(case when harmful then severity * player_weight else 0 end)::double precision as signal_weight,
       sum(case when successful then win_quality * player_weight else 0 end)::double precision as win_weight
-    from labeled
+    from eligible
     group by context_key, action_key
     order by samples desc, loss_weight desc
     limit 480
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-    'creditVersion', 5,
+    'creditVersion', 6,
     'contextKey', context_key,
     'actionKey', action_key,
     'samples', samples,

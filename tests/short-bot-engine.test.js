@@ -133,7 +133,7 @@ function deterministicReachableShortPositions(game, seed, turns = 16) {
 
 test("short hard bot installs a dedicated analytical engine", () => {
   const context = runtime();
-  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v5");
+  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v6");
   assert.equal(typeof context.NarduShortBotEngine.rank, "function");
   assert.equal(typeof context.NarduShortBotEngine.setExperience, "function");
   assert.equal(typeof context.NarduShortBotEngine.prepareWildbgRequest, "function");
@@ -157,7 +157,7 @@ test("short hard bot makes the 7 point with opening 6-1", () => {
   );
   const decision = context.NarduShortBotEngine.consumeLastDecision();
   assert.equal(decision.selected.tactical.rolls, 21);
-  assert.equal(decision.engineVersion, "short-analytic-v5");
+  assert.equal(decision.engineVersion, "short-analytic-v6");
   assert.equal(decision.engine.provenance, "builtin");
 });
 
@@ -1187,28 +1187,33 @@ test("short experience keeps local and server knowledge in separate mergeable so
 test("short engine is loaded before the shared hard-bot dispatcher", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   assert.ok(room.indexOf("short-bot-engine.js") < room.indexOf("strong-bot.js"));
-  assert.match(room, /short-bot-engine\.js\?v=20260830-short-analytic-v5/);
+  assert.match(room, /short-bot-engine\.js\?v=20260911-short-analytic-v6/);
 });
 
 test("short learning has a separate server RPC and archive accepts both variants", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase", "short-bot-analytic-v5.sql"),
+    path.join(ROOT, "supabase", "short-bot-analytic-v6.sql"),
     "utf8",
   );
   const client = fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8");
   const rpcDefinition = /create or replace function public\.get_short_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   assert.match(schema, /get_short_bot_experience_patterns\(\s*p_player_name text default null/);
+  assert.match(schema, /engine_version like 'short-analytic-v6%'/);
   assert.match(schema, /engine_version like 'short-analytic-v5%'/);
   assert.match(schema, /not in \('long', 'short'\)/);
   assert.ok((schema.match(/not in \('long', 'short'\)/g) || []).length >= 2);
   assert.match(client, /loadShortBotExperience/);
   assert.match(client, /get_short_bot_experience_patterns/);
-  assert.match(client, /narduh-short-bot-server-experience-v5/);
-  assert.match(client, /SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5/);
-  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v5/);
+  assert.match(client, /narduh-short-bot-server-experience-v6/);
+  assert.match(client, /SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6/);
+  assert.match(fs.readFileSync(path.join(ROOT, "strong-bot.js"), "utf8"), /narduh-short-bot-experience-v6/);
+  assert.match(migration, /engine_version like 'short-analytic-v6%'/);
   assert.match(migration, /engine_version like 'short-analytic-v5%'/);
-  assert.match(migration, /'creditVersion', 5/);
+  assert.match(migration, /'creditVersion', 6/);
+  assert.match(migration, /where \(harmful and severity >= 0\.45\)/);
+  assert.match(migration, /or \(successful and severity < 1\.1\)/);
+  assert.match(migration, /count\(\*\)::integer as samples/);
   assert.equal(migration.match(rpcDefinition)?.[0], schema.match(rpcDefinition)?.[0]);
   assert.match(migration, /^begin;/m);
   assert.match(migration, /^commit;/m);

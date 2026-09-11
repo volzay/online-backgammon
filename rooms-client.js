@@ -6,8 +6,8 @@
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
   const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v12";
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 7;
-  const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v5";
-  const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 5;
+  const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
+  const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();

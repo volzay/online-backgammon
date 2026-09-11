@@ -572,7 +572,7 @@ export function createShortBotEngine(adapter, options = {}) {
       prefiltered = removeSeverePositionDominance(prefiltered, state, color);
     }
     prefiltered = prefiltered.slice(0, maxCandidates);
-    const selected = prefiltered.slice(0, Math.min(analyzeCount, 2));
+    const selected = prefiltered.slice(0, Math.min(analyzeCount, prefiltered.length));
     const analyzed = selected
       .map(item => {
         const analyzed = analyzeReplies(item, color, runtimeOptions);
@@ -590,11 +590,14 @@ export function createShortBotEngine(adapter, options = {}) {
     evaluateState,
     describeSequence(state, sequence, color) {
       const item = baseCandidate(state, color, sequence);
+      const adjustment = experienceAdjustment(item);
       return {
         sequence: item.sequence,
-        score: item.score,
+        score: item.score + adjustment,
+        baseScore: item.baseScore,
         features: item.features,
         experience: item.experience,
+        experienceAdjustment: adjustment,
       };
     },
     setExperience(patterns, source = 'runtime') {

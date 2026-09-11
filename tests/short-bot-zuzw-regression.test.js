@@ -115,10 +115,14 @@ test("ZUZW-JWV4 late race uses result-aware equity instead of chasing a negligib
       true,
     );
     assert.deepEqual(
-      JSON.parse(JSON.stringify(runtime.engine.planFromWildbgAnalysis(state, oldAnalysis))),
+      JSON.parse(JSON.stringify(runtime.engine.planFromWildbgAnalysis(state, {
+        ...oldAnalysis,
+        moves: [oldAnalysis.moves[0]],
+      }))),
       fixture.old,
-      "the fixture must reproduce the archived one-pointer move",
+      "the frozen analyzer must reproduce the archived one-pointer move",
     );
+    runtime.engine.consumeLastDecision();
     assert.deepEqual(
       JSON.parse(JSON.stringify(runtime.engine.plan(state))),
       fixture.expected,

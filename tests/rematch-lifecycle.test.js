@@ -1013,7 +1013,7 @@ test("long-bot experience rejects old RPC generations and caches only v30 data",
   assert.equal(cached.patterns[0].creditVersion, 7);
 });
 
-test("short-bot experience accepts only the gammon-aware v5 generation", async () => {
+test("short-bot experience accepts only the v6 policy generation", async () => {
   async function loadWith(data) {
     const localStorage = memoryStorage();
     const applied = [];
@@ -1057,10 +1057,10 @@ test("short-bot experience accepts only the gammon-aware v5 generation", async (
   assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
   assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
-  assert.equal(oldResult.localStorage.getItem("narduh-short-bot-server-experience-v5"), null);
+  assert.equal(oldResult.localStorage.getItem("narduh-short-bot-server-experience-v6"), null);
 
   const currentPattern = {
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "race|gammon-aware",
     actionKey: "risk:low",
   };
@@ -1068,10 +1068,10 @@ test("short-bot experience accepts only the gammon-aware v5 generation", async (
   assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
   assert.equal(currentResult.applied.at(-1).source, "server");
   const cached = JSON.parse(
-    currentResult.localStorage.getItem("narduh-short-bot-server-experience-v5"),
+    currentResult.localStorage.getItem("narduh-short-bot-server-experience-v6"),
   );
-  assert.equal(cached.creditVersion, 5);
-  assert.equal(cached.patterns[0].creditVersion, 5);
+  assert.equal(cached.creditVersion, 6);
+  assert.equal(cached.patterns[0].creditVersion, 6);
 });
 
 test("short-bot experience ignores a late response for the previous player", async () => {
@@ -1116,13 +1116,13 @@ test("short-bot experience ignores a late response for the previous player", asy
   const second = context.window.NarduRooms.loadShortBotExperience({ playerName: "warlord" });
   while (!pending.has("warlord")) await new Promise(resolve => setImmediate(resolve));
   pending.get("warlord")({ data: [{
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "contact|warlord",
     actionKey: "safe",
   }], error: null });
   await second;
   pending.get("tester1")({ data: [{
-    creditVersion: 5,
+    creditVersion: 6,
     contextKey: "contact|tester1",
     actionKey: "stale",
   }], error: null });
@@ -1130,7 +1130,7 @@ test("short-bot experience ignores a late response for the previous player", asy
 
   const nonEmpty = applied.filter(item => item.patterns.length > 0);
   assert.equal(nonEmpty.at(-1).patterns[0].contextKey, "contact|warlord");
-  const cached = JSON.parse(localStorage.getItem("narduh-short-bot-server-experience-v5"));
+  const cached = JSON.parse(localStorage.getItem("narduh-short-bot-server-experience-v6"));
   assert.equal(cached.playerKey, "warlord");
 });
 

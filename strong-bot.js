@@ -19,15 +19,17 @@ window.NarduStrongBot = (function () {
     'narduh-long-bot-experience-v2',
     'narduh-long-bot-experience-v1',
   ];
-  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v5';
+  const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v6';
+  const PREVIOUS_SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v5';
   const LEGACY_SHORT_EXPERIENCE_KEYS = [
+    'narduh-short-bot-experience-v5',
     'narduh-short-bot-experience-v4',
     'narduh-short-bot-experience-v3',
     'narduh-short-bot-experience-v2',
     'narduh-short-bot-experience-v1',
   ];
   const LONG_EXPERIENCE_CREDIT_VERSION = 7;
-  const SHORT_EXPERIENCE_CREDIT_VERSION = 5;
+  const SHORT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_OPPONENT_CAPTURE_VERSION = 2;
   const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
   const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
@@ -108,16 +110,40 @@ window.NarduStrongBot = (function () {
     const store = storage();
     if (!store) return [];
     try {
+      const experienceKey = variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY;
+      let raw = store.getItem(experienceKey);
+      let migrateShortExperience = false;
       if (variant === 'short') {
-        LEGACY_SHORT_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
+        if (!raw) {
+          raw = store.getItem(PREVIOUS_SHORT_EXPERIENCE_KEY);
+          migrateShortExperience = Boolean(raw);
+        }
       } else {
         LEGACY_LONG_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
       }
-      const parsed = JSON.parse(store.getItem(variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY) || '[]');
+      const parsed = JSON.parse(raw || '[]');
       const limit = variant === 'short'
         ? SHORT_LOCAL_EXPERIENCE_LIMIT
         : LONG_LOCAL_EXPERIENCE_LIMIT;
-      return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+      const patterns = Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+      if (variant === 'short') {
+        const migrated = patterns.map(pattern => ({
+          ...pattern,
+          creditVersion: SHORT_EXPERIENCE_CREDIT_VERSION,
+        }));
+        if (migrateShortExperience) {
+          try {
+            const serialized = JSON.stringify(migrated);
+            store.setItem(SHORT_EXPERIENCE_KEY, serialized);
+            if (store.getItem(SHORT_EXPERIENCE_KEY) !== serialized) return migrated;
+          } catch (error) {
+            return migrated;
+          }
+        }
+        LEGACY_SHORT_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
+        return migrated;
+      }
+      return patterns;
     } catch (error) {
       return [];
     }
