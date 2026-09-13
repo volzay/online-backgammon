@@ -583,7 +583,8 @@ begin
   if coalesce(target_state->>'variant', new.variant) = 'long'
     and coalesce(memory->>'engineVersion', '') in (
       'long-analytic-v29',
-      'long-analytic-v30'
+      'long-analytic-v30',
+      'long-analytic-v31'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -698,7 +699,7 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
       and coalesce(
         room.game_state->'analysis'->'botMemory'->>'engineVersion',
         ''
-      ) in ('long-analytic-v29', 'long-analytic-v30') then
+      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31') then
       coalesce(
         room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
         'false'::jsonb
@@ -2176,7 +2177,8 @@ begin
   if coalesce(target_state->>'variant', target_room.variant) = 'long'
     and coalesce(memory->>'engineVersion', '') in (
       'long-analytic-v29',
-      'long-analytic-v30'
+      'long-analytic-v30',
+      'long-analytic-v31'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -2304,7 +2306,7 @@ as $$
     select g.*
     from public.bot_training_games g
     where g.difficulty = 'hard'
-      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30')
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -2415,6 +2417,10 @@ as $$
             - coalesce(public.long_bot_safe_numeric(features->'latentFenceExposureAfter'), 0),
           0
         ))),
+        least(6, greatest(
+          0,
+          coalesce(public.long_bot_safe_numeric(features->'avoidableProspectiveFenceInterruptionBreak'), 0) / 18
+        )),
         case
           when coalesce(public.long_bot_safe_numeric(features->'maxRouteTowerAfter'), 0) >= 6
             then (coalesce(public.long_bot_safe_numeric(features->'maxRouteTowerAfter'), 0) - 5) * 0.85
@@ -2443,6 +2449,7 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
+        when engine_generation = 31 then 5.0
         when engine_generation = 30 then 4.0
         when engine_generation = 29 then 3.0
         else 0.0
@@ -2453,9 +2460,9 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation in (29, 30) and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30, 31) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation in (29, 30) and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30, 31) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -2482,13 +2489,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation in (29, 30) then descriptor->>'actionKey' end),
-        (case when engine_generation in (29, 30) then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation in (29, 30) then coalesce(
+        (case when engine_generation in (29, 30, 31) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30, 31) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30, 31) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation in (29, 30) then coalesce(
+        (case when engine_generation in (29, 30, 31) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2499,8 +2506,9 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation in (29, 30) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation in (29, 30) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'

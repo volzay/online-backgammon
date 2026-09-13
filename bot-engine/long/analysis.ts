@@ -605,6 +605,16 @@ export function experienceDescriptor(
     : homeShuffleMoves > 0
       ? hasAvoidableHomeShuffle ? 'home:forced' : 'home:unknown'
       : 'home:steady';
+  const prospectiveFenceAction = Number(features.prospectiveFenceInterruptionBreak || 0) > 0
+    ? 'prospective-fence:break'
+    : signedFlag('prospective-fence', features.prospectiveFenceExtensionDelta);
+  const prospectiveFenceBehavior = Number(
+    features.avoidableProspectiveFenceInterruptionBreak || 0,
+  ) > 0
+    ? 'prospective-fence:avoidable-break'
+    : Number(features.prospectiveFenceInterruptionBreak || 0) > 0
+      ? 'prospective-fence:necessary-break'
+      : signedFlag('prospective-fence', features.prospectiveFenceExtensionDelta);
   const phase = homeReady(state, color)
     ? 'bearoff'
     : opponentOff > 0 && ownOff === 0
@@ -628,6 +638,7 @@ export function experienceDescriptor(
     signedFlag('head', features.headGain),
     signedFlag('entry', features.outsideReduction),
     signedFlag('trap', features.trapDelta),
+    prospectiveFenceAction,
     signedFlag('freedom', features.opponentHeadFreedomDelta),
     signedFlag('distribution', features.distributionDelta),
     Number(features.headLandingBreak || 0) > 0 ? 'support:break' : 'support:keep',
@@ -671,6 +682,7 @@ export function experienceDescriptor(
       signedFlag('block', features.opponentMoveBlockGain),
       signedFlag('latent', features.latentFenceExposureDelta),
     ].join('|'),
+    prospectiveFenceBehavior,
   ];
 
   const urgency = 1
@@ -681,6 +693,10 @@ export function experienceDescriptor(
   mistakeSeverity += Math.min(3, Math.max(0, Number(features.headLandingBreak) || 0)) * 0.9;
   mistakeSeverity += Math.max(0, -(Number(features.opponentHeadFreedomDelta) || 0)) * 0.14;
   mistakeSeverity += Math.max(0, -(Number(features.fenceClosureDelta) || 0)) * 0.18;
+  mistakeSeverity += Math.min(
+    4,
+    Math.max(0, Number(features.avoidableProspectiveFenceInterruptionBreak) || 0) / 24,
+  );
   mistakeSeverity += Math.min(3.2, Math.max(0, -(Number(features.routeTowerDelta) || 0)) / 180);
   mistakeSeverity += Math.min(3.4, Math.max(0, -(Number(features.primeScoreGain) || 0)) / 900);
   mistakeSeverity += Math.min(2.8, Math.max(0, -(Number(features.opponentMoveBlockGain) || 0)) / 80);
@@ -728,6 +744,10 @@ export function experienceDescriptor(
       ? Math.min(3, Math.abs(Number(features.escapeGatewayDelta)) / 3)
       : 0,
     Math.min(6, Math.max(0, -(Number(features.latentFenceExposureDelta) || 0))),
+    Math.min(
+      6,
+      Math.max(0, Number(features.avoidableProspectiveFenceInterruptionBreak) || 0) / 18,
+    ),
     avoidableHomeShuffleMoves > 0 && outsideAfterMove > 0
       ? 1.1 + Math.min(2.2, outsideAfterMove / 5)
       : 0,

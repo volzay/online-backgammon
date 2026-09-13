@@ -34,6 +34,7 @@ import {
   phasePressure,
   pipsFor,
   prematureHomeRushPenalty,
+  prospectiveFenceInterruptionBreak,
   routeCompletionPressure,
   routeTowerRisk,
   stuckRisk,
@@ -136,6 +137,7 @@ export function sequenceStats(before, after, color, sequence = []) {
   const trapBefore = opponentTrapRisk(before, color);
   const fenceClosureDelta = fenceClosureRisk(before, color) - fenceClosureRisk(after, color);
   const fenceClosureBefore = fenceClosureRisk(before, color);
+  const prospectiveFenceBreak = prospectiveFenceInterruptionBreak(before, after, color);
   const opponent = opponentOf(color);
   const opponentTrapGain = Math.max(0, opponentTrapRisk(after, opponent) - opponentTrapRisk(before, opponent));
   const headLandingBreak = headLandingBreakRisk(before, after, color);
@@ -189,6 +191,7 @@ export function sequenceStats(before, after, color, sequence = []) {
     trapBefore,
     fenceClosureDelta,
     fenceClosureBefore,
+    prospectiveFenceInterruptionBreak: prospectiveFenceBreak,
     opponentTrapGain,
     headLandingBreak,
     outsideDevelopmentMoves,

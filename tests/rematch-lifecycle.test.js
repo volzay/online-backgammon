@@ -651,7 +651,7 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
     severeLosses: 2,
     signalWeight: 20,
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v12", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v13", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     creditVersion: 7,
@@ -716,7 +716,7 @@ test("fresh long-bot experience replaces its cache source instead of doubling it
     contextKey: "route|fresh",
     actionKey: "route:fresh",
   };
-  localStorage.setItem("narduh-long-bot-server-experience-v12", JSON.stringify({
+  localStorage.setItem("narduh-long-bot-server-experience-v13", JSON.stringify({
     savedAt: Date.now(),
     playerKey: "warlord",
     creditVersion: 7,
@@ -951,7 +951,7 @@ test("an old failed refresh cannot delete a newer long-bot request", async () =>
   assert.equal(rpcCalls, 2);
 });
 
-test("long-bot experience rejects old RPC generations and caches only v30 data", async () => {
+test("long-bot experience rejects old RPC generations and caches only current data", async () => {
   async function loadWith(data) {
     const localStorage = memoryStorage();
     const applied = [];
@@ -996,7 +996,7 @@ test("long-bot experience rejects old RPC generations and caches only v30 data",
   assert.ok(oldResult.applied.some(item => item.source === "server" && item.patterns.length === 0));
   assert.ok(oldResult.applied.some(item => item.source === "server-cache" && item.patterns.length === 0));
   assert.equal(oldResult.applied.some(item => item.patterns.length > 0), false);
-  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v12"), null);
+  assert.equal(oldResult.localStorage.getItem("narduh-long-bot-server-experience-v13"), null);
 
   const currentPattern = {
     creditVersion: 7,
@@ -1007,7 +1007,7 @@ test("long-bot experience rejects old RPC generations and caches only v30 data",
   assert.equal(currentResult.loaded[0].actionKey, currentPattern.actionKey);
   assert.equal(currentResult.applied.at(-1).source, "server");
   const cached = JSON.parse(
-    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v12"),
+    currentResult.localStorage.getItem("narduh-long-bot-server-experience-v13"),
   );
   assert.equal(cached.creditVersion, 7);
   assert.equal(cached.patterns[0].creditVersion, 7);

@@ -228,6 +228,134 @@ export function latentFenceExposure(state, color) {
   return coverage * startZonePressure * stackPressure;
 }
 
+// Measures the step before latentFenceExposure: an own point has just been
+// vacated (or is otherwise open), and the opponent can use the next roll to
+// extend an adjacent anchor into a fence in front of our remaining checkers.
+// The calculation is deliberately local and bounded to the 21 dice outcomes.
+export function prospectiveFenceExtensionRisk(state, color) {
+  let risk = 0;
+
+  for (let targetPos = 1; targetPos < 18; targetPos += 1) {
+    risk += prospectiveFenceExtensionAt(state, color, targetPos);
+  }
+
+  return risk;
+}
+
+export function prospectiveFenceExtensionRiskAt(state, color, point) {
+  return prospectiveFenceExtensionAt(state, color, pathPos(color, Number(point)));
+}
+
+export function prospectiveFenceInterruptionBreak(before, after, color) {
+  const path = pathFor(color);
+  return path.slice(1, 18).reduce((risk, point, offset) => {
+    const beforeStack = stackAt(before, point);
+    if (beforeStack?.color !== color || colorAt(after, point)) return risk;
+    return risk + prospectiveFenceExtensionAt(after, color, offset + 1);
+  }, 0);
+}
+
+function prospectiveFenceExtensionAt(state, color, targetPos) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const target = path[targetPos];
+  if (!target || colorAt(state, target)) return 0;
+
+  const behind = path.slice(0, targetPos).reduce((items, point, pos) => {
+    const stack = stackAt(state, point);
+    if (stack?.color !== color) return items;
+    items.push({ pos, count: Number(stack.count) || 0 });
+    return items;
+  }, []);
+  const behindCount = behind.reduce((total, checker) => total + checker.count, 0);
+  if (behindCount < 2) return 0;
+
+  const closestBehind = Math.max(...behind.map(checker => checker.pos));
+  const routeDistance = targetPos - closestBehind;
+  if (routeDistance < 1 || routeDistance > 6) return 0;
+
+  const leftRun = contiguousOpponentRun(state, path, targetPos - 1, -1, opponent);
+  const rightRun = contiguousOpponentRun(state, path, targetPos + 1, 1, opponent);
+  const anchorRun = leftRun.length + rightRun.length;
+  if (!anchorRun) return 0;
+
+  const reachableWeight = nextRollLandingWeight(state, opponent, target);
+  if (!reachableWeight) return 0;
+
+  const anchorCheckers = [...leftRun, ...rightRun].reduce(
+    (total, point) => total + countAt(state, point, opponent),
+    0,
+  );
+  const reachProbability = reachableWeight / 36;
+  const distancePressure = 1 + (7 - routeDistance) * 0.2;
+  const routePressure = targetPos < 6 ? 1.65 : targetPos < 12 ? 1.3 : 1;
+  const anchorPressure = 1 + anchorRun * 0.65;
+  const anchorStability = 1 + Math.min(3, Math.max(0, anchorCheckers - anchorRun)) * 0.12;
+  return behindCount
+    * reachProbability
+    * distancePressure
+    * routePressure
+    * anchorPressure
+    * anchorStability
+    * 4;
+}
+
+function contiguousOpponentRun(state, path, start, step, opponent) {
+  const points = [];
+  for (let pos = start; pos >= 0 && pos < path.length; pos += step) {
+    const point = path[pos];
+    if (colorAt(state, point) !== opponent) break;
+    points.push(point);
+  }
+  return points;
+}
+
+function nextRollLandingWeight(state, color, target) {
+  const path = pathFor(color);
+  const targetPos = pathPos(color, target);
+  if (targetPos < 0) return 0;
+  const sources = Object.entries(state.points || {})
+    .filter(([, stack]) => stack.color === color && Number(stack.count) > 0)
+    .map(([point]) => pathPos(color, Number(point)))
+    .filter(pos => pos >= 0 && pos < targetPos);
+  if (!sources.length) return 0;
+
+  let weight = 0;
+  for (let high = 1; high <= 6; high += 1) {
+    for (let low = 1; low <= high; low += 1) {
+      const dice = high === low ? [high, high, high, high] : [high, low];
+      const reachable = sources.some(source => canLandWithRoll(
+        state,
+        color,
+        path,
+        source,
+        targetPos,
+        dice,
+      ));
+      if (reachable) weight += high === low ? 1 : 2;
+    }
+  }
+  return weight;
+}
+
+function canLandWithRoll(state, color, path, sourcePos, targetPos, dice) {
+  const opponent = opponentOf(color);
+  const visit = (pos, remaining) => {
+    if (pos === targetPos) return true;
+    if (pos > targetPos || !remaining.length) return false;
+    for (let index = 0; index < remaining.length; index += 1) {
+      if (index > 0 && remaining[index] === remaining[index - 1]) continue;
+      const nextPos = pos + remaining[index];
+      if (nextPos > targetPos || colorAt(state, path[nextPos]) === opponent) continue;
+      const nextDice = remaining.slice();
+      nextDice.splice(index, 1);
+      if (visit(nextPos, nextDice)) return true;
+    }
+    return false;
+  };
+  return visit(sourcePos, [...dice].sort((left, right) => left - right));
+}
+
 export function routeTowerRisk(state, color) {
   if (outsideHomeCount(state, color) <= 0) return 0;
   const fenceRun = opponentFenceRun(state, color);

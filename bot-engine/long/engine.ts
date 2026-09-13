@@ -30,6 +30,7 @@ import {
   pipsFor,
   koksRescuePressure,
   latentFenceExposure,
+  prospectiveFenceExtensionRisk,
   startZoneCount,
   startZoneExitMoveCount,
 } from './metrics.ts';
@@ -321,7 +322,7 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       developedCandidates,
     );
-    const coldRanked = prioritizeCriticalClearedHeadLaggardEscape(
+    let coldRanked = prioritizeCriticalClearedHeadLaggardEscape(
       state,
       color,
       prioritizeSevereReplySafety(
@@ -338,6 +339,12 @@ export function createLongBotEngine(adapter, options = {}) {
         ),
       ),
     );
+    coldRanked = prioritizeProspectiveFenceInterruption(
+      state,
+      color,
+      coldRanked,
+    );
+    annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     const coldSelected = coldRanked[0];
     coldRanked.forEach((candidate) => {
       candidate.experience = experienceDescriptor(
@@ -631,6 +638,7 @@ function advancedStateMetrics(state, color) {
     primeRun: blockingPrimeRun(state, color),
     opponentMoveBlock: opponentMoveBlockScore(state, color),
     latentFenceExposure: latentFenceExposure(state, color),
+    prospectiveFenceExtension: prospectiveFenceExtensionRisk(state, color),
   };
 }
 
@@ -638,6 +646,7 @@ function advancedSequenceStats(beforeMetrics, after, color) {
   const primeScoreAfter = blockingPrimeScore(after, color);
   const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
   const latentFenceExposureAfter = latentFenceExposure(after, color);
+  const prospectiveFenceExtensionAfter = prospectiveFenceExtensionRisk(after, color);
   return {
     primeScoreBefore: beforeMetrics.primeScore,
     primeScoreAfter,
@@ -650,6 +659,10 @@ function advancedSequenceStats(beforeMetrics, after, color) {
     latentFenceExposureBefore: beforeMetrics.latentFenceExposure,
     latentFenceExposureAfter,
     latentFenceExposureDelta: beforeMetrics.latentFenceExposure - latentFenceExposureAfter,
+    prospectiveFenceExtensionBefore: beforeMetrics.prospectiveFenceExtension,
+    prospectiveFenceExtensionAfter,
+    prospectiveFenceExtensionDelta: beforeMetrics.prospectiveFenceExtension
+      - prospectiveFenceExtensionAfter,
   };
 }
 
@@ -1923,6 +1936,116 @@ function prioritizeImminentHeadFenceAnchor(state, color, ranked) {
   return promoted;
 }
 
+function prioritizeProspectiveFenceInterruption(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && isAnalyzedProspectiveFenceInterruption(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    Number(right.tactical.continuationWorst || 0)
+      - Number(left.tactical.continuationWorst || 0)
+    || Number(right.tactical.continuationTailRisk || 0)
+      - Number(left.tactical.continuationTailRisk || 0)
+    || Number(right.features.prospectiveFenceExtensionDelta || 0)
+      - Number(left.features.prospectiveFenceExtensionDelta || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'prospectiveFenceInterruptionAdjustment',
+  );
+  promoted[0].features.prospectiveFenceInterruptionPreserved = 1;
+  return promoted;
+}
+
+function isAnalyzedProspectiveFenceInterruption(state, color, candidate, selected) {
+  const candidateFeatures = candidate?.features || {};
+  const selectedFeatures = selected?.features || {};
+  const candidateTactical = candidate?.tactical;
+  const selectedTactical = selected?.tactical;
+  if (
+    !candidateTactical
+    || !selectedTactical
+    || Number(selectedFeatures.prospectiveFenceInterruptionBreak || 0) < 80
+    || Number(candidateFeatures.prospectiveFenceInterruptionBreak || 0) > 5
+    || Number(candidateFeatures.prospectiveFenceExtensionDelta || 0) < 0
+    || Number(candidateFeatures.prospectiveFenceExtensionDelta || 0)
+      < Number(selectedFeatures.prospectiveFenceExtensionDelta || 0) + 80
+    || Number(candidateFeatures.prospectiveFenceExtensionAfter || 0)
+      > Number(selectedFeatures.prospectiveFenceExtensionAfter || 0) - 80
+    || Number(candidate.baseScore || 0) < Number(selected.baseScore || 0)
+  ) {
+    return false;
+  }
+
+  const completeTactical = tactical => (
+    Number(tactical.plies || 0) >= 4
+    && Number(tactical.rolls || 0) === 21
+    && Number(tactical.distributionWeight || 0) === 36
+    && tactical.distributionComplete === true
+    && Number(tactical.recoveryRolls || 0) === 21
+    && Number(tactical.recoveryWeight || 0) === 36
+    && tactical.recoveryDistributionComplete === true
+    && Number(tactical.continuationRolls || 0) === 21
+    && Number(tactical.continuationWeight || 0) === 36
+    && tactical.continuationDistributionComplete === true
+  );
+  if (!completeTactical(candidateTactical) || !completeTactical(selectedTactical)) return false;
+
+  const progressIsPreserved = Number(candidateFeatures.headGain || 0)
+      >= Number(selectedFeatures.headGain || 0)
+    && Number(candidateFeatures.outsideReduction || 0)
+      >= Number(selectedFeatures.outsideReduction || 0)
+    && Number(candidateFeatures.outsidePipGain || 0)
+      >= Number(selectedFeatures.outsidePipGain || 0)
+    && Number(candidateFeatures.startZoneReduction || 0)
+      >= Number(selectedFeatures.startZoneReduction || 0)
+    && Number(candidateFeatures.resultSafetyAfter || 0)
+      >= Number(selectedFeatures.resultSafetyAfter || 0)
+    && Number(candidateFeatures.missedKoksRescue || 0)
+      <= Number(selectedFeatures.missedKoksRescue || 0)
+    && Number(candidateFeatures.homeShuffleMoves || 0)
+      <= Number(selectedFeatures.homeShuffleMoves || 0)
+    && Number(candidateFeatures.maxRouteTowerAfter || 0)
+      <= Number(selectedFeatures.maxRouteTowerAfter || 0)
+    && Number(candidateFeatures.primeRunAfter || 0)
+      >= Number(selectedFeatures.primeRunAfter || 0)
+    && Number(candidateFeatures.trapDelta || 0)
+      >= Number(selectedFeatures.trapDelta || 0) - 1
+    && Number(candidateFeatures.fenceClosureDelta || 0)
+      >= Number(selectedFeatures.fenceClosureDelta || 0) - 1
+    && Number(candidateFeatures.escapeGatewayDelta || 0)
+      >= Number(selectedFeatures.escapeGatewayDelta || 0) - 2
+    && Number(candidateFeatures.opponentMoveBlockGain || 0)
+      >= Number(selectedFeatures.opponentMoveBlockGain || 0) - 2
+    && Number(candidateFeatures.headLandingBreak || 0)
+      <= Number(selectedFeatures.headLandingBreak || 0) + 18;
+  if (!progressIsPreserved) return false;
+
+  return Number(candidateTactical.expectedImpact || 0)
+      >= Number(selectedTactical.expectedImpact || 0) - 3000000
+    && Number(candidateTactical.worstImpact || 0)
+      >= Number(selectedTactical.worstImpact || 0) - 5000000
+    && Number(candidateTactical.recoveryExpected || 0)
+      >= Number(selectedTactical.recoveryExpected || 0) - 5000000
+    && Number(candidateTactical.recoveryWorst || 0)
+      >= Number(selectedTactical.recoveryWorst || 0) - 25000000
+    && Number(candidateTactical.recoveryTailRisk || 0)
+      >= Number(selectedTactical.recoveryTailRisk || 0) - 5000000
+    && Number(candidateTactical.continuationExpected || 0)
+      >= Number(selectedTactical.continuationExpected || 0) + 5000000
+    && Number(candidateTactical.continuationWorst || 0)
+      >= Number(selectedTactical.continuationWorst || 0) + 5000000
+    && Number(candidateTactical.continuationTailRisk || 0)
+      >= Number(selectedTactical.continuationTailRisk || 0) + 5000000;
+}
+
 function safetyParetoFrontier(ranked) {
   return ranked.filter(candidate => !ranked.some(other => (
     other !== candidate
@@ -2262,6 +2385,10 @@ function isExperienceSafeAlternative(candidate, baseline) {
     && Number(features.escapeGatewayDelta || 0) >= Number(base.escapeGatewayDelta || 0) - 4
     && Number(features.latentFenceExposureDelta || 0)
       >= Number(base.latentFenceExposureDelta || 0) - 2
+    && Number(features.prospectiveFenceInterruptionBreak || 0)
+      <= Number(base.prospectiveFenceInterruptionBreak || 0) + 5
+    && Number(features.prospectiveFenceExtensionDelta || 0)
+      >= Number(base.prospectiveFenceExtensionDelta || 0) - 5
     && Number(features.opponentHeadFreedomDelta || 0)
       >= Number(base.opponentHeadFreedomDelta || 0) - 2
     && Number(features.opponentMoveBlockAfter || 0)
@@ -2329,6 +2456,34 @@ export function annotateAvoidableHomeShuffles(ranked, state = null, color = null
     candidate.features.avoidableHomeShuffleMoves = Math.max(
       0,
       homeShuffleMoves - minimumNecessary,
+    );
+  });
+  return ranked;
+}
+
+export function annotateAvoidableProspectiveFenceInterruptions(state, color, ranked) {
+  ranked.forEach((candidate) => {
+    const breakRisk = Math.max(
+      0,
+      Number(candidate.features.prospectiveFenceInterruptionBreak) || 0,
+    );
+    if (!breakRisk) {
+      candidate.features.avoidableProspectiveFenceInterruptionBreak = 0;
+      return;
+    }
+
+    const alternatives = ranked.filter(other => (
+      other !== candidate
+      && isAnalyzedProspectiveFenceInterruption(state, color, other, candidate)
+    ));
+    const minimumNecessary = alternatives.length
+      ? Math.min(...alternatives.map(other => (
+        Math.max(0, Number(other.features.prospectiveFenceInterruptionBreak) || 0)
+      )))
+      : breakRisk;
+    candidate.features.avoidableProspectiveFenceInterruptionBreak = Math.max(
+      0,
+      breakRisk - minimumNecessary,
     );
   });
   return ranked;

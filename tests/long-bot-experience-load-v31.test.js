@@ -77,9 +77,9 @@ function loadController(loadLongBotExperience) {
     localStorage,
     sessionStorage,
     location: {
-      href: 'https://example.test/room.html?mode=bot&game=LOAD-V30&variant=long&difficulty=hard',
+      href: 'https://example.test/room.html?mode=bot&game=LOAD-V31&variant=long&difficulty=hard',
       pathname: '/room.html',
-      search: '?mode=bot&game=LOAD-V30&variant=long&difficulty=hard',
+      search: '?mode=bot&game=LOAD-V31&variant=long&difficulty=hard',
       hostname: 'example.test',
     },
     history: { replaceState() {} },
@@ -98,7 +98,7 @@ function loadController(loadLongBotExperience) {
   vm.runInContext(source, context, { filename: 'game-controller.js' });
   window.NarduController.init({
     mode: 'bot',
-    roomCode: 'LOAD-V30',
+    roomCode: 'LOAD-V31',
     variant: 'long',
     difficulty: 'hard',
     opponent: 'Hard bot',
@@ -108,7 +108,7 @@ function loadController(loadLongBotExperience) {
   return context;
 }
 
-test('lobby prefetch caches v30 experience even before the long engine is loaded', async () => {
+test('lobby prefetch caches v31 experience even before the long engine is loaded', async () => {
   const localStorage = memoryStorage();
   const pattern = {
     creditVersion: 7,
@@ -129,7 +129,7 @@ test('lobby prefetch caches v30 experience even before the long engine is loaded
 
   const prefetched = await lobbyRooms.loadLongBotExperience({ playerName: 'tester1' });
   assert.equal(prefetched[0].actionKey, pattern.actionKey);
-  const cached = JSON.parse(localStorage.getItem('narduh-long-bot-server-experience-v12'));
+  const cached = JSON.parse(localStorage.getItem('narduh-long-bot-server-experience-v13'));
   assert.equal(cached.creditVersion, 7);
   assert.equal(cached.patterns[0].contextKey, pattern.contextKey);
 

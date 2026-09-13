@@ -1,8 +1,8 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v30';
-const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v30:';
+const ENGINE_VERSION = 'long-analytic-v31';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v31:';
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
