@@ -20,6 +20,7 @@ const VALUE_OPTIONS = new Set([
   'control-profile',
   'output',
   'experience',
+  'experience-output',
 ]);
 const FLAG_OPTIONS = new Set(['trace', 'learn']);
 const SUPPORTED_PROFILES = new Set(['v19', 'v25']);
@@ -125,12 +126,55 @@ function readExperienceSnapshot(experienceFile) {
   };
 }
 
+function readLocalExperienceSnapshot(storage) {
+  const candidates = Array.from(storage?.entries?.() || [])
+    .map(([key, value]) => {
+      const match = /^narduh-long-bot-experience-v(\d+)$/.exec(String(key));
+      if (!match) return null;
+      try {
+        const patterns = JSON.parse(String(value));
+        if (!Array.isArray(patterns)) return null;
+        return {
+          storageKey: String(key),
+          storageVersion: Number(match[1]),
+          patterns,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.storageVersion - left.storageVersion);
+  const selected = candidates[0] || {
+    storageKey: '',
+    storageVersion: null,
+    patterns: [],
+  };
+  const patternCreditVersions = Array.from(new Set(selected.patterns
+    .map(pattern => Number(pattern?.creditVersion))
+    .filter(Number.isFinite)));
+  return {
+    ...selected,
+    creditVersion: patternCreditVersions.length === 1
+      ? patternCreditVersions[0]
+      : selected.storageVersion,
+  };
+}
+
+function exportExperiencePatterns(patterns) {
+  return (Array.isArray(patterns) ? patterns : []).map(pattern => {
+    const exported = { ...(pattern || {}) };
+    delete exported.updatedAt;
+    return exported;
+  });
+}
+
 function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const experienceSnapshot = readExperienceSnapshot(experienceFile);
   const patterns = experienceSnapshot.patterns;
-  const storage = new Map([
-    ['narduh-long-bot-experience-v7', JSON.stringify(patterns)],
-  ]);
+  const storage = new Map();
+  const removedStorageKeys = new Set();
+  const seedExperience = JSON.stringify(patterns);
   const deterministicMath = Object.create(Math);
   deterministicMath.random = () => {
     throw new Error('Unseeded Math.random() was used during deterministic simulation');
@@ -138,8 +182,21 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
   const context = {
     window: {
       localStorage: {
-        getItem(key) { return storage.get(key) ?? null; },
-        setItem(key, value) { storage.set(key, String(value)); },
+        getItem(key) {
+          if (storage.has(key)) return storage.get(key);
+          if (/^narduh-long-bot-experience-v\d+$/.test(String(key)) && !removedStorageKeys.has(key)) {
+            return seedExperience;
+          }
+          return null;
+        },
+        setItem(key, value) {
+          removedStorageKeys.delete(key);
+          storage.set(key, String(value));
+        },
+        removeItem(key) {
+          storage.delete(key);
+          removedStorageKeys.add(key);
+        },
       },
     },
     console,
@@ -168,6 +225,9 @@ function loadRuntime(experienceFile, runtimeSnapshot = readRuntimeSnapshot()) {
     experienceCount: patterns.length,
     experienceFingerprint: experienceSnapshot.fingerprint,
     runtimeFingerprint: runtimeSnapshot.fingerprint,
+    localExperienceSnapshot() {
+      return readLocalExperienceSnapshot(storage);
+    },
   };
 }
 
@@ -441,6 +501,11 @@ function main() {
   const simulatorHarnessFingerprint = fileFingerprint(__filename);
   const runtime = loadIsolatedRuntimes(experience, runtimeSnapshot);
   const productionOptions = runtime.engine.productionOptions || {};
+  const experienceOutput = stringOption(parsed, 'experience-output');
+  const learn = parsed.flags.has('learn');
+  if (experienceOutput && !learn) {
+    throw new Error('--experience-output requires --learn');
+  }
   const options = {
     games,
     seed: positiveIntegerOption(parsed, 'seed', 0x19a7b019, UINT32_MAX),
@@ -463,8 +528,9 @@ function main() {
     controlProfile: profileOption(parsed, 'control-profile', 'v19'),
     output: stringOption(parsed, 'output'),
     experience,
+    ...(experienceOutput ? { experienceOutput } : {}),
     trace: parsed.flags.has('trace'),
-    learn: parsed.flags.has('learn'),
+    learn,
   };
   validateDerivedStreamSeeds([options.seed], options.games / 2);
   const results = [];
@@ -489,6 +555,26 @@ function main() {
   const completePairs = Array.from({ length: Math.floor(results.length / 2) }, (_, index) => (
     results.filter(result => result.pair === index + 1)
   ));
+  let trainedExperience = null;
+  if (options.learn) {
+    const snapshot = runtime.localExperienceSnapshot();
+    const exportedPatterns = exportExperiencePatterns(snapshot.patterns);
+    const exportPayload = {
+      schemaVersion: 1,
+      engineVersion: runtime.engine.version,
+      creditVersion: snapshot.creditVersion,
+      storageKey: snapshot.storageKey,
+      patterns: exportedPatterns,
+    };
+    const exportBytes = Buffer.from(`${JSON.stringify(exportPayload, null, 2)}\n`, 'utf8');
+    trainedExperience = {
+      creditVersion: snapshot.creditVersion,
+      storageKey: snapshot.storageKey,
+      patternCount: exportedPatterns.length,
+      fingerprint: fingerprintNamedBuffers([['experience.json', exportBytes]]),
+    };
+    if (options.experienceOutput) fs.writeFileSync(options.experienceOutput, exportBytes);
+  }
   const summary = {
     engineVersion: runtime.engine.version,
     runtimeFingerprint: runtime.runtimeFingerprint,
@@ -507,6 +593,7 @@ function main() {
     pairSplits: completePairs.filter(pair => pair.filter(result => result.botWon).length === 1).length,
     pairLosses: completePairs.filter(pair => pair.every(result => !result.botWon)).length,
     averagePlies: results.reduce((sum, result) => sum + result.plies, 0) / results.length,
+    ...(trainedExperience ? { trainedExperience } : {}),
     options,
   };
   summary.winRate = summary.botWins / summary.games;
@@ -538,6 +625,7 @@ module.exports = {
   createLegAssignment,
   deriveStreamSeed,
   diceStreamSeeds,
+  exportExperiencePatterns,
   fileFingerprint,
   fingerprintNamedBuffers,
   loadRuntime,
@@ -545,6 +633,7 @@ module.exports = {
   parseCliTokens,
   pairedDiceStreams,
   playGame,
+  readLocalExperienceSnapshot,
   readRuntimeSnapshot,
   runtimeFingerprint,
   validateDerivedStreamSeeds,

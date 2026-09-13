@@ -6,8 +6,8 @@ const vm = require('node:vm');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
-const EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
-const LEGACY_EXPERIENCE_KEY = 'narduh-long-bot-experience-v6';
+const EXPERIENCE_KEY = 'narduh-long-bot-experience-v8';
+const LEGACY_EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
 const SHORT_EXPERIENCE_KEY = 'narduh-short-bot-experience-v6';
 
 function memoryStorage(initial = {}) {
@@ -174,7 +174,7 @@ test('v29 fixtures discard the previous local generation and do not learn a forc
   assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
 });
 
-test('the current learning bridge writes local evidence with credit generation 7', () => {
+test('the current learning bridge writes local evidence with credit generation 8', () => {
   const { context, storage } = loadStrongBot();
   const decision = liveV29Decision();
   context.window.NarduStrongBot.learnFromGame({
@@ -188,7 +188,7 @@ test('the current learning bridge writes local evidence with credit generation 7
 
   const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
   assert.equal(learned.length, 1);
-  assert.equal(learned[0].creditVersion, 7);
+  assert.equal(learned[0].creditVersion, 8);
 });
 
 test('v29 does not import a completed game from the previous engine generation', () => {
@@ -245,7 +245,7 @@ test('v29 rejects a decision without an explicit engine generation', () => {
 
 test('v29 loads existing local experience before the first frozen decision', () => {
   const pattern = {
-    creditVersion: 7,
+    creditVersion: 8,
     contextKey: 'route|fresh-page',
     actionKey: 'route:known',
     samples: 4,
@@ -261,6 +261,30 @@ test('v29 loads existing local experience before the first frozen decision', () 
   assert.equal(experienceCalls.length, 1);
   assert.equal(experienceCalls[0].source, 'local');
   assert.deepEqual(JSON.parse(JSON.stringify(experienceCalls[0].patterns)), [pattern]);
+});
+
+test('v33 rejects a mixed local credit generation before engine sync', () => {
+  const storage = memoryStorage({
+    [EXPERIENCE_KEY]: JSON.stringify([
+      {
+        creditVersion: 8,
+        contextKey: 'route|current',
+        actionKey: 'route:current',
+      },
+      {
+        creditVersion: 7,
+        contextKey: 'route|stale',
+        actionKey: 'route:stale',
+      },
+    ]),
+  });
+  const { context, experienceCalls } = loadStrongBot(storage);
+
+  context.window.NarduStrongBot.syncLocalExperience();
+
+  assert.equal(storage.getItem(EXPERIENCE_KEY), null);
+  assert.equal(experienceCalls.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(experienceCalls[0].patterns)), []);
 });
 
 test('v29 uses one most-specific evidence alias for a decision', async () => {
@@ -403,6 +427,60 @@ test('v29 keeps server aggregate authoritative while retaining local-only keys',
   assert.deepEqual(cached.experienceSnapshotEntries(), entries);
 });
 
+test('v33 uses a newer local lesson before a stale server cache can hide it', async () => {
+  const browser = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/browser.ts'),
+  ).href);
+  const { context } = loadStrongBot();
+  const engine = browser.createBrowserLongBotEngine(context.window.NarduGame);
+  const sharedKey = {
+    contextKey: 'route|fresh-local-lesson',
+    actionKey: 'route:preserve-anchor',
+  };
+  engine.setExperience([{
+    ...sharedKey,
+    creditVersion: 8,
+    samples: 20,
+    wins: 20,
+    winWeight: 30,
+    updatedAt: '2026-09-13T10:00:00.000Z',
+  }], 'server-cache');
+  engine.setExperience([{
+    ...sharedKey,
+    creditVersion: 8,
+    samples: 3,
+    losses: 3,
+    lossWeight: 8,
+    severeLosses: 2,
+    signalWeight: 12,
+    updatedAt: '2026-09-13T10:05:00.000Z',
+  }], 'local');
+
+  assert.deepEqual(
+    engine.experienceSnapshotEntries().find(([key]) => (
+      key === `${sharedKey.contextKey}::${sharedKey.actionKey}`
+    )),
+    [`${sharedKey.contextKey}::${sharedKey.actionKey}`, 3, 3, 0, 8, 2, 12, 0],
+  );
+
+  engine.setExperience([{
+    ...sharedKey,
+    creditVersion: 8,
+    samples: 24,
+    wins: 20,
+    losses: 4,
+    lossWeight: 9,
+    winWeight: 30,
+    updatedAt: '2026-09-13T10:06:00.000Z',
+  }], 'server');
+  assert.equal(
+    engine.experienceSnapshotEntries().find(([key]) => (
+      key === `${sharedKey.contextKey}::${sharedKey.actionKey}`
+    ))[1],
+    24,
+  );
+});
+
 test('v29 fingerprint follows effective evidence, not its transport source', async () => {
   const browser = await import(pathToFileURL(
     path.join(ROOT, 'bot-engine/long/browser.ts'),
@@ -441,6 +519,10 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   ).href);
   const { context } = loadStrongBot();
   const storage = memoryStorage();
+  storage.setItem('narduh-long-bot-frozen-experience-v32:stale', JSON.stringify({
+    engineVersion: 'long-analytic-v32',
+    patterns: [],
+  }));
   const first = browser.createBrowserLongBotEngine(context.window.NarduGame, {
     experienceStorage: storage,
   });
@@ -464,6 +546,7 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   first.beginExperienceSession('GUKS-UURG:1000');
   first.setExperience(initial, 'server-cache');
   const originalFingerprint = first.freezeExperience().fingerprint;
+  assert.equal(storage.getItem('narduh-long-bot-frozen-experience-v32:stale'), null);
   first.setExperience(updated, 'server');
 
   const reloaded = browser.createBrowserLongBotEngine(context.window.NarduGame, {

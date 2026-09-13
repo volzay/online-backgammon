@@ -4,11 +4,13 @@
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
-  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v14";
-  const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 7;
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v15";
+  const LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v14";
+  const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 8;
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
-  const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+  const SHORT_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
@@ -28,8 +30,13 @@
 
   function readLongBotExperienceCache(playerKey) {
     try {
+      localStorage.removeItem(LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY);
       const cached = JSON.parse(localStorage.getItem(LONG_BOT_EXPERIENCE_CACHE_KEY) || "null");
-      if (!cached || Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) return [];
+      if (!cached) return [];
+      if (Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) {
+        localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
+        return [];
+      }
       if (String(cached.playerKey || "") !== String(playerKey || "")) return [];
       const patterns = Number(cached.creditVersion) === LONG_BOT_EXPERIENCE_CREDIT_VERSION
         ? validatedLongBotExperience(cached.patterns)
@@ -44,6 +51,7 @@
 
   function writeLongBotExperienceCache(patterns, playerKey) {
     try {
+      localStorage.removeItem(LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY);
       const validated = validatedLongBotExperience(patterns);
       if (!validated) {
         localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
@@ -72,7 +80,7 @@
   function readShortBotExperienceCache(playerKey) {
     try {
       const cached = JSON.parse(localStorage.getItem(SHORT_BOT_EXPERIENCE_CACHE_KEY) || "null");
-      if (!cached || Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) return [];
+      if (!cached || Date.now() - Number(cached.savedAt || 0) > SHORT_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) return [];
       if (String(cached.playerKey || "") !== String(playerKey || "")) return [];
       const patterns = Number(cached.creditVersion) === SHORT_BOT_EXPERIENCE_CREDIT_VERSION
         ? validatedShortBotExperience(cached.patterns)

@@ -541,7 +541,8 @@ begin
          'long-analytic-v29',
          'long-analytic-v30',
          'long-analytic-v31',
-         'long-analytic-v32'
+         'long-analytic-v32',
+         'long-analytic-v33'
        ) then
       if jsonb_typeof(training_coverage) <> 'object'
          or coalesce(training_coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -736,7 +737,8 @@ begin
       'long-analytic-v29',
       'long-analytic-v30',
       'long-analytic-v31',
-      'long-analytic-v32'
+      'long-analytic-v32',
+      'long-analytic-v33'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -851,7 +853,7 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
       and coalesce(
         room.game_state->'analysis'->'botMemory'->>'engineVersion',
         ''
-      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32') then
+      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33') then
       coalesce(
         room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
         'false'::jsonb
@@ -2316,7 +2318,8 @@ begin
       'long-analytic-v29',
       'long-analytic-v30',
       'long-analytic-v31',
-      'long-analytic-v32'
+      'long-analytic-v32',
+      'long-analytic-v33'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -2444,7 +2447,7 @@ as $$
     select g.*
     from public.bot_training_games g
     where g.difficulty = 'hard'
-      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32')
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -2591,6 +2594,7 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
+        when engine_generation = 33 then 7.0
         when engine_generation = 32 then 6.0
         when engine_generation = 31 then 5.0
         when engine_generation = 30 then 4.0
@@ -2600,12 +2604,14 @@ as $$
     from raw_decisions
     where coalesce(descriptor->>'contextKey', '') <> ''
       and coalesce(descriptor->>'actionKey', '') <> ''
+  -- v8 changes how compatible aggregate aliases are arbitrated by the client.
+  -- These labels remain outcome-weighted evidence, not causal per-move attribution.
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation in (29, 30, 31, 32) and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation in (29, 30, 31, 32) and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -2632,13 +2638,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation in (29, 30, 31, 32) then descriptor->>'actionKey' end),
-        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation in (29, 30, 31, 32) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation in (29, 30, 31, 32) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2649,9 +2655,9 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
-        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
@@ -2790,7 +2796,7 @@ as $$
   )
   select coalesce(
     jsonb_agg(jsonb_build_object(
-      'creditVersion', 7,
+      'creditVersion', 8,
       'contextKey', context_key,
       'actionKey', action_key,
       'samples', samples,

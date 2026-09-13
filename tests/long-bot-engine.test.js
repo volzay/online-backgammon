@@ -1507,7 +1507,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v32");
+  assert.equal(decision.engineVersion, "long-analytic-v33");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -2186,12 +2186,12 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /get_long_bot_experience_patterns\(\s*p_player_name text default null/);
   assert.match(schema, /winner <> bot_color/);
   assert.match(schema, /harm_signal >= 1\.1/);
-  assert.match(schema, /'creditVersion', 7/);
+  assert.match(schema, /'creditVersion', 8/);
   assert.match(schema, /'wins', wins/);
   assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
   assert.match(schema, /familyActionKey/);
-  assert.match(schema, /engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32'\)/);
+  assert.match(schema, /engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33'\)/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
   assert.match(schema, /rooms_archive_finished_bot_training/);
   assert.match(schema, /archive_finished_bot_training_game/);
@@ -2199,7 +2199,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(client, /setExperience\(patterns, "server"\)/);
   assert.match(client, /p_player_name: resolvedPlayerName \|\| null/);
   assert.match(controller, /ensureAutoProgressAfterExperience/);
-  assert.match(client, /narduh-long-bot-server-experience-v14/);
+  assert.match(client, /narduh-long-bot-server-experience-v15/);
   assert.match(durability, /begin;/);
   assert.match(durability, /rooms_archive_finished_bot_training/);
   assert.match(durability, /on conflict \(room_code\) do update/);

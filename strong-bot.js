@@ -10,8 +10,9 @@ window.NarduStrongBot = (function () {
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
-  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
+  const EXPERIENCE_KEY = 'narduh-long-bot-experience-v8';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
+    'narduh-long-bot-experience-v7',
     'narduh-long-bot-experience-v6',
     'narduh-long-bot-experience-v5',
     'narduh-long-bot-experience-v4',
@@ -28,7 +29,7 @@ window.NarduStrongBot = (function () {
     'narduh-short-bot-experience-v2',
     'narduh-short-bot-experience-v1',
   ];
-  const LONG_EXPERIENCE_CREDIT_VERSION = 7;
+  const LONG_EXPERIENCE_CREDIT_VERSION = 8;
   const SHORT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_OPPONENT_CAPTURE_VERSION = 2;
   const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
@@ -142,6 +143,14 @@ window.NarduStrongBot = (function () {
         }
         LEGACY_SHORT_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
         return migrated;
+      }
+      if (!patterns.every(pattern => (
+        pattern
+        && typeof pattern === 'object'
+        && Number(pattern.creditVersion) === LONG_EXPERIENCE_CREDIT_VERSION
+      ))) {
+        store.removeItem?.(EXPERIENCE_KEY);
+        return [];
       }
       return patterns;
     } catch (error) {

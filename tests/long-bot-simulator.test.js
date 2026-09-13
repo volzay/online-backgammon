@@ -191,7 +191,7 @@ test('treatment experience and adaptive learning stay isolated from the control 
             engineVersion: runtime.engine.version,
             choiceCount: 2,
             experienceFrozen: true,
-            experienceFingerprint: 'lbe7-simulator-isolation',
+            experienceFingerprint: 'lbe8-simulator-isolation',
             winQuality: 1,
             experience: {
               contextKey: 'route|adaptive-isolation-test',

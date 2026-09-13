@@ -349,6 +349,16 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       coldRanked,
     );
+    coldRanked = prioritizeProbabilisticFenceDenial(
+      state,
+      color,
+      coldRanked,
+    );
+    coldRanked = prioritizeVerifiedDeepSafety(
+      state,
+      color,
+      coldRanked,
+    );
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -454,9 +464,7 @@ function selectExperiencePatterns(sources) {
       const key = `${contextKey}::${actionKey}`;
       const current = selected.get(key);
       if (
-        !current
-        || priority > current.priority
-        || (priority === current.priority && source < current.source)
+        shouldReplaceExperiencePattern(current, { pattern, priority, source })
       ) {
         selected.set(key, { priority, source, patterns: [pattern] });
         return;
@@ -465,6 +473,32 @@ function selectExperiencePatterns(sources) {
     });
   });
   return Array.from(selected.values()).flatMap(entry => entry.patterns);
+}
+
+function shouldReplaceExperiencePattern(current, candidate) {
+  if (!current) return true;
+  const cacheAndLocal = new Set([current.source, candidate.source]);
+  if (
+    cacheAndLocal.size === 2
+    && cacheAndLocal.has('local')
+    && cacheAndLocal.has('server-cache')
+  ) {
+    const currentTimestamp = Math.max(
+      0,
+      ...current.patterns.map(experiencePatternTimestamp),
+    );
+    const candidateTimestamp = experiencePatternTimestamp(candidate.pattern);
+    if (currentTimestamp !== candidateTimestamp && (currentTimestamp || candidateTimestamp)) {
+      return candidateTimestamp > currentTimestamp;
+    }
+  }
+  return candidate.priority > current.priority
+    || (candidate.priority === current.priority && candidate.source < current.source);
+}
+
+function experiencePatternTimestamp(pattern) {
+  const timestamp = Date.parse(String(pattern?.updatedAt || pattern?.updated_at || ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function experienceSourcePriority(source) {
@@ -1999,6 +2033,186 @@ function prioritizeProspectiveFenceAnchorSafety(state, color, ranked) {
   );
   promoted[0].features.prospectiveFenceAnchorPreserved = 1;
   return promoted;
+}
+
+function prioritizeProbabilisticFenceDenial(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && isAnalyzedProbabilisticFenceDenial(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    probabilisticFenceDenialGain(right, selected)
+      - probabilisticFenceDenialGain(left, selected)
+    || Number(right.tactical.continuationExpected || 0)
+      - Number(left.tactical.continuationExpected || 0)
+    || Number(right.tactical.recoveryWorst || 0)
+      - Number(left.tactical.recoveryWorst || 0)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'probabilisticFenceDenialAdjustment',
+  );
+  promoted[0].features.probabilisticFenceDenial = 1;
+  return promoted;
+}
+
+function probabilisticFenceDenialGain(candidate, selected) {
+  return Number(selected.features.prospectiveFenceExtensionAfter || 0)
+    - Number(candidate.features.prospectiveFenceExtensionAfter || 0);
+}
+
+function preservesVacatedRouteAnchor(state, color, candidate, selected) {
+  return Object.entries(state.points || {}).some(([point, stack]) => (
+    stack?.color === color
+    && Number(stack.count || 0) > 0
+    && colorAt(candidate.after, Number(point)) === color
+    && colorAt(selected.after, Number(point)) !== color
+  ));
+}
+
+function isAnalyzedProbabilisticFenceDenial(state, color, candidate, selected) {
+  const candidateFeatures = candidate?.features || {};
+  const selectedFeatures = selected?.features || {};
+  const candidateTactical = candidate?.tactical || {};
+  const selectedTactical = selected?.tactical || {};
+  const scoreTolerance = Math.min(
+    120000000,
+    45000000 + Math.max(0, Number(selectedFeatures.trapBefore || 0)) * 80000,
+  );
+  if (
+    !hasCompleteFourPlyTactical(candidate)
+    || !hasCompleteFourPlyTactical(selected)
+    || Number(selectedFeatures.opponentFenceRunBefore || 0) < 3
+    || Number(selectedFeatures.trapBefore || 0) < 600
+    || probabilisticFenceDenialGain(candidate, selected) < 60
+    || !preservesVacatedRouteAnchor(state, color, candidate, selected)
+    || scoreWithoutExperience(candidate) < scoreWithoutExperience(selected) - scoreTolerance
+  ) {
+    return false;
+  }
+
+  const progressIsPreserved = Number(candidateFeatures.headGain || 0)
+      >= Number(selectedFeatures.headGain || 0)
+    && Number(candidateFeatures.outsideReduction || 0)
+      >= Number(selectedFeatures.outsideReduction || 0)
+    && Number(candidateFeatures.outsidePipGain || 0)
+      >= Number(selectedFeatures.outsidePipGain || 0)
+    && Number(candidateFeatures.startZoneReduction || 0)
+      >= Number(selectedFeatures.startZoneReduction || 0)
+    && Number(candidateFeatures.resultSafetyAfter || 0)
+      >= Number(selectedFeatures.resultSafetyAfter || 0)
+    && Number(candidateFeatures.missedKoksRescue || 0)
+      <= Number(selectedFeatures.missedKoksRescue || 0)
+    && Number(candidateFeatures.homeShuffleMoves || 0)
+      <= Number(selectedFeatures.homeShuffleMoves || 0)
+    && Number(candidateFeatures.maxRouteTowerAfter || 0)
+      <= Number(selectedFeatures.maxRouteTowerAfter || 0)
+    && Number(candidateFeatures.primeRunAfter || 0)
+      >= Number(selectedFeatures.primeRunAfter || 0);
+  if (!progressIsPreserved) return false;
+
+  return Number(candidateTactical.expectedImpact || 0)
+      >= Number(selectedTactical.expectedImpact || 0)
+    && Number(candidateTactical.worstImpact || 0)
+      >= Number(selectedTactical.worstImpact || 0) - 2000000
+    && Number(candidateTactical.recoveryExpected || 0)
+      >= Number(selectedTactical.recoveryExpected || 0) - 5000000
+    && Number(candidateTactical.recoveryWorst || 0)
+      >= Number(selectedTactical.recoveryWorst || 0) - 10000000
+    && Number(candidateTactical.recoveryTailRisk || 0)
+      >= Number(selectedTactical.recoveryTailRisk || 0) - 5000000
+    && Number(candidateTactical.continuationExpected || 0)
+      >= Number(selectedTactical.continuationExpected || 0) + 40000000
+    && Number(candidateTactical.continuationWorst || 0)
+      >= Number(selectedTactical.continuationWorst || 0) - 2000000
+    && Number(candidateTactical.continuationTailRisk || 0)
+      >= Number(selectedTactical.continuationTailRisk || 0) - 2000000;
+}
+
+function prioritizeVerifiedDeepSafety(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected || ranked.length < 2) return ranked;
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && isVerifiedDeepSafetyAlternative(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => (
+    verifiedDeepSafetyGain(right, selected) - verifiedDeepSafetyGain(left, selected)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'verifiedDeepSafetyAdjustment',
+  );
+  promoted[0].features.verifiedDeepSafety = 1;
+  return promoted;
+}
+
+function verifiedDeepSafetyGain(candidate, selected) {
+  const candidateTactical = candidate.tactical || {};
+  const selectedTactical = selected.tactical || {};
+  return Number(candidateTactical.recoveryExpected || 0)
+      - Number(selectedTactical.recoveryExpected || 0)
+    + Number(candidateTactical.recoveryWorst || 0)
+      - Number(selectedTactical.recoveryWorst || 0)
+    + Number(candidateTactical.continuationExpected || 0)
+      - Number(selectedTactical.continuationExpected || 0)
+    + Number(candidateTactical.continuationWorst || 0)
+      - Number(selectedTactical.continuationWorst || 0);
+}
+
+function isVerifiedDeepSafetyAlternative(state, color, candidate, selected) {
+  if (!hasCompleteFourPlyTactical(candidate) || !hasCompleteFourPlyTactical(selected)) {
+    return false;
+  }
+  const candidateFeatures = candidate.features || {};
+  const selectedFeatures = selected.features || {};
+  const candidateTactical = candidate.tactical || {};
+  const selectedTactical = selected.tactical || {};
+  const earlyResultSafetyTolerance = offCount(state, opponentOf(color)) === 0 ? 1 : 0;
+  const progressIsPreserved = Number(candidateFeatures.headGain || 0)
+      >= Number(selectedFeatures.headGain || 0)
+    && Number(candidateFeatures.outsideReduction || 0)
+      >= Number(selectedFeatures.outsideReduction || 0)
+    && Number(candidateFeatures.outsidePipGain || 0)
+      >= Number(selectedFeatures.outsidePipGain || 0)
+    && Number(candidateFeatures.startZoneReduction || 0)
+      >= Number(selectedFeatures.startZoneReduction || 0) - earlyResultSafetyTolerance
+    && Number(candidateFeatures.resultSafetyAfter || 0)
+      >= Number(selectedFeatures.resultSafetyAfter || 0)
+    && Number(candidateFeatures.homeShuffleMoves || 0)
+      <= Number(selectedFeatures.homeShuffleMoves || 0)
+    && Number(candidateFeatures.maxRouteTowerAfter || 0)
+      <= Number(selectedFeatures.maxRouteTowerAfter || 0)
+    && Number(candidateFeatures.primeRunAfter || 0)
+      >= Number(selectedFeatures.primeRunAfter || 0) - 1;
+  if (!progressIsPreserved) return false;
+
+  return Number(candidateTactical.expectedImpact || 0)
+      >= Number(selectedTactical.expectedImpact || 0) - 12000000
+    && Number(candidateTactical.worstImpact || 0)
+      >= Number(selectedTactical.worstImpact || 0) - 12000000
+    && Number(candidateTactical.recoveryExpected || 0)
+      >= Number(selectedTactical.recoveryExpected || 0) + 8000000
+    && Number(candidateTactical.recoveryWorst || 0)
+      >= Number(selectedTactical.recoveryWorst || 0) + 75000000
+    && Number(candidateTactical.recoveryTailRisk || 0)
+      >= Number(selectedTactical.recoveryTailRisk || 0) - 25000000
+    && Number(candidateTactical.continuationExpected || 0)
+      >= Number(selectedTactical.continuationExpected || 0) - 2000000
+    && Number(candidateTactical.continuationWorst || 0)
+      >= Number(selectedTactical.continuationWorst || 0) - 5000000
+    && Number(candidateTactical.continuationTailRisk || 0)
+      >= Number(selectedTactical.continuationTailRisk || 0) - 5000000;
 }
 
 function isAnalyzedProspectiveFenceAnchorSafety(candidate, selected) {

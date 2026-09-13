@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
-const EXPERIENCE_KEY = "narduh-long-bot-experience-v7";
+const EXPERIENCE_KEY = "narduh-long-bot-experience-v8";
 
 function learnSingleLoss(resultType) {
   const values = new Map();
@@ -53,7 +53,7 @@ function learnSingleLoss(resultType) {
           engineVersion: "long-analytic-v30",
           choiceCount: 2,
           experienceFrozen: true,
-          experienceFingerprint: "lbe7-koks-test",
+          experienceFingerprint: "lbe8-koks-test",
           experience: {
             contextKey: "koks-rescue|test",
             actionKey: "start:stuck",
@@ -121,7 +121,7 @@ test("winning opponent tactics are stored as positive experience", () => {
             engineVersion: "long-analytic-v30",
             choiceCount: 1,
             experienceFrozen: true,
-            experienceFingerprint: "lbe7-opponent-test",
+            experienceFingerprint: "lbe8-opponent-test",
           },
           {
             actor: "opponent",
@@ -273,14 +273,14 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
   assert.match(captured[0].experience.actionKey, /off:yes/);
 });
 
-test("the v32 opponent-memory RPC preserves severity and valid winning examples", () => {
+test("the v33 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v32.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v33.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -297,7 +297,7 @@ test("the v32 opponent-memory RPC preserves severity and valid winning examples"
   assert.match(migration, /actor = 'opponent'[\s\S]*?capture_version >= 2[\s\S]*?choice_count > 1/);
   assert.match(migration, /as successful/);
   assert.match(migration, /as win_weight/);
-  assert.match(migration, /'creditVersion', 7/);
+  assert.match(migration, /'creditVersion', 8/);
   assert.match(migration, /^commit;/m);
 });
 
@@ -308,7 +308,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
-  const version = "20260913-fence-anchor-long-v32";
+  const version = "20260913-probabilistic-fence-long-v33";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

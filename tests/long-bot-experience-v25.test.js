@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
-const EXPERIENCE_KEY = 'narduh-long-bot-experience-v7';
+const EXPERIENCE_KEY = 'narduh-long-bot-experience-v8';
 
 async function analysisModule() {
   return import(pathToFileURL(path.join(ROOT, 'bot-engine/long/analysis.ts')).href);
@@ -328,7 +328,7 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     losingDescriptor.legacyActionKey,
   ].forEach((actionKey) => {
     const pattern = byKey.get(`${losingDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 7);
+    assert.equal(pattern.creditVersion, 8);
     assert.equal(pattern.losses, 1);
     assert.equal(pattern.wins, 0);
   });
@@ -340,7 +340,7 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     winningDescriptor.legacyActionKey,
   ].forEach((actionKey) => {
     const pattern = byKey.get(`${winningDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 7);
+    assert.equal(pattern.creditVersion, 8);
     assert.equal(pattern.losses, 0);
     assert.equal(pattern.wins, 1);
     assert.equal(pattern.winWeight, 2.5);
@@ -350,6 +350,14 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
 
 test('v27 discards outcome-poisoned local memory before engine sync', () => {
   const storage = memoryStorage({
+    'narduh-long-bot-experience-v7': JSON.stringify([{
+      contextKey: 'route|previous-credit-generation',
+      actionKey: 'route:stale-v7',
+      samples: 12,
+      losses: 12,
+      lossWeight: 48,
+      creditVersion: 7,
+    }]),
     'narduh-long-bot-experience-v4': JSON.stringify([{
       contextKey: 'late-entry|forced-outcome-poison',
       actionKey: 'route:forced-loss',
@@ -385,6 +393,7 @@ test('v27 discards outcome-poisoned local memory before engine sync', () => {
   }, 'dark');
 
   assert.equal(applied.at(-1)?.patterns?.length || 0, 0);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v7'), false);
   assert.equal(storage.values.has('narduh-long-bot-experience-v4'), false);
   assert.equal(storage.values.has('narduh-long-bot-experience-v3'), false);
   assert.equal(storage.values.has('narduh-long-bot-experience-v2'), false);
@@ -569,10 +578,10 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
   assert.equal(new Set(successful.map(pattern => pattern.contextKey.split('|')[0])).size, phases.length);
 });
 
-test('v32 RPC excludes forced choices, preserves v29-v31 evidence and matches the schema', () => {
+test('v33 RPC excludes forced choices, preserves v29-v32 evidence and matches the schema', () => {
   const schema = fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8');
   const migration = fs.readFileSync(
-    path.join(ROOT, 'supabase/long-bot-strategy-v32.sql'),
+    path.join(ROOT, 'supabase/long-bot-strategy-v33.sql'),
     'utf8',
   );
   const client = fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8');
@@ -610,16 +619,16 @@ test('v32 RPC excludes forced choices, preserves v29-v31 evidence and matches th
     migration,
     /when not \(features \? 'avoidableHomeShuffleMoves'\)\s+and coalesce\(public\.long_bot_safe_numeric\(features->'homeShuffleMoves'\), 0\) > 0\s+then 'unknown'/,
   );
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then descriptor->>'actionKey' end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32, 33\) then descriptor->>'actionKey' end/);
   assert.match(rpc, /decision->'choiceCount'/);
   assert.match(rpc, /public\.long_bot_safe_numeric\(decision->'choiceCount'\) as choice_count/);
   assert.doesNotMatch(rpc, /jsonb_array_length\(decision->'alternatives'\)/);
   assert.match(
     rpc,
-    /actor = 'bot' and engine_generation in \(29, 30, 31, 32\) and choice_count > 1\s+and winner <> bot_color/,
+    /actor = 'bot' and engine_generation in \(29, 30, 31, 32, 33\) and choice_count > 1\s+and winner <> bot_color/,
   );
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then nullif\(descriptor->'behaviorActionKeys'->>2, ''\) end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32, 33\) then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32, 33\) then nullif\(descriptor->'behaviorActionKeys'->>2, ''\) end/);
   assert.match(
     rpc,
     /actor = 'opponent'\s+and capture_version >= 2\s+and choice_count > 1\s+and winner <> bot_color\s+and harm_signal < 1\.1\s+\) as successful/,
@@ -638,15 +647,16 @@ test('v32 RPC excludes forced choices, preserves v29-v31 evidence and matches th
   assert.match(migration, /decision->'captureVersion'/);
   assert.match(migration, /when actor = 'opponent' and capture_version >= 2 then 4\.0/);
   assert.match(migration, /when actor = 'opponent' then 0\.0/);
+  assert.match(migration, /when engine_generation = 33 then 7\.0/);
   assert.match(migration, /when engine_generation = 32 then 6\.0/);
   assert.match(migration, /when engine_generation = 31 then 5\.0/);
   assert.match(migration, /when engine_generation = 30 then 4\.0/);
   assert.match(migration, /when engine_generation = 29 then 3\.0/);
   assert.match(migration, /else 0\.0\s+end as engine_weight/);
   assert.match(migration, /player_weight \* engine_weight/);
-  assert.match(migration, /'creditVersion', 7/);
-  assert.match(client, /narduh-long-bot-server-experience-v14/);
-  assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v7'/);
+  assert.match(migration, /'creditVersion', 8/);
+  assert.match(client, /narduh-long-bot-server-experience-v15/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v8'/);
   assert.match(fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8'), /narduh-long-bot-experience-v5/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
 });

@@ -1,8 +1,11 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v32';
-const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v32:';
+const ENGINE_VERSION = 'long-analytic-v33';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v33:';
+const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
+  'narduh-long-bot-frozen-experience-v32:',
+];
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
   strategyProfile: 'v25',
   maxCandidates: 64,
@@ -137,7 +140,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
       hash = Math.imul(hash, 16777619);
     }
     return {
-      fingerprint: `lbe7-${(hash >>> 0).toString(16).padStart(8, '0')}`,
+      fingerprint: `lbe8-${(hash >>> 0).toString(16).padStart(8, '0')}`,
       size: engine.experienceSize(),
       frozen: experienceFrozen,
     };
@@ -166,7 +169,13 @@ export function createBrowserLongBotEngine(game, options = {}) {
     try {
       for (let index = (Number(experienceStorage.length) || 0) - 1; index >= 0; index -= 1) {
         const storedKey = experienceStorage.key?.(index);
-        if (storedKey?.startsWith(FROZEN_EXPERIENCE_PREFIX) && storedKey !== key) {
+        if (
+          storedKey !== key
+          && (
+            storedKey?.startsWith(FROZEN_EXPERIENCE_PREFIX)
+            || LEGACY_FROZEN_EXPERIENCE_PREFIXES.some(prefix => storedKey?.startsWith(prefix))
+          )
+        ) {
           experienceStorage.removeItem?.(storedKey);
         }
       }

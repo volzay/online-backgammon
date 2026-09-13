@@ -77,9 +77,9 @@ function loadController(loadLongBotExperience) {
     localStorage,
     sessionStorage,
     location: {
-      href: 'https://example.test/room.html?mode=bot&game=LOAD-V32&variant=long&difficulty=hard',
+      href: 'https://example.test/room.html?mode=bot&game=LOAD-V33&variant=long&difficulty=hard',
       pathname: '/room.html',
-      search: '?mode=bot&game=LOAD-V32&variant=long&difficulty=hard',
+      search: '?mode=bot&game=LOAD-V33&variant=long&difficulty=hard',
       hostname: 'example.test',
     },
     history: { replaceState() {} },
@@ -98,7 +98,7 @@ function loadController(loadLongBotExperience) {
   vm.runInContext(source, context, { filename: 'game-controller.js' });
   window.NarduController.init({
     mode: 'bot',
-    roomCode: 'LOAD-V32',
+    roomCode: 'LOAD-V33',
     variant: 'long',
     difficulty: 'hard',
     opponent: 'Hard bot',
@@ -108,10 +108,16 @@ function loadController(loadLongBotExperience) {
   return context;
 }
 
-test('lobby prefetch caches v32 experience even before the long engine is loaded', async () => {
+test('lobby prefetch caches v33 experience even before the long engine is loaded', async () => {
   const localStorage = memoryStorage();
-  const pattern = {
+  localStorage.setItem('narduh-long-bot-server-experience-v14', JSON.stringify({
+    savedAt: Date.now(),
+    playerKey: 'tester1',
     creditVersion: 7,
+    patterns: [{ creditVersion: 7, contextKey: 'route|stale', actionKey: 'route:stale' }],
+  }));
+  const pattern = {
+    creditVersion: 8,
     contextKey: 'route|prefetched',
     actionKey: 'route:safer',
   };
@@ -129,9 +135,10 @@ test('lobby prefetch caches v32 experience even before the long engine is loaded
 
   const prefetched = await lobbyRooms.loadLongBotExperience({ playerName: 'tester1' });
   assert.equal(prefetched[0].actionKey, pattern.actionKey);
-  const cached = JSON.parse(localStorage.getItem('narduh-long-bot-server-experience-v14'));
-  assert.equal(cached.creditVersion, 7);
+  const cached = JSON.parse(localStorage.getItem('narduh-long-bot-server-experience-v15'));
+  assert.equal(cached.creditVersion, 8);
   assert.equal(cached.patterns[0].contextKey, pattern.contextKey);
+  assert.equal(localStorage.getItem('narduh-long-bot-server-experience-v14'), null);
 
   const applied = [];
   const roomRooms = loadRoomsClient({
@@ -161,7 +168,7 @@ test('hard long game retries a failed memory load before freezing the session', 
   const context = loadController(async ({ refresh = false } = {}) => {
     calls.push(refresh);
     if (calls.length === 1) throw new Error('temporary experience failure');
-    return [{ creditVersion: 7, contextKey: 'route|retry', actionKey: 'route:ready' }];
+    return [{ creditVersion: 8, contextKey: 'route|retry', actionKey: 'route:ready' }];
   });
 
   const patterns = await context.window.NarduController.__test.loadLongBotExperienceBeforeStart();
@@ -174,4 +181,42 @@ test('hard long game retries a failed memory load before freezing the session', 
   assert.equal(telemetry.patternCount, 1);
   assert.equal(telemetry.experienceSize, 17);
   assert.equal(telemetry.error, '');
+});
+
+test('v33 ignores server experience cached for longer than one hour', async () => {
+  const localStorage = memoryStorage();
+  localStorage.setItem('narduh-long-bot-server-experience-v15', JSON.stringify({
+    savedAt: Date.now() - 60 * 60 * 1000 - 1,
+    playerKey: 'tester1',
+    creditVersion: 8,
+    patterns: [{
+      creditVersion: 8,
+      contextKey: 'route|expired',
+      actionKey: 'route:expired',
+    }],
+  }));
+  const applied = [];
+  const rooms = loadRoomsClient({
+    localStorage,
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return { async rpc() { return { data: null, error: { message: 'offline' } }; } };
+        },
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+  });
+
+  await assert.rejects(
+    rooms.loadLongBotExperience({ playerName: 'tester1' }),
+    /offline/,
+  );
+  assert.equal(localStorage.getItem('narduh-long-bot-server-experience-v15'), null);
+  assert.equal(applied.some(item => (
+    item.source === 'server-cache' && item.patterns[0]?.actionKey === 'route:expired'
+  )), false);
 });

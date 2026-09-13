@@ -18,6 +18,7 @@ const MAX_CONTINUATION_CANDIDATES = 2;
 const MAX_CONTINUATION_SEQUENCES = 2;
 const MAX_EXPERIENCE_PENALTY = 140000000;
 const MAX_EXPERIENCE_REWARD = 30000000;
+const EXPERIENCE_RISK_THRESHOLD = 1.1;
 export const CANONICAL_DICE_WEIGHT = 36;
 export const DICE_TAIL_WEIGHT = 6;
 
@@ -883,7 +884,7 @@ export function experienceAdjustment(descriptor, experience) {
   const actionWeights = hasStrategicAction
     ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
     : [1, 0.76, ...(behaviorActionKeys.map(() => 0.62)), 0.56];
-  let match;
+  const matches = [];
   for (const level of contextLevels) {
     for (let index = 0; index < actionKeys.length; index += 1) {
       const actionKey = actionKeys[index];
@@ -892,54 +893,52 @@ export function experienceAdjustment(descriptor, experience) {
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
       const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
       if (pattern.samples < level.minimum && !severeEvidence && !winningEvidence) continue;
-      match = {
+      matches.push({
         pattern,
         weight: level.weight * (actionWeights[index] || 0.4),
-      };
-      break;
+      });
     }
-    if (match) break;
   }
-  if (!match) return 0;
+  if (!matches.length) return 0;
 
   // Exact, strategic, family, behavior and legacy keys describe the same
-  // decision. Use the first qualifying representation instead of counting
-  // correlated aliases as independent games.
-  const matches = [match];
+  // decision, so never add their adjustments as if they were independent
+  // games. Evaluate each representation on its own, then arbitrate between
+  // the resulting signals. A risky move must not be rewarded merely because
+  // a neutral exact alias happened to be checked before a repeatedly harmful
+  // transferable behavior alias.
+  const adjustments = matches.map(match => adjustmentForExperienceMatch(descriptor, match));
+  const descriptorRisk = Math.max(
+    Number(descriptor.riskSignal) || 0,
+    Number(descriptor.mistakeSeverity) || 0,
+  );
+  if (descriptorRisk >= EXPERIENCE_RISK_THRESHOLD) {
+    const penalties = adjustments.filter(adjustment => adjustment < 0);
+    if (penalties.length) return Math.min(...penalties);
+  }
 
-  let evidenceWeight = 0;
-  let weightedLossRate = 0;
-  let weightedLossSeverity = 0;
-  let weightedSevereRate = 0;
-  let weightedSeverity = 0;
-  let weightedSamples = 0;
-  let weightedWinRate = 0;
-  let weightedWinQuality = 0;
-  matches.forEach(({ pattern, weight }) => {
-    const confidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
-    const evidence = weight * confidence;
-    evidenceWeight += evidence;
-    // Frequency and severity are different signals. Treating severity-weighted
-    // lossWeight as a loss count used to penalize actions that won most games.
-    weightedLossRate += Math.min(0.98, (pattern.losses + 0.5) / (pattern.samples + 1.5)) * evidence;
-    weightedLossSeverity += (
-      pattern.losses > 0
-        ? Math.max(1, pattern.lossWeight / pattern.losses)
-        : 1
-    ) * evidence;
-    weightedSevereRate += pattern.severeLosses / Math.max(1, pattern.samples) * evidence;
-    weightedSeverity += Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses)) * evidence;
-    weightedSamples += pattern.samples * weight;
-    weightedWinRate += pattern.wins / Math.max(1, pattern.samples) * evidence;
-    weightedWinQuality += pattern.winWeight / Math.max(1, pattern.wins) * evidence;
-  });
+  // The iteration order is intentionally exact-to-general. When the signals
+  // are compatible (or no safety penalty exists), retain the most-specific
+  // qualifying evidence instead of letting a broad alias overpower it.
+  return adjustments[0];
+}
+
+function adjustmentForExperienceMatch(descriptor, match) {
+  const { pattern, weight } = match;
+  const matchConfidence = Math.min(0.92, pattern.samples / (pattern.samples + 7));
+  const evidenceWeight = weight * matchConfidence;
   if (!evidenceWeight) return 0;
-  const lossRate = weightedLossRate / evidenceWeight;
-  const lossSeverity = weightedLossSeverity / evidenceWeight;
-  const severeRate = weightedSevereRate / evidenceWeight;
-  const learnedSeverity = weightedSeverity / evidenceWeight;
-  const winRate = weightedWinRate / evidenceWeight;
-  const winQuality = weightedWinQuality / evidenceWeight;
+  // Frequency and severity are different signals. Treating severity-weighted
+  // lossWeight as a loss count used to penalize actions that won most games.
+  const lossRate = Math.min(0.98, (pattern.losses + 0.5) / (pattern.samples + 1.5));
+  const lossSeverity = pattern.losses > 0
+    ? Math.max(1, pattern.lossWeight / pattern.losses)
+    : 1;
+  const severeRate = pattern.severeLosses / Math.max(1, pattern.samples);
+  const learnedSeverity = Math.min(5, pattern.signalWeight / Math.max(1, pattern.losses));
+  const weightedSamples = pattern.samples * weight;
+  const winRate = pattern.wins / Math.max(1, pattern.samples);
+  const winQuality = pattern.winWeight / Math.max(1, pattern.wins);
   const confidence = Math.min(0.9, weightedSamples / (weightedSamples + 9));
   const relevance = 1.35 + Math.min(3.2, Math.max(
     Number(descriptor.riskSignal) || 0,
