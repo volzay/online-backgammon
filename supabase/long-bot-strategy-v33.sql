@@ -553,48 +553,20 @@ stable
 security definer
 set search_path = public
 as $$
-  with valid_games as (
-    select g.*
+  with candidate_games as materialized (
+    select
+      g.id,
+      g.winner,
+      g.bot_color,
+      g.result_type,
+      g.player_name,
+      g.completed_at,
+      g.engine_version,
+      g.decisions,
+      public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
+      ) as expected_bot_decisions
     from public.bot_training_games g
-    cross join lateral (
-      select
-        (count(*) filter (
-          where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-        ))::numeric as covered_bot_decisions,
-        count(*) filter (
-          where not (
-            (
-              coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-              and (
-                (
-                  decision->>'source' = 'engine'
-                  and decision->>'engineVersion' = g.engine_version
-                  and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
-                  and coalesce(decision->>'experienceFingerprint', '') <> ''
-                )
-                or (
-                  decision->>'source' = 'history-recovery'
-                  and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-                  and decision->>'engineVersion' = g.engine_version
-                )
-              )
-            )
-            or (
-              decision->>'actor' = 'opponent'
-              and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-              and decision->>'engineVersion' = g.engine_version
-            )
-          )
-        ) as incompatible_decisions,
-        count(distinct decision->>'experienceFingerprint') filter (
-          where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-            and decision->>'source' = 'engine'
-        ) as engine_fingerprints
-      from jsonb_array_elements(case
-        when jsonb_typeof(g.decisions) = 'array' then g.decisions
-        else '[]'::jsonb
-      end) scanned(decision)
-    ) integrity
     where g.difficulty = 'hard'
       and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33')
       and g.completed_at >= now() - interval '180 days'
@@ -615,9 +587,65 @@ as $$
       ), -1) + coalesce(public.long_bot_safe_numeric(
         g.final_state->'analysis'->'botMemory'->'coverage'->'recoveredBotDecisions'
       ), -1)
-      and public.long_bot_safe_numeric(
-        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
-      ) = integrity.covered_bot_decisions
+  ), scanned_decisions as materialized (
+    select
+      g.id as game_id,
+      g.engine_version,
+      decision
+    from candidate_games g
+    cross join lateral jsonb_array_elements(case
+      when jsonb_typeof(g.decisions) = 'array' then g.decisions
+      else '[]'::jsonb
+    end) scanned(decision)
+  ), integrity as (
+    select
+      scanned.game_id,
+      (count(*) filter (
+        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+      ))::numeric as covered_bot_decisions,
+      count(*) filter (
+        where not (
+          (
+            coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+            and (
+              (
+                decision->>'source' = 'engine'
+                and decision->>'engineVersion' = scanned.engine_version
+                and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
+                and coalesce(decision->>'experienceFingerprint', '') <> ''
+              )
+              or (
+                decision->>'source' = 'history-recovery'
+                and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+                and decision->>'engineVersion' = scanned.engine_version
+              )
+            )
+          )
+          or (
+            decision->>'actor' = 'opponent'
+            and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+            and decision->>'engineVersion' = scanned.engine_version
+          )
+        )
+      ) as incompatible_decisions,
+      count(distinct decision->>'experienceFingerprint') filter (
+        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+          and decision->>'source' = 'engine'
+      ) as engine_fingerprints
+    from scanned_decisions scanned
+    group by scanned.game_id
+  ), valid_games as (
+    select
+      g.id,
+      g.winner,
+      g.bot_color,
+      g.result_type,
+      g.player_name,
+      g.completed_at,
+      g.engine_version
+    from candidate_games g
+    join integrity on integrity.game_id = g.id
+    where g.expected_bot_decisions = integrity.covered_bot_decisions
       and integrity.incompatible_decisions = 0
       and integrity.engine_fingerprints <= 1
   ), raw_decisions as (
@@ -641,7 +669,7 @@ as $$
       coalesce(trim(p_player_name), '') <> ''
         and lower(g.player_name) = lower(trim(p_player_name)) as personalized
     from valid_games g
-    cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
+    join scanned_decisions scanned on scanned.game_id = g.id
   ), signals as (
     select
       *,

@@ -51,7 +51,7 @@ test('v33 aggregate keeps compatible v29-v32 evidence and matches the schema', (
   assert.equal(rpc, schema.match(rpcDefinition)?.[0]);
   assert.ok((migration.match(/long-analytic-v33/g) || []).length >= 4);
   assert.match(rpc, /g\.engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33'\)/);
-  assert.match(rpc, /decision->>'engineVersion' = g\.engine_version/);
+  assert.match(rpc, /decision->>'engineVersion' = scanned\.engine_version/);
   assert.match(rpc, /when engine_generation = 33 then 7\.0/);
   assert.match(rpc, /when engine_generation = 32 then 6\.0/);
   assert.match(rpc, /when engine_generation = 31 then 5\.0/);
@@ -70,19 +70,22 @@ test('v33 aggregate keeps compatible v29-v32 evidence and matches the schema', (
   assert.match(rpc, /outcome-weighted evidence, not causal per-move attribution/);
 });
 
-test('v33 aggregate scans each decision array once for integrity', () => {
+test('v33 aggregate expands each decision array once for integrity and scoring', () => {
   const migration = read('supabase/long-bot-strategy-v33.sql');
   const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const rpc = migration.match(rpcDefinition)?.[0] || '';
-  const validGames = rpc.match(/with valid_games as \([\s\S]*?\n  \), raw_decisions as \(/)?.[0] || '';
+  const scannedDecisions = rpc.match(/scanned_decisions as materialized \([\s\S]*?\n  \), integrity as \(/)?.[0] || '';
 
-  assert.equal((rpc.match(/jsonb_array_elements\(/g) || []).length, 2);
-  assert.equal((validGames.match(/jsonb_array_elements\(/g) || []).length, 1);
-  assert.match(validGames, /jsonb_array_elements\(case[\s\S]*?jsonb_typeof\(g\.decisions\) = 'array'/);
-  assert.match(validGames, /as covered_bot_decisions/);
-  assert.match(validGames, /as incompatible_decisions/);
-  assert.match(validGames, /as engine_fingerprints/);
-  assert.match(validGames, /integrity\.covered_bot_decisions/);
-  assert.match(validGames, /integrity\.incompatible_decisions = 0/);
-  assert.match(validGames, /integrity\.engine_fingerprints <= 1/);
+  assert.equal((rpc.match(/jsonb_array_elements\(/g) || []).length, 1);
+  assert.match(rpc, /with candidate_games as materialized \(/);
+  assert.match(rpc, /scanned_decisions as materialized \(/);
+  assert.equal((scannedDecisions.match(/jsonb_array_elements\(/g) || []).length, 1);
+  assert.match(scannedDecisions, /jsonb_array_elements\(case[\s\S]*?jsonb_typeof\(g\.decisions\) = 'array'/);
+  assert.match(rpc, /as covered_bot_decisions/);
+  assert.match(rpc, /as incompatible_decisions/);
+  assert.match(rpc, /as engine_fingerprints/);
+  assert.match(rpc, /integrity\.covered_bot_decisions/);
+  assert.match(rpc, /integrity\.incompatible_decisions = 0/);
+  assert.match(rpc, /integrity\.engine_fingerprints <= 1/);
+  assert.match(rpc, /join scanned_decisions scanned on scanned\.game_id = g\.id/);
 });
