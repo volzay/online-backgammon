@@ -4,7 +4,7 @@
   const NETWORK_GRACE_MS = 120000;
   const PROFILE_HEARTBEAT_MS = 30000;
   const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
-  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v13";
+  const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v14";
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 7;
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
@@ -829,7 +829,7 @@
     return { ok: true, version: nextVersion };
   }
 
-  async function finishRoomGame(code, finalState, version = 0) {
+  async function finishRoomGame(code, finalState, version = 0, trainingState = null) {
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
@@ -841,14 +841,37 @@
     const { client, authUser, guest } = await roomClientContext();
     const payload = JSON.parse(JSON.stringify(finalState || {}));
     if (guest && !authUser?.id) {
-      return putGameState(normalizedCode, payload, version);
+      const saved = await putGameState(normalizedCode, payload, version);
+      return { ...saved, trainingArchived: false };
     }
-    const { data, error } = await client.rpc("finish_room_game", {
+    const args = {
       p_room_code: normalizedCode,
       p_final_state: payload,
-    });
+    };
+    if (trainingState && typeof trainingState === "object") {
+      args.p_training_state = JSON.parse(JSON.stringify(trainingState));
+    }
+    let { data, error } = await client.rpc("finish_room_game", args);
+    let usedLegacyFinalizer = false;
+    if (
+      error &&
+      args.p_training_state &&
+      (
+        error.code === "PGRST202" ||
+        /Could not find the function .*finish_room_game.*p_training_state|schema cache/i.test(error.message || "")
+      )
+    ) {
+      usedLegacyFinalizer = true;
+      ({ data, error } = await client.rpc("finish_room_game", {
+        p_room_code: normalizedCode,
+        p_final_state: payload,
+      }));
+    }
     if (error) throw supabaseError(error, "Could not finish room game.");
-    return data || { ok: true };
+    return {
+      ...(data || { ok: true }),
+      trainingArchived: usedLegacyFinalizer ? false : data?.trainingArchived === true,
+    };
   }
 
   async function archiveBotTrainingGame(code, finalState = null) {

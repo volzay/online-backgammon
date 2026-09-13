@@ -569,10 +569,10 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
   assert.equal(new Set(successful.map(pattern => pattern.contextKey.split('|')[0])).size, phases.length);
 });
 
-test('v31 RPC excludes forced choices, preserves v29-v30 evidence and matches the schema', () => {
+test('v32 RPC excludes forced choices, preserves v29-v31 evidence and matches the schema', () => {
   const schema = fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8');
   const migration = fs.readFileSync(
-    path.join(ROOT, 'supabase/long-bot-strategy-v31.sql'),
+    path.join(ROOT, 'supabase/long-bot-strategy-v32.sql'),
     'utf8',
   );
   const client = fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8');
@@ -595,6 +595,7 @@ test('v31 RPC excludes forced choices, preserves v29-v30 evidence and matches th
   assert.match(migration, /latentFenceExposureBefore/);
   assert.match(migration, /latentFenceExposureAfter/);
   assert.match(migration, /'\|latent:'/);
+  assert.match(migration, /features->'avoidableProspectiveFenceAnchorMiss'\), 0\) \/ 18/);
   assert.match(migration, /features \? 'avoidableHomeShuffleMoves'/);
   assert.match(
     migration,
@@ -609,16 +610,16 @@ test('v31 RPC excludes forced choices, preserves v29-v30 evidence and matches th
     migration,
     /when not \(features \? 'avoidableHomeShuffleMoves'\)\s+and coalesce\(public\.long_bot_safe_numeric\(features->'homeShuffleMoves'\), 0\) > 0\s+then 'unknown'/,
   );
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31\) then descriptor->>'actionKey' end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then descriptor->>'actionKey' end/);
   assert.match(rpc, /decision->'choiceCount'/);
   assert.match(rpc, /public\.long_bot_safe_numeric\(decision->'choiceCount'\) as choice_count/);
   assert.doesNotMatch(rpc, /jsonb_array_length\(decision->'alternatives'\)/);
   assert.match(
     rpc,
-    /actor = 'bot' and engine_generation in \(29, 30, 31\) and choice_count > 1\s+and winner <> bot_color/,
+    /actor = 'bot' and engine_generation in \(29, 30, 31, 32\) and choice_count > 1\s+and winner <> bot_color/,
   );
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31\) then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
-  assert.match(rpc, /case when engine_generation in \(29, 30, 31\) then nullif\(descriptor->'behaviorActionKeys'->>2, ''\) end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then nullif\(descriptor->'behaviorActionKeys'->>0, ''\) end/);
+  assert.match(rpc, /case when engine_generation in \(29, 30, 31, 32\) then nullif\(descriptor->'behaviorActionKeys'->>2, ''\) end/);
   assert.match(
     rpc,
     /actor = 'opponent'\s+and capture_version >= 2\s+and choice_count > 1\s+and winner <> bot_color\s+and harm_signal < 1\.1\s+\) as successful/,
@@ -637,13 +638,14 @@ test('v31 RPC excludes forced choices, preserves v29-v30 evidence and matches th
   assert.match(migration, /decision->'captureVersion'/);
   assert.match(migration, /when actor = 'opponent' and capture_version >= 2 then 4\.0/);
   assert.match(migration, /when actor = 'opponent' then 0\.0/);
+  assert.match(migration, /when engine_generation = 32 then 6\.0/);
   assert.match(migration, /when engine_generation = 31 then 5\.0/);
   assert.match(migration, /when engine_generation = 30 then 4\.0/);
   assert.match(migration, /when engine_generation = 29 then 3\.0/);
   assert.match(migration, /else 0\.0\s+end as engine_weight/);
   assert.match(migration, /player_weight \* engine_weight/);
   assert.match(migration, /'creditVersion', 7/);
-  assert.match(client, /narduh-long-bot-server-experience-v13/);
+  assert.match(client, /narduh-long-bot-server-experience-v14/);
   assert.match(fs.readFileSync(path.join(ROOT, 'strong-bot.js'), 'utf8'), /EXPERIENCE_KEY = 'narduh-long-bot-experience-v7'/);
   assert.match(fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8'), /narduh-long-bot-experience-v5/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);

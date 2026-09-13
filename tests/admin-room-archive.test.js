@@ -152,8 +152,11 @@ test("database schema archives every finished room state", () => {
   assert.match(schema, /'analysis', coalesce\(/);
   assert.match(schema, /r\.game_state->'analysis'/);
   assert.match(schema, /status = 'over'/);
-  assert.match(schema, /game_state = target_state/);
-  assert.match(schema, /target_room\.game_state->>'startedAt' = target_state->>'startedAt'/);
+  const archiveStart = schema.indexOf("create or replace function public.archive_bot_training_game");
+  const archiveEnd = schema.indexOf("revoke all on function public.archive_bot_training_game", archiveStart);
+  const archiveFunction = schema.slice(archiveStart, archiveEnd);
+  assert.doesNotMatch(archiveFunction, /update\s+public\.rooms/i);
+  assert.doesNotMatch(archiveFunction, /game_state\s*=\s*target_state/);
   assert.match(schema, /resolved_result_key := concat\(/);
   assert.match(schema, /create or replace function public\.finish_room_game/);
   assert.match(schema, /for update;/);
@@ -209,7 +212,8 @@ test("game-over modal refreshes from the authoritative Timeweb rating result", (
   assert.match(source, /renderGameOverModal\(\)/);
   assert.match(source, /ratingRetryCount < 3/);
   assert.match(source, /ensureBotFinalStatePublished/);
-  assert.match(source, /archiveBotTrainingGame\(botFinalPayload\)/);
+  assert.match(source, /ensureBotFinalStatePublished\(botFinalPayload\)/);
+  assert.match(source, /saved\?\.trainingArchived === true/);
   assert.doesNotMatch(source, /analysis:\s*undefined/);
   assert.match(source, /archived\?\.decisionCount/);
   assert.doesNotMatch(source, /waitForFinalPersistence/);

@@ -74,6 +74,7 @@ window.NarduController = (function () {
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
   const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
+  const BOT_ANALYSIS_DRAIN_TIMEOUT_MS = 1200;
   let gameplaySoundBusyUntil = 0;
   const UI_TEXT = {
     ru: {
@@ -880,6 +881,38 @@ window.NarduController = (function () {
     return payload;
   }
 
+  function botTrainingStatePayload() {
+    const payload = botAnalysisPayload();
+    const isGuest = window.NarduApp?.getUser?.()?.guest === true;
+    if (isGuest) return payload;
+    // Decisions are the durable training record. The move history stays in the
+    // compact room snapshot and would only duplicate bytes in the training half.
+    payload.history = [];
+    payload.turnMoves = [];
+    return payload;
+  }
+
+  function validBotTrainingStatePayload(payload) {
+    if (mode !== 'bot' || botDifficulty !== 'hard' || !payload) return false;
+    const memory = payload.analysis?.botMemory;
+    const decisions = Array.isArray(memory?.decisions) ? memory.decisions : [];
+    if (!decisions.length) return false;
+    if (payload.variant !== 'long') return true;
+    const coverage = memory?.coverage;
+    const expected = Number(coverage?.expectedBotDecisions);
+    const recorded = Number(coverage?.recordedBotDecisions);
+    const recovered = Number(coverage?.recoveredBotDecisions);
+    const requiresCompleteCoverage = /long-analytic-v(?:29|30|31|32)$/.test(
+      String(memory?.engineVersion || ''),
+    );
+    return coverage?.complete === true &&
+      Number.isInteger(expected) && expected >= 0 &&
+      Number.isInteger(recorded) && recorded >= 0 &&
+      Number.isInteger(recovered) && recovered >= 0 &&
+      expected === recorded + recovered &&
+      (!requiresCompleteCoverage || expected > 0);
+  }
+
   function canPublishBotAnalysis(options = {}) {
     return mode === 'bot' &&
       Boolean(remoteCode) &&
@@ -952,7 +985,14 @@ window.NarduController = (function () {
 
   async function publishBotAnalysisState(options = {}) {
     const force = options.force === true;
-    if (!canPublishBotAnalysis({ force }) || state.phase === 'waiting' || isApplyingRemote) return false;
+    if (
+      !canPublishBotAnalysis({ force }) ||
+      state.phase === 'waiting' ||
+      state.phase === 'over' ||
+      Boolean(state.winner) ||
+      gameOverPublishPromise ||
+      isApplyingRemote
+    ) return false;
     if (force) botAnalysisDisabled = false;
     syncTurnClock();
     persistRoomSnapshot();
@@ -960,8 +1000,10 @@ window.NarduController = (function () {
     botAnalysisPublishQueue = botAnalysisPublishQueue
       .catch(() => {})
       .then(async () => {
+        if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
         const ready = await ensureBotAnalysisRoomReady(payload);
         if (!ready) return;
+        if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
         try {
           const data = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
           if (Number.isFinite(data?.version)) botAnalysisVersion = data.version;
@@ -971,9 +1013,17 @@ window.NarduController = (function () {
             console.warn('Could not save bot analysis state', error?.message || error);
             return false;
           }
+          if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
           try {
             const current = await window.NarduRooms.getGameState(remoteCode);
             if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
+            if (
+              current?.state?.phase === 'over' ||
+              current?.state?.winner ||
+              gameOverPublishPromise ||
+              state.phase === 'over' ||
+              state.winner
+            ) return false;
             const saved = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
             if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
             return true;
@@ -990,23 +1040,63 @@ window.NarduController = (function () {
     return new Promise(resolve => window.setTimeout(resolve, ms));
   }
 
-  function ensureBotFinalStatePublished() {
-    if (state?.gameOverPublishedAt) return Promise.resolve(true);
+  function ensureBotFinalStatePublished(trainingPayload = null) {
     if (gameOverPublishPromise) return gameOverPublishPromise;
-    // A guest archive must exactly match the immutable room snapshot, including
-    // decisions. Registered games keep the compact RPC payload and archive the
-    // complete log separately to avoid finalizer timeouts on long games.
+    if (state?.gameOverPublishedAt) return Promise.resolve(true);
+    // Registered games send the compact room state and the compact training
+    // record through one atomic RPC. Guests still publish the exact full state
+    // first because their archive RPC verifies it byte-for-byte.
     const payload = botFinalStatePayload();
+    const trainingState = validBotTrainingStatePayload(trainingPayload)
+      ? trainingPayload
+      : null;
+    const pendingAnalysisPublishes = botAnalysisPublishQueue;
     gameOverPublishPromise = (async () => {
+      await Promise.race([
+        Promise.resolve(pendingAnalysisPublishes).catch(() => false),
+        wait(BOT_ANALYSIS_DRAIN_TIMEOUT_MS),
+      ]);
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
-          const saved = await window.NarduRooms.finishRoomGame(remoteCode, payload, botAnalysisVersion);
+          const saved = await window.NarduRooms.finishRoomGame(
+            remoteCode,
+            payload,
+            botAnalysisVersion,
+            trainingState,
+          );
           if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
           state.gameOverPublishedAt = new Date().toISOString();
+          if (saved?.trainingArchived === true) {
+            botTrainingArchiveDone = true;
+            return true;
+          }
+          if (trainingState && saved?.trainingArchived === false) {
+            return archiveBotTrainingGame(trainingState, { finalStateReady: true });
+          }
           return true;
         } catch (error) {
           lastError = error;
+          if (error?.status === 409 && window.NarduRooms?.getGameState) {
+            try {
+              const current = await window.NarduRooms.getGameState(remoteCode);
+              if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
+              const currentState = current?.state;
+              if (
+                currentState?.phase === 'over' &&
+                currentState?.winner === payload.winner &&
+                String(currentState?.finishedAt || '') === String(payload.finishedAt || '')
+              ) {
+                state.gameOverPublishedAt = new Date().toISOString();
+                if (trainingState) {
+                  return archiveBotTrainingGame(trainingState, { finalStateReady: true });
+                }
+                return true;
+              }
+            } catch (refreshError) {
+              lastError = refreshError;
+            }
+          }
           await wait(500 * attempt);
         }
       }
@@ -3356,7 +3446,7 @@ window.NarduController = (function () {
     };
   }
 
-  function archiveBotTrainingGame(finalPayload = null) {
+  function archiveBotTrainingGame(finalPayload = null, options = {}) {
     if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) {
       return botTrainingArchivePromise;
     }
@@ -3364,8 +3454,11 @@ window.NarduController = (function () {
     const payload = finalPayload || botAnalysisPayload();
     botTrainingArchivePromise = (async () => {
       // Guest games can be archived only after the authoritative room snapshot
-      // contains the same finished decision log.
-      await Promise.resolve(botGameFinalizePromise).catch(() => false);
+      // contains the same finished decision log. The atomic finalizer and its
+      // legacy fallback call this with finalStateReady after that write settles.
+      if (window.NarduApp?.getUser?.()?.guest === true && !options.finalStateReady) {
+        await Promise.resolve(botGameFinalizePromise).catch(() => false);
+      }
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
@@ -3579,14 +3672,11 @@ window.NarduController = (function () {
         ensureRemoteFinalStatePublished();
       }
       if (mode === 'bot') {
-        botFinalPayload = safeStep('Build final bot analysis payload', botAnalysisPayload, null);
-        botPublishPromise = ensureBotFinalStatePublished();
+        botFinalPayload = safeStep('Build bot training payload', botTrainingStatePayload, null);
+        botPublishPromise = ensureBotFinalStatePublished(botFinalPayload);
       }
       if (mode === 'bot') {
         botGameFinalizePromise = Promise.resolve(botPublishPromise).catch(() => false);
-      }
-      if (mode === 'bot' && botDifficulty === 'hard') {
-        archiveBotTrainingGame(botFinalPayload);
       }
       if (
         mode === 'bot' &&

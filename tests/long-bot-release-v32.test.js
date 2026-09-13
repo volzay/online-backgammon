@@ -6,24 +6,24 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('v31 runtime advances every long-bot experience generation', () => {
+test('v32 runtime advances every long-bot experience generation', () => {
   const browser = read('bot-engine/long/browser.ts');
   const strongBot = read('strong-bot.js');
   const roomsClient = read('rooms-client.js');
   const supabaseClient = read('supabase-client.js');
 
-  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v31'/);
-  assert.match(browser, /frozen-experience-v31:/);
+  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v32'/);
+  assert.match(browser, /frozen-experience-v32:/);
   assert.match(browser, /fingerprint: `lbe7-/);
   assert.match(strongBot, /EXPERIENCE_KEY = 'narduh-long-bot-experience-v7'/);
   assert.match(strongBot, /LONG_EXPERIENCE_CREDIT_VERSION = 7/);
-  assert.match(roomsClient, /server-experience-v13/);
+  assert.match(roomsClient, /server-experience-v14/);
   assert.match(roomsClient, /LONG_BOT_EXPERIENCE_CREDIT_VERSION = 7/);
-  assert.match(supabaseClient, /server-experience-v13/);
+  assert.match(supabaseClient, /server-experience-v14/);
   assert.match(supabaseClient, /long-bot-experience-v7/);
 });
 
-test('v31 decision records retain distribution and prospective-fence telemetry', () => {
+test('v32 decision records retain distribution and prospective-fence telemetry', () => {
   const browser = read('bot-engine/long/browser.ts');
   [
     'distributionWeight',
@@ -39,20 +39,25 @@ test('v31 decision records retain distribution and prospective-fence telemetry',
   ].forEach(field => assert.match(browser, new RegExp(`${field}:`), field));
 });
 
-test('v31 aggregate keeps compatible v29-v30 evidence and matches the schema', () => {
-  const migration = read('supabase/long-bot-strategy-v31.sql');
+test('v32 aggregate keeps compatible v29-v31 evidence and matches the schema', () => {
+  const migration = read('supabase/long-bot-strategy-v32.sql');
   const schema = read('supabase/schema.sql');
   const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const rpc = migration.match(rpcDefinition)?.[0] || '';
 
   assert.equal(rpc, schema.match(rpcDefinition)?.[0]);
-  assert.match(rpc, /g\.engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31'\)/);
+  assert.match(rpc, /g\.engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32'\)/);
   assert.match(rpc, /decision->>'engineVersion' = g\.engine_version/);
+  assert.match(rpc, /when engine_generation = 32 then 6\.0/);
   assert.match(rpc, /when engine_generation = 31 then 5\.0/);
   assert.match(rpc, /when engine_generation = 30 then 4\.0/);
   assert.match(rpc, /when engine_generation = 29 then 3\.0/);
-  assert.match(rpc, /engine_generation in \(29, 30, 31\)/);
+  assert.match(rpc, /engine_generation in \(29, 30, 31, 32\)/);
   assert.match(rpc, /features->'avoidableProspectiveFenceInterruptionBreak'/);
+  assert.match(
+    rpc,
+    /features->'avoidableProspectiveFenceAnchorMiss'\), 0\) \/ 18/,
+  );
   assert.doesNotMatch(rpc, /features->'prospectiveFenceInterruptionBreak'/);
   assert.doesNotMatch(rpc, /features->'prospectiveFenceExtensionDelta'/);
   assert.match(rpc, /descriptor->'behaviorActionKeys'->>2/);

@@ -419,7 +419,8 @@ grant execute on function public.close_own_lobby_rooms() to authenticated;
 
 create or replace function public.finish_room_game(
   p_room_code text,
-  p_final_state jsonb
+  p_final_state jsonb,
+  p_training_state jsonb
 )
 returns jsonb
 language plpgsql
@@ -430,6 +431,17 @@ declare
   player_id uuid := auth.uid();
   target public.rooms%rowtype;
   next_version bigint;
+  clean_code text := upper(trim(coalesce(p_room_code, '')));
+  training_memory jsonb;
+  training_decisions jsonb;
+  training_outcome jsonb;
+  training_coverage jsonb;
+  resolved_bot_color text;
+  training_id uuid;
+  training_count integer := 0;
+  training_archived boolean := false;
+  already_finished boolean := false;
+  completed_at timestamptz;
 begin
   if player_id is null then
     raise exception 'Authentication is required.' using errcode = '42501';
@@ -442,7 +454,7 @@ begin
   select *
   into target
   from public.rooms
-  where code = upper(trim(coalesce(p_room_code, '')))
+  where code = clean_code
   for update;
 
   if not found then
@@ -456,31 +468,170 @@ begin
   if coalesce(target.game_state->>'winner', '') in ('white', 'dark') then
     if target.game_state->>'winner' = p_final_state->>'winner'
        and coalesce(target.game_state->>'finishedAt', '') = coalesce(p_final_state->>'finishedAt', '') then
-      return jsonb_build_object('ok', true, 'version', target.game_version, 'alreadyFinished', true);
+      already_finished := true;
+      next_version := target.game_version;
+    else
+      raise exception 'Room already contains a different finished game.' using errcode = '23505';
     end if;
-    raise exception 'Room already contains a different finished game.' using errcode = '23505';
   end if;
 
-  if target.status = 'closed'
-     and coalesce(target.closed_reason, '') not in ('lobby_exit', 'lobby_exit_repair', 'left', 'removed') then
-    raise exception 'Room was closed by an administrator.' using errcode = '55000';
-  end if;
-  if target.status not in ('joined', 'over', 'closed') then
-    raise exception 'Room has no active game.' using errcode = '55000';
+  if not already_finished then
+    if target.status = 'closed'
+       and coalesce(target.closed_reason, '') not in ('lobby_exit', 'lobby_exit_repair', 'left', 'removed') then
+      raise exception 'Room was closed by an administrator.' using errcode = '55000';
+    end if;
+    if target.status not in ('joined', 'over', 'closed') then
+      raise exception 'Room has no active game.' using errcode = '55000';
+    end if;
+
+    next_version := target.game_version + 1;
+    completed_at := now();
+    update public.rooms
+    set
+      game_state = p_final_state,
+      game_version = next_version,
+      status = 'over',
+      archived_at = completed_at,
+      closed_reason = 'finished'
+    where id = target.id;
+  else
+    completed_at := coalesce(target.archived_at, now());
   end if;
 
-  next_version := target.game_version + 1;
-  update public.rooms
-  set
-    game_state = p_final_state,
-    game_version = next_version,
-    status = 'over',
-    archived_at = now(),
-    closed_reason = 'finished'
-  where id = target.id;
+  if p_training_state is not null then
+    if target.host_user_id is distinct from player_id
+       or (
+         coalesce(target.game_state->>'mode', target.game_state->'analysis'->>'mode', '') <> 'bot'
+         and coalesce(target.game_state->>'opponent', target.game_state->'analysis'->>'opponent', '') <> 'bot'
+       )
+       or (
+         coalesce(p_final_state->>'mode', p_final_state->'analysis'->>'mode', '') <> 'bot'
+         and coalesce(p_final_state->>'opponent', p_final_state->'analysis'->>'opponent', '') <> 'bot'
+       )
+       or coalesce(target.game_state->>'botDifficulty', target.game_state->'analysis'->>'difficulty', '') <> 'hard'
+       or coalesce(p_final_state->>'botDifficulty', '') <> 'hard'
+       or coalesce(target.game_state->>'startedAt', '') <> coalesce(p_final_state->>'startedAt', '')
+       or coalesce(p_training_state->>'phase', '') <> 'over'
+       or coalesce(p_training_state->>'winner', '') not in ('white', 'dark')
+       or coalesce(p_training_state->>'winner', '') <> coalesce(p_final_state->>'winner', '')
+       or coalesce(p_training_state->>'roomCode', clean_code) <> clean_code
+       or coalesce(p_training_state->>'mode', '') <> 'bot'
+       or coalesce(p_training_state->>'variant', target.variant) not in ('long', 'short')
+       or coalesce(p_training_state->>'variant', target.variant) <> coalesce(p_final_state->>'variant', target.variant)
+       or coalesce(p_training_state->>'botDifficulty', '') <> 'hard'
+       or coalesce(p_training_state->>'startedAt', '') <> coalesce(p_final_state->>'startedAt', '')
+       or coalesce(p_training_state->>'finishedAt', '') <> coalesce(p_final_state->>'finishedAt', '')
+       or coalesce(p_training_state->>'resultType', 'normal') <> coalesce(p_final_state->>'resultType', 'normal')
+       or coalesce(p_training_state->'points', '{}'::jsonb) <> coalesce(p_final_state->'points', '{}'::jsonb)
+       or coalesce(p_training_state->'off', '{}'::jsonb) <> coalesce(p_final_state->'off', '{}'::jsonb)
+       or coalesce(p_training_state->'bar', '{}'::jsonb) <> coalesce(p_final_state->'bar', '{}'::jsonb)
+       or coalesce(p_training_state->'score', '{}'::jsonb) <> coalesce(p_final_state->'score', '{}'::jsonb) then
+      raise exception 'Training state does not match the finished game.' using errcode = '22023';
+    end if;
 
-  return jsonb_build_object('ok', true, 'version', next_version, 'alreadyFinished', false);
+    training_memory := coalesce(p_training_state->'analysis'->'botMemory', '{}'::jsonb);
+    training_decisions := coalesce(training_memory->'decisions', '[]'::jsonb);
+    if jsonb_typeof(training_decisions) <> 'array'
+       or jsonb_array_length(training_decisions) = 0 then
+      raise exception 'Bot training payload contains no decisions.' using errcode = '22023';
+    end if;
+    training_coverage := coalesce(training_memory->'coverage', '{}'::jsonb);
+    if coalesce(p_training_state->>'variant', target.variant) = 'long'
+       and coalesce(training_memory->>'engineVersion', '') in (
+         'long-analytic-v29',
+         'long-analytic-v30',
+         'long-analytic-v31',
+         'long-analytic-v32'
+       ) then
+      if jsonb_typeof(training_coverage) <> 'object'
+         or coalesce(training_coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
+         or jsonb_typeof(training_coverage->'expectedBotDecisions') <> 'number'
+         or jsonb_typeof(training_coverage->'recordedBotDecisions') <> 'number'
+         or jsonb_typeof(training_coverage->'recoveredBotDecisions') <> 'number'
+         or coalesce(training_coverage->>'expectedBotDecisions', '') !~ '^[0-9]+$'
+         or coalesce(training_coverage->>'recordedBotDecisions', '') !~ '^[0-9]+$'
+         or coalesce(training_coverage->>'recoveredBotDecisions', '') !~ '^[0-9]+$'
+         or (training_coverage->>'expectedBotDecisions')::numeric <= 0
+         or (training_coverage->>'expectedBotDecisions')::numeric <>
+           (training_coverage->>'recordedBotDecisions')::numeric
+             + (training_coverage->>'recoveredBotDecisions')::numeric then
+        raise exception 'Long bot v29+ training payload has incomplete decision coverage.' using errcode = '22023';
+      end if;
+    end if;
+
+    training_outcome := coalesce(training_memory->'outcome', '{}'::jsonb);
+    resolved_bot_color := coalesce(
+      nullif(training_outcome->>'botColor', ''),
+      case
+        when coalesce(p_training_state->'analysis'->>'playerColor', 'white') = 'white'
+          then 'dark'
+        else 'white'
+      end
+    );
+
+    insert into public.bot_training_games (
+      room_id, room_code, player_user_id, player_name, bot_name,
+      engine_version, difficulty, bot_color, winner, result_type,
+      decision_count, decisions, final_state, completed_at
+    ) values (
+      target.id,
+      target.code,
+      target.host_user_id,
+      target.host_name,
+      coalesce(target.guest_name, p_training_state->'analysis'->>'botName', 'Hard bot'),
+      coalesce(training_memory->>'engineVersion', ''),
+      'hard',
+      resolved_bot_color,
+      p_training_state->>'winner',
+      coalesce(nullif(p_training_state->>'resultType', ''), 'normal'),
+      jsonb_array_length(training_decisions),
+      training_decisions,
+      p_training_state,
+      completed_at
+    )
+    on conflict (room_code) do update
+    set
+      room_id = excluded.room_id,
+      player_user_id = excluded.player_user_id,
+      player_name = excluded.player_name,
+      bot_name = excluded.bot_name,
+      engine_version = excluded.engine_version,
+      difficulty = excluded.difficulty,
+      bot_color = excluded.bot_color,
+      winner = excluded.winner,
+      result_type = excluded.result_type,
+      decision_count = excluded.decision_count,
+      decisions = excluded.decisions,
+      final_state = excluded.final_state,
+      completed_at = excluded.completed_at
+    returning id, decision_count into training_id, training_count;
+    training_archived := true;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'version', next_version,
+    'alreadyFinished', already_finished,
+    'trainingArchived', training_archived,
+    'trainingId', training_id,
+    'decisionCount', training_count
+  );
 end;
+$$;
+
+revoke all on function public.finish_room_game(text, jsonb, jsonb) from public;
+grant execute on function public.finish_room_game(text, jsonb, jsonb) to authenticated;
+
+create or replace function public.finish_room_game(
+  p_room_code text,
+  p_final_state jsonb
+)
+returns jsonb
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select public.finish_room_game($1, $2, null::jsonb)
 $$;
 
 revoke all on function public.finish_room_game(text, jsonb) from public;
@@ -584,7 +735,8 @@ begin
     and coalesce(memory->>'engineVersion', '') in (
       'long-analytic-v29',
       'long-analytic-v30',
-      'long-analytic-v31'
+      'long-analytic-v31',
+      'long-analytic-v32'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -699,7 +851,7 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
       and coalesce(
         room.game_state->'analysis'->'botMemory'->>'engineVersion',
         ''
-      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31') then
+      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32') then
       coalesce(
         room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
         'false'::jsonb
@@ -2153,21 +2305,6 @@ begin
     raise exception 'The game is not finished.';
   end if;
 
-  if p_final_state is not null
-    and coalesce(target_room.game_state->>'winner', '') = ''
-    and nullif(target_room.game_state->>'startedAt', '') is not null
-    and target_room.game_state->>'startedAt' = target_state->>'startedAt' then
-    update public.rooms
-    set
-      game_state = target_state,
-      game_version = game_version + 1,
-      status = 'over',
-      archived_at = now(),
-      closed_reason = 'finished'
-    where id = target_room.id
-    returning * into target_room;
-  end if;
-
   memory := coalesce(target_state->'analysis'->'botMemory', '{}'::jsonb);
   decisions := coalesce(memory->'decisions', '[]'::jsonb);
   if jsonb_typeof(decisions) <> 'array' then
@@ -2178,7 +2315,8 @@ begin
     and coalesce(memory->>'engineVersion', '') in (
       'long-analytic-v29',
       'long-analytic-v30',
-      'long-analytic-v31'
+      'long-analytic-v31',
+      'long-analytic-v32'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -2306,7 +2444,7 @@ as $$
     select g.*
     from public.bot_training_games g
     where g.difficulty = 'hard'
-      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31')
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -2421,6 +2559,10 @@ as $$
           0,
           coalesce(public.long_bot_safe_numeric(features->'avoidableProspectiveFenceInterruptionBreak'), 0) / 18
         )),
+        least(6, greatest(
+          0,
+          coalesce(public.long_bot_safe_numeric(features->'avoidableProspectiveFenceAnchorMiss'), 0) / 18
+        )),
         case
           when coalesce(public.long_bot_safe_numeric(features->'maxRouteTowerAfter'), 0) >= 6
             then (coalesce(public.long_bot_safe_numeric(features->'maxRouteTowerAfter'), 0) - 5) * 0.85
@@ -2449,6 +2591,7 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
+        when engine_generation = 32 then 6.0
         when engine_generation = 31 then 5.0
         when engine_generation = 30 then 4.0
         when engine_generation = 29 then 3.0
@@ -2460,9 +2603,9 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation in (29, 30, 31) and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30, 31, 32) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation in (29, 30, 31) and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30, 31, 32) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -2489,13 +2632,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation in (29, 30, 31) then descriptor->>'actionKey' end),
-        (case when engine_generation in (29, 30, 31) then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation in (29, 30, 31) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30, 31, 32) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation in (29, 30, 31) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2506,9 +2649,9 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
-        (case when engine_generation in (29, 30, 31) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31, 32) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
