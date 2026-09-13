@@ -9,7 +9,7 @@
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 8;
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
-  const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+  const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
   const SHORT_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();

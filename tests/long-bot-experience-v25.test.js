@@ -585,7 +585,7 @@ test('v33 RPC excludes forced choices, preserves v29-v32 evidence and matches th
     'utf8',
   );
   const client = fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8');
-  const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
+  const rpcDefinition = /create or replace function private\.compute_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const rpc = migration.match(rpcDefinition)?.[0] || '';
 
   assert.equal(rpc, schema.match(rpcDefinition)?.[0]);

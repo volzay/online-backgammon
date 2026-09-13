@@ -183,10 +183,10 @@ test('hard long game retries a failed memory load before freezing the session', 
   assert.equal(telemetry.error, '');
 });
 
-test('v33 ignores server experience cached for longer than one hour', async () => {
+test('v33 ignores server experience cached for longer than ten minutes', async () => {
   const localStorage = memoryStorage();
   localStorage.setItem('narduh-long-bot-server-experience-v15', JSON.stringify({
-    savedAt: Date.now() - 60 * 60 * 1000 - 1,
+    savedAt: Date.now() - 10 * 60 * 1000 - 1,
     playerKey: 'tester1',
     creditVersion: 8,
     patterns: [{

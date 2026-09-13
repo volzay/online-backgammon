@@ -1,4 +1,5 @@
 create extension if not exists pgcrypto;
+create extension if not exists pg_cron;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -2432,31 +2433,92 @@ $$;
 revoke all on function public.long_bot_safe_numeric(jsonb)
   from public, anon, authenticated, service_role;
 
-drop function if exists public.get_long_bot_experience_patterns();
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated, service_role;
 
-create or replace function public.get_long_bot_experience_patterns(
+create table if not exists private.long_bot_experience_cache_keys (
+  player_key text primary key,
+  dirty boolean not null default true,
+  discovered_at timestamptz not null default now()
+);
+
+create table if not exists private.long_bot_experience_cache (
+  player_key text primary key references private.long_bot_experience_cache_keys(player_key)
+    on delete cascade,
+  patterns jsonb not null,
+  refreshed_at timestamptz not null default now(),
+  constraint long_bot_experience_cache_patterns_array
+    check (jsonb_typeof(patterns) = 'array')
+);
+
+create table if not exists private.long_bot_experience_changes (
+  change_id bigint generated always as identity primary key,
+  old_player_key text,
+  new_player_key text,
+  changed_at timestamptz not null default now()
+);
+
+alter table private.long_bot_experience_cache_keys enable row level security;
+alter table private.long_bot_experience_cache enable row level security;
+alter table private.long_bot_experience_changes enable row level security;
+revoke all on private.long_bot_experience_cache_keys from public, anon, authenticated, service_role;
+revoke all on private.long_bot_experience_cache from public, anon, authenticated, service_role;
+revoke all on private.long_bot_experience_changes from public, anon, authenticated, service_role;
+
+drop function if exists private.compute_long_bot_experience_patterns(text);
+
+create or replace function private.compute_long_bot_experience_patterns(
   p_player_name text default null
 )
 returns jsonb
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
+set statement_timeout = '2min'
 as $$
-  with candidate_games as materialized (
-    select
-      g.id,
-      g.winner,
-      g.bot_color,
-      g.result_type,
-      g.player_name,
-      g.completed_at,
-      g.engine_version,
-      g.decisions,
-      public.long_bot_safe_numeric(
-        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
-      ) as expected_bot_decisions
+  with valid_games as (
+    select g.*
     from public.bot_training_games g
+    cross join lateral (
+      select
+        (count(*) filter (
+          where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+        ))::numeric as covered_bot_decisions,
+        count(*) filter (
+          where not (
+            (
+              coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+              and (
+                (
+                  decision->>'source' = 'engine'
+                  and decision->>'engineVersion' = g.engine_version
+                  and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
+                  and coalesce(decision->>'experienceFingerprint', '') <> ''
+                )
+                or (
+                  decision->>'source' = 'history-recovery'
+                  and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+                  and decision->>'engineVersion' = g.engine_version
+                )
+              )
+            )
+            or (
+              decision->>'actor' = 'opponent'
+              and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
+              and decision->>'engineVersion' = g.engine_version
+            )
+          )
+        ) as incompatible_decisions,
+        count(distinct decision->>'experienceFingerprint') filter (
+          where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
+            and decision->>'source' = 'engine'
+        ) as engine_fingerprints
+      from jsonb_array_elements(case
+        when jsonb_typeof(g.decisions) = 'array' then g.decisions
+        else '[]'::jsonb
+      end) scanned(decision)
+    ) integrity
     where g.difficulty = 'hard'
       and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33')
       and g.completed_at >= now() - interval '180 days'
@@ -2477,65 +2539,9 @@ as $$
       ), -1) + coalesce(public.long_bot_safe_numeric(
         g.final_state->'analysis'->'botMemory'->'coverage'->'recoveredBotDecisions'
       ), -1)
-  ), scanned_decisions as materialized (
-    select
-      g.id as game_id,
-      g.engine_version,
-      decision
-    from candidate_games g
-    cross join lateral jsonb_array_elements(case
-      when jsonb_typeof(g.decisions) = 'array' then g.decisions
-      else '[]'::jsonb
-    end) scanned(decision)
-  ), integrity as (
-    select
-      scanned.game_id,
-      (count(*) filter (
-        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-      ))::numeric as covered_bot_decisions,
-      count(*) filter (
-        where not (
-          (
-            coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-            and (
-              (
-                decision->>'source' = 'engine'
-                and decision->>'engineVersion' = scanned.engine_version
-                and coalesce(decision->'experienceFrozen', 'false'::jsonb) = 'true'::jsonb
-                and coalesce(decision->>'experienceFingerprint', '') <> ''
-              )
-              or (
-                decision->>'source' = 'history-recovery'
-                and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-                and decision->>'engineVersion' = scanned.engine_version
-              )
-            )
-          )
-          or (
-            decision->>'actor' = 'opponent'
-            and coalesce(public.long_bot_safe_numeric(decision->'captureVersion'), 0) >= 2
-            and decision->>'engineVersion' = scanned.engine_version
-          )
-        )
-      ) as incompatible_decisions,
-      count(distinct decision->>'experienceFingerprint') filter (
-        where coalesce(nullif(decision->>'actor', ''), 'bot') = 'bot'
-          and decision->>'source' = 'engine'
-      ) as engine_fingerprints
-    from scanned_decisions scanned
-    group by scanned.game_id
-  ), valid_games as (
-    select
-      g.id,
-      g.winner,
-      g.bot_color,
-      g.result_type,
-      g.player_name,
-      g.completed_at,
-      g.engine_version
-    from candidate_games g
-    join integrity on integrity.game_id = g.id
-    where g.expected_bot_decisions = integrity.covered_bot_decisions
+      and public.long_bot_safe_numeric(
+        g.final_state->'analysis'->'botMemory'->'coverage'->'expectedBotDecisions'
+      ) = integrity.covered_bot_decisions
       and integrity.incompatible_decisions = 0
       and integrity.engine_fingerprints <= 1
   ), raw_decisions as (
@@ -2559,7 +2565,7 @@ as $$
       coalesce(trim(p_player_name), '') <> ''
         and lower(g.player_name) = lower(trim(p_player_name)) as personalized
     from valid_games g
-    join scanned_decisions scanned on scanned.game_id = g.id
+    cross join lateral jsonb_array_elements(coalesce(g.decisions, '[]'::jsonb)) decision
   ), signals as (
     select
       *,
@@ -2841,8 +2847,304 @@ as $$
   from ranked
 $$;
 
+revoke all on function private.compute_long_bot_experience_patterns(text)
+  from public, anon, authenticated, service_role;
+
+create or replace function private.note_long_bot_experience_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  old_relevant boolean := false;
+  new_relevant boolean := false;
+  old_key text;
+  new_key text;
+begin
+  if tg_op <> 'INSERT' then
+    old_relevant := old.difficulty = 'hard'
+      and old.engine_version in (
+        'long-analytic-v29',
+        'long-analytic-v30',
+        'long-analytic-v31',
+        'long-analytic-v32',
+        'long-analytic-v33'
+      );
+    if old_relevant then
+      old_key := pg_catalog.lower(pg_catalog.btrim(old.player_name));
+    end if;
+  end if;
+
+  if tg_op <> 'DELETE' then
+    new_relevant := new.difficulty = 'hard'
+      and new.engine_version in (
+        'long-analytic-v29',
+        'long-analytic-v30',
+        'long-analytic-v31',
+        'long-analytic-v32',
+        'long-analytic-v33'
+      );
+    if new_relevant then
+      new_key := pg_catalog.lower(pg_catalog.btrim(new.player_name));
+    end if;
+  end if;
+
+  if old_relevant or new_relevant then
+    insert into private.long_bot_experience_changes(old_player_key, new_player_key)
+    values (old_key, new_key);
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.note_long_bot_experience_change()
+  from public, anon, authenticated, service_role;
+
+create or replace function private.refresh_long_bot_experience_cache(
+  p_batch_size integer default 2
+)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+set statement_timeout = '2min'
+as $$
+declare
+  effective_batch_size integer := greatest(
+    1,
+    least(coalesce(p_batch_size, 2), 8)
+  );
+  target_player_key text;
+  computed_patterns jsonb;
+  refreshed_count integer := 0;
+begin
+  if not pg_catalog.pg_try_advisory_xact_lock(20151, 3308) then
+    return 0;
+  end if;
+
+  -- Consume exactly the ledger rows visible to this statement. A concurrent
+  -- commit stays in the ledger for the next run, so no invalidation is lost.
+  with consumed_changes as (
+    delete from private.long_bot_experience_changes
+    returning old_player_key, new_player_key
+  ), keys_to_dirty(player_key) as (
+    -- Ordinary changes refresh global plus their players. Only the synthetic
+    -- NULL/NULL sentinel fans out to every historical cache key.
+    select ''::text
+    where exists (select 1 from consumed_changes)
+    union
+    select cache_key.player_key
+    from private.long_bot_experience_cache_keys cache_key
+    where exists (
+      select 1
+      from consumed_changes
+      where old_player_key is null
+        and new_player_key is null
+    )
+    union
+    select old_player_key
+    from consumed_changes
+    where old_player_key is not null
+    union
+    select new_player_key
+    from consumed_changes
+    where new_player_key is not null
+  )
+  insert into private.long_bot_experience_cache_keys(player_key, dirty)
+  select player_key, true
+  from keys_to_dirty
+  on conflict (player_key) do update
+    set dirty = true;
+
+  for target_player_key in
+    select cache_key.player_key
+    from private.long_bot_experience_cache_keys cache_key
+    left join private.long_bot_experience_cache cached
+      on cached.player_key = cache_key.player_key
+    where cache_key.dirty
+       or cached.player_key is null
+       or cached.refreshed_at < pg_catalog.clock_timestamp() - interval '1 hour'
+    order by
+      (cached.player_key is null) desc,
+      cached.refreshed_at asc nulls first,
+      (cache_key.player_key = '') desc,
+      cache_key.player_key
+    limit effective_batch_size
+  loop
+    computed_patterns := private.compute_long_bot_experience_patterns(
+      nullif(target_player_key, '')
+    );
+    if pg_catalog.jsonb_typeof(computed_patterns) is distinct from 'array' then
+      raise exception 'Long-bot experience builder returned a non-array payload.';
+    end if;
+
+    insert into private.long_bot_experience_cache(player_key, patterns, refreshed_at)
+    values (target_player_key, computed_patterns, pg_catalog.clock_timestamp())
+    on conflict (player_key) do update
+      set patterns = excluded.patterns,
+          refreshed_at = excluded.refreshed_at;
+
+    update private.long_bot_experience_cache_keys
+    set dirty = false
+    where player_key = target_player_key;
+
+    refreshed_count := refreshed_count + 1;
+  end loop;
+
+  return refreshed_count;
+end;
+$$;
+
+revoke all on function private.refresh_long_bot_experience_cache(integer)
+  from public, anon, authenticated, service_role;
+
+insert into private.long_bot_experience_cache_keys(player_key)
+values ('')
+on conflict (player_key) do nothing;
+
+insert into private.long_bot_experience_cache_keys(player_key)
+select distinct pg_catalog.lower(g.player_name)
+from public.bot_training_games g
+where g.difficulty = 'hard'
+  and g.engine_version in (
+    'long-analytic-v29',
+    'long-analytic-v30',
+    'long-analytic-v31',
+    'long-analytic-v32',
+    'long-analytic-v33'
+  )
+  and g.completed_at >= pg_catalog.now() - interval '180 days'
+  and pg_catalog.btrim(g.player_name) <> ''
+  and g.player_name = pg_catalog.btrim(g.player_name)
+on conflict (player_key) do nothing;
+
+do $bootstrap$
+declare
+  refreshed_count integer;
+begin
+  update private.long_bot_experience_cache_keys
+  set dirty = true;
+
+  perform pg_catalog.pg_advisory_xact_lock(20151, 3308);
+  loop
+    refreshed_count := private.refresh_long_bot_experience_cache(8);
+    exit when refreshed_count = 0;
+  end loop;
+
+  if not exists (
+    select 1
+    from private.long_bot_experience_cache
+    where player_key = ''
+      and pg_catalog.jsonb_typeof(patterns) = 'array'
+  ) then
+    raise exception 'Long-bot experience cache bootstrap failed.';
+  end if;
+end;
+$bootstrap$;
+
+drop trigger if exists note_long_bot_experience_change
+  on public.bot_training_games;
+create trigger note_long_bot_experience_change
+after insert or update or delete on public.bot_training_games
+for each row execute function private.note_long_bot_experience_change();
+
+-- Close the bootstrap race after the trigger has taken its short table lock.
+insert into private.long_bot_experience_cache_keys(player_key)
+select distinct pg_catalog.lower(g.player_name)
+from public.bot_training_games g
+where g.difficulty = 'hard'
+  and g.engine_version in (
+    'long-analytic-v29',
+    'long-analytic-v30',
+    'long-analytic-v31',
+    'long-analytic-v32',
+    'long-analytic-v33'
+  )
+  and g.completed_at >= pg_catalog.now() - interval '180 days'
+  and pg_catalog.btrim(g.player_name) <> ''
+  and g.player_name = pg_catalog.btrim(g.player_name)
+on conflict (player_key) do nothing;
+
+insert into private.long_bot_experience_changes(old_player_key, new_player_key)
+values (null, null);
+
+drop function if exists public.get_long_bot_experience_patterns();
+drop function if exists public.get_long_bot_experience_patterns(text);
+
+create or replace function public.get_long_bot_experience_patterns(
+  p_player_name text default null
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select cached.patterns
+      from private.long_bot_experience_cache cached
+      where cached.player_key = pg_catalog.lower(
+        pg_catalog.btrim(coalesce(p_player_name, ''))
+      )
+    ),
+    (
+      select cached.patterns
+      from private.long_bot_experience_cache cached
+      where cached.player_key = ''
+    ),
+    '[]'::jsonb
+  )
+$$;
+
 revoke all on function public.get_long_bot_experience_patterns(text) from public;
 grant execute on function public.get_long_bot_experience_patterns(text) to anon, authenticated;
+
+do $cron_jobs$
+declare
+  old_job record;
+begin
+  for old_job in
+    select jobid
+    from cron.job
+    where jobname in (
+      'refresh-long-bot-experience-v33',
+      'cleanup-long-bot-experience-v33-job-history'
+    )
+  loop
+    perform cron.unschedule(old_job.jobid);
+    delete from cron.job_run_details
+    where jobid = old_job.jobid;
+  end loop;
+
+  perform cron.schedule(
+    'refresh-long-bot-experience-v33',
+    '* * * * *',
+    $command$select private.refresh_long_bot_experience_cache(2);$command$
+  );
+  perform cron.schedule(
+    'cleanup-long-bot-experience-v33-job-history',
+    '17 3 * * *',
+    $command$
+      delete from cron.job_run_details details
+      where details.jobid in (
+        select job.jobid
+        from cron.job job
+        where job.jobname in (
+          'refresh-long-bot-experience-v33',
+          'cleanup-long-bot-experience-v33-job-history'
+        )
+      )
+        and details.end_time < pg_catalog.now() - interval '7 days';
+    $command$
+  );
+end;
+$cron_jobs$;
 
 drop function if exists public.get_short_bot_experience_patterns(text);
 
