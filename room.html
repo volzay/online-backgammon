@@ -146,6 +146,14 @@
         <span data-i18n="status">Статус</span>
         <strong data-wait-status data-i18n="status_waiting">Ждём подключения</strong>
       </div>
+      <label class="game-wait-invite-link">
+        <span data-i18n="invite_link">Ссылка для входа</span>
+        <input class="text-input" type="url" readonly data-invite-url aria-label="Ссылка для входа" data-i18n-aria="invite_link" />
+      </label>
+      <div class="game-wait-invite">
+        <button class="ghostbtn game-wait-invite-btn" type="button" data-copy-invite data-i18n="copy_invite">Копировать приглашение</button>
+        <span class="game-wait-invite-feedback" data-invite-feedback role="status" aria-live="polite"></span>
+      </div>
     </div>
   </section>
 
@@ -240,6 +248,11 @@
 
     <!-- ─── CENTER: BOARD + ACTIONS ─── -->
     <section class="center">
+
+      <div class="game-turn-status" data-turn-status data-tone="waiting" role="status" aria-live="polite" aria-atomic="true">
+        <span class="game-turn-status-dot" aria-hidden="true"></span>
+        <strong data-turn-status-label>Подготовка партии…</strong>
+      </div>
 
       <div class="board-wrap">
         <div class="board" id="board">
@@ -365,7 +378,7 @@
             <button class="emoji-toggle" id="emoji-btn" aria-label="Эмодзи" title="Эмодзи" data-i18n-aria="emoji" data-i18n-title="emoji">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
             </button>
-            <input id="chat-input" data-i18n-ph="chat_ph" placeholder="Сообщение сопернику…" />
+            <input id="chat-input" maxlength="1200" data-i18n-ph="chat_ph" placeholder="Сообщение сопернику…" />
             <span class="rec-indicator" id="rec-indicator">
               <span class="rec-dot"></span>
               <span class="rec-time" id="rec-time">0:00</span>
@@ -1551,8 +1564,83 @@ async function paintWaitingRoom() {
   panel.querySelector('[data-wait-status]').textContent = t('status_waiting');
   const passRow = panel.querySelector('[data-wait-password-row]');
   passRow.hidden = room.access !== 'closed';
-  panel.querySelector('[data-wait-password]').textContent = storedRoom?.password || '—';
+  const password = room.access === 'closed' ? String(storedRoom?.password || '') : '';
+  panel.querySelector('[data-wait-password]').textContent = password || '—';
+  const inviteButton = panel.querySelector('[data-copy-invite]');
+  if (inviteButton) {
+    inviteButton.dataset.inviteCode = room.code;
+    inviteButton.dataset.inviteAccess = room.access || 'open';
+    inviteButton.dataset.invitePassword = password;
+  }
+  const inviteField = panel.querySelector('[data-invite-url]');
+  if (inviteField) inviteField.value = invitationUrl(room.code);
 }
+
+function invitationUrl(rawCode) {
+  const code = normalizeLocalGameCode(rawCode);
+  if (!code) return '';
+  const inviteUrl = new URL('index.html', location.href);
+  inviteUrl.search = '';
+  inviteUrl.hash = '';
+  inviteUrl.searchParams.set('join', code);
+  return inviteUrl.toString();
+}
+
+function invitationText(button) {
+  const url = invitationUrl(button?.dataset.inviteCode);
+  if (!url) return '';
+  const lines = [url];
+  const password = String(button.dataset.invitePassword || '').trim();
+  if (button.dataset.inviteAccess === 'closed' && password) {
+    lines.push(`${t('password')}: ${password}`);
+  }
+  return lines.join('\n');
+}
+
+async function writeInvitationToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {}
+  }
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.appendChild(field);
+  field.select();
+  const copied = document.execCommand('copy');
+  field.remove();
+  if (!copied) throw new Error('Invitation copy failed');
+}
+
+async function copyWaitingRoomInvitation(button) {
+  const feedback = document.querySelector('[data-invite-feedback]');
+  const text = invitationText(button);
+  if (!text) {
+    if (feedback) feedback.textContent = t('invite_copy_failed');
+    return;
+  }
+  button.disabled = true;
+  try {
+    await writeInvitationToClipboard(text);
+    if (feedback) feedback.textContent = t('invite_copied');
+  } catch {
+    const inviteField = document.querySelector('[data-invite-url]');
+    inviteField?.focus();
+    inviteField?.select();
+    if (feedback) feedback.textContent = t('invite_copy_manual');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelector('[data-copy-invite]')?.addEventListener('click', event => {
+  copyWaitingRoomInvitation(event.currentTarget);
+});
+
 function watchWaitingRoom() {
   if (!isWaitingHost) return;
   waitingPoll = setInterval(async () => {
@@ -1641,6 +1729,12 @@ const I18N = {
     wait_kicker: "Игровая комната",
     wait_title: "Ожидание соперника",
     wait_text: "Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.",
+    copy_invite: "Копировать приглашение",
+    invite_link: "Ссылка для входа",
+    invite_copied: "Приглашение скопировано",
+    invite_copy_failed: "Не удалось скопировать приглашение",
+    invite_copy_manual: "Скопируйте ссылку из поля выше",
+    turn_preparing: "Подготовка партии…",
     room_code: "Код",
     access: "Доступ",
     password: "Пароль",
@@ -1746,6 +1840,12 @@ const I18N = {
     wait_kicker: "Game room",
     wait_title: "Waiting for opponent",
     wait_text: "Send your opponent the room code and password if the game is closed. The match starts after the second player connects.",
+    copy_invite: "Copy invitation",
+    invite_link: "Invitation link",
+    invite_copied: "Invitation copied",
+    invite_copy_failed: "Could not copy invitation",
+    invite_copy_manual: "Copy the link from the field above",
+    turn_preparing: "Preparing the game…",
     room_code: "Code",
     access: "Access",
     password: "Password",

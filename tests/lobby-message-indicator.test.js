@@ -10,7 +10,7 @@ const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 test('lobby exposes the personal account link and message bell', () => {
   const lobby = read('index.html');
   assert.match(lobby, /href="settings\.html#account" data-i18n="nav_account">Личный кабинет/);
-  assert.match(lobby, /data-message-notification/);
+  assert.match(lobby, /href="settings\.html#messages" data-message-notification/);
   assert.match(lobby, /data-message-notification-count/);
 });
 

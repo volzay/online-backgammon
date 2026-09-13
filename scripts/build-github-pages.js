@@ -15,6 +15,7 @@ const STATIC_FILES = [
   "index.html",
   "login.html",
   "register.html",
+  "rules.html",
   "room.html",
   "settings.html",
   "homegate.html",

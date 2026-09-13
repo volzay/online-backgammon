@@ -77,11 +77,11 @@ async function createRoom() {
   return body.room?.code || body.code;
 }
 
-function putGame(code, state, version = 0) {
+function putGame(code, state, version = 0, ownerToken = '') {
   return fetch(`${BASE}/api/rooms/${code}/game`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ state, version }),
+    body: JSON.stringify({ state, version, ...(ownerToken ? { ownerToken } : {}) }),
   });
 }
 
@@ -148,6 +148,93 @@ test("accepts a borne-off win and a resignation", async () => {
   resignation.winner = "white";
   resignation.history = [{ resign: true, color: "dark" }];
   assert.equal((await putGame(resignationCode, resignation)).status, 200);
+});
+
+test("API fallback hides an active bot game from the lobby and archives its result", async () => {
+  const code = "BRTX-2233";
+  const ownerToken = "bot-owner-token-for-api-test-1234567890";
+  const initial = game.initialState("long");
+  initial.phase = "move";
+  initial.turn = "white";
+  const accountResponse = await fetch(`${BASE}/api/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nickname: "ApiBotTester", email: "api-bot@example.test", password: "secret1" }),
+  });
+  assert.equal(accountResponse.status, 201);
+  const accountCookie = String(accountResponse.headers.get("set-cookie") || "").split(";")[0];
+  assert.match(accountCookie, /^nardy_user=/);
+
+  const impersonationResponse = await fetch(`${BASE}/api/rooms/bot-analysis`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, hostName: "ApiBotTester", hostRatingEligible: true, ownerToken, state: initial }),
+  });
+  assert.equal(impersonationResponse.status, 401);
+
+  const createResponse = await fetch(`${BASE}/api/rooms/bot-analysis`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: accountCookie },
+    body: JSON.stringify({
+      code,
+      variant: "long",
+      botName: "Hard bot",
+      botRating: 1500,
+      difficulty: "hard",
+      playerColor: "white",
+      hostName: "ApiBotTester",
+      hostRatingEligible: true,
+      ownerToken,
+      state: initial,
+    }),
+  });
+  assert.equal(createResponse.status, 201);
+  assert.equal((await createResponse.json()).version, 0);
+
+  const lobby = await (await fetch(`${BASE}/api/rooms`)).json();
+  assert.equal(lobby.rooms.some(room => room.code === code), false);
+
+  const finished = structuredClone(initial);
+  finished.phase = "over";
+  finished.winner = "white";
+  finished.resultType = "normal";
+  finished.finishedAt = Date.now();
+  finished.history = [{ resign: true, color: "dark", at: new Date().toISOString() }];
+  finished.analysis = {
+    mode: "bot",
+    opponent: "bot",
+    botMemory: { decisions: [{ id: "api-bot-decision-1" }] },
+  };
+  assert.equal((await putGame(code, finished, 0)).status, 403);
+  assert.equal((await putGame(code, finished, 0, "wrong-owner-token-that-is-long-enough-123")).status, 403);
+  const finishResponse = await putGame(code, finished, 0, ownerToken);
+  assert.equal(finishResponse.status, 200);
+
+  const loginResponse = await fetch(`${BASE}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ login: "admin", password: "test" }),
+  });
+  assert.equal(loginResponse.status, 200);
+  const cookie = String(loginResponse.headers.get("set-cookie") || "").split(";")[0];
+  assert.match(cookie, /^nardy_admin=/);
+  const sessionsResponse = await fetch(`${BASE}/api/admin/sessions`, {
+    headers: { cookie },
+  });
+  assert.equal(sessionsResponse.status, 200);
+  const sessions = await sessionsResponse.json();
+  assert.equal(sessions.active.some(room => room.code === code), false);
+  const archived = sessions.archive.find(room => room.code === code);
+  assert.ok(archived);
+  assert.equal(archived.archiveReason, "resignation");
+  assert.equal(archived.winnerName, "ApiBotTester");
+
+  const detailResponse = await fetch(`${BASE}/api/admin/sessions/${code}`, {
+    headers: { cookie },
+  });
+  assert.equal(detailResponse.status, 200);
+  const detail = await detailResponse.json();
+  assert.equal(detail.session.game.analysis.botMemory.decisions.length, 1);
 });
 
 test("preserves a complete voice chat payload beyond the former 1.5 MB limit", async () => {

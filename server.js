@@ -16,6 +16,8 @@ const DEFAULT_ADMIN_LOGIN = process.env.ADMIN_LOGIN || "admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "adM)in27-05!26";
 const ADMIN_COOKIE_NAME = "nardy_admin";
 const ADMIN_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+const ACCOUNT_COOKIE_NAME = "nardy_user";
+const ACCOUNT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const configuredArchiveHours = Number(process.env.ADMIN_ARCHIVE_HOURS || 96);
 const ADMIN_ARCHIVE_HOURS = Number.isFinite(configuredArchiveHours) && configuredArchiveHours > 0
   ? configuredArchiveHours
@@ -108,13 +110,14 @@ function saveAdminState() {
 }
 
 function loadAuthState() {
-  const fallback = { users: [], passwordResets: [] };
+  const fallback = { users: [], passwordResets: [], sessions: [] };
   if (!fs.existsSync(AUTH_STATE_PATH)) return fallback;
   try {
     const saved = JSON.parse(fs.readFileSync(AUTH_STATE_PATH, "utf8"));
     return {
       users: Array.isArray(saved.users) ? saved.users : [],
       passwordResets: Array.isArray(saved.passwordResets) ? saved.passwordResets : [],
+      sessions: Array.isArray(saved.sessions) ? saved.sessions : [],
     };
   } catch {
     return fallback;
@@ -125,9 +128,13 @@ function saveAuthState() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const nowMs = Date.now();
   authState.passwordResets = authState.passwordResets.filter(item => Date.parse(item.expiresAt) > nowMs && !item.usedAt);
+  authState.sessions = authState.sessions
+    .filter(item => item?.tokenHash && authState.users.some(user => user.id === item.userId) && Date.parse(item.expiresAt) > nowMs)
+    .slice(-5000);
   fs.writeFileSync(AUTH_STATE_PATH, JSON.stringify({
     users: authState.users,
     passwordResets: authState.passwordResets,
+    sessions: authState.sessions,
     updatedAt: now(),
   }, null, 2));
 }
@@ -323,7 +330,7 @@ function publicRoom(room, includePassword = false) {
     guestTier: room.guestRegistered ? ratingTierFor(room.guestRating) : "",
     guestRegistered: Boolean(room.guestRegistered),
     guestRatingEligible: Boolean(room.guestRegistered),
-    opponent: "player",
+    opponent: room.opponent === "bot" ? "bot" : "player",
     variant: room.variant,
     access: room.access,
     status: room.status,
@@ -365,7 +372,7 @@ function normalizeChatText(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 300);
+    .slice(0, 1200);
 }
 
 function validVoiceDataUrl(value) {
@@ -509,12 +516,41 @@ function findAccountUser({ userId = "", nickname = "", email = "" } = {}) {
   )) || null;
 }
 
-function accountUserFromRequest(url, body = {}) {
-  return findAccountUser({
-    userId: body.userId || url.searchParams.get("userId"),
-    nickname: body.nickname || body.name || url.searchParams.get("nickname") || url.searchParams.get("name"),
-    email: body.email || url.searchParams.get("email"),
-  });
+function accountCookie(req, token, maxAgeSeconds) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const secure = forwardedProto === "https" || Boolean(req.socket.encrypted);
+  return `${ACCOUNT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+}
+
+function createAccountSession(req, user) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  const session = {
+    id: id("ses"),
+    tokenHash: sha256(token),
+    userId: user.id,
+    createdAt: now(),
+    expiresAt: new Date(Date.now() + ACCOUNT_TOKEN_TTL_MS).toISOString(),
+    ip: clientIp(req),
+  };
+  authState.sessions.push(session);
+  return { token, session };
+}
+
+function accountSessionFromRequest(req) {
+  const token = parseCookies(req)[ACCOUNT_COOKIE_NAME];
+  if (!token) return null;
+  const tokenHash = sha256(token);
+  const session = authState.sessions.find(item => item.tokenHash === tokenHash && Date.parse(item.expiresAt) > Date.now());
+  if (!session) return null;
+  const user = authState.users.find(item => item.id === session.userId);
+  return user ? { user, session, token } : null;
+}
+
+function accountSessionHeaders(req, token) {
+  return {
+    "Set-Cookie": accountCookie(req, token, Math.floor(ACCOUNT_TOKEN_TTL_MS / 1000)),
+    "Cache-Control": "no-store",
+  };
 }
 
 function friendSummaryFor(user, friendUser) {
@@ -985,7 +1021,18 @@ function deleteAdminUser(user, adminLogin) {
   saveAuthState();
 }
 
+function isBotAnalysisRoom(room) {
+  return Boolean(room && (
+    room.opponent === "bot"
+    || room.gameState?.mode === "bot"
+    || room.gameState?.opponent === "bot"
+    || room.gameState?.analysis?.mode === "bot"
+    || room.gameState?.analysis?.opponent === "bot"
+  ));
+}
+
 function isRoomActiveForPlayer(room, playerName) {
+  if (isBotAnalysisRoom(room)) return false;
   const name = normalizePlayerName(playerName);
   if (!name || !["waiting", "joined"].includes(room.status)) return false;
   const left = room.leftPlayers || {};
@@ -1724,11 +1771,12 @@ async function handleApi(req, res, url) {
       };
       assignRegisteredRating(user);
       authState.users.push(user);
+      const accountSession = createAccountSession(req, user);
       touchAdminUser({ name: user.nickname, email: user.email, rating: user.rating, tier: user.tier, registered: true, ip: clientIp(req), source: "account" });
       sendRegistrationEmail(user);
       saveAuthState();
       saveAdminState();
-      sendJson(res, 201, { user: publicUser(user), emailSent: true });
+      sendJson(res, 201, { user: publicUser(user), emailSent: true }, accountSessionHeaders(req, accountSession.token));
       return;
     }
 
@@ -1748,10 +1796,24 @@ async function handleApi(req, res, url) {
       user.lastIp = clientIp(req);
       user.lastSeenAt = now();
       assignRegisteredRating(user);
+      const accountSession = createAccountSession(req, user);
       touchAdminUser({ name: user.nickname, email: user.email, rating: user.rating, tier: user.tier, registered: true, ip: clientIp(req), source: "account" });
       saveAuthState();
       saveAdminState();
-      sendJson(res, 200, { user: publicUser(user) });
+      sendJson(res, 200, { user: publicUser(user) }, accountSessionHeaders(req, accountSession.token));
+      return;
+    }
+
+    if (method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "logout") {
+      const accountSession = accountSessionFromRequest(req);
+      if (accountSession) {
+        authState.sessions = authState.sessions.filter(item => item.id !== accountSession.session.id);
+        saveAuthState();
+      }
+      sendJson(res, 200, { ok: true }, {
+        "Set-Cookie": accountCookie(req, "", 0),
+        "Cache-Control": "no-store",
+      });
       return;
     }
 
@@ -1791,6 +1853,8 @@ async function handleApi(req, res, url) {
       user.passwordChangedAt = now();
       user.lastSeenAt = now();
       reset.usedAt = now();
+      authState.sessions = authState.sessions.filter(item => item.userId !== user.id);
+      const accountSession = createAccountSession(req, user);
       const adminUser = findAdminUser(user.nickname);
       if (adminUser) {
         adminUser.passwordHash = user.passwordHash;
@@ -1798,7 +1862,7 @@ async function handleApi(req, res, url) {
       }
       saveAuthState();
       saveAdminState();
-      sendJson(res, 200, { ok: true, user: publicUser(user) });
+      sendJson(res, 200, { ok: true, user: publicUser(user) }, accountSessionHeaders(req, accountSession.token));
       return;
     }
 
@@ -1851,8 +1915,9 @@ async function handleApi(req, res, url) {
 
     if (parts[0] === "api" && parts[1] === "account") {
       const body = method === "GET" ? {} : await readJsonBody(req);
-      const user = accountUserFromRequest(url, body);
-      if (!user) {
+      const accountSession = accountSessionFromRequest(req);
+      const user = accountSession?.user || null;
+      if (!accountSession || !user) {
         sendJson(res, 401, { error: "Нужен зарегистрированный аккаунт." });
         return;
       }
@@ -1921,6 +1986,7 @@ async function handleApi(req, res, url) {
       if (method === "DELETE" && parts.length === 3 && parts[2] === "profile") {
         authState.users = authState.users.filter(item => item.id !== user.id);
         authState.passwordResets = authState.passwordResets.filter(item => item.userId !== user.id);
+        authState.sessions = authState.sessions.filter(item => item.userId !== user.id);
         authState.users.forEach(item => {
           ensureAccountData(item);
           item.friends = item.friends.filter(friend => friend.userId !== user.id);
@@ -2025,6 +2091,29 @@ async function handleApi(req, res, url) {
         return;
       }
 
+      if (method === "POST" && parts.length === 4 && parts[2] === "messages" && parts[3] === "read") {
+        const friendUser = findAccountUser({
+          userId: body.friendId,
+          nickname: body.friend,
+        });
+        if (!friendUser) {
+          sendJson(res, 404, { error: "Игрок не найден." });
+          return;
+        }
+        ensureAccountData(friendUser);
+        const threadId = accountThreadId(user.id, friendUser.id);
+        const readAt = now();
+        user.friendMessages.forEach(message => {
+          if (message.threadId === threadId && message.toUserId === user.id && !message.readAt) message.readAt = readAt;
+        });
+        friendUser.friendMessages.forEach(message => {
+          if (message.threadId === threadId && message.toUserId === user.id && !message.readAt) message.readAt = readAt;
+        });
+        saveAuthState();
+        sendJson(res, 200, { ok: true, readAt }, { "Cache-Control": "no-store" });
+        return;
+      }
+
       if (method === "GET" && parts.length === 3 && parts[2] === "messages") {
         const friendUser = findAccountUser({
           userId: url.searchParams.get("friendId"),
@@ -2039,14 +2128,6 @@ async function handleApi(req, res, url) {
         const messages = user.friendMessages
           .filter(message => message.threadId === threadId)
           .sort((a, b) => String(a.at).localeCompare(String(b.at)));
-        const readAt = now();
-        messages.forEach(message => {
-          if (message.toUserId === user.id && !message.readAt) message.readAt = readAt;
-        });
-        friendUser.friendMessages.forEach(message => {
-          if (message.threadId === threadId && message.toUserId === user.id && !message.readAt) message.readAt = readAt;
-        });
-        saveAuthState();
         sendJson(res, 200, {
           friend: accountUserRef(friendUser),
           messages: messages.map(message => publicFriendMessage(message, user.id)),
@@ -2108,12 +2189,121 @@ async function handleApi(req, res, url) {
 
     if (method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "rooms") {
       const visibleRooms = rooms.filter(room => {
+        if (isBotAnalysisRoom(room)) return false;
         updatePresenceStatus(room);
         if (room.status === "waiting") return true;
         if (room.status !== "joined") return false;
         return !room.leftPlayers?.white && !room.leftPlayers?.dark;
       });
       sendJson(res, 200, { rooms: visibleRooms.map(room => publicRoom(room)) });
+      return;
+    }
+
+    if (method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "rooms" && parts[2] === "bot-analysis") {
+      const body = await readJsonBody(req);
+      const code = String(body.code || "").trim().toUpperCase();
+      if (!/^[A-HJ-NP-Z2-9]{4}(?:-[A-HJ-NP-Z2-9]{4})?$/.test(code)) {
+        sendJson(res, 400, { error: "Некорректный код бот-партии." });
+        return;
+      }
+
+      const ownerToken = String(body.ownerToken || "");
+      if (!/^[A-Za-z0-9_-]{32,}$/.test(ownerToken)) {
+        sendJson(res, 401, { error: "Не удалось подтвердить владельца бот-партии." });
+        return;
+      }
+
+      const requestedHostName = String(body.hostName || "Гость").trim().slice(0, 32) || "Гость";
+      const accountSession = accountSessionFromRequest(req);
+      const claimedProfile = registeredRoomProfile({ name: requestedHostName, userId: body.hostUserId, ratingEligible: true });
+      if (!accountSession && (body.hostRatingEligible !== false || claimedProfile)) {
+        sendJson(res, 401, { error: "Сессия аккаунта истекла. Войдите в аккаунт заново." });
+        return;
+      }
+      const hostProfile = accountSession?.user || null;
+      const hostName = hostProfile?.nickname || requestedHostName;
+      const existing = rooms.find(item => item.code === code);
+      if (existing) {
+        if (!isBotAnalysisRoom(existing) || existing.botOwnerTokenHash !== sha256(ownerToken) || normalizePlayerName(existing.hostName) !== normalizePlayerName(hostName)) {
+          sendJson(res, 409, { error: "Код партии уже занят другой комнатой." });
+          return;
+        }
+        sendJson(res, 200, { ok: true, version: Number(existing.gameVersion || 0) });
+        return;
+      }
+
+      const state = deepClone(body.state || {});
+      state.mode = "bot";
+      state.opponent = "bot";
+      state.variant = body.variant === "short" ? "short" : "long";
+      state.roomCode = code;
+      state.botDifficulty = String(body.difficulty || state.botDifficulty || "").slice(0, 20);
+      state.analysis = {
+        ...(state.analysis || {}),
+        mode: "bot",
+        opponent: "bot",
+        difficulty: state.botDifficulty,
+        botName: String(body.botName || "Bot").trim().slice(0, 32) || "Bot",
+        updatedAt: now(),
+      };
+      const stateError = validatePublishedGameState(state);
+      if (stateError) {
+        sendJson(res, 422, { error: stateError });
+        return;
+      }
+      if (isAdminUserBanned(hostName)) {
+        sendJson(res, 403, { error: "Этот игрок заблокирован администратором." });
+        return;
+      }
+
+      const createdAt = now();
+      const hostRegistered = Boolean(hostProfile);
+      const hostRating = hostRegistered ? normalizeRating(hostProfile.rating) : null;
+      const botName = state.analysis.botName;
+      const room = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        code,
+        hostName,
+        hostRating,
+        hostTier: hostRegistered ? ratingTierFor(hostRating) : "",
+        hostRegistered,
+        hostRatingEligible: hostRegistered,
+        guestName: botName,
+        guestRating: normalizeRating(body.botRating),
+        guestTier: "",
+        guestRegistered: false,
+        guestRatingEligible: false,
+        opponent: "bot",
+        botOwnerTokenHash: sha256(ownerToken),
+        botDifficulty: state.botDifficulty,
+        variant: state.variant,
+        access: "open",
+        password: "",
+        status: "joined",
+        allowSpectators: false,
+        spectators: {},
+        presence: {},
+        leftPlayers: {},
+        createdAt,
+        joinedAt: createdAt,
+        gameState: state,
+        gameVersion: 0,
+        gameUpdatedAt: createdAt,
+        chat: [],
+        chatVersion: 0,
+      };
+      touchAdminUser({
+        name: hostName,
+        email: hostProfile?.email || "",
+        rating: hostRating,
+        registered: hostRegistered,
+        ratingEligible: hostRegistered,
+        ip: clientIp(req),
+        source: hostRegistered ? "account" : "guest",
+      });
+      saveAdminState();
+      rooms.unshift(room);
+      sendJson(res, 201, { ok: true, version: 0, room: publicRoom(room) });
       return;
     }
 
@@ -2189,6 +2379,10 @@ async function handleApi(req, res, url) {
         sendJson(res, 404, { error: "Комната не найдена." });
         return;
       }
+      if (isBotAnalysisRoom(room) && room.botOwnerTokenHash !== sha256(String(req.headers["x-bot-owner"] || ""))) {
+        sendJson(res, 403, { error: "Нет доступа к этой бот-партии." });
+        return;
+      }
       updatePresenceStatus(room);
       sendJson(res, 200, { state: room.gameState || null, version: room.gameVersion || 0 });
       return;
@@ -2201,6 +2395,10 @@ async function handleApi(req, res, url) {
         return;
       }
       const body = await readJsonBody(req);
+      if (isBotAnalysisRoom(room) && room.botOwnerTokenHash !== sha256(String(body.ownerToken || ""))) {
+        sendJson(res, 403, { error: "Нет доступа к этой бот-партии." });
+        return;
+      }
       if (!body.state || typeof body.state !== "object") {
         sendJson(res, 400, { error: "Некорректное состояние партии." });
         return;

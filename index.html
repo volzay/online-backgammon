@@ -8,6 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
+<style>
+  .play-grid.lobby-actions-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lobby-grid.sessions-only { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 1080px) {
+    .play-grid.lobby-actions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    .play-grid.lobby-actions-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
 <script>
   /* Keep the lobby private until the visitor explicitly signs in or chooses guest mode. */
   (function(){
@@ -58,7 +68,7 @@
     <nav class="topnav">
       <a class="navlink active" href="index.html" data-i18n="nav_lobby">Лобби</a>
       <a class="navlink" href="settings.html#account" data-i18n="nav_account">Личный кабинет</a>
-      <a class="nav-message-indicator" href="settings.html#account" data-message-notification
+      <a class="nav-message-indicator" href="settings.html#messages" data-message-notification
          aria-label="Сообщения" title="Сообщения" data-i18n-aria="messages" data-i18n-title="messages">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
@@ -98,53 +108,57 @@
   <div class="lobby-head">
     <div>
       <h1 class="lobby-h1"><span data-i18n="lobby_ready_prefix">Готовы к партии, </span><em data-user-name>—</em><span data-i18n="lobby_ready_suffix">?</span></h1>
-      <p class="lobby-sub" data-i18n="lobby_sub">Выберите формат — мы найдём соперника или соберём стол под вас.</p>
+      <p class="lobby-sub" data-i18n="lobby_sub">Выберите открытую комнату, бота или создайте свою игру.</p>
     </div>
     <div class="lobby-quickstat">
-      <div class="qs"><span class="qs-n" id="qs-online">2 184</span><span class="qs-l" data-i18n="qs_online">сейчас в сети</span></div>
-      <div class="qs"><span class="qs-n" id="qs-games">347</span><span class="qs-l" data-i18n="qs_games">партий идёт</span></div>
       <div class="qs"><span class="qs-n" id="qs-myrating" data-user-rating>—</span><span class="qs-l" data-i18n="qs_rating">ваш рейтинг</span></div>
     </div>
   </div>
 
   <!-- PLAY CARDS -->
-  <section class="play-grid">
-    <div class="play-card primary" data-action="quick" role="button" tabindex="0">
+  <section class="play-grid lobby-actions-grid" aria-label="Выбор игры" data-i18n-aria="lobby_actions">
+    <button class="play-card primary" type="button" data-action="browse">
       <div class="play-ico">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
       </div>
       <div class="play-body">
-        <div class="play-title" data-i18n="play_quick">Быстрая игра</div>
-        <div class="play-sub" data-i18n="play_quick_sub">Подберём соперника по рейтингу</div>
-        <div class="play-foot quick-variant" role="group" aria-label="Вид нард" data-i18n-aria="game_variant">
-          <button class="play-pill active" type="button" data-quick-variant="long" aria-pressed="true" data-i18n="long_backgammon">Длинные нарды</button>
-          <button class="play-pill" type="button" data-quick-variant="short" aria-pressed="false" data-i18n="short_backgammon">Короткие нарды</button>
-          <span class="play-pill">5 + 0</span>
-        </div>
+        <div class="play-title" data-i18n="play_find_opponent">Найти соперника</div>
+        <div class="play-sub" data-i18n="play_find_opponent_sub">Выбрать открытую комнату в списке</div>
       </div>
-      <div class="play-arrow">→</div>
-    </div>
-
-    <button class="play-card" data-action="create">
-      <div class="play-ico">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-      </div>
-      <div class="play-body">
-        <div class="play-title" data-i18n="play_create">Создать игру</div>
-        <div class="play-sub" data-i18n="play_create_sub">Настроить соперника и доступ</div>
-      </div>
-      <div class="play-arrow">→</div>
+      <div class="play-arrow" aria-hidden="true">→</div>
     </button>
 
-    <button class="play-card" data-action="code">
+    <button class="play-card" type="button" data-action="bot">
       <div class="play-ico">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V4M10 4h4"/></svg>
       </div>
       <div class="play-body">
-        <div class="play-title" data-i18n="play_code">По коду</div>
+        <div class="play-title" data-i18n="play_bot">Играть с ботом</div>
+        <div class="play-sub" data-i18n="play_bot_sub">Выбрать вид нард и сложность</div>
+      </div>
+      <div class="play-arrow" aria-hidden="true">→</div>
+    </button>
+
+    <button class="play-card" type="button" data-action="create">
+      <div class="play-ico">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </div>
+      <div class="play-body">
+        <div class="play-title" data-i18n="play_create_room">Создать комнату</div>
+        <div class="play-sub" data-i18n="play_create_room_sub">Настроить игру с другим игроком</div>
+      </div>
+      <div class="play-arrow" aria-hidden="true">→</div>
+    </button>
+
+    <button class="play-card" type="button" data-action="code">
+      <div class="play-ico">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </div>
+      <div class="play-body">
+        <div class="play-title" data-i18n="play_code">Войти по коду</div>
         <div class="play-sub" data-i18n="play_code_sub">Сыграть с другом по приглашению</div>
       </div>
-      <div class="play-arrow">→</div>
+      <div class="play-arrow" aria-hidden="true">→</div>
     </button>
   </section>
 
@@ -247,16 +261,15 @@
   </section>
 
   <!-- TABLES + SIDEBAR -->
-  <section class="lobby-grid">
+  <section class="lobby-grid sessions-only">
 
     <div class="panel tables-panel">
       <div class="between" style="margin-bottom: 14px;">
-        <h3 style="margin:0;" data-i18n="open_tables">ИГРОВЫЕ СЕССИИ</h3>
+        <h3 id="game-sessions-title" style="margin:0;" tabindex="-1" data-i18n="open_tables">ИГРОВЫЕ СЕССИИ</h3>
         <div class="filters">
           <button class="filter active" type="button" data-session-filter="all" data-i18n="filters_all">Все</button>
           <button class="filter" type="button" data-session-filter="long" data-i18n="filters_long">Длинные</button>
           <button class="filter" type="button" data-session-filter="short" data-i18n="filters_short">Короткие</button>
-          <button class="filter" type="button" data-session-filter="friends" data-i18n="filters_friends">Друзья</button>
           <button class="filter" type="button" data-session-filter="in-game" data-i18n="filters_in_game">В игре</button>
         </div>
       </div>
@@ -266,7 +279,7 @@
         <span data-i18n="game_variant">Вид нард</span>
         <span data-i18n="access">Доступ</span>
         <span data-i18n="password">Пароль</span>
-        <span data-i18n="time_control">Время</span>
+        <span data-i18n="session_state">Статус</span>
         <span data-i18n="spectators">Зрители</span>
         <span data-i18n="action">Действие</span>
       </div>
@@ -275,37 +288,10 @@
       </div>
 
       <div class="tables-foot">
-        <span class="muted" data-i18n="updated_now">Обновлено только что</span>
+        <span class="muted" id="sessions-status" role="status" aria-live="polite" data-i18n="sessions_loading">Загрузка игровых сессий…</span>
         <button class="ghostbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span data-i18n="refresh">Обновить</span></button>
       </div>
     </div>
-
-    <aside class="side-stack">
-
-      <div class="panel">
-        <div class="between" style="margin-bottom: 10px;">
-          <h3 style="margin:0;" data-i18n="leaderboard">Лидерборд</h3>
-          <span class="muted" style="font-size:11px;" data-i18n="season_7">сезон 7</span>
-        </div>
-        <ol class="lb-list" id="lb-list"></ol>
-      </div>
-
-      <div class="panel">
-        <div class="between" style="margin-bottom: 10px;">
-          <h3 style="margin:0;" data-i18n="online_now">Сейчас в сети</h3>
-          <span class="muted" style="font-size:11px;"><span id="friends-count">8</span> <span data-i18n="friends_count">друзей</span></span>
-        </div>
-        <ul class="friends-list" id="friends-list"></ul>
-      </div>
-
-      <div class="panel slim">
-        <button class="ghostlink wide" data-logout>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          <span data-i18n="logout">Выйти</span>
-        </button>
-      </div>
-
-    </aside>
 
   </section>
 
@@ -319,16 +305,32 @@
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
 
-  /* mock tables */
-  const tables = [
-    { host: 'Sereja91',     rating: 1742, variant: 'long',  timer: '5 + 0',  stakes: '—', watchers: 4 },
-    { host: 'mukhtar',      rating: 1480, variant: 'long',  timer: '10 + 0', stakes: '—', watchers: 0, friend: true },
-    { host: 'Александра',   rating: 1322, variant: 'short', timer: '3 + 2',  stakes: '—', watchers: 12 },
-    { host: 'Bot medium',   rating: 1200, variant: 'long',  timer: '5 + 0',  stakes: '—', watchers: 0, bot: true, hostKey: 'bot_medium' },
-    { host: 'irina_b',      rating: 1655, variant: 'long',  timer: '15 + 0', stakes: '—', watchers: 2 },
-    { host: 'Tigran',       rating: 1898, variant: 'short', timer: '5 + 3',  stakes: '—', watchers: 31 },
-    { host: 'Bot easy',     rating:  900, variant: 'long',  timer: '∞',      stakes: '—', watchers: 0, bot: true, hostKey: 'bot_easy' },
-  ];
+  Object.assign(NarduApp.dicts.ru, {
+    lobby_sub: 'Выберите открытую комнату, бота или создайте свою игру.',
+    lobby_actions: 'Выбор игры',
+    play_find_opponent: 'Найти соперника',
+    play_find_opponent_sub: 'Выбрать открытую комнату в списке',
+    play_bot: 'Играть с ботом',
+    play_bot_sub: 'Выбрать вид нард и сложность',
+    play_create_room: 'Создать комнату',
+    play_create_room_sub: 'Настроить игру с другим игроком',
+    play_code: 'Войти по коду',
+    sessions_loading: 'Загрузка игровых сессий…',
+    sessions_load_failed: 'Не удалось обновить игровые сессии',
+  });
+  Object.assign(NarduApp.dicts.en, {
+    lobby_sub: 'Choose an open room, a bot, or create your own game.',
+    lobby_actions: 'Game options',
+    play_find_opponent: 'Find an opponent',
+    play_find_opponent_sub: 'Choose an open room from the list',
+    play_bot: 'Play against a bot',
+    play_bot_sub: 'Choose backgammon type and difficulty',
+    play_create_room: 'Create a room',
+    play_create_room_sub: 'Set up a game with another player',
+    play_code: 'Join by code',
+    sessions_loading: 'Loading game sessions…',
+    sessions_load_failed: 'Could not refresh game sessions',
+  });
 
   function tierFor(r) {
     return NarduApp.ratingTierFor(r);
@@ -369,6 +371,8 @@
     return tt(map[value] || fallback);
   }
   let playerRooms = [];
+  let roomsLoaded = false;
+  let roomsLoadFailed = false;
   let activeSessionFilter = 'all';
 
   function readPlayerRooms() {
@@ -398,8 +402,12 @@
     try {
       const data = await NarduRooms.listRooms();
       playerRooms = data.rooms || [];
+      roomsLoaded = true;
+      roomsLoadFailed = false;
       renderTables();
     } catch {
+      roomsLoadFailed = true;
+      renderTables();
       /* keep the last visible session list if the server is restarting */
     }
   }
@@ -511,7 +519,7 @@
         tier: room.hostTier || '',
         mode: labelFor(variantLabelKeys, room.variant || 'long', 'long_backgammon'),
         variant: room.variant || 'long',
-        timer: room.status === 'joined' ? 'live' : '∞',
+        timer: room.status === 'joined' ? tt('in_game') : tt('waiting'),
         access: room.access || 'open',
         stakes: labelFor(accessLabelKeys, room.access || 'open', 'access_open'),
         watchers: Number(room.spectators || 0),
@@ -521,14 +529,13 @@
         playing: room.status === 'joined',
         status: room.status || 'waiting',
       }));
-    return [...playerRooms, ...tables].filter(matchesSessionFilter);
+    return playerRooms.filter(matchesSessionFilter);
   }
 
   function matchesSessionFilter(row) {
     if (activeSessionFilter === 'all') return true;
     if (activeSessionFilter === 'long') return row.variant === 'long';
     if (activeSessionFilter === 'short') return row.variant === 'short';
-    if (activeSessionFilter === 'friends') return Boolean(row.friend);
     if (activeSessionFilter === 'in-game') return row.status === 'joined' || row.playing === true;
     return true;
   }
@@ -619,7 +626,7 @@
         <div class="t-cell" data-label="${escapeHtml(tt('game_variant'))}"><span class="t-pill">${escapeHtml(modeLabel)}</span></div>
         <div class="t-cell session-access-cell" data-label="${escapeHtml(tt('access'))}">${accessCell(t, access)}</div>
         <div class="t-cell session-password-cell" data-label="${escapeHtml(tt('password'))}">${passwordCell({ ...t, access })}</div>
-        <div class="t-cell session-time-cell" data-label="${escapeHtml(tt('time_control'))}"><span class="t-pill mono">${escapeHtml(t.timer)}</span></div>
+        <div class="t-cell session-time-cell" data-label="${escapeHtml(tt('session_state'))}"><span class="t-pill">${escapeHtml(t.timer)}</span></div>
         <div class="t-cell session-watchers-cell mono muted" data-label="${escapeHtml(tt('spectators'))}"><span class="watchers-pill" title="${escapeHtml(tt('spectators'))}">👁 ${Number(t.watchers || 0)}</span></div>
         <div class="t-cell session-actions-cell" data-label="${escapeHtml(tt('action'))}">
           ${canWatch ? `<button class="joinbtn secondary" data-watch-room="${escapeHtml(t.roomCode)}">${escapeHtml(tt('watch'))}</button>` : ''}
@@ -630,10 +637,29 @@
   }
 
   function renderTables() {
+    const status = document.getElementById('sessions-status');
+    const setStatus = text => {
+      if (status.textContent !== text) status.textContent = text;
+    };
+    if (!roomsLoaded) {
+      const loadingText = tt(roomsLoadFailed ? 'sessions_load_failed' : 'sessions_loading');
+      const renderKey = `loading:${document.documentElement.lang}:${roomsLoadFailed}`;
+      if (renderTables.key !== renderKey) {
+        document.getElementById('tables-list').innerHTML = `<div class="sessions-empty">${escapeHtml(loadingText)}</div>`;
+        renderTables.key = renderKey;
+      }
+      setStatus(loadingText);
+      return;
+    }
     const rows = tableRows();
-    document.getElementById('tables-list').innerHTML = rows.length
-      ? rows.map(row).join('')
-      : `<div class="sessions-empty">${escapeHtml(tt('no_sessions'))}</div>`;
+    const renderKey = JSON.stringify([document.documentElement.lang, activeSessionFilter, roomsLoadFailed, rows]);
+    if (renderTables.key !== renderKey) {
+      document.getElementById('tables-list').innerHTML = rows.length
+        ? rows.map(row).join('')
+        : `<div class="sessions-empty">${escapeHtml(tt('no_sessions'))}</div>`;
+      renderTables.key = renderKey;
+    }
+    setStatus(tt(roomsLoadFailed ? 'sessions_load_failed' : 'updated_now'));
   }
   renderTables();
   let lobbyCleanupPromise;
@@ -703,15 +729,6 @@
       }
       return;
     }
-    const host = (btn?.dataset.join) || row.dataset.host;
-    const t = tables.find(x => x.host === host);
-    if (!t) return;
-    const params = new URLSearchParams({
-      mode: t.bot ? 'bot' : 'remote',
-      opp: t.host,
-      oppR: t.rating,
-    });
-    location.href = 'room.html?' + params.toString();
   });
 
   const createGamePanel = document.getElementById('create-game-panel');
@@ -733,19 +750,8 @@
     access: 'open',
     allowSpectators: 'no',
   };
-  const quickState = {
-    variant: 'long',
-  };
   const botRatings = { easy: 900, medium: 1200, hard: 1500 };
   let createRequestPending = false;
-
-  function syncQuickVariant() {
-    document.querySelectorAll('[data-quick-variant]').forEach(btn => {
-      const active = quickState.variant === btn.dataset.quickVariant;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-pressed', String(active));
-    });
-  }
 
   function syncCreatePanel() {
     document.querySelectorAll('[data-create-option]').forEach(btn => {
@@ -796,6 +802,20 @@
     joinCodeInput.focus();
   }
 
+  function normalizeInviteCode(value) {
+    const compact = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    if (compact.length !== 8) return '';
+    return `${compact.slice(0, 4)}-${compact.slice(4)}`;
+  }
+
+  function openJoinInviteFromUrl() {
+    const invitedCode = normalizeInviteCode(new URLSearchParams(location.search).get('join'));
+    if (!invitedCode) return;
+    joinCodeInput.value = invitedCode;
+    joinPasswordInput.value = '';
+    showJoinCodePanel();
+  }
+
   document.querySelector('[data-create-close]').addEventListener('click', () => {
     createGamePanel.hidden = true;
     createGamePanel.classList.remove('is-open');
@@ -815,15 +835,6 @@
       }
     });
   });
-
-  document.querySelectorAll('[data-quick-variant]').forEach(btn => {
-    btn.addEventListener('click', event => {
-      event.stopPropagation();
-      quickState.variant = btn.dataset.quickVariant === 'short' ? 'short' : 'long';
-      syncQuickVariant();
-    });
-  });
-  syncQuickVariant();
 
   createGameForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -980,103 +991,35 @@
   });
 
   document.querySelectorAll('[data-action]').forEach(b => {
-    const runAction = async () => {
+    b.addEventListener('click', async () => {
       const a = b.dataset.action;
-      let params;
-      if (a === 'quick') {
-        const cleanup = await lobbyCleanupPromise;
-        if (!cleanup?.ok) {
-          showCreatePanel();
-          createError.textContent = tt('err_session');
-          return;
-        }
-        const gameCode = createLocalGameCode();
-        const settings = {
-          game: gameCode,
-          opponent: 'bot',
-          difficulty: 'medium',
-          variant: quickState.variant,
-          access: 'open',
-          createdAt: new Date().toISOString(),
-        };
-        NarduApp.persistBotGameConfig(settings);
-        params = new URLSearchParams({
-          mode: 'bot',
-          opp: tt('room_opponent'),
-          oppR: 1100,
-          game: gameCode,
-          variant: quickState.variant,
-          opponent: 'bot',
-          access: 'open',
-          difficulty: 'medium',
-        });
-      } else if (a === 'create') {
+      if (a === 'browse') {
+        await lobbyCleanupPromise;
+        await refreshPlayerRooms();
+        const sessionsTitle = document.getElementById('game-sessions-title');
+        sessionsTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        sessionsTitle.focus({ preventScroll: true });
+      } else if (a === 'bot') {
+        createState.opponent = 'bot';
+        createError.textContent = '';
         showCreatePanel();
-        return;
-      } else {
+      } else if (a === 'create') {
+        createState.opponent = 'player';
+        createError.textContent = '';
+        showCreatePanel();
+      } else if (a === 'code') {
         showJoinCodePanel();
-        return;
       }
-      location.href = 'room.html?' + params.toString();
-    };
-    b.addEventListener('click', event => {
-      if (event.target.closest('[data-quick-variant]')) return;
-      runAction();
-    });
-    b.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      runAction();
     });
   });
 
-  /* leaderboard */
-  const lb = [
-    { name: 'Tigran',    rating: 1898 },
-    { name: 'Sereja91',  rating: 1742 },
-    { name: 'irina_b',   rating: 1655 },
-    { name: 'mukhtar',   rating: 1480 },
-    { name: 'Александра', rating: 1322 },
-  ];
-  function renderLeaderboard() {
-    document.getElementById('lb-list').innerHTML = lb.map((p, i) => `
-      <li class="lb-row">
-        <span class="lb-rank">${i+1}</span>
-        <div class="lb-av">${p.name[0].toUpperCase()}</div>
-        <span class="lb-name">${p.name}</span>
-        <span class="lb-rating mono">${p.rating}</span>
-      </li>
-    `).join('');
-  }
-
-  /* friends */
-  const friends = [
-    { name: 'mukhtar',   playing: false },
-    { name: 'Sereja91',  playing: true  },
-    { name: 'irina_b',   playing: false },
-    { name: 'Aram',      playing: false },
-    { name: 'Karen',     playing: true  },
-  ];
-  function renderFriends() {
-    document.getElementById('friends-list').innerHTML = friends.map(f => `
-      <li class="fr-row">
-        <div class="fr-av">${f.name[0].toUpperCase()}<span class="dot ${f.playing ? 'busy' : 'online'}"></span></div>
-        <span class="fr-name">${f.name}</span>
-        <span class="fr-status muted">${f.playing ? tt('status_playing') : tt('status_free')}</span>
-        <button class="fr-invite" title="${escapeHtml(tt('invite'))}">＋</button>
-      </li>
-    `).join('');
-  }
+  openJoinInviteFromUrl();
 
   function renderLocalizedLobby() {
     syncCreatePanel();
     renderTables();
-    renderLeaderboard();
-    renderFriends();
   }
 
-  renderLeaderboard();
-  renderFriends();
   window.addEventListener('nardu:langchange', renderLocalizedLobby);
 </script>
 

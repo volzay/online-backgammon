@@ -2224,7 +2224,12 @@ body.board-focus .bear-pip {
   cursor: pointer;
   user-select: none;
 }
-.checkbox input { display: none; }
+.checkbox input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
 .cbox {
   width: 16px; height: 16px;
   border: 1px solid var(--line);
@@ -2236,6 +2241,10 @@ body.board-focus .bear-pip {
 }
 .checkbox input:checked + .cbox {
   background: var(--accent); border-color: var(--accent);
+}
+.checkbox input:focus-visible + .cbox {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .checkbox input:checked + .cbox::after {
   content: ""; width: 8px; height: 4px;
@@ -2365,6 +2374,44 @@ body.board-focus .bear-pip {
   width: 3px; height: 3px; border-radius: 50%;
   background: var(--ink-4);
 }
+.rules-page {
+  max-width: 960px;
+}
+.rules-stage {
+  display: grid;
+  align-items: start;
+  padding: 34px 0;
+}
+.rules-card {
+  width: 100%;
+}
+.rules-card section {
+  padding: 16px 0;
+  border-top: 1px solid var(--line-2);
+}
+.rules-card h2 {
+  margin: 0 0 7px;
+  color: var(--ink);
+  font-size: 15px;
+}
+.rules-card p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.rules-card > .auth-sub {
+  margin: 6px 0 22px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.rules-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 18px;
+}
+.rules-actions .ghostbtn { text-decoration: none; }
 
 @media (max-width: 880px) {
   .auth-stage {
@@ -3092,6 +3139,17 @@ body.board-focus .bear-pip {
   border-color: oklch(0.74 0.15 70 / 0.35);
   color: var(--accent);
 }
+.guest-account-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.guest-account-cta[hidden] { display: none; }
+.guest-account-cta .ghostbtn {
+  flex: 0 0 auto;
+  text-decoration: none;
+}
 .account-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3211,6 +3269,33 @@ body.board-focus .bear-pip {
   grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
   gap: 16px;
 }
+.account-messages-hub {
+  display: grid;
+  gap: 16px;
+  scroll-margin-top: 16px;
+}
+.message-source-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.message-source-nav .ghostbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+.message-source-count {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--panel);
+  background: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-align: center;
+}
+.message-source-count[hidden] { display: none; }
 .friend-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3224,6 +3309,25 @@ body.board-focus .bear-pip {
   gap: 8px;
   align-items: center;
 }
+.message-text-control {
+  position: relative;
+  min-width: 0;
+}
+.message-text-control.has-count .text-input {
+  padding-right: 62px;
+}
+.message-character-count {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-4);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  pointer-events: none;
+}
+.message-character-count[hidden] { display: none; }
+.friend-message-form.recording .message-character-count { display: none; }
 #admin-message-form {
   grid-template-columns: minmax(0, 1fr) auto;
 }
@@ -3648,6 +3752,12 @@ body.board-focus .bear-pip {
   font-size: 24px;
   line-height: 1.2;
 }
+.confirm-description {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
@@ -3712,7 +3822,12 @@ body.board-focus .bear-pip {
   cursor: pointer;
   position: relative;
 }
-.switch input { display: none; }
+.switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
 .switch .sw {
   position: absolute; inset: 0;
   background: var(--panel-3); border: 1px solid var(--line-2);
@@ -3727,6 +3842,10 @@ body.board-focus .bear-pip {
   transition: transform 0.18s, background 0.18s;
 }
 .switch input:checked + .sw { background: var(--accent); border-color: var(--accent); }
+.switch input:focus-visible + .sw {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 .switch input:checked + .sw::before {
   transform: translateX(18px);
   background: oklch(0.16 0.04 50);
@@ -3861,13 +3980,29 @@ body.board-focus .bear-pip {
   .appearance-stack .seg { justify-self: start; }
   .board-style-preview { width: 100%; max-width: 220px; }
   .account-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-table {
+    min-width: 620px;
+    table-layout: auto;
+  }
+  .guest-account-cta {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .account-grid { grid-template-columns: 1fr; }
   .account-block-head { align-items: flex-start; flex-direction: column; }
   .friend-add {
     grid-template-columns: 1fr;
   }
   .friend-message-form {
-    grid-template-columns: 38px 38px minmax(0, 1fr) auto;
+    grid-template-columns: 38px 38px minmax(0, 1fr);
+  }
+  .friend-message-form > button[type="submit"] {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .friend-rec-indicator {
+    top: 19px;
+    right: 12px;
   }
   #admin-message-form {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -4079,4 +4214,108 @@ body.board-focus .action-tray .dice-wait::before {
   0%   { transform: translateY(-8px); opacity: 0; }
   60%  { transform: translateY(2px); opacity: 1; }
   100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Room state and invitation controls */
+.game-wait-invite-link {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.game-wait-invite-link .text-input {
+  width: 100%;
+  color: var(--ink-2);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.game-wait-invite {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 36px;
+}
+.game-wait-invite-feedback {
+  min-width: 176px;
+  color: var(--ink-3);
+  font-size: 12px;
+  text-align: right;
+}
+.game-wait-invite-btn[disabled] {
+  cursor: wait;
+  opacity: 0.7;
+}
+.game-turn-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 13px;
+  color: var(--ink-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.game-turn-status strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+.game-turn-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+.game-turn-status[data-tone="active"] {
+  color: var(--ink);
+  border-color: oklch(0.75 0.12 75 / 0.52);
+  background: var(--accent-soft);
+}
+.game-turn-status[data-tone="active"] .game-turn-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px oklch(0.75 0.12 75 / 0.13);
+}
+.game-turn-status[data-tone="watching"] .game-turn-status-dot {
+  background: oklch(0.68 0.10 230);
+}
+.game-turn-status[data-tone="complete"] .game-turn-status-dot {
+  background: oklch(0.72 0.15 145);
+}
+
+@media (max-width: 520px) {
+  .game-wait-invite {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .game-wait-invite-btn {
+    width: 100%;
+  }
+  .game-wait-invite-feedback {
+    min-width: 0;
+    min-height: 18px;
+    text-align: left;
+  }
+  .game-turn-status {
+    min-height: 36px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+}
+
+body.board-focus .game-turn-status {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 11px;
 }

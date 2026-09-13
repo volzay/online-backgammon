@@ -57,8 +57,8 @@
         <a href="register.html" class="auth-tab" data-i18n="register">Регистрация</a>
       </div>
 
-      <h2 class="auth-title" data-i18n="welcome">Добро пожаловать</h2>
-      <p class="auth-sub" data-i18n="welcome_sub">Войдите, чтобы начать партию</p>
+      <h2 class="auth-title" id="auth-card-title" data-i18n="welcome">Добро пожаловать</h2>
+      <p class="auth-sub" id="auth-card-sub" data-i18n="welcome_sub">Войдите, чтобы начать партию</p>
 
       <form class="auth-form" id="login-form" autocomplete="on">
         <label class="field">
@@ -75,11 +75,6 @@
           </div>
         </label>
         <div class="form-row">
-          <label class="checkbox">
-            <input type="checkbox" checked />
-            <span class="cbox"></span>
-            <span class="cbox-lbl" data-i18n="remember">Запомнить меня</span>
-          </label>
           <button type="button" class="auth-link auth-link-btn" id="forgot-toggle" data-i18n="forgot">Забыли пароль?</button>
         </div>
         <p class="auth-message" id="login-message" role="alert"></p>
@@ -95,13 +90,13 @@
           <h3 data-i18n="recovery_title">Восстановление пароля</h3>
           <button type="button" class="auth-link auth-link-btn" id="recovery-close" data-i18n="hide">Скрыть</button>
         </div>
-        <p class="auth-sub" data-i18n="recovery_text">Введите email аккаунта. Мы отправим код восстановления.</p>
+        <p class="auth-sub" id="recovery-description" data-auth-copy-ru="Введите email аккаунта. Мы отправим инструкции для восстановления." data-auth-copy-en="Enter your account email. We will send recovery instructions.">Введите email аккаунта. Мы отправим инструкции для восстановления.</p>
         <form class="auth-form recovery-form" id="recovery-request-form">
           <label class="field">
             <span class="field-lbl">Email</span>
             <input type="email" id="recovery-email" autocomplete="email" required />
           </label>
-          <button type="submit" class="auth-submit" data-i18n="send_code">Отправить код</button>
+          <button type="submit" class="auth-submit" data-auth-copy-ru="Отправить инструкции" data-auth-copy-en="Send recovery instructions">Отправить инструкции</button>
         </form>
         <form class="auth-form recovery-form" id="recovery-reset-form" hidden>
           <label class="field">
@@ -119,6 +114,27 @@
           </label>
           <button type="submit" class="auth-submit" data-i18n="change_password_submit">Сменить пароль</button>
         </form>
+        <form class="auth-form recovery-form" id="recovery-link-form" hidden>
+          <label class="field">
+            <span class="field-lbl" data-i18n="new_password">Новый пароль</span>
+            <div class="password-field">
+              <input type="password" id="recovery-link-pass" minlength="6" autocomplete="new-password" required />
+              <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+                <span class="password-toggle-eye" aria-hidden="true"></span>
+              </button>
+            </div>
+          </label>
+          <label class="field">
+            <span class="field-lbl" data-i18n="password_confirm">Подтвердите пароль</span>
+            <div class="password-field">
+              <input type="password" id="recovery-link-pass2" minlength="6" autocomplete="new-password" required />
+              <button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль" aria-pressed="false" title="Показать пароль" data-i18n-aria="show_password" data-i18n-title="show_password">
+                <span class="password-toggle-eye" aria-hidden="true"></span>
+              </button>
+            </div>
+          </label>
+          <button type="submit" class="auth-submit" data-i18n="change_password_submit">Сменить пароль</button>
+        </form>
         <p class="auth-message" id="recovery-message" role="alert"></p>
       </section>
     </section>
@@ -127,9 +143,9 @@
   <footer class="auth-foot-bar">
     <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
     <span class="dot"></span>
-    <a href="#" data-i18n="rules">Правила игры</a>
+    <a href="rules.html" data-i18n="rules">Правила игры</a>
     <span class="dot"></span>
-    <a href="#" data-i18n="support">Поддержка</a>
+    <a href="https://github.com/volzay/online-backgammon/issues/new" target="_blank" rel="noopener noreferrer" data-i18n="support">Поддержка</a>
   </footer>
 
 </div>
@@ -140,6 +156,69 @@
 <script src="auth-client.js"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
+  NarduAuth.preservePostAuthLinks();
+  let recoveryProfile = null;
+
+  function applyAuthCopy() {
+    const lang = document.documentElement.lang === 'en' ? 'en' : 'ru';
+    document.querySelectorAll('[data-auth-copy-ru]').forEach((element) => {
+      element.textContent = element.dataset[`authCopy${lang === 'en' ? 'En' : 'Ru'}`];
+    });
+  }
+  applyAuthCopy();
+  window.addEventListener('nardu:langchange', applyAuthCopy);
+
+  function beginSubmit(form, ru, en) {
+    if (form.getAttribute('aria-busy') === 'true') return null;
+    const button = form.querySelector('button[type="submit"]');
+    form.setAttribute('aria-busy', 'true');
+    if (button) {
+      button.disabled = true;
+      button.dataset.idleLabel = button.textContent;
+      button.textContent = document.documentElement.lang === 'en' ? en : ru;
+    }
+    return () => {
+      form.setAttribute('aria-busy', 'false');
+      if (button) {
+        button.disabled = false;
+        button.textContent = button.dataset.idleLabel || button.textContent;
+        delete button.dataset.idleLabel;
+      }
+    };
+  }
+
+  function postLoginDestination() {
+    const returnTo = String(NarduApp.reauthContext?.()?.returnTo || '');
+    return /^(?:index|settings)\.html(?:[?#][^\s]*)?$/.test(returnTo)
+      ? returnTo
+      : NarduAuth.postAuthDestination();
+  }
+
+  function showLoginForm({ focus = true } = {}) {
+    document.getElementById('recovery-panel').hidden = true;
+    document.getElementById('auth-card-title').hidden = false;
+    document.getElementById('auth-card-sub').hidden = false;
+    document.getElementById('login-form').hidden = false;
+    if (focus) document.getElementById('login-nick').focus();
+  }
+
+  function showPasswordRecovery(redirect) {
+    recoveryProfile = redirect.user;
+    document.getElementById('auth-card-title').hidden = true;
+    document.getElementById('auth-card-sub').hidden = true;
+    document.getElementById('login-form').hidden = true;
+    document.getElementById('recovery-panel').hidden = false;
+    document.getElementById('recovery-request-form').hidden = true;
+    document.getElementById('recovery-reset-form').hidden = true;
+    document.getElementById('recovery-link-form').hidden = false;
+    document.getElementById('recovery-close').hidden = true;
+    const description = document.getElementById('recovery-description');
+    description.dataset.authCopyRu = 'Введите и подтвердите новый пароль для аккаунта.';
+    description.dataset.authCopyEn = 'Enter and confirm a new password for your account.';
+    applyAuthCopy();
+    document.getElementById('recovery-link-pass').focus();
+  }
+
   (async () => {
     const reauth = NarduApp.reauthContext?.();
     const sessionExpired = new URL(location.href).searchParams.get('reason') === 'session-expired';
@@ -148,13 +227,20 @@
     try {
       const redirect = await NarduAuth.handleAuthRedirect();
       if (redirect?.user) {
+        if (redirect.passwordRecovery) {
+          showPasswordRecovery(redirect);
+          return;
+        }
         NarduApp.setUser(redirect.user);
+        const destination = postLoginDestination();
         NarduApp.clearReauthContext?.();
-        location.replace('index.html');
+        location.replace(destination);
         return;
       }
     } catch (error) {
-      setMessage('login-message', error.message, 'error');
+      const recoveryAttempt = new URL(location.href).searchParams.get('recovery') === '1';
+      setMessage(recoveryAttempt ? 'recovery-message' : 'login-message', NarduAuth.errorMessage(error), 'error');
+      if (recoveryAttempt) document.getElementById('recovery-panel').hidden = false;
     }
     NarduApp.requireGuest();
   })();
@@ -182,17 +268,26 @@
 
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    const finish = beginSubmit(form, 'Входим…', 'Signing in…');
+    if (!finish) return;
     const identifier = document.getElementById('login-nick').value.trim();
     const password = document.getElementById('login-pass').value;
-    if (!identifier || !password) return;
+    if (!identifier || !password) {
+      finish();
+      return;
+    }
     setMessage('login-message', '');
     try {
       const data = await NarduAuth.login({ identifier, password });
       NarduApp.setUser(data.user);
+      const destination = postLoginDestination();
       NarduApp.clearReauthContext?.();
-      location.href = 'index.html';
+      location.href = destination;
     } catch (error) {
-      setMessage('login-message', error.message, 'error');
+      setMessage('login-message', NarduAuth.errorMessage(error), 'error');
+    } finally {
+      finish();
     }
   });
 
@@ -203,20 +298,26 @@
       return;
     }
     NarduApp.clearReauthContext?.();
-    location.href = 'index.html';
+    location.href = NarduAuth.postAuthDestination();
   });
 
   document.getElementById('forgot-toggle').addEventListener('click', () => {
+    document.getElementById('auth-card-title').hidden = true;
+    document.getElementById('auth-card-sub').hidden = true;
+    document.getElementById('login-form').hidden = true;
     document.getElementById('recovery-panel').hidden = false;
     const value = document.getElementById('login-nick').value.trim();
     if (value.includes('@')) document.getElementById('recovery-email').value = value;
+    document.getElementById('recovery-email').focus();
   });
   document.getElementById('recovery-close').addEventListener('click', () => {
-    document.getElementById('recovery-panel').hidden = true;
+    showLoginForm();
   });
 
   document.getElementById('recovery-request-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const finish = beginSubmit(e.currentTarget, 'Отправляем…', 'Sending…');
+    if (!finish) return;
     const email = document.getElementById('recovery-email').value.trim();
     setMessage('recovery-message', '');
     try {
@@ -224,12 +325,16 @@
       document.getElementById('recovery-reset-form').hidden = Boolean(data.supabaseLink);
       setMessage('recovery-message', data.message ? NarduApp.translateServerMessage(data.message) : NarduApp.t('msg_recovery_code_sent'), 'success');
     } catch (error) {
-      setMessage('recovery-message', error.message, 'error');
+      setMessage('recovery-message', NarduAuth.errorMessage(error), 'error');
+    } finally {
+      finish();
     }
   });
 
   document.getElementById('recovery-reset-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const finish = beginSubmit(e.currentTarget, 'Сохраняем…', 'Saving…');
+    if (!finish) return;
     const email = document.getElementById('recovery-email').value.trim();
     const code = document.getElementById('recovery-code').value.trim();
     const password = document.getElementById('recovery-pass').value;
@@ -239,12 +344,43 @@
         method: 'POST',
         body: JSON.stringify({ email, code, password }),
       });
-      document.getElementById('recovery-panel').hidden = true;
+      showLoginForm({ focus: false });
       setMessage('login-message', NarduApp.t('msg_password_changed'), 'success');
       document.getElementById('login-nick').value = email;
       document.getElementById('login-pass').focus();
     } catch (error) {
-      setMessage('recovery-message', error.message, 'error');
+      setMessage('recovery-message', NarduAuth.errorMessage(error), 'error');
+    } finally {
+      finish();
+    }
+  });
+
+  document.getElementById('recovery-link-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const finish = beginSubmit(e.currentTarget, 'Сохраняем…', 'Saving…');
+    if (!finish) return;
+    const password = document.getElementById('recovery-link-pass').value;
+    const confirmation = document.getElementById('recovery-link-pass2').value;
+    if (password.length < 6) {
+      setMessage('recovery-message', document.documentElement.lang === 'en' ? 'Password must be at least 6 characters long.' : 'Пароль должен быть не короче 6 символов.', 'error');
+      finish();
+      return;
+    }
+    if (password !== confirmation) {
+      setMessage('recovery-message', NarduApp.t('err_passwords_mismatch'), 'error');
+      finish();
+      return;
+    }
+    setMessage('recovery-message', '');
+    try {
+      const data = await NarduAuth.updateRecoveredPassword(password);
+      NarduApp.setUser(data.user || recoveryProfile);
+      NarduApp.clearReauthContext?.();
+      location.replace(NarduAuth.postAuthDestination());
+    } catch (error) {
+      setMessage('recovery-message', NarduAuth.errorMessage(error), 'error');
+    } finally {
+      finish();
     }
   });
 </script>

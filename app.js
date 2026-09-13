@@ -112,6 +112,7 @@
       title_register: 'Нарды — Регистрация',
       title_lobby: 'Нарды — Лобби',
       title_settings: 'Нарды — Настройки',
+      title_account: 'Нарды — Личный кабинет',
       brand_name: 'Нарды',
       brand_mark: 'Н',
       brand_sub: 'длинные · короткие · онлайн',
@@ -174,6 +175,7 @@
       action: 'Действие',
       player: 'Игрок',
       time_control: 'Время',
+      session_state: 'Статус',
       closed_game_password: 'Пароль закрытой игры',
       closed_game_password_ph: 'Например: 1234 или secret',
       closed_game_password_hint: 'Этот пароль сообщите сопернику для входа в закрытую игру.',
@@ -218,6 +220,10 @@
       // settings
       settings_title: 'Настройки',
       settings_sub: 'Личные предпочтения и параметры партий',
+      account_cabinet_title: 'Личный кабинет',
+      account_cabinet_sub: 'Профиль, история, сообщения и настройки',
+      cabinet_overview: 'Обзор',
+      cabinet_preferences: 'Настройки',
       sec_appearance: 'Внешний вид',
       sec_game: 'Игра',
       sec_account: 'Аккаунт',
@@ -268,7 +274,9 @@
       delete_account: 'Удалить аккаунт',
       delete_account_hint: 'Полное удаление профиля и истории',
       delete: 'Удалить',
-      delete_account_question: 'Желаете удалить аккаунт?',
+      delete_account_question: 'Удалить аккаунт?',
+      delete_account_irreversible: 'Профиль, история партий и список друзей будут удалены без возможности восстановления.',
+      delete_account_unavailable: 'Удаление аккаунта временно недоступно. Попробуйте позже или обратитесь в поддержку.',
       yes: 'Да',
       no: 'Нет',
       tournaments_events: 'Турниры и события',
@@ -322,6 +330,8 @@
       add_friend: 'Добавить',
       friends_empty: 'Друзей пока нет.',
       messages_title: 'Сообщения',
+      message_sources: 'Разделы сообщений',
+      friend_messages_source: 'Сообщения друзей',
       admin_messages_title: 'Сообщения администрации',
       admin_messages_desc: 'Объявления, правила и личные ответы администратора.',
       admin_messages_thread: 'Администрация',
@@ -345,6 +355,8 @@
       voice_message: 'Голосовое сообщение',
       voice_supabase_only: 'Голосовые сообщения доступны на публичном сайте через Supabase.',
       friend_voice_schema_missing: 'Голосовые сообщения ещё не включены в Supabase. Выполните обновлённый supabase/schema.sql.',
+      friend_voice_unavailable: 'Голосовые сообщения временно недоступны. Попробуйте позже.',
+      guest_register_prompt: 'Создайте аккаунт, чтобы история партий, друзья и сообщения сохранялись на всех устройствах.',
       friend_rating: 'Рейтинг',
       win_result: 'Победа',
       loss_result: 'Поражение',
@@ -460,6 +472,7 @@
       title_register: 'Backgammon — Sign up',
       title_lobby: 'Backgammon — Lobby',
       title_settings: 'Backgammon — Settings',
+      title_account: 'Backgammon — Account',
       brand_name: 'Backgammon',
       brand_mark: 'B',
       brand_sub: 'long · short · online',
@@ -521,6 +534,7 @@
       action: 'Action',
       player: 'Player',
       time_control: 'Time',
+      session_state: 'Status',
       closed_game_password: 'Private game password',
       closed_game_password_ph: 'For example: 1234 or secret',
       closed_game_password_hint: 'Share this password with your opponent to enter the private game.',
@@ -564,6 +578,10 @@
       join: 'Join',
       settings_title: 'Settings',
       settings_sub: 'Personal preferences and match settings',
+      account_cabinet_title: 'Account',
+      account_cabinet_sub: 'Profile, history, messages, and settings',
+      cabinet_overview: 'Overview',
+      cabinet_preferences: 'Settings',
       sec_appearance: 'Appearance',
       sec_game: 'Gameplay',
       sec_account: 'Account',
@@ -614,7 +632,9 @@
       delete_account: 'Delete account',
       delete_account_hint: 'Fully remove profile and history',
       delete: 'Delete',
-      delete_account_question: 'Do you want to delete the account?',
+      delete_account_question: 'Delete account?',
+      delete_account_irreversible: 'Your profile, match history, and friends list will be permanently deleted.',
+      delete_account_unavailable: 'Account deletion is temporarily unavailable. Try again later or contact support.',
       yes: 'Yes',
       no: 'No',
       tournaments_events: 'Tournaments and events',
@@ -668,6 +688,8 @@
       add_friend: 'Add',
       friends_empty: 'No friends yet.',
       messages_title: 'Messages',
+      message_sources: 'Message sections',
+      friend_messages_source: 'Friend messages',
       admin_messages_title: 'Administration messages',
       admin_messages_desc: 'Announcements, rules, and direct replies from administrators.',
       admin_messages_thread: 'Administration',
@@ -691,6 +713,8 @@
       voice_message: 'Voice message',
       voice_supabase_only: 'Voice messages are available on the public site through Supabase.',
       friend_voice_schema_missing: 'Voice messages are not enabled in Supabase yet. Run the updated supabase/schema.sql.',
+      friend_voice_unavailable: 'Voice messages are temporarily unavailable. Try again later.',
+      guest_register_prompt: 'Create an account to keep match history, friends, and messages across devices.',
       friend_rating: 'Rating',
       win_result: 'Win',
       loss_result: 'Loss',
@@ -856,13 +880,14 @@
     try { sessionStorage.removeItem(REAUTH_CONTEXT_KEY); } catch {}
   }
 
-  function redirectForAuthError(error) {
+  function redirectForAuthError(error, returnTo = 'index.html') {
     if (!isAuthSessionError(error)) return false;
     const user = getUser();
+    const safeReturnTo = /^(?:index|settings)\.html(?:[?#][^\s]*)?$/.test(String(returnTo || '')) ? String(returnTo) : 'index.html';
     try {
       sessionStorage.setItem(REAUTH_CONTEXT_KEY, JSON.stringify({
         identifier: user?.nickname || user?.name || user?.email || '',
-        returnTo: 'index.html',
+        returnTo: safeReturnTo,
         message: t('account_login_again'),
       }));
     } catch {}
@@ -1063,6 +1088,8 @@
       window.NarduSupabase.client()
         .then(client => client.auth.signOut())
         .catch(() => {});
+    } else {
+      fetch('/api/logout', { method: 'POST', keepalive: true }).catch(() => {});
     }
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(GUEST_ENTRY_KEY);
@@ -1082,11 +1109,15 @@
   function requireGuest() {
     const user = getUser();
     if (!user) return;
-    if (user.guest && !guestEntryGranted()) {
-      try { localStorage.removeItem(USER_KEY); } catch (_) {}
+    if (user.guest) {
+      if (!guestEntryGranted()) {
+        try { localStorage.removeItem(USER_KEY); } catch (_) {}
+      }
       return;
     }
-    location.href = 'index.html';
+    const inviteMatch = String(location.search || '').match(/[?&]join=([A-Za-z0-9]{4})-?([A-Za-z0-9]{4})(?:&|$)/);
+    const invite = inviteMatch ? `${inviteMatch[1]}-${inviteMatch[2]}`.toUpperCase() : '';
+    location.href = invite ? `index.html?join=${encodeURIComponent(invite)}` : 'index.html';
   }
 
   /* fill user chips on the page */
@@ -1120,12 +1151,26 @@
   async function refreshLobbyMessageIndicator() {
     if (!document.querySelector('[data-message-notification]') || lobbyMessageRefreshBusy) return;
     const localUser = getUser();
-    if (!localUser || localUser.guest || !window.NarduSupabase?.configured?.()) {
+    if (!localUser || localUser.guest) {
       paintLobbyMessageIndicator(0);
       return;
     }
     lobbyMessageRefreshBusy = true;
     try {
+      if (!window.NarduSupabase?.configured?.()) {
+        const query = new URLSearchParams({ userId: localUser.id || '' }).toString();
+        const response = await fetch(`/api/account/profile?${query}`, { headers: { Accept: 'application/json' } });
+        const profile = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(translateServerMessage(profile.error || 'Ошибка аккаунта.'));
+          error.status = response.status;
+          if (response.status === 401) error.code = 'AUTH_SESSION_MISSING';
+          if (redirectForAuthError(error, `index.html${location.search || ''}${location.hash || ''}`)) return;
+          throw error;
+        }
+        paintLobbyMessageIndicator((profile.friends || []).reduce((sum, friend) => sum + Math.max(0, Number(friend.unread) || 0), 0));
+        return;
+      }
       const client = await window.NarduSupabase.client();
       const { data: authData, error: authError } = await client.auth.getUser();
       const userId = authData?.user?.id;

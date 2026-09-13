@@ -74,6 +74,7 @@ function loadApp(initial = {}) {
     sessionStorage,
     location: {
       href: '',
+      search: '',
       replace(url) { redirects.push(url); },
     },
     console,
@@ -88,6 +89,17 @@ function loadApp(initial = {}) {
   vm.runInContext(appSource, context, { filename: 'app.js' });
   return { app: context.window.NarduApp, localStorage, location: context.location, redirects };
 }
+
+test('a signed-in player keeps a valid room invitation when leaving an auth page', () => {
+  const { app, location } = loadApp({
+    'narduh-user': JSON.stringify({ id: 'user-1', name: 'tester1', guest: false }),
+  });
+  location.search = '?join=slwa-xwcq';
+
+  app.requireGuest();
+
+  assert.equal(location.href, 'index.html?join=SLWA-XWCQ');
+});
 
 test('a first-time visitor is sent to sign-in without creating an implicit guest', () => {
   const result = runLobbyGate();
@@ -160,6 +172,18 @@ test('the sign-in page clears a legacy guest instead of bouncing back to the lob
   app.requireGuest();
 
   assert.equal(localStorage.getItem('narduh-user'), null);
+  assert.equal(location.href, '');
+});
+
+test('an explicitly admitted guest can open auth pages to create a permanent account', () => {
+  const { app, localStorage, location } = loadApp({
+    'narduh-user': JSON.stringify({ id: 'guest:new', name: 'Guest5678', guest: true }),
+    'narduh-guest-entry-v1': '1',
+  });
+
+  app.requireGuest();
+
+  assert.ok(localStorage.getItem('narduh-user'));
   assert.equal(location.href, '');
 });
 

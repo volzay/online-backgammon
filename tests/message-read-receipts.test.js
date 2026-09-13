@@ -20,7 +20,7 @@ test('friend-message recipients can persist read receipts', () => {
 
 test('account UI only clears unread badges after a successful database update', () => {
   const settings = read('settings.html');
-  assert.match(settings, /const \{ error: markReadError \} = await client[\s\S]*?from\('friend_messages'\)[\s\S]*?eq\('to_user_id', profile\.id\)[\s\S]*?if \(markReadError\) throw new Error\(markReadError\.message\)/);
-  assert.match(settings, /function clearFriendUnread\(friendId\)[\s\S]*?friend\.unread = 0[\s\S]*?querySelector\('\.unread-badge'\)\?\.remove\(\)/);
-  assert.match(settings, /from\('admin_player_messages'\)[\s\S]*?eq\('direction', 'admin'\)[\s\S]*?if \(markReadError\) throw markReadError/);
+  assert.match(settings, /async function markSupabaseFriendMessagesRead\(friendId, unreadIds\)[\s\S]*?updateSupabaseReadBatches\(unreadIds, ids => client[\s\S]*?from\('friend_messages'\)[\s\S]*?eq\('to_user_id', profile\.id\)[\s\S]*?in\('id', ids\)[\s\S]*?if \(error\) \{[\s\S]*?return false;[\s\S]*?clearFriendUnread\(friendId, unreadIds\.length\)/);
+  assert.match(settings, /function clearFriendUnread\(friendId, readCount = null\)[\s\S]*?Math\.max\(0, \(Number\(friend\.unread\) \|\| 0\) - Math\.max\(0, Number\(readCount\) \|\| 0\)\)[\s\S]*?if \(!remaining\) badge\?\.remove\(\)[\s\S]*?else if \(badge\) badge\.textContent = String\(remaining\)/);
+  assert.match(settings, /updateSupabaseReadBatches\(unreadIds, ids => client[\s\S]*?from\('admin_player_messages'\)[\s\S]*?in\('id', ids\)[\s\S]*?if \(markReadError\) \{[\s\S]*?return;[\s\S]*?detail: \{ source: 'admin' \}/);
 });

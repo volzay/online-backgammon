@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Нарды — Правила</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+<div class="auth-page rules-page">
+  <header class="auth-topbar">
+    <a class="brand" href="login.html">
+      <div class="brand-mark" data-i18n="brand_mark">Н</div>
+      <div class="brand-text">
+        <div class="name" data-i18n="brand_name">Нарды</div>
+        <div class="sub" data-i18n="brand_sub">длинные · короткие · онлайн</div>
+      </div>
+    </a>
+    <div class="topbar-mini">
+      <div class="theme-switch lang-switch">
+        <button data-lang-set="ru" class="active"><span>RU</span></button>
+        <button data-lang-set="en"><span>EN</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="rules-stage">
+    <article class="auth-card rules-card" data-rules-lang="ru">
+      <p class="auth-eyebrow">Правила портала</p>
+      <h1 class="auth-title">Честная игра и уважительное общение</h1>
+      <p class="auth-sub">Краткие правила для рейтинговых и дружеских партий.</p>
+      <section><h2>Игра</h2><p>Партии проходят по правилам выбранного вида нард. Результат, рейтинг и особый исход фиксируются после корректного завершения партии или сдачи.</p></section>
+      <section><h2>Честность</h2><p>Не используйте стороннюю автоматизацию, уязвимости, подмену запросов или договорные партии для изменения результата и рейтинга. Обнаруженную ошибку сообщайте поддержке.</p></section>
+      <section><h2>Общение</h2><p>Запрещены оскорбления, угрозы, нежелательные массовые сообщения и публикация чужих персональных данных. Администрация может ограничить чат или аккаунт при нарушениях.</p></section>
+      <section><h2>Аккаунт и данные</h2><p>История партий, друзья и сообщения хранятся для работы портала. Удаление аккаунта и связанной истории доступно в личном кабинете и является необратимым.</p></section>
+      <div class="rules-actions">
+        <a class="ghostbtn" href="register.html">К регистрации</a>
+        <a class="ghostbtn" href="https://github.com/volzay/online-backgammon/issues/new" target="_blank" rel="noopener noreferrer">Поддержка</a>
+      </div>
+    </article>
+
+    <article class="auth-card rules-card" data-rules-lang="en" hidden>
+      <p class="auth-eyebrow">Portal rules</p>
+      <h1 class="auth-title">Fair play and respectful communication</h1>
+      <p class="auth-sub">Essential rules for rated and friendly matches.</p>
+      <section><h2>Gameplay</h2><p>Matches follow the rules of the selected backgammon variant. Results, ratings, and special outcomes are recorded after a valid finish or resignation.</p></section>
+      <section><h2>Fairness</h2><p>Do not use external automation, vulnerabilities, request tampering, or arranged matches to alter results or ratings. Report discovered defects to support.</p></section>
+      <section><h2>Communication</h2><p>Harassment, threats, unsolicited bulk messages, and disclosure of another person's private data are prohibited. Administrators may restrict chat or accounts after violations.</p></section>
+      <section><h2>Account and data</h2><p>Match history, friendships, and messages are stored to operate the portal. Account and history deletion is available in the personal account and cannot be undone.</p></section>
+      <div class="rules-actions">
+        <a class="ghostbtn" href="register.html">Back to sign up</a>
+        <a class="ghostbtn" href="https://github.com/volzay/online-backgammon/issues/new" target="_blank" rel="noopener noreferrer">Support</a>
+      </div>
+    </article>
+  </main>
+
+  <footer class="auth-foot-bar">
+    <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+  const inviteQuery = new URL(location.href).searchParams.get('join');
+  if (inviteQuery) {
+    document.querySelectorAll('a[href="register.html"]').forEach(link => {
+      link.href = `register.html?join=${encodeURIComponent(inviteQuery)}`;
+    });
+  }
+  function paintRulesLanguage() {
+    const lang = document.documentElement.lang === 'en' ? 'en' : 'ru';
+    document.querySelectorAll('[data-rules-lang]').forEach(section => {
+      section.hidden = section.dataset.rulesLang !== lang;
+    });
+    document.title = lang === 'en' ? 'Backgammon — Rules' : 'Нарды — Правила';
+  }
+  paintRulesLanguage();
+  window.addEventListener('nardu:langchange', paintRulesLanguage);
+</script>
+</body>
+</html>

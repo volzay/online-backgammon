@@ -128,7 +128,8 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(lobby, /runLobbyCleanup\(\);/);
   assert.match(lobby, /const cleanup = await lobbyCleanupPromise;/);
   assert.match(lobby, /if \(e\.target\.closest\('\[data-room-password-input\]'\)\) return;\s+const cleanup = await lobbyCleanupPromise;/);
-  assert.match(lobby, /if \(a === 'quick'\) \{\s+const cleanup = await lobbyCleanupPromise;/);
+  assert.match(lobby, /if \(a === 'browse'\) \{\s+await lobbyCleanupPromise;/);
+  assert.match(lobby, /a === 'bot'[\s\S]*createState\.opponent = 'bot';[\s\S]*showCreatePanel\(\)/);
   assert.match(lobby, /if \(joinRequestPending\) return/);
   assert.match(lobby, /joinRequestPending = false;/);
   assert.match(lobby, /window\.addEventListener\('pageshow', event => \{/);
@@ -191,4 +192,65 @@ test("a registered profile without a Supabase session receives a normalized re-l
     context.window.NarduRooms.createRoom({ variant: "long" }),
     error => error.code === "AUTH_SESSION_MISSING" && error.status === 401 && /Войдите/.test(error.message),
   );
+});
+
+test("API fallback creates the bot analysis room before publishing moves", async () => {
+  const requests = [];
+  const context = {
+    window: {
+      NarduSupabase: { configured: () => false },
+      NarduApp: {
+        getUser: () => ({
+          id: "api-user-1",
+          name: "ApiPlayer",
+          rating: 1440,
+          ratingEligible: true,
+          guest: false,
+        }),
+        shouldShowRatingToOthers: () => true,
+        ratingTierFor: () => "Silver",
+      },
+      crypto: globalThis.crypto,
+    },
+    console,
+    Date,
+    Map,
+    Set,
+    TextEncoder,
+    Uint8Array,
+    fetch: async (url, options = {}) => {
+      requests.push({ url, options });
+      return {
+        ok: true,
+        async json() { return { ok: true, version: 0 }; },
+      };
+    },
+  };
+  context.globalThis = context.window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  const result = await context.window.NarduRooms.ensureBotAnalysisRoom({
+    code: "BRTX-2233",
+    variant: "long",
+    botName: "Hard bot",
+    botRating: 1500,
+    difficulty: "hard",
+    playerColor: "white",
+    state: { phase: "opening", points: {} },
+  });
+
+  assert.equal(result.version, 0);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/rooms/bot-analysis");
+  assert.equal(requests[0].options.method, "POST");
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.code, "BRTX-2233");
+  assert.equal(body.hostName, "ApiPlayer");
+  assert.equal(body.hostUserId, "api-user-1");
+  assert.match(body.ownerToken, /^[a-f0-9]{64}$/);
+  assert.equal(body.state.mode, "bot");
+  assert.equal(body.state.analysis.difficulty, "hard");
 });

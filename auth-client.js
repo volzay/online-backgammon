@@ -1,4 +1,5 @@
 (function () {
+  let recoveryAuthorized = false;
   function normalizeProfile(profile = {}, authUser = {}) {
     const metadata = authUser.user_metadata || {};
     const rawRating = Math.round(Number(profile.rating ?? metadata.rating ?? 1000));
@@ -32,17 +33,75 @@
 
   function authErrorMessage(error, fallbackKey = "err_auth") {
     const message = String(error?.message || error || "");
+    const localize = (ru, en) => NarduApp.currentLang?.() === "en" ? en : ru;
+    const alreadyNormalized = /^(?:Не удалось связаться с сервером|Could not reach the server|Отправка писем временно ограничена|Email delivery is temporarily limited|Сервис временно ограничил запросы|The service has temporarily limited requests|Ссылка восстановления недействительна|This recovery link is invalid|Сессия истекла|Your session expired|Проверьте email|Check the email|Incorrect nickname|Enter a valid email|Password must be at least|Nickname must|Nickname may|This nickname|This account|An account is already)/;
+    if (alreadyNormalized.test(message)) return message;
+    if (/failed to fetch|network(?:error| request failed)|load failed|fetch failed/i.test(message)) {
+      return localize(
+        "Не удалось связаться с сервером. Проверьте интернет и повторите попытку.",
+        "Could not reach the server. Check your connection and try again.",
+      );
+    }
     if (/email rate limit exceeded/i.test(message)) {
-      return "Supabase временно ограничил отправку писем подтверждения. Попробуйте позже или войдите, если аккаунт уже создан.";
+      return localize(
+        "Отправка писем временно ограничена. Попробуйте позже или войдите, если аккаунт уже создан.",
+        "Email delivery is temporarily limited. Try again later, or sign in if the account already exists.",
+      );
+    }
+    if (/quota has been exceeded|over quota|rate limit/i.test(message)) {
+      return localize(
+        "Сервис временно ограничил запросы. Подождите несколько минут и повторите попытку.",
+        "The service has temporarily limited requests. Wait a few minutes and try again.",
+      );
     }
     if (/already registered|already been registered|user already registered/i.test(message)) {
-      return "На эту электронную почту уже зарегистрирован аккаунт.";
+      return localize(
+        "На эту электронную почту уже зарегистрирован аккаунт.",
+        "An account is already registered with this email address.",
+      );
     }
-    if (/duplicate key|profiles_nickname|nickname/i.test(message)) {
-      return "Такой никнейм уже занят.";
+    if (/nickname.*(?:3\s*(?:to|and|–|-)\s*20|between.*3.*20)/i.test(message)) {
+      return localize(
+        "Никнейм должен быть от 3 до 20 символов.",
+        "Nickname must be 3 to 20 characters long.",
+      );
     }
-    if (/invalid email/i.test(message)) return "Введите корректный email.";
-    return message || NarduApp.t(fallbackKey);
+    if (/nickname.*(?:may contain|letters.*numbers)|Никнейм может содержать/i.test(message)) {
+      return localize(
+        "Никнейм может содержать буквы, цифры, пробел, дефис и подчёркивание.",
+        "Nickname may contain letters, numbers, spaces, hyphens, and underscores.",
+      );
+    }
+    if (/duplicate key|profiles_nickname|nickname.*(?:taken|occupied|already)|никнейм.*занят/i.test(message)) {
+      return localize("Такой никнейм уже занят.", "This nickname is already taken.");
+    }
+    if (/invalid email/i.test(message)) {
+      return localize("Введите корректный email.", "Enter a valid email address.");
+    }
+    if (/invalid login credentials|invalid credentials|email not confirmed/i.test(message)) {
+      return localize("Неверный никнейм/email или пароль.", "Incorrect nickname/email or password.");
+    }
+    if (/password should be at least|weak password/i.test(message)) {
+      return localize("Пароль должен быть не короче 6 символов.", "Password must be at least 6 characters long.");
+    }
+    if (/otp expired|token.*expired|invalid.*token|recovery.*expired/i.test(message)) {
+      return localize(
+        "Ссылка восстановления недействительна или устарела. Запросите новую ссылку.",
+        "This recovery link is invalid or expired. Request a new link.",
+      );
+    }
+    if (/auth session missing|session.*(?:missing|expired)/i.test(message)) {
+      return fallbackKey === "err_recovery"
+        ? localize(
+            "Ссылка восстановления недействительна или устарела. Запросите новую ссылку.",
+            "This recovery link is invalid or expired. Request a new link.",
+          )
+        : localize("Сессия истекла. Войдите снова.", "Your session expired. Sign in again.");
+    }
+    const translated = NarduApp.translateServerMessage?.(message);
+    const safeValidation = /^(Никнейм|Пароль|Введите|Такой|На эту|Этот|Неверный|Если email|Код восстановления|Проверьте email|Nickname|Password|Enter|This nickname|This account|An account|Incorrect|If the account|The recovery code|Check the email)/;
+    if (translated && safeValidation.test(message)) return translated;
+    return NarduApp.t(fallbackKey);
   }
 
   function publicPageUrl(page) {
@@ -50,6 +109,39 @@
     const configuredBase = String(cfg.siteBaseUrl || "").replace(/\/+$/, "");
     if (configuredBase) return `${configuredBase}/${page}`;
     return new URL(page, location.href).href;
+  }
+
+  function postAuthDestination() {
+    const compact = String(new URLSearchParams(location.search).get("join") || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+    return compact.length === 8
+      ? `index.html?join=${encodeURIComponent(`${compact.slice(0, 4)}-${compact.slice(4)}`)}`
+      : "index.html";
+  }
+
+  function authCallbackDestination() {
+    const destination = postAuthDestination();
+    const query = destination.includes("?") ? destination.slice(destination.indexOf("?")) : "";
+    return `login.html${query}`;
+  }
+
+  function recoveryCallbackDestination() {
+    const destination = new URL(postAuthDestination(), location.href);
+    const params = new URLSearchParams({ recovery: "1" });
+    const join = destination.searchParams.get("join");
+    if (join) params.set("join", join);
+    return `login.html?${params.toString()}`;
+  }
+
+  function preservePostAuthLinks() {
+    const destination = postAuthDestination();
+    const query = destination.includes("?") ? destination.slice(destination.indexOf("?")) : "";
+    document.querySelectorAll('a[href="login.html"], a[href="register.html"], a[href="rules.html"]').forEach(link => {
+      const target = link.getAttribute("href").split("?")[0];
+      link.setAttribute("href", `${target}${query}`);
+    });
   }
 
   async function profileForAuthUser(supabase, authUser) {
@@ -127,7 +219,7 @@
       password,
       options: {
         data: { nickname, name: nickname },
-        emailRedirectTo: publicPageUrl("login.html"),
+        emailRedirectTo: publicPageUrl(authCallbackDestination()),
       },
     });
     if (error) throw new Error(authErrorMessage(error, "err_register"));
@@ -166,7 +258,9 @@
   async function register({ nickname, email, password }) {
     const supabaseResult = await signUpSupabase({ nickname, email, password });
     if (supabaseResult) return supabaseResult;
-    const fallbackEmail = email || `${String(nickname || "player").toLowerCase().replace(/[^a-z0-9._-]+/g, "_")}@local.nardy`;
+    const emailStem = String(nickname || "player").toLowerCase().replace(/[^a-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "player";
+    const emailNonce = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const fallbackEmail = email || `${emailStem}+${String(emailNonce).replace(/[^a-z0-9-]/gi, "")}@local.nardy`;
     const fallbackPassword = password || `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     return apiJson("/api/register", {
       method: "POST",
@@ -178,10 +272,16 @@
     if (window.NarduSupabase?.configured?.()) {
       const supabase = await window.NarduSupabase.client();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: publicPageUrl("login.html"),
+        redirectTo: publicPageUrl(recoveryCallbackDestination()),
       });
       if (error) throw new Error(authErrorMessage(error));
-      return { ok: true, message: NarduApp.t("msg_recovery_code_sent"), supabaseLink: true };
+      return {
+        ok: true,
+        message: NarduApp.currentLang?.() === "en"
+          ? "If the account exists, a password reset link has been sent to that email."
+          : "Если аккаунт существует, ссылка для смены пароля отправлена на этот email.",
+        supabaseLink: true,
+      };
     }
     return apiJson("/api/password-recovery/request", {
       method: "POST",
@@ -193,9 +293,18 @@
     if (!window.NarduSupabase?.configured?.()) return null;
     const supabase = await window.NarduSupabase.client();
     const url = new URL(location.href);
-    const hasHashSession = /(?:^|&)access_token=/.test(url.hash.replace(/^#/, ""));
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    const hasHashSession = hashParams.has("access_token");
     const code = url.searchParams.get("code");
-    if (!hasHashSession && !code) return null;
+    const recoveryHint = url.searchParams.get("recovery") === "1" || hashParams.get("type") === "recovery";
+    const hasCallbackCredentials = hasHashSession || Boolean(code);
+    const passwordRecovery = recoveryHint && hasCallbackCredentials;
+    const callbackError = hashParams.get("error_description") || hashParams.get("error") || url.searchParams.get("error_description") || url.searchParams.get("error");
+    if (callbackError) throw new Error(authErrorMessage(new Error(callbackError), recoveryHint ? "err_recovery" : "err_auth"));
+    if (!hasCallbackCredentials) {
+      if (recoveryHint) throw new Error(authErrorMessage(new Error("invalid recovery token"), "err_recovery"));
+      return null;
+    }
 
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
@@ -205,15 +314,36 @@
     }
 
     let { data, error } = await supabase.auth.getSession();
-    if (error) throw new Error(authErrorMessage(error));
+    if (error) throw new Error(authErrorMessage(error, passwordRecovery ? "err_recovery" : "err_auth"));
     if (!data.session?.user && hasHashSession) {
       await new Promise(resolve => setTimeout(resolve, 500));
       ({ data, error } = await supabase.auth.getSession());
-      if (error) throw new Error(authErrorMessage(error));
+      if (error) throw new Error(authErrorMessage(error, passwordRecovery ? "err_recovery" : "err_auth"));
     }
     if (!data.session?.user) return null;
+    recoveryAuthorized = passwordRecovery;
     if (hasHashSession) history.replaceState(null, "", location.pathname + location.search);
-    return { user: await profileForAuthUser(supabase, data.session.user), authRedirect: true };
+    return {
+      user: await profileForAuthUser(supabase, data.session.user),
+      authRedirect: true,
+      passwordRecovery,
+    };
+  }
+
+  async function updateRecoveredPassword(password) {
+    if (!recoveryAuthorized) {
+      throw new Error(authErrorMessage(new Error("invalid recovery token"), "err_recovery"));
+    }
+    if (!window.NarduSupabase?.configured?.()) {
+      throw new Error(NarduApp.t("err_auth"));
+    }
+    const supabase = await window.NarduSupabase.client();
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(authErrorMessage(error, "err_recovery"));
+    const authUser = data?.user;
+    if (!authUser) throw new Error(NarduApp.t("err_auth"));
+    recoveryAuthorized = false;
+    return { user: await profileForAuthUser(supabase, authUser) };
   }
 
   window.NarduAuth = {
@@ -221,5 +351,9 @@
     login,
     register,
     requestPasswordRecovery,
+    updateRecoveredPassword,
+    postAuthDestination,
+    preservePostAuthLinks,
+    errorMessage: authErrorMessage,
   };
 })();

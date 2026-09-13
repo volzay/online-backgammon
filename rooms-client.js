@@ -13,6 +13,7 @@
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
   const shortBotExperiencePromises = new Map();
+  const botAnalysisOwnerTokens = new Map();
   let longBotExperienceLoadGeneration = 0;
   let shortBotExperienceLoadGeneration = 0;
 
@@ -124,6 +125,26 @@
     return `${code.slice(0, 4)}-${code.slice(4)}`;
   }
 
+  function botAnalysisOwnerToken(code) {
+    const normalizedCode = normalizeCode(code);
+    if (botAnalysisOwnerTokens.has(normalizedCode)) return botAnalysisOwnerTokens.get(normalizedCode);
+    const storageKey = `narduh-bot-analysis-owner:${normalizedCode}`;
+    try {
+      const stored = String(window.sessionStorage?.getItem(storageKey) || '');
+      if (/^[A-Za-z0-9_-]{32,}$/.test(stored)) {
+        botAnalysisOwnerTokens.set(normalizedCode, stored);
+        return stored;
+      }
+    } catch {}
+    const bytes = new Uint8Array(32);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+    const token = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    botAnalysisOwnerTokens.set(normalizedCode, token);
+    try { window.sessionStorage?.setItem(storageKey, token); } catch {}
+    return token;
+  }
+
   async function apiJson(url, options = {}) {
     const response = await fetch(url, {
       ...options,
@@ -137,6 +158,7 @@
       const err = new Error(window.NarduApp?.translateServerMessage?.(data.error) || data.error || window.NarduApp?.t?.("err_session") || "Game session error.");
       err.status = response.status;
       err.data = data;
+      if (response.status === 401) err.code = "AUTH_SESSION_MISSING";
       throw err;
     }
     return data;
@@ -515,12 +537,9 @@
   }
 
   async function ensureBotAnalysisRoom(payload = {}) {
-    if (!configured()) return { skipped: true };
     const normalizedCode = normalizeCode(payload.code);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
-    const { client, authUser, profile } = await roomClientContext({ allowLocalFallback: true });
-    const roomProfile = localRoomProfile(profile, { registered: Boolean(authUser?.id) });
     const variant = payload.variant === "short" ? "short" : "long";
     const botName = String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
     const botRating = normalizeRating(payload.botRating);
@@ -538,6 +557,31 @@
       botName,
       updatedAt: new Date().toISOString(),
     };
+
+    if (!configured()) {
+      const localUser = window.NarduApp?.getUser?.() || {};
+      const roomProfile = localRoomProfile();
+      const ownerToken = botAnalysisOwnerToken(normalizedCode);
+      return apiJson("/api/rooms/bot-analysis", {
+        method: "POST",
+        body: JSON.stringify({
+          code: normalizedCode,
+          variant,
+          botName,
+          botRating,
+          difficulty: String(payload.difficulty || state.botDifficulty || "").slice(0, 20),
+          playerColor: payload.playerColor === "dark" ? "dark" : "white",
+          state,
+          hostName: roomProfile.name,
+          hostUserId: localUser.id || "",
+          hostRatingEligible: roomProfile.ratingEligible,
+          ownerToken,
+        }),
+      });
+    }
+
+    const { client, authUser, profile } = await roomClientContext({ allowLocalFallback: true });
+    const roomProfile = localRoomProfile(profile, { registered: Boolean(authUser?.id) });
 
     const { data: existing, error: existingError } = await client
       .from("rooms")
@@ -728,7 +772,12 @@
 
   async function getGameState(code) {
     const normalizedCode = normalizeCode(code);
-    if (!configured()) return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`);
+    if (!configured()) {
+      const ownerToken = botAnalysisOwnerToken(normalizedCode);
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
+        headers: ownerToken ? { 'X-Bot-Owner': ownerToken } : {},
+      });
+    }
     const client = await supabase();
     const { data, error } = await client
       .from("rooms")
@@ -745,9 +794,10 @@
   async function putGameState(code, state, version = 0) {
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
+      const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
         method: "PUT",
-        body: JSON.stringify({ state, version }),
+        body: JSON.stringify({ state, version, ownerToken }),
       });
     }
     const client = await supabase();
@@ -782,9 +832,10 @@
   async function finishRoomGame(code, finalState, version = 0) {
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
+      const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
         method: "PUT",
-        body: JSON.stringify({ state: finalState, version: Number(version) || 0 }),
+        body: JSON.stringify({ state: finalState, version: Number(version) || 0, ownerToken }),
       });
     }
     const { client, authUser, guest } = await roomClientContext();

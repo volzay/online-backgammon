@@ -101,6 +101,18 @@ window.NarduController = (function () {
       turn_first: 'Первый ход',
       turn_auto_roll: 'Автобросок кубиков',
       turn_your: 'Ваш ход',
+      turn_waiting: 'Ждём подключения соперника',
+      turn_opening: 'Определяем право первого хода',
+      turn_your_first_roll: 'Ваш первый ход: бросаем кубики',
+      turn_your_roll: 'Ваш ход: бросаем кубики',
+      turn_choose_move: 'Ваш ход: выберите шашку',
+      turn_no_moves: 'Доступных ходов нет',
+      turn_other: 'Ходит {name}',
+      turn_watching: 'Ход: {name}',
+      turn_roll_for: '{name}: бросаем кубики',
+      turn_move_for: '{name}: выберите шашку',
+      turn_complete: 'Партия завершена',
+      turn_finished: 'Партия завершена: победил {winner}',
       history_wait_opening: 'Ожидаем стартовый бросок',
       history_wait_opening_sub: 'Оба игрока бросят по одному кубику.',
       history_room_created: 'Комната создана',
@@ -168,6 +180,18 @@ window.NarduController = (function () {
       turn_first: 'First move',
       turn_auto_roll: 'Auto-roll dice',
       turn_your: 'Your turn',
+      turn_waiting: 'Waiting for opponent to connect',
+      turn_opening: 'Determining who moves first',
+      turn_your_first_roll: 'Your first move: rolling dice',
+      turn_your_roll: 'Your turn: rolling dice',
+      turn_choose_move: 'Your turn: choose a checker',
+      turn_no_moves: 'No available moves',
+      turn_other: '{name} is moving',
+      turn_watching: 'Turn: {name}',
+      turn_roll_for: '{name}: rolling dice',
+      turn_move_for: '{name}: choose a checker',
+      turn_complete: 'Game over',
+      turn_finished: 'Game over: {winner} won',
       history_wait_opening: 'Waiting for the opening roll',
       history_wait_opening_sub: 'Both players will roll one die.',
       history_room_created: 'Room created',
@@ -782,6 +806,7 @@ window.NarduController = (function () {
   function render() {
     clearStaleDragClones();
     if (onRender) onRender();
+    paintOpponent();
     renderDice();
     renderBoardDice();
     renderTurn();
@@ -859,7 +884,7 @@ window.NarduController = (function () {
     return mode === 'bot' &&
       Boolean(remoteCode) &&
       (options.force || !botAnalysisDisabled) &&
-      window.NarduRooms?.configured?.();
+      Boolean(window.NarduRooms?.ensureBotAnalysisRoom);
   }
 
   function isBotAnalysisState(source) {
@@ -1559,6 +1584,11 @@ window.NarduController = (function () {
   }
 
   function turnName(color) {
+    if (spectatorMode) {
+      const participant = [state?.openingRoll?.host, state?.openingRoll?.guest]
+        .find(entry => entry?.color === color);
+      return participant?.name ? localizedName(participant.name) : sideName(color);
+    }
     if (mode === 'hotseat') return sideName(color);
     if (color === playerColor) {
       return window.NarduApp?.getUser?.()?.name || tr('you');
@@ -1567,12 +1597,59 @@ window.NarduController = (function () {
   }
 
   /* ── turn banners ─────────────────────────── */
+  function paintTurnStatus(text, tone = 'waiting') {
+    const status = document.querySelector('[data-turn-status]');
+    const label = status?.querySelector('[data-turn-status-label]');
+    if (!status || !label) return;
+    if (status.dataset.tone !== tone) status.dataset.tone = tone;
+    const turn = state?.turn === 'white' || state?.turn === 'dark' ? state.turn : '';
+    if (status.dataset.turn !== turn) status.dataset.turn = turn;
+    if (label.textContent !== text) label.textContent = text;
+  }
+
+  function currentTurnStatus() {
+    if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
+    if (state.phase === 'waiting') return { text: tr('turn_waiting'), tone: 'waiting' };
+    if (state.phase === 'over' || state.winner) {
+      return {
+        text: state.winner
+          ? tr('turn_finished', { winner: turnName(state.winner) })
+          : tr('turn_complete'),
+        tone: 'complete',
+      };
+    }
+    if (state.phase === 'opening') return { text: tr('turn_opening'), tone: 'waiting' };
+
+    const activeName = state.turn === 'white' || state.turn === 'dark'
+      ? turnName(state.turn)
+      : tr('opponent');
+    if (spectatorMode) {
+      return { text: tr('turn_watching', { name: activeName }), tone: 'watching' };
+    }
+    if (mode === 'hotseat') {
+      return {
+        text: tr(state.phase === 'move' ? 'turn_move_for' : 'turn_roll_for', { name: activeName }),
+        tone: 'active',
+      };
+    }
+    if (!isMyTurn()) return { text: tr('turn_other', { name: activeName }), tone: 'waiting' };
+    if (state.phase === 'opening-result') return { text: tr('turn_your_first_roll'), tone: 'active' };
+    if (state.phase === 'roll' || isRolling) return { text: tr('turn_your_roll'), tone: 'active' };
+    if (state.phase === 'move' && !NarduGame.hasAnyMoves(state)) {
+      return { text: tr('turn_no_moves'), tone: 'waiting' };
+    }
+    return { text: tr('turn_choose_move'), tone: 'active' };
+  }
+
   function renderTurn() {
     document.querySelectorAll('.player').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.turn-banner').forEach(el => el.style.visibility = 'hidden');
 
     const opponentColor = playerColor === 'white' ? 'dark' : 'white';
     paintPlayerSideLabels(opponentColor);
+
+    const status = currentTurnStatus();
+    paintTurnStatus(status.text, status.tone);
 
     if (state.turn !== 'white' && state.turn !== 'dark') return;
 

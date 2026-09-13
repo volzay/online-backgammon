@@ -38,9 +38,9 @@
       <h2 class="auth-eyebrow" data-i18n="auth_register_eyebrow">создайте аккаунт</h2>
       <h1 class="auth-headline" data-i18n-html="auth_register_headline_html">Личный рейтинг <em>и история партий</em>, сезоны, друзья и приватные комнаты.</h1>
       <ul class="auth-bullets">
-        <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_name">Никнейм останется с вами навсегда</span></li>
+        <li><span class="b-mark">·</span> <span data-auth-copy-ru="Для регистрации достаточно никнейма и пароля" data-auth-copy-en="A nickname and password are enough to register">Для регистрации достаточно никнейма и пароля</span></li>
         <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_free">Бесплатно — и всегда без рекламы</span></li>
-        <li><span class="b-mark">·</span> <span data-i18n="auth_reg_bullet_import">Импорт прогресса с других платформ</span></li>
+        <li><span class="b-mark">·</span> <span data-auth-copy-ru="Рейтинг, история партий, друзья и приватные комнаты" data-auth-copy-en="Rating, match history, friends, and private rooms">Рейтинг, история партий, друзья и приватные комнаты</span></li>
       </ul>
     </aside>
 
@@ -51,12 +51,16 @@
       </div>
 
       <h2 class="auth-title" data-i18n="create_account">Создать аккаунт</h2>
-      <p class="auth-sub" data-i18n="welcome_sub">Войдите, чтобы начать партию</p>
+      <p class="auth-sub" data-auth-copy-ru="Email необязателен, но позволит восстановить пароль." data-auth-copy-en="Email is optional, but it lets you recover your password.">Email необязателен, но позволит восстановить пароль.</p>
 
       <form class="auth-form" id="register-form" autocomplete="on">
         <label class="field">
           <span class="field-lbl" data-i18n="nickname">Никнейм</span>
           <input type="text" name="nickname" id="reg-nick" minlength="3" maxlength="20" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span class="field-lbl" data-auth-copy-ru="Email для восстановления (необязательно)" data-auth-copy-en="Recovery email (optional)">Email для восстановления (необязательно)</span>
+          <input type="email" name="email" id="reg-email" autocomplete="email" />
         </label>
         <label class="field">
           <span class="field-lbl" data-i18n="password">Пароль</span>
@@ -79,7 +83,7 @@
         <label class="checkbox" style="margin: 6px 0 2px;">
           <input type="checkbox" id="reg-tos" required />
           <span class="cbox"></span>
-          <span class="cbox-lbl" data-i18n-html="tos_html">Согласен с <a href="#" class="auth-link">правилами</a> и <a href="#" class="auth-link">политикой конфиденциальности</a></span>
+          <span class="cbox-lbl"><span data-auth-copy-ru="Согласен соблюдать" data-auth-copy-en="I agree to follow">Согласен соблюдать</span> <a class="auth-link" href="rules.html" data-i18n="rules">правила игры</a></span>
         </label>
 
         <p class="auth-message" id="register-message" role="alert"></p>
@@ -96,9 +100,9 @@
   <footer class="auth-foot-bar">
     <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
     <span class="dot"></span>
-    <a href="#" data-i18n="rules">Правила игры</a>
+    <a href="rules.html" data-i18n="rules">Правила игры</a>
     <span class="dot"></span>
-    <a href="#" data-i18n="support">Поддержка</a>
+    <a href="https://github.com/volzay/online-backgammon/issues/new" target="_blank" rel="noopener noreferrer" data-i18n="support">Поддержка</a>
   </footer>
 
 </div>
@@ -110,6 +114,35 @@
 <script>
   NarduApp.requireGuest();
   document.getElementById('year').textContent = new Date().getFullYear();
+  NarduAuth.preservePostAuthLinks();
+
+  function applyAuthCopy() {
+    const lang = document.documentElement.lang === 'en' ? 'en' : 'ru';
+    document.querySelectorAll('[data-auth-copy-ru]').forEach((element) => {
+      element.textContent = element.dataset[`authCopy${lang === 'en' ? 'En' : 'Ru'}`];
+    });
+  }
+  applyAuthCopy();
+  window.addEventListener('nardu:langchange', applyAuthCopy);
+
+  function beginSubmit(form) {
+    if (form.getAttribute('aria-busy') === 'true') return null;
+    const button = form.querySelector('button[type="submit"]');
+    form.setAttribute('aria-busy', 'true');
+    if (button) {
+      button.disabled = true;
+      button.dataset.idleLabel = button.textContent;
+      button.textContent = document.documentElement.lang === 'en' ? 'Creating account…' : 'Создаём аккаунт…';
+    }
+    return () => {
+      form.setAttribute('aria-busy', 'false');
+      if (button) {
+        button.disabled = false;
+        button.textContent = button.dataset.idleLabel || button.textContent;
+        delete button.dataset.idleLabel;
+      }
+    };
+  }
 
   async function apiJson(url, options = {}) {
     const response = await fetch(url, {
@@ -132,25 +165,46 @@
 
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const finish = beginSubmit(e.currentTarget);
+    if (!finish) return;
     const nick = document.getElementById('reg-nick').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
     const pass = document.getElementById('reg-pass').value;
     const pass2 = document.getElementById('reg-pass2').value;
+    if (nick.length < 3 || nick.length > 20) {
+      setRegisterMessage(document.documentElement.lang === 'en' ? 'Nickname must be 3 to 20 characters long.' : 'Никнейм должен быть от 3 до 20 символов.', 'error');
+      finish();
+      return;
+    }
+    if (!/^[\p{L}\p{N}_ -]+$/u.test(nick)) {
+      setRegisterMessage(document.documentElement.lang === 'en' ? 'Nickname may contain letters, numbers, spaces, hyphens, and underscores.' : 'Никнейм может содержать буквы, цифры, пробел, дефис и подчёркивание.', 'error');
+      finish();
+      return;
+    }
+    if (pass.length < 6) {
+      setRegisterMessage(document.documentElement.lang === 'en' ? 'Password must be at least 6 characters long.' : 'Пароль должен быть не короче 6 символов.', 'error');
+      finish();
+      return;
+    }
     if (pass !== pass2) {
       setRegisterMessage(NarduApp.t('err_passwords_mismatch'), 'error');
+      finish();
       return;
     }
     setRegisterMessage('');
     try {
-      const data = await NarduAuth.register({ nickname: nick, password: pass });
+      const data = await NarduAuth.register({ nickname: nick, email, password: pass });
       if (data.pendingConfirmation) {
         setRegisterMessage(NarduApp.t('msg_confirm_email'), 'success');
         return;
       }
       NarduApp.setUser(data.user);
       setRegisterMessage(NarduApp.t('msg_account_created'), 'success');
-      window.setTimeout(() => { location.href = 'index.html'; }, 450);
+      window.setTimeout(() => { location.href = NarduAuth.postAuthDestination(); }, 450);
     } catch (error) {
-      setRegisterMessage(error.message, 'error');
+      setRegisterMessage(NarduAuth.errorMessage(error, 'err_register'), 'error');
+    } finally {
+      finish();
     }
   });
 </script>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title data-i18n="title_settings">Нарды — Настройки</title>
+<title data-i18n="title_account">Нарды — Личный кабинет</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -24,7 +24,7 @@
     </a>
     <nav class="topnav">
       <a class="navlink" href="index.html" data-i18n="nav_lobby">Лобби</a>
-      <a class="navlink active" href="settings.html" data-i18n="nav_settings">Настройки</a>
+      <a class="navlink active" href="settings.html" data-i18n="nav_account">Личный кабинет</a>
     </nav>
     <div class="spacer"></div>
     <button class="user-chip" data-go="settings.html">
@@ -48,8 +48,8 @@
 
   <!-- HEAD -->
   <div class="settings-head">
-    <h1 class="settings-h1" data-i18n="settings_title">Настройки</h1>
-    <p class="settings-sub" data-i18n="settings_sub">Личные предпочтения и параметры партий</p>
+    <h1 class="settings-h1" data-i18n="account_cabinet_title">Личный кабинет</h1>
+    <p class="settings-sub" data-i18n="account_cabinet_sub">Профиль, история, сообщения и настройки</p>
   </div>
 
   <!-- LAYOUT -->
@@ -57,25 +57,25 @@
 
     <!-- LEFT NAV -->
     <aside class="settings-nav">
-      <a href="#appearance" class="settings-nav-link active">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg>
-        <span data-i18n="sec_appearance">Внешний вид</span>
-      </a>
-      <a href="#game" class="settings-nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="9" r="1"/><circle cx="16" cy="15" r="1"/><circle cx="8" cy="15" r="1"/><circle cx="16" cy="9" r="1"/></svg>
-        <span data-i18n="sec_game">Игра</span>
-      </a>
-      <a href="#account" class="settings-nav-link">
+      <a href="#account" class="settings-nav-link active">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span data-i18n="sec_account">Аккаунт</span>
+        <span data-i18n="cabinet_overview">Обзор</span>
       </a>
-      <a href="#notify" class="settings-nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        <span data-i18n="sec_notify">Уведомления</span>
+      <a href="#history" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13a9 9 0 1 0 2.13-6.36L3 8"/><path d="M12 7v5l3 2"/></svg>
+        <span data-i18n="match_history_title">История партий</span>
       </a>
-      <a href="#privacy" class="settings-nav-link">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span data-i18n="sec_privacy">Приватность</span>
+      <a href="#messages" class="settings-nav-link" data-registered-only>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+        <span data-i18n="messages_title">Сообщения</span>
+      </a>
+      <a href="#friends" class="settings-nav-link" data-registered-only>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
+        <span data-i18n="friends_title">Друзья</span>
+      </a>
+      <a href="#appearance" class="settings-nav-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3v-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3h4v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1h.2v4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span data-i18n="cabinet_preferences">Настройки</span>
       </a>
     </aside>
 
@@ -144,34 +144,34 @@
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="move_hints">Подсветка возможных ходов</div>
+            <div class="s-lbl" id="move-hints-label" data-i18n="move_hints">Подсветка возможных ходов</div>
             <div class="s-hint" data-i18n="move_hints_hint">Поля, куда можно поставить шашку</div>
           </div>
-          <label class="switch"><input type="checkbox" id="move-hints-toggle" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="move-hints-toggle" aria-labelledby="move-hints-label" checked><span class="sw"></span></label>
         </div>
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="animation_speed">Скорость анимации</div>
+            <div class="s-lbl" id="animation-speed-label" data-i18n="animation_speed">Скорость анимации</div>
             <div class="s-hint" data-i18n="animation_speed_hint">Чем меньше — тем быстрее</div>
           </div>
-          <input type="range" min="0" max="100" value="60" class="slider" id="animation-speed-slider" />
+          <input type="range" min="0" max="100" value="60" class="slider" id="animation-speed-slider" aria-labelledby="animation-speed-label" />
         </div>
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="sounds">Звуки</div>
+            <div class="s-lbl" id="sounds-label" data-i18n="sounds">Звуки</div>
             <div class="s-hint" data-i18n="sounds_hint">Кубики, ходы, уведомления</div>
           </div>
-          <label class="switch"><input type="checkbox" id="sound-settings-toggle" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="sound-settings-toggle" aria-labelledby="sounds-label" checked><span class="sw"></span></label>
         </div>
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="volume">Громкость</div>
+            <div class="s-lbl" id="volume-label" data-i18n="volume">Громкость</div>
             <div class="s-hint" id="vol-val">70%</div>
           </div>
-          <input type="range" min="0" max="100" value="70" class="slider" id="vol-slider" />
+          <input type="range" min="0" max="100" value="70" class="slider" id="vol-slider" aria-labelledby="volume-label" />
         </div>
       </section>
 
@@ -179,6 +179,10 @@
         <h3 class="s-title" data-i18n="sec_account">Аккаунт</h3>
 
         <div class="account-notice" id="account-notice" hidden></div>
+        <div class="account-notice guest-account-cta" id="guest-account-cta" hidden>
+          <span data-i18n="guest_register_prompt">Создайте аккаунт, чтобы сохранять историю на всех устройствах, добавлять друзей и получать сообщения.</span>
+          <a class="ghostbtn" href="register.html" data-i18n="create_account">Создать аккаунт</a>
+        </div>
 
         <div class="account-summary">
           <div class="account-stat">
@@ -207,7 +211,7 @@
           <div class="account-readonly-value" id="acc-nick">—</div>
         </div>
 
-        <div class="s-row account-readonly-row">
+        <div class="s-row account-readonly-row" data-registered-only>
           <div>
             <div class="s-lbl" data-i18n="email">Email</div>
             <div class="s-hint" data-i18n="email_hint">Используется для входа и восстановления</div>
@@ -215,7 +219,7 @@
           <div class="account-readonly-value" id="acc-email">—</div>
         </div>
 
-        <div class="s-row">
+        <div class="s-row" data-registered-only>
           <div>
             <div class="s-lbl" data-i18n="password">Пароль</div>
             <div class="s-hint" data-i18n="password_change_hint">Для смены пароля укажите текущий пароль</div>
@@ -236,7 +240,7 @@
           <button class="dangerbtn" data-logout data-i18n="logout">Выйти</button>
         </div>
 
-        <div class="s-row danger">
+        <div class="s-row danger" data-registered-only>
           <div>
             <div class="s-lbl" data-i18n="delete_account">Удалить аккаунт</div>
             <div class="s-hint" data-i18n="delete_account_hint">Полное удаление профиля и истории</div>
@@ -244,7 +248,7 @@
           <button class="dangerbtn outline" id="delete-account-open" type="button" data-i18n="delete">Удалить</button>
         </div>
 
-        <div class="account-block">
+        <div class="account-block" id="history">
           <div class="account-block-head">
             <div>
               <h4 data-i18n="match_history_title">История партий</h4>
@@ -271,7 +275,12 @@
           </div>
         </div>
 
-        <div class="account-block admin-correspondence">
+        <div class="account-messages-hub" id="messages" data-registered-only>
+          <nav class="message-source-nav" aria-label="Разделы сообщений" data-i18n-aria="message_sources">
+            <a class="ghostbtn" href="#admin-messages"><span data-i18n="admin_messages_title">Сообщения администрации</span><span class="message-source-count" id="admin-message-source-count" hidden>0</span></a>
+            <a class="ghostbtn" href="#friend-messages"><span data-i18n="friend_messages_source">Сообщения друзей</span><span class="message-source-count" id="friend-message-source-count" hidden>0</span></a>
+          </nav>
+        <div class="account-block admin-correspondence" id="admin-messages">
           <div class="account-block-head">
             <div>
               <h4 data-i18n="admin_messages_title">Сообщения администрации</h4>
@@ -280,7 +289,7 @@
           </div>
           <div class="friend-message-panel">
             <div class="message-thread-head" data-i18n="admin_messages_thread">Администрация</div>
-            <div class="message-thread" id="admin-message-thread">
+            <div class="message-thread" id="admin-message-thread" role="region" tabindex="0" aria-label="Сообщения администрации" data-i18n-aria="admin_messages_title">
               <div class="account-empty" data-i18n="admin_messages_empty">Сообщений администрации пока нет.</div>
             </div>
             <form class="friend-message-form" id="admin-message-form">
@@ -291,7 +300,7 @@
         </div>
 
         <div class="account-grid">
-          <div class="account-block">
+          <div class="account-block" id="friends">
             <div class="account-block-head">
               <div>
                 <h4 data-i18n="friends_title">Друзья</h4>
@@ -309,7 +318,7 @@
             </div>
           </div>
 
-          <div class="account-block">
+          <div class="account-block" id="friend-messages">
             <div class="account-block-head">
               <div>
                 <h4 data-i18n="messages_title">Сообщения</h4>
@@ -318,7 +327,7 @@
             </div>
             <div class="friend-message-panel">
               <div class="message-thread-head" id="message-thread-head" data-i18n="friend_not_selected">Друг не выбран</div>
-              <div class="message-thread" id="friend-message-thread">
+              <div class="message-thread" id="friend-message-thread" role="region" tabindex="0" aria-label="Сообщения" data-i18n-aria="messages_title">
                 <div class="account-empty" data-i18n="friend_select_prompt">Выберите друга из списка слева.</div>
               </div>
               <form class="friend-message-form" id="friend-message-form">
@@ -329,7 +338,10 @@
                 <button class="message-icon-btn" id="friend-emoji-btn" type="button" aria-label="Эмодзи" title="Эмодзи" data-i18n-aria="emoji" data-i18n-title="emoji" disabled>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
                 </button>
-                <input class="text-input" id="friend-message-input" type="text" placeholder="Сообщение другу…" data-i18n-ph="friend_message_placeholder" autocomplete="off" disabled />
+                <div class="message-text-control">
+                  <input class="text-input" id="friend-message-input" type="text" maxlength="1200" aria-describedby="friend-message-count" placeholder="Сообщение другу…" data-i18n-ph="friend_message_placeholder" autocomplete="off" disabled />
+                  <span class="message-character-count" id="friend-message-count" hidden>0/1200</span>
+                </div>
                 <span class="friend-rec-indicator" id="friend-rec-indicator">
                   <span class="friend-rec-dot"></span>
                   <span class="friend-rec-time" id="friend-rec-time">0:00</span>
@@ -349,19 +361,7 @@
             </div>
           </div>
         </div>
-      </section>
-
-      <section class="panel s-sec" id="notify">
-        <h3 class="s-title" data-i18n="sec_notify">Уведомления</h3>
-
-        <div class="s-row">
-          <div>
-            <div class="s-lbl" data-i18n="tournaments_events">Турниры и события</div>
-            <div class="s-hint" data-i18n="weekly">Раз в неделю</div>
-          </div>
-          <label class="switch"><input type="checkbox" checked><span class="sw"></span></label>
         </div>
-
       </section>
 
       <section class="panel s-sec" id="privacy">
@@ -369,10 +369,10 @@
 
         <div class="s-row">
           <div>
-            <div class="s-lbl" data-i18n="show_rating">Показывать рейтинг другим</div>
+            <div class="s-lbl" id="show-rating-label" data-i18n="show_rating">Показывать рейтинг другим</div>
             <div class="s-hint" data-i18n="show_rating_hint">В лобби и в комнате</div>
           </div>
-          <label class="switch"><input type="checkbox" id="show-rating-toggle" checked><span class="sw"></span></label>
+          <label class="switch"><input type="checkbox" id="show-rating-toggle" aria-labelledby="show-rating-label" checked><span class="sw"></span></label>
         </div>
 
       </section>
@@ -385,11 +385,12 @@
 
 <div class="confirm-modal" id="delete-account-modal" hidden>
   <div class="confirm-backdrop" data-delete-account-cancel></div>
-  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
-    <h2 id="delete-account-title" data-i18n="delete_account_question">Желаете удалить аккаунт?</h2>
+  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" aria-describedby="delete-account-description">
+    <h2 id="delete-account-title" data-i18n="delete_account_question">Удалить аккаунт?</h2>
+    <p id="delete-account-description" class="confirm-description" data-i18n="delete_account_irreversible">Профиль, история партий и список друзей будут удалены без возможности восстановления.</p>
     <div class="confirm-actions">
-      <button class="ghostbtn" type="button" data-delete-account-cancel data-i18n="no">Нет</button>
-      <button class="dangerbtn" type="button" id="delete-account-confirm" data-i18n="yes">Да</button>
+      <button class="ghostbtn" type="button" id="delete-account-cancel" data-delete-account-cancel data-i18n="cancel">Отмена</button>
+      <button class="dangerbtn" type="button" id="delete-account-confirm" data-i18n="delete_account">Удалить аккаунт</button>
     </div>
   </div>
 </div>
@@ -399,6 +400,7 @@
 <script src="app.js?v=account-history-cache-v2"></script>
 <script>
 NarduApp.requireAuth();
+document.querySelector('.settings-main')?.prepend(document.getElementById('account'));
 
 const accountState = {
   profile: null,
@@ -410,6 +412,12 @@ const accountState = {
   adminMessageAdminId: null,
   adminMessages: [],
   adminMessageSending: false,
+  adminThreadOpened: false,
+  messageRequestId: 0,
+  messageLoading: false,
+  adminRenderKey: '',
+  friendRenderKey: '',
+  initialAnchorRestored: false,
 };
 
 function currentUser() {
@@ -418,7 +426,7 @@ function currentUser() {
 
 function registeredUser() {
   const user = currentUser();
-  return user && !user.guest && NarduApp.isRatedUser(user);
+  return Boolean(user && !user.guest && (user.id || user.email || user.nickname));
 }
 
 function accountQuery() {
@@ -439,7 +447,14 @@ async function accountApi(path, options = {}) {
     },
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(NarduApp.translateServerMessage(data.error || 'Ошибка аккаунта.'));
+  if (!response.ok) {
+    const error = new Error(NarduApp.translateServerMessage(data.error || 'Ошибка аккаунта.'));
+    error.status = response.status;
+    if (response.status === 401) error.code = 'AUTH_SESSION_MISSING';
+    const returnTo = `settings.html${location.hash || '#overview'}`;
+    if (NarduApp.redirectForAuthError?.(error, returnTo)) return new Promise(() => {});
+    throw error;
+  }
   return data;
 }
 
@@ -919,7 +934,7 @@ async function loadAccountProfile({ silent = false } = {}) {
     };
     showAccountNotice(data.supabaseMode ? tr('account_supabase_notice', 'Supabase-профиль подключён. История друзей и сообщений переносится в Supabase.') : '');
     renderAccount();
-    await loadAdminMessages({ silent: true });
+    await loadAdminMessages({ silent: true, markRead: adminThreadCanBeRead() });
   } catch (err) {
     // A transient Supabase/read failure must not make friends or history vanish.
     if (!accountState.profile) accountState.profile = fallbackProfile();
@@ -929,11 +944,22 @@ async function loadAccountProfile({ silent = false } = {}) {
   }
 }
 
+function displayAccountEmail(value) {
+  const email = String(value || '').trim();
+  return /@(?:nickname\.local|local\.nardy)$/i.test(email) ? '' : email;
+}
+
 function renderAccount() {
   const profile = accountState.profile || fallbackProfile();
   const user = profile.user || currentUser();
+  const isRegistered = registeredUser();
+  const guestCta = document.getElementById('guest-account-cta');
+  if (guestCta) guestCta.hidden = isRegistered;
+  document.querySelectorAll('[data-registered-only]').forEach(element => {
+    element.hidden = !isRegistered;
+  });
   document.getElementById('acc-nick').textContent = user.name || user.nickname || '—';
-  document.getElementById('acc-email').textContent = user.email || '—';
+  document.getElementById('acc-email').textContent = displayAccountEmail(user.email) || '—';
   const games = profile.games || [];
   const wins = games.filter(game => game.didWin).length;
   const losses = games.filter(game => !game.didWin).length;
@@ -945,42 +971,118 @@ function renderAccount() {
   renderFriendRequests(profile.friendRequests || { incoming: [], outgoing: [] });
   renderFriends(profile.friends || []);
   renderAdminMessages();
+  renderMessageSourceCounts();
+  if (!accountState.initialAnchorRestored) {
+    accountState.initialAnchorRestored = true;
+    const anchor = window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null;
+    if (anchor) requestAnimationFrame(() => anchor.scrollIntoView({ block: 'start' }));
+  }
 }
 
-async function loadAdminMessages({ silent = false } = {}) {
+function renderMessageSourceCounts() {
+  const friendUnread = (accountState.profile?.friends || []).reduce((sum, friend) => sum + Math.max(0, Number(friend.unread) || 0), 0);
+  const adminUnread = (accountState.adminMessages || []).filter(message => message.direction === 'admin' && !message.read_at).length;
+  for (const [id, count] of [['friend-message-source-count', friendUnread], ['admin-message-source-count', adminUnread]]) {
+    const element = document.getElementById(id);
+    if (!element) continue;
+    element.textContent = String(count);
+    element.hidden = count === 0;
+  }
+}
+
+function elementIsVisible(element) {
+  if (!element || document.visibilityState === 'hidden') return false;
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
+function threadWasNearBottom(thread, threshold = 72) {
+  if (!thread) return true;
+  return thread.scrollHeight - thread.scrollTop - thread.clientHeight <= threshold;
+}
+
+function adminThreadCanBeRead() {
+  const thread = document.getElementById('admin-message-thread');
+  return accountState.adminThreadOpened && elementIsVisible(thread) && threadWasNearBottom(thread);
+}
+
+async function collectSupabasePages(fetchPage, pageSize = 100) {
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await fetchPage(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const page = Array.isArray(data) ? data : [];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+function mergeMessageRows(recentRows = [], unreadRows = []) {
+  const byId = new Map();
+  [...unreadRows, ...recentRows].forEach(row => {
+    if (row?.id) byId.set(row.id, row);
+  });
+  return [...byId.values()].sort((a, b) => {
+    const byTime = new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    return byTime || String(a.id).localeCompare(String(b.id));
+  });
+}
+
+async function updateSupabaseReadBatches(ids, updateBatch, batchSize = 100) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  for (let offset = 0; offset < uniqueIds.length; offset += batchSize) {
+    const { error } = await updateBatch(uniqueIds.slice(offset, offset + batchSize));
+    if (error) return error;
+  }
+  return null;
+}
+
+async function loadAdminMessages({ silent = false, markRead = false } = {}) {
   if (!registeredUser() || !supabaseAccountMode()) return;
   try {
     const { client, profile } = await supabaseAccountContext();
-    const { data, error } = await client
+    const fields = 'id,admin_user_id,player_user_id,direction,subject,text,read_at,created_at';
+    const { data: recentMessages, error } = await client
       .from('admin_player_messages')
-      .select('id,admin_user_id,player_user_id,direction,subject,text,read_at,created_at')
+      .select(fields)
       .eq('player_user_id', profile.id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(200);
     if (error) throw error;
-    accountState.adminMessages = data || [];
+    const unreadMessages = await collectSupabasePages((from, to) => client
+      .from('admin_player_messages')
+      .select(fields)
+      .eq('player_user_id', profile.id)
+      .eq('direction', 'admin')
+      .is('read_at', null)
+      .order('created_at', { ascending: false })
+      .range(from, to));
+    accountState.adminMessages = mergeMessageRows(recentMessages, unreadMessages);
     const latestAdminMessage = [...accountState.adminMessages].reverse().find(message => message.direction === 'admin');
     accountState.adminMessageAdminId = latestAdminMessage?.admin_user_id || accountState.adminMessageAdminId;
-    const unreadIds = accountState.adminMessages
-      .filter(message => message.direction === 'admin' && !message.read_at)
-      .map(message => message.id);
-    if (unreadIds.length) {
+    const unreadIds = unreadMessages.map(message => message.id);
+    renderAdminMessages();
+    renderMessageSourceCounts();
+    if (markRead && adminThreadCanBeRead() && unreadIds.length) {
       const readAt = new Date().toISOString();
-      const { error: markReadError } = await client
+      const markReadError = await updateSupabaseReadBatches(unreadIds, ids => client
         .from('admin_player_messages')
         .update({ read_at: readAt })
         .eq('player_user_id', profile.id)
         .eq('direction', 'admin')
-        .in('id', unreadIds);
-      if (markReadError) throw markReadError;
+        .in('id', ids));
+      if (markReadError) {
+        console.warn('Could not mark administration messages read', markReadError.message || markReadError);
+        return;
+      }
       accountState.adminMessages.forEach(message => {
         if (unreadIds.includes(message.id)) message.read_at = readAt;
       });
+      renderMessageSourceCounts();
       window.dispatchEvent(new CustomEvent('nardu:messages-read', {
         detail: { source: 'admin' },
       }));
     }
-    renderAdminMessages();
   } catch (error) {
     if (!silent) flash(error.message || tr('admin_messages_load_failed', 'Не удалось загрузить сообщения администрации'));
   }
@@ -994,10 +1096,15 @@ function renderAdminMessages() {
   const enabled = Boolean(accountState.adminMessageAdminId && registeredUser() && supabaseAccountMode());
   input.disabled = !enabled;
   submit.disabled = !enabled || accountState.adminMessageSending;
+  const renderKey = `${NarduApp.currentLang()}:${accountState.adminMessages.map(message => `${message.id}:${message.read_at || ''}`).join('|')}`;
+  if (accountState.adminRenderKey === renderKey) return;
+  accountState.adminRenderKey = renderKey;
   if (!accountState.adminMessages.length) {
     thread.innerHTML = `<div class="account-empty">${tr('admin_messages_empty', 'Сообщений администрации пока нет.')}</div>`;
     return;
   }
+  const stayAtBottom = threadWasNearBottom(thread);
+  const previousScrollTop = thread.scrollTop;
   thread.innerHTML = '';
   accountState.adminMessages.forEach(message => {
     const node = buildFriendMessageNode({
@@ -1011,7 +1118,7 @@ function renderAdminMessages() {
     });
     thread.appendChild(node);
   });
-  thread.scrollTop = thread.scrollHeight;
+  thread.scrollTop = stayAtBottom ? thread.scrollHeight : previousScrollTop;
 }
 
 async function sendAdminReply(event) {
@@ -1162,6 +1269,10 @@ function renderFriends(friends) {
   const list = document.getElementById('friends-list-settings');
   if (!list) return;
   if (!friends.length) {
+    accountState.selectedFriendId = null;
+    accountState.messageRequestId += 1;
+    accountState.messageLoading = false;
+    accountState.friendRenderKey = '';
     list.innerHTML = `<div class="account-empty">${tr('friends_empty', 'Друзей пока нет.')}</div>`;
     document.getElementById('message-thread-head').textContent = tr('friend_not_selected', 'Друг не выбран');
     document.getElementById('friend-message-thread').innerHTML = `<div class="account-empty">${tr('friend_select_prompt', 'Выберите друга из списка слева.')}</div>`;
@@ -1169,7 +1280,13 @@ function renderFriends(friends) {
     return;
   }
   if (!friends.some(friend => friend.id === accountState.selectedFriendId)) {
-    accountState.selectedFriendId = friends[0].id;
+    accountState.selectedFriendId = null;
+    accountState.messageRequestId += 1;
+    accountState.messageLoading = false;
+    accountState.friendRenderKey = '';
+    document.getElementById('message-thread-head').textContent = tr('friend_not_selected', 'Друг не выбран');
+    document.getElementById('friend-message-thread').innerHTML = `<div class="account-empty">${tr('friend_select_prompt', 'Выберите друга из списка слева.')}</div>`;
+    toggleMessageForm(false);
   }
   list.innerHTML = `
     <div class="friends-list-head">
@@ -1192,7 +1309,6 @@ function renderFriends(friends) {
     `).join('')}
   `;
   bindFriendRows();
-  loadMessages(accountState.selectedFriendId, { silent: true });
 }
 
 function requestStatusText(status) {
@@ -1270,6 +1386,13 @@ function bindFriendRows() {
     button.addEventListener('click', () => {
       accountState.selectedFriendId = button.dataset.selectFriend;
       renderFriends(accountState.profile?.friends || []);
+      const openSelectedThread = () => loadMessages(accountState.selectedFriendId, { markRead: true });
+      if (window.matchMedia('(max-width: 800px)').matches) {
+        document.getElementById('friend-messages')?.scrollIntoView({ block: 'start' });
+        requestAnimationFrame(openSelectedThread);
+      } else {
+        openSelectedThread();
+      }
     });
   });
   document.querySelectorAll('[data-remove-friend]').forEach(button => {
@@ -1293,50 +1416,73 @@ function toggleMessageForm(enabled) {
   if (emoji) emoji.disabled = !enabled;
 }
 
-async function loadMessages(friendId, { silent = false } = {}) {
+function friendThreadCanBeRead(friendId) {
+  const thread = document.getElementById('friend-message-thread');
+  return accountState.selectedFriendId === friendId
+    && elementIsVisible(thread)
+    && threadWasNearBottom(thread);
+}
+
+async function loadMessages(friendId, { silent = false, markRead = false } = {}) {
   if (!registeredUser() || !friendId) return;
+  if (accountState.selectedFriendId !== friendId) return;
   const friend = (accountState.profile?.friends || []).find(item => item.id === friendId);
   if (!friend) return;
+  const requestId = ++accountState.messageRequestId;
+  accountState.messageLoading = true;
   document.getElementById('message-thread-head').textContent = friend.name || friend.nickname || tr('message_thread_fallback', 'Друг');
   toggleMessageForm(true);
   try {
     const data = supabaseAccountMode()
       ? await loadSupabaseMessages(friendId)
       : await accountApi(`/api/account/messages?${accountQuery()}&friendId=${encodeURIComponent(friendId)}`);
+    if (requestId !== accountState.messageRequestId || accountState.selectedFriendId !== friendId) return;
     renderMessages(data.messages || []);
+    if (markRead && friendThreadCanBeRead(friendId)) {
+      if (supabaseAccountMode()) {
+        await markSupabaseFriendMessagesRead(friendId, data.unreadIds || []);
+      } else {
+        await accountApi('/api/account/messages/read', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: currentUser().id,
+            nickname: currentUser().nickname || currentUser().name || '',
+            friendId,
+          }),
+        });
+        clearFriendUnread(friendId);
+      }
+    }
   } catch (err) {
+    if (requestId !== accountState.messageRequestId || accountState.selectedFriendId !== friendId) return;
     if (!silent) flash(err.message || tr('messages_load_failed', 'Не удалось загрузить сообщения'));
+  } finally {
+    if (requestId === accountState.messageRequestId) accountState.messageLoading = false;
   }
 }
 
 async function loadSupabaseMessages(friendId) {
   const { client, profile } = await supabaseAccountContext();
   const threadId = friendThreadId(profile.id, friendId);
-  const { data, error } = await client
+  const { data: recentMessages, error } = await client
     .from('friend_messages')
     .select('*')
     .eq('thread_id', threadId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(100);
   if (error) throw new Error(error.message);
-  const unreadIds = (data || [])
-    .filter(message => message.to_user_id === profile.id && !message.read_at)
-    .map(message => message.id);
-  if (unreadIds.length) {
-    const readAt = new Date().toISOString();
-    const { error: markReadError } = await client
-      .from('friend_messages')
-      .update({ read_at: readAt })
-      .eq('to_user_id', profile.id)
-      .in('id', unreadIds);
-    if (markReadError) throw new Error(markReadError.message);
-    (data || []).forEach(message => {
-      if (unreadIds.includes(message.id)) message.read_at = readAt;
-    });
-    clearFriendUnread(friendId);
-  }
+  const unreadMessages = await collectSupabasePages((from, to) => client
+    .from('friend_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .eq('to_user_id', profile.id)
+    .is('read_at', null)
+    .order('created_at', { ascending: false })
+    .range(from, to));
+  const orderedMessages = mergeMessageRows(recentMessages, unreadMessages);
   return {
-    messages: (data || []).map(message => ({
+    unreadIds: unreadMessages.map(message => message.id),
+    messages: orderedMessages.map(message => ({
       id: message.id,
       fromName: message.from_user_id === profile.id ? profile.nickname : (accountState.profile?.friends || []).find(friend => friend.id === message.from_user_id)?.nickname,
       text: message.text,
@@ -1351,12 +1497,38 @@ async function loadSupabaseMessages(friendId) {
   };
 }
 
-function clearFriendUnread(friendId) {
+async function markSupabaseFriendMessagesRead(friendId, unreadIds) {
+  if (!unreadIds.length) return true;
+  const { client, profile } = await supabaseAccountContext();
+  const readAt = new Date().toISOString();
+  const error = await updateSupabaseReadBatches(unreadIds, ids => client
+    .from('friend_messages')
+    .update({ read_at: readAt })
+    .eq('to_user_id', profile.id)
+    .in('id', ids));
+  if (error) {
+    console.warn('Could not mark friend messages read', error.message || error);
+    return false;
+  }
+  clearFriendUnread(friendId, unreadIds.length);
+  return true;
+}
+
+function clearFriendUnread(friendId, readCount = null) {
   const friend = (accountState.profile?.friends || []).find(item => item.id === friendId);
-  if (friend) friend.unread = 0;
+  if (friend) {
+    friend.unread = readCount == null
+      ? 0
+      : Math.max(0, (Number(friend.unread) || 0) - Math.max(0, Number(readCount) || 0));
+  }
   document.querySelectorAll('[data-friend-id]').forEach(row => {
-    if (row.dataset.friendId === friendId) row.querySelector('.unread-badge')?.remove();
+    if (row.dataset.friendId !== friendId) return;
+    const badge = row.querySelector('.unread-badge');
+    const remaining = Number(friend?.unread) || 0;
+    if (!remaining) badge?.remove();
+    else if (badge) badge.textContent = String(remaining);
   });
+  renderMessageSourceCounts();
   window.dispatchEvent(new CustomEvent('nardu:messages-read', {
     detail: { source: 'friend', friendId },
   }));
@@ -1365,13 +1537,18 @@ function clearFriendUnread(friendId) {
 function renderMessages(messages) {
   const thread = document.getElementById('friend-message-thread');
   if (!thread) return;
+  const renderKey = `${NarduApp.currentLang()}:${accountState.selectedFriendId || ''}:${messages.map(message => `${message.id}:${message.readAt || ''}:${message.kind || 'text'}`).join('|')}`;
+  if (accountState.friendRenderKey === renderKey) return;
+  accountState.friendRenderKey = renderKey;
   if (!messages.length) {
     thread.innerHTML = `<div class="account-empty">${tr('messages_empty', 'Сообщений пока нет.')}</div>`;
     return;
   }
+  const stayAtBottom = threadWasNearBottom(thread);
+  const previousScrollTop = thread.scrollTop;
   thread.innerHTML = '';
   messages.forEach(message => thread.appendChild(buildFriendMessageNode(message)));
-  thread.scrollTop = thread.scrollHeight;
+  thread.scrollTop = stayAtBottom ? thread.scrollHeight : previousScrollTop;
 }
 
 function buildFriendMessageNode(message) {
@@ -1473,77 +1650,6 @@ function buildFriendVoiceBubble(message) {
   return bubble;
 }
 
-async function saveAccountProfile() {
-  const nickname = document.getElementById('acc-nick').value.trim();
-  const email = document.getElementById('acc-email').value.trim();
-  if (!nickname) return;
-  if (!registeredUser()) {
-    const user = currentUser();
-    user.name = nickname;
-    user.nickname = nickname;
-    if (email) user.email = email;
-    NarduApp.setUser(user);
-    NarduApp.paintUser();
-    flash(tr('nickname_saved_local', 'Никнейм сохранён локально'));
-    return;
-  }
-  try {
-    const data = supabaseAccountMode()
-      ? await saveSupabaseAccountProfile({ nickname, email })
-      : await accountApi('/api/account/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({ userId: currentUser().id, nickname, email }),
-      });
-    NarduApp.setUser({ ...currentUser(), ...data.user, history: mergeGames(data.games || []) });
-    NarduApp.paintUser();
-    accountState.profile = { ...data, games: mergeGames(data.games || []) };
-    renderAccount();
-    flash(tr('account_updated', 'Аккаунт обновлён'));
-  } catch (err) {
-    flash(err.message || tr('account_save_failed', 'Не удалось сохранить аккаунт'));
-  }
-}
-
-async function saveSupabaseAccountProfile({ nickname, email }) {
-  const client = await supabaseAccountClient();
-  const { data: authData, error: authError } = await client.auth.getUser();
-  if (authError) throw new Error(authError.message);
-  const authUser = authData?.user;
-  if (!authUser?.id) throw new Error(tr('account_login_again', 'Войдите в аккаунт заново.'));
-  const { data, error } = await client
-    .from('profiles')
-    .update({
-      nickname,
-      email: email || authUser.email || '',
-      last_seen_at: new Date().toISOString(),
-    })
-    .eq('id', authUser.id)
-    .select('id,nickname,email,rating,tier,rating_eligible')
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error(tr('account_profile_not_found', 'Профиль Supabase не найден.'));
-  const social = await loadSupabaseSocial(client, data.id);
-  const games = await loadSupabaseGames(client, data.id);
-  return {
-    user: {
-      id: data.id,
-      name: data.nickname,
-      nickname: data.nickname,
-      email: data.email || authUser.email || '',
-      rating: data.rating || 1000,
-      tier: data.tier || NarduApp.ratingTierFor(data.rating || 1000),
-      ratingEligible: data.rating_eligible !== false,
-      registered: true,
-      guest: false,
-    },
-    games,
-    stats: statsForGames(games),
-    friends: social.friends,
-    friendRequests: social.friendRequests,
-    supabaseMode: true,
-  };
-}
-
 function clearPasswordFields() {
   ['acc-current-password', 'acc-new-password', 'acc-repeat-password'].forEach(id => {
     const input = document.getElementById(id);
@@ -1609,7 +1715,7 @@ function openDeleteAccountModal() {
   if (!modal) return;
   modal.hidden = false;
   document.body.classList.add('modal-open');
-  document.getElementById('delete-account-confirm')?.focus();
+  document.getElementById('delete-account-cancel')?.focus();
 }
 
 function closeDeleteAccountModal() {
@@ -1628,7 +1734,7 @@ async function deleteSupabaseAccount() {
   const { error } = await client.rpc('delete_current_user');
   if (error) {
     if (/function .*delete_current_user|Could not find the function/i.test(error.message || '')) {
-      throw new Error(tr('delete_account_schema_missing', 'Удаление аккаунта ещё не включено в Supabase. Выполните обновлённый supabase/schema.sql.'));
+      throw new Error(tr('delete_account_unavailable', 'Удаление аккаунта временно недоступно. Попробуйте позже или обратитесь в поддержку.'));
     }
     throw new Error(error.message || tr('delete_account_failed', 'Не удалось удалить аккаунт.'));
   }
@@ -1885,6 +1991,7 @@ async function sendFriendMessage(payload = null) {
   const originalText = payload ? '' : input.value;
   friendMessageSending = true;
   if (!payload) input.value = '';
+  paintFriendMessageCount();
   paintFriendSending(true);
   try {
     if (supabaseAccountMode()) {
@@ -1895,10 +2002,11 @@ async function sendFriendMessage(payload = null) {
         body: JSON.stringify({ userId: currentUser().id, friendId, text, kind: message.kind || 'text' }),
       });
     }
-    await loadMessages(friendId);
+    await loadMessages(friendId, { markRead: true });
     await loadAccountProfile({ silent: true });
   } catch (err) {
-    if (!payload && !input.value) input.value = originalText;
+    if (!payload && accountState.selectedFriendId === friendId && !input.value) input.value = originalText;
+    paintFriendMessageCount();
     flash(err.message || tr('message_send_failed', 'Не удалось отправить сообщение'));
   } finally {
     friendMessageSending = false;
@@ -1938,7 +2046,7 @@ async function sendSupabaseFriendMessage(friendId, payload = {}) {
     ({ error } = await client.from('friend_messages').insert(row));
   }
   if (error && /column .*kind|column .*audio_data|column .*mime_type|column .*duration/i.test(error.message || '')) {
-    throw new Error(tr('friend_voice_schema_missing', 'Голосовые сообщения ещё не включены в Supabase. Выполните обновлённый supabase/schema.sql.'));
+    throw new Error(tr('friend_voice_unavailable', 'Голосовые сообщения временно недоступны. Попробуйте позже.'));
   }
   if (error && error.code !== '23505') throw new Error(error.message);
 }
@@ -1964,6 +2072,16 @@ let friendMessageSending = false;
 const friendMobileHoldToTalk = window.matchMedia?.('(pointer: coarse)')?.matches || false;
 const FRIEND_VOICE_MAX_BYTES = 4 * 1024 * 1024;
 const FRIEND_VOICE_MAX_DATA_URL_CHARS = 6 * 1024 * 1024;
+
+function paintFriendMessageCount() {
+  const counter = document.getElementById('friend-message-count');
+  if (!counter || !friendMessageInput) return;
+  const length = friendMessageInput.value.length;
+  counter.textContent = `${length}/1200`;
+  const showCounter = length >= 1000;
+  counter.hidden = !showCounter;
+  counter.closest('.message-text-control')?.classList.toggle('has-count', showCounter);
+}
 
 function bestFriendAudioMimeType() {
   if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') return '';
@@ -2149,6 +2267,7 @@ function insertFriendEmoji(emoji) {
   if (friendEmojiPopover) friendEmojiPopover.hidden = true;
   friendMessageInput.focus();
   friendMessageInput.setSelectionRange(caret, caret);
+  paintFriendMessageCount();
 }
 
 document.getElementById('save-password').addEventListener('click', changeAccountPassword);
@@ -2177,6 +2296,7 @@ document.getElementById('friend-query').addEventListener('input', event => {
   clearTimeout(accountState.searchTimer);
   accountState.searchTimer = setTimeout(() => searchFriends(event.target.value), 220);
 });
+friendMessageInput?.addEventListener('input', paintFriendMessageCount);
 document.getElementById('friend-message-form').addEventListener('submit', (event) => {
   event.preventDefault();
   sendFriendMessage();
@@ -2322,25 +2442,47 @@ document.querySelectorAll('.seg').forEach(seg => {
 });
 
 const navLinks = document.querySelectorAll('.settings-nav-link');
+const messageSourceLinks = document.querySelectorAll('.message-source-nav a[href^="#"]');
+function parentSettingsHash(hash) {
+  return hash === '#admin-messages' || hash === '#friend-messages' ? '#messages' : hash;
+}
 function setActiveSettingsNav(hash = window.location.hash) {
-  const target = hash || '#appearance';
+  const target = parentSettingsHash(hash || '#account');
   const hasTarget = [...navLinks].some(link => link.getAttribute('href') === target);
   navLinks.forEach(link => {
-    link.classList.toggle('active', link.getAttribute('href') === (hasTarget ? target : '#appearance'));
+    const isActive = link.getAttribute('href') === (hasTarget ? target : '#account');
+    link.classList.toggle('active', isActive);
+    if (isActive) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
   });
 }
-navLinks.forEach(a => a.addEventListener('click', () => {
-  setActiveSettingsNav(a.getAttribute('href'));
+function activateSettingsHash(hash = window.location.hash) {
+  const target = hash || '#account';
+  setActiveSettingsNav(target);
+  accountState.adminThreadOpened = target === '#messages' || target === '#admin-messages';
+  if (accountState.adminThreadOpened) {
+    requestAnimationFrame(() => loadAdminMessages({ silent: true, markRead: true }));
+  }
+}
+[...navLinks, ...messageSourceLinks].forEach(link => link.addEventListener('click', () => {
+  activateSettingsHash(link.getAttribute('href'));
 }));
-window.addEventListener('hashchange', () => setActiveSettingsNav());
-setActiveSettingsNav();
+window.addEventListener('hashchange', () => activateSettingsHash());
+activateSettingsHash();
 
 window.addEventListener('nardu:langchange', repaintAccountLanguage);
 
 accountState.messageTimer = setInterval(() => {
-  if (accountState.selectedFriendId) loadMessages(accountState.selectedFriendId, { silent: true });
+  if (accountState.selectedFriendId && !accountState.messageLoading) {
+    loadMessages(accountState.selectedFriendId, {
+      silent: true,
+      markRead: friendThreadCanBeRead(accountState.selectedFriendId),
+    });
+  }
 }, 4000);
-accountState.adminMessageTimer = setInterval(() => loadAdminMessages({ silent: true }), 5000);
+accountState.adminMessageTimer = setInterval(() => {
+  loadAdminMessages({ silent: true, markRead: adminThreadCanBeRead() });
+}, 5000);
 accountState.profileTimer = setInterval(() => loadAccountProfile({ silent: true }), 7000);
 accountState.presenceTimer = setInterval(() => touchAccountPresence(), 30000);
 document.addEventListener('visibilitychange', () => {
@@ -2355,6 +2497,7 @@ window.addEventListener('beforeunload', () => {
   clearInterval(accountState.presenceTimer);
 });
 loadAccountProfile({ silent: true });
+paintFriendMessageCount();
 
 let toastT;
 function flash(msg) {
@@ -2363,12 +2506,14 @@ function flash(msg) {
     el = document.createElement('div');
     el.id = 'toast';
     el.className = 'toast';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastT);
-  toastT = setTimeout(() => el.classList.remove('show'), 1700);
+  toastT = setTimeout(() => el.classList.remove('show'), 3200);
 }
 </script>
 
