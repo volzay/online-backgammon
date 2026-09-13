@@ -69,3 +69,20 @@ test('v33 aggregate keeps compatible v29-v32 evidence and matches the schema', (
   assert.match(rpc, /'creditVersion', 8/);
   assert.match(rpc, /outcome-weighted evidence, not causal per-move attribution/);
 });
+
+test('v33 aggregate scans each decision array once for integrity', () => {
+  const migration = read('supabase/long-bot-strategy-v33.sql');
+  const rpcDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
+  const rpc = migration.match(rpcDefinition)?.[0] || '';
+  const validGames = rpc.match(/with valid_games as \([\s\S]*?\n  \), raw_decisions as \(/)?.[0] || '';
+
+  assert.equal((rpc.match(/jsonb_array_elements\(/g) || []).length, 2);
+  assert.equal((validGames.match(/jsonb_array_elements\(/g) || []).length, 1);
+  assert.match(validGames, /jsonb_array_elements\(case[\s\S]*?jsonb_typeof\(g\.decisions\) = 'array'/);
+  assert.match(validGames, /as covered_bot_decisions/);
+  assert.match(validGames, /as incompatible_decisions/);
+  assert.match(validGames, /as engine_fingerprints/);
+  assert.match(validGames, /integrity\.covered_bot_decisions/);
+  assert.match(validGames, /integrity\.incompatible_decisions = 0/);
+  assert.match(validGames, /integrity\.engine_fingerprints <= 1/);
+});
