@@ -40,6 +40,7 @@ test('a spectator sees the actual winner instead of the spectator identity', () 
   const evaluate = new Function(
     'state', 'spectatorMode', 'mode', 'playerColor', 'window', 'localizedName',
     'opponentName', 'tr', 'sideName', 'NarduGame', 'isRolling',
+    'botAnalysisRestorePending',
     `${sources}\nreturn currentTurnStatus();`,
   );
   const status = evaluate(
@@ -61,6 +62,7 @@ test('a spectator sees the actual winner instead of the spectator identity', () 
     (key, values = {}) => key === 'turn_finished' ? `Победитель: ${values.winner}` : key,
     color => color === 'white' ? 'Белые' : 'Тёмные',
     { hasAnyMoves: () => true },
+    false,
     false,
   );
 

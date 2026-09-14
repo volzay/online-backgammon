@@ -172,8 +172,58 @@
     return data;
   }
 
-  async function supabase() {
-    return window.NarduSupabase.client();
+  function abortReason(signal) {
+    if (signal?.reason !== undefined) return signal.reason;
+    const error = new Error("The operation was aborted.");
+    error.name = "AbortError";
+    return error;
+  }
+
+  function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    if (typeof signal.throwIfAborted === "function") signal.throwIfAborted();
+    throw abortReason(signal);
+  }
+
+  function awaitWithAbort(value, signal) {
+    throwIfAborted(signal);
+    if (!signal || typeof signal.addEventListener !== "function") return Promise.resolve(value);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => signal.removeEventListener?.("abort", onAbort);
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(abortReason(signal));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      Promise.resolve(value).then(
+        result => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(result);
+        },
+        error => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function withAbortSignal(query, signal) {
+    throwIfAborted(signal);
+    return signal && typeof query?.abortSignal === "function"
+      ? query.abortSignal(signal)
+      : query;
+  }
+
+  async function supabase(options = {}) {
+    return awaitWithAbort(window.NarduSupabase.client(), options.signal);
   }
 
   function roomError(message, status = 400, data = {}) {
@@ -221,16 +271,31 @@
     return Number.isFinite(rating) && rating > 0 ? rating : null;
   }
 
-  async function touchProfileHeartbeat(client, userId) {
+  async function touchProfileHeartbeat(client, userId, options = {}) {
     if (!userId) return;
+    const { signal } = options;
+    throwIfAborted(signal);
     const now = Date.now();
     const lastTouch = profileHeartbeatAt.get(userId) || 0;
     if (now - lastTouch < PROFILE_HEARTBEAT_MS) return;
     profileHeartbeatAt.set(userId, now);
-    const { error } = await client
+    const writtenAt = new Date(now).toISOString();
+    let query = client
       .from("profiles")
-      .update({ last_seen_at: new Date(now).toISOString() })
+      .update({ last_seen_at: writtenAt })
+      .or(`last_seen_at.is.null,last_seen_at.lt.${writtenAt}`)
       .eq("id", userId);
+    query = withAbortSignal(query, signal);
+    let error = null;
+    try {
+      ({ error } = await awaitWithAbort(query, signal));
+      throwIfAborted(signal);
+    } catch (requestError) {
+      profileHeartbeatAt.delete(userId);
+      if (signal?.aborted) throwIfAborted(signal);
+      console.warn("Could not update profile heartbeat", requestError?.message || requestError);
+      return;
+    }
     if (error) {
       profileHeartbeatAt.delete(userId);
       console.warn("Could not update profile heartbeat", error.message || error);
@@ -307,28 +372,31 @@
     );
   }
 
-  async function currentAuthContext() {
-    const client = await supabase();
+  async function currentAuthContext(options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
+    const client = await supabase({ signal });
+    throwIfAborted(signal);
     let session = null;
     if (client.auth.getSession) {
-      const { data: sessionData, error: sessionError } = await client.auth.getSession();
+      const { data: sessionData, error: sessionError } = await awaitWithAbort(client.auth.getSession(), signal);
       if (sessionError) {
         if (isMissingAuthSession(sessionError)) throw missingAuthSessionError();
         throw supabaseError(sessionError, "Supabase auth failed.");
       }
       session = sessionData?.session || null;
       if (!session?.user?.id && client.auth.refreshSession) {
-        const { data: refreshData, error: refreshError } = await client.auth.refreshSession();
+        const { data: refreshData, error: refreshError } = await awaitWithAbort(client.auth.refreshSession(), signal);
         if (refreshError && !isMissingAuthSession(refreshError)) throw supabaseError(refreshError, "Supabase auth refresh failed.");
         session = refreshData?.session || null;
       }
       if (!session?.user?.id) throw missingAuthSessionError();
     }
-    let { data: authData, error: authError } = await client.auth.getUser();
+    let { data: authData, error: authError } = await awaitWithAbort(client.auth.getUser(), signal);
     if (authError && isMissingAuthSession(authError) && client.auth.refreshSession) {
-      const { data: refreshData, error: refreshError } = await client.auth.refreshSession();
+      const { data: refreshData, error: refreshError } = await awaitWithAbort(client.auth.refreshSession(), signal);
       if (!refreshError && refreshData?.session?.user?.id) {
-        ({ data: authData, error: authError } = await client.auth.getUser());
+        ({ data: authData, error: authError } = await awaitWithAbort(client.auth.getUser(), signal));
       }
     }
     if (authError) {
@@ -338,11 +406,13 @@
     const authUser = authData?.user;
     if (!authUser?.id) throw missingAuthSessionError();
 
-    let { data: profile, error: profileError } = await client
+    let profileQuery = client
       .from("profiles")
       .select("id,nickname,email,rating,tier,rating_eligible,banned_at,banned_reason")
-      .eq("id", authUser.id)
-      .maybeSingle();
+      .eq("id", authUser.id);
+    profileQuery = withAbortSignal(profileQuery, signal);
+    let { data: profile, error: profileError } = await awaitWithAbort(profileQuery.maybeSingle(), signal);
+    throwIfAborted(signal);
     if (profileError) throw supabaseError(profileError, "Could not load profile.");
     if (profile?.banned_at) {
       throw roomError(profile.banned_reason || "Аккаунт заблокирован администратором.", 403);
@@ -350,8 +420,8 @@
 
     const localUser = window.NarduApp?.getUser?.() || {};
     const metadata = authUser.user_metadata || {};
-    const nickname = profile?.nickname || await createMissingProfile(client, authUser, localUser, metadata);
-    await touchProfileHeartbeat(client, authUser.id);
+    const nickname = profile?.nickname || await createMissingProfile(client, authUser, localUser, metadata, { signal });
+    await touchProfileHeartbeat(client, authUser.id, { signal });
     const rating = normalizeRating(profile?.rating ?? localUser.rating);
     return {
       client,
@@ -366,7 +436,8 @@
     };
   }
 
-  async function createMissingProfile(client, authUser, localUser = {}, metadata = {}) {
+  async function createMissingProfile(client, authUser, localUser = {}, metadata = {}, options = {}) {
+    const { signal } = options;
     const baseNickname = String(metadata.nickname || metadata.name || localUser.nickname || localUser.name || authUser.email?.split("@")[0] || "Player")
       .trim()
       .slice(0, 20) || "Player";
@@ -375,10 +446,11 @@
     const tier = ratingTierFor(rating);
     let lastError = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      throwIfAborted(signal);
       const nickname = attempt === 0
         ? baseNickname
         : `${baseNickname.slice(0, Math.max(3, 17 - String(attempt).length))}${attempt}`;
-      const { data, error } = await client
+      let query = client
         .from("profiles")
         .insert({
           id: authUser.id,
@@ -389,8 +461,10 @@
           rating_eligible: true,
           last_seen_at: new Date().toISOString(),
         })
-        .select("id,nickname,email,rating,tier,rating_eligible")
-        .maybeSingle();
+        .select("id,nickname,email,rating,tier,rating_eligible");
+      query = withAbortSignal(query, signal);
+      const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+      throwIfAborted(signal);
       if (!error && data) return data.nickname;
       lastError = error;
       if (error?.code !== "23505") break;
@@ -398,15 +472,18 @@
     throw supabaseError(lastError, "Could not create profile.");
   }
 
-  async function getRoomRow(code, { includePassword = false, maybeClosed = false } = {}) {
-    const client = await supabase();
+  async function getRoomRow(code, { includePassword = false, maybeClosed = false, signal } = {}) {
+    throwIfAborted(signal);
+    const client = await supabase({ signal });
     const columns = includePassword ? "*" : "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,created_at,joined_at,updated_at";
     let query = client
       .from("rooms")
       .select(columns)
       .eq("code", normalizeCode(code));
     if (!maybeClosed) query = query.neq("status", "closed");
-    const { data, error } = await query.maybeSingle();
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not load room.");
     if (data?.id) roomIdCache.set(normalizeCode(code), data.id);
     return data || null;
@@ -421,9 +498,12 @@
   }
 
   async function roomClientContext(options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     if (localUserIsGuest()) {
-      const client = await supabase();
-      await client.auth.signOut().catch(() => {});
+      const client = await supabase({ signal });
+      throwIfAborted(signal);
+      await awaitWithAbort(client.auth.signOut().catch(() => {}), signal);
       return {
         client,
         authUser: null,
@@ -432,10 +512,11 @@
       };
     }
     try {
-      return { ...(await currentAuthContext()), guest: false };
+      return { ...(await currentAuthContext({ signal })), guest: false };
     } catch (error) {
       if (!options.allowLocalFallback || Number(error?.status) !== 401) throw error;
-      const client = await supabase();
+      const client = await supabase({ signal });
+      throwIfAborted(signal);
       window.NarduApp?.touchPresence?.({ force: true });
       return {
         client,
@@ -604,7 +685,11 @@
       }
       roomIdCache.set(normalizedCode, existing.id);
       if (!isBotAnalysisRow(existing)) throw roomError("Код партии уже занят онлайн-комнатой.", 409);
-      return { ok: true, version: Number(existing.game_version || 0) };
+      return {
+        ok: true,
+        existing: true,
+        version: Number(existing.game_version || 0),
+      };
     }
 
     const now = new Date().toISOString();
@@ -637,28 +722,36 @@
       .maybeSingle();
     if (error) throw supabaseError(error, "Could not create bot analysis room.");
     if (data?.id) roomIdCache.set(normalizedCode, data.id);
-    return { ok: true, version: Number(data?.game_version || 0) };
+    return { ok: true, existing: false, version: Number(data?.game_version || 0) };
   }
 
-  async function getRoom(code) {
-    if (!configured()) return apiJson(`/api/rooms/${encodeURIComponent(normalizeCode(code))}`);
-    const row = await getRoomRow(code);
+  async function getRoom(code, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
+    if (!configured()) {
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizeCode(code))}`, { signal });
+    }
+    const row = await getRoomRow(code, { signal });
     if (!row) throw roomError("Комната не найдена.", 404);
     return { room: publicRoom(row) };
   }
 
-  async function joinRoom(code, payload = {}) {
+  async function joinRoom(code, payload = {}, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/join`, {
         method: "POST",
         body: JSON.stringify(payload),
+        signal,
       });
     }
 
-    const { client, authUser, profile, guest } = await roomClientContext();
+    const { client, authUser, profile, guest } = await roomClientContext({ signal });
+    throwIfAborted(signal);
     const roomProfile = localRoomProfile(profile);
-    const room = await getRoomRow(normalizedCode, { includePassword: true });
+    const room = await getRoomRow(normalizedCode, { includePassword: true, signal });
     if (!room) throw roomError("Комната с таким кодом не найдена.", 404);
 
     if (room.status !== "waiting") {
@@ -670,12 +763,15 @@
       return { room: publicRoom(room) };
     }
     if (room.access === "closed") {
+      throwIfAborted(signal);
       const providedHash = await sha256Hex(String(payload.password || "").trim());
+      throwIfAborted(signal);
       if (providedHash !== room.password_hash) throw roomError("Неверный пароль закрытой комнаты.", 403);
     }
 
+    throwIfAborted(signal);
     const joinedAt = new Date().toISOString();
-    const { data, error } = await client
+    let joinQuery = client
       .from("rooms")
       .update({
         status: "joined",
@@ -690,12 +786,14 @@
       .eq("code", normalizedCode)
       .eq("status", "waiting")
       .is("guest_user_id", null)
-      .select("*")
-      .maybeSingle();
+      .select("*");
+    joinQuery = withAbortSignal(joinQuery, signal);
+    const { data, error } = await awaitWithAbort(joinQuery.maybeSingle(), signal);
+    throwIfAborted(signal);
 
     if (error) throw supabaseError(error, "Could not join room.");
     if (!data) {
-      const latest = await getRoomRow(normalizedCode, { includePassword: true });
+      const latest = await getRoomRow(normalizedCode, { includePassword: true, signal });
       if (authUser?.id && isParticipant(latest, authUser.id)) return { room: publicRoom(latest) };
       throw roomError("Эта комната уже занята.", 409);
     }
@@ -703,13 +801,14 @@
     return { room: publicRoom(data) };
   }
 
-  async function deleteRoom(code) {
+  async function deleteRoom(code, options = {}) {
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
-      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}`, { method: "DELETE" });
+      const waitingOnly = options.waitingOnly === true ? "?waiting=1" : "";
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}${waitingOnly}`, { method: "DELETE" });
     }
     const { client } = await roomClientContext();
-    const { data, error } = await client
+    let query = client
       .from("rooms")
       .update({
         status: "closed",
@@ -717,7 +816,11 @@
         closed_reason: "removed",
       })
       .eq("code", normalizedCode)
-      .neq("status", "closed")
+      .neq("status", "closed");
+    if (options.waitingOnly === true) {
+      query = query.eq("status", "waiting").is("guest_user_id", null);
+    }
+    const { data, error } = await query
       .select("code")
       .maybeSingle();
     if (error) throw supabaseError(error, "Could not close room.");
@@ -737,16 +840,7 @@
 
     const { client, authUser } = await roomClientContext();
     if (authUser?.id) {
-      const { data: rpcData, error: rpcError } = await client.rpc("close_own_lobby_rooms");
-      if (!rpcError) {
-        return {
-          ok: true,
-          closedCodes: (rpcData || []).map(normalizeCode).filter(Boolean),
-        };
-      }
-      if (!/function .*close_own_lobby_rooms|Could not find the function|schema cache/i.test(rpcError.message || "")) {
-        throw supabaseError(rpcError, "Could not close rooms on lobby entry.");
-      }
+      if (!codes.length) return { ok: true, closedCodes: [] };
       const { data, error } = await client
         .from("rooms")
         .update({
@@ -755,9 +849,10 @@
           closed_reason: "lobby_exit",
         })
         .eq("host_user_id", authUser.id)
+        .in("code", codes)
         .in("status", ["waiting", "joined"])
         .select("code");
-      if (error) throw supabaseError(error, "Could not close waiting rooms.");
+      if (error) throw supabaseError(error, "Could not close captured lobby rooms.");
       return {
         ok: true,
         closedCodes: (data || []).map(row => normalizeCode(row.code)).filter(Boolean),
@@ -778,21 +873,26 @@
     return Boolean(state && (state.phase === "over" || state.winner));
   }
 
-  async function getGameState(code) {
+  async function getGameState(code, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
         headers: ownerToken ? { 'X-Bot-Owner': ownerToken } : {},
+        signal,
       });
     }
-    const client = await supabase();
-    const { data, error } = await client
+    const client = await supabase({ signal });
+    let query = client
       .from("rooms")
       .select("id,game_state,game_version,status")
       .eq("code", normalizedCode)
-      .neq("status", "closed")
-      .maybeSingle();
+      .neq("status", "closed");
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not load game state.");
     if (!data) throw roomError("Комната не найдена.", 404);
     roomIdCache.set(normalizedCode, data.id);
@@ -1111,89 +1211,116 @@
     };
   }
 
-  async function updatePresence(code, payload = {}) {
+  async function updatePresence(code, payload = {}, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/presence`, {
         method: "POST",
         body: JSON.stringify(payload),
+        signal,
       });
     }
-    const client = await supabase();
+    const client = await supabase({ signal });
+    throwIfAborted(signal);
     const color = payload.color === "dark" ? "dark" : "white";
-    const { data: room, error: loadError } = await client
-      .from("rooms")
-      .select("id,presence,game_state,game_version,status")
-      .eq("code", normalizedCode)
-      .neq("status", "closed")
-      .maybeSingle();
-    if (loadError) throw supabaseError(loadError, "Could not load room presence.");
-    if (!room) throw roomError("Комната не найдена.", 404);
-    const nowMs = Date.now();
-    const presence = {
-      ...(room.presence || {}),
-      [color]: {
-        ...(room.presence?.[color] || {}),
-        color,
-        name: String(payload.name || "").slice(0, 32),
-        lastSeen: nowMs,
-        disconnectedAt: null,
-        deadlineAt: null,
-      },
-    };
-    let gameState = room.game_state || null;
-    let gameVersion = Number(room.game_version || 0);
-    const opponent = opponentColor(color);
-    const opponentPresence = presence[opponent] || room.presence?.[opponent] || null;
-    const opponentLastSeen = Math.max(
-      Number(opponentPresence?.lastSeen || 0),
-      latestGameActivityMs(room, opponent),
-    );
-    const opponentDisconnectedAt = opponentLastSeen && nowMs > opponentLastSeen + PRESENCE_STALE_MS
-      ? opponentPresence.disconnectedAt || opponentLastSeen + PRESENCE_STALE_MS
-      : null;
-    const opponentDeadlineAt = opponentDisconnectedAt
-      ? opponentPresence.deadlineAt || opponentDisconnectedAt + NETWORK_GRACE_MS
-      : null;
-    if (opponentDisconnectedAt) {
-      presence[opponent] = {
-        ...(presence[opponent] || {}),
-        disconnectedAt: opponentDisconnectedAt,
-        deadlineAt: opponentDeadlineAt,
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      let loadQuery = client
+        .from("rooms")
+        .select("id,presence,game_state,game_version,status,updated_at")
+        .eq("code", normalizedCode)
+        .neq("status", "closed")
+        .maybeSingle();
+      loadQuery = withAbortSignal(loadQuery, signal);
+      const { data: room, error: loadError } = await awaitWithAbort(loadQuery, signal);
+      throwIfAborted(signal);
+      if (loadError) throw supabaseError(loadError, "Could not load room presence.");
+      if (!room) throw roomError("Комната не найдена.", 404);
+      if (room.status === "over" || finalGameState(room.game_state)) {
+        return {
+          ok: true,
+          presence: publicPresence(room, color),
+          state: room.game_state || null,
+          version: Number(room.game_version || 0),
+        };
+      }
+
+      const nowMs = Date.now();
+      const presence = {
+        ...(room.presence || {}),
+        [color]: {
+          ...(room.presence?.[color] || {}),
+          color,
+          name: String(payload.name || "").slice(0, 32),
+          lastSeen: nowMs,
+          disconnectedAt: null,
+          deadlineAt: null,
+        },
       };
-    } else if (presence[opponent]?.disconnectedAt) {
-      presence[opponent] = {
-        ...(presence[opponent] || {}),
-        disconnectedAt: null,
-        deadlineAt: null,
+      let gameState = room.game_state || null;
+      let gameVersion = Number(room.game_version || 0);
+      const opponent = opponentColor(color);
+      const opponentPresence = presence[opponent] || room.presence?.[opponent] || null;
+      const opponentLastSeen = Math.max(
+        Number(opponentPresence?.lastSeen || 0),
+        latestGameActivityMs(room, opponent),
+      );
+      const opponentDisconnectedAt = opponentLastSeen && nowMs > opponentLastSeen + PRESENCE_STALE_MS
+        ? opponentPresence.disconnectedAt || opponentLastSeen + PRESENCE_STALE_MS
+        : null;
+      const opponentDeadlineAt = opponentDisconnectedAt
+        ? opponentPresence.deadlineAt || opponentDisconnectedAt + NETWORK_GRACE_MS
+        : null;
+      if (opponentDisconnectedAt) {
+        presence[opponent] = {
+          ...(presence[opponent] || {}),
+          disconnectedAt: opponentDisconnectedAt,
+          deadlineAt: opponentDeadlineAt,
+        };
+      } else if (presence[opponent]?.disconnectedAt) {
+        presence[opponent] = {
+          ...(presence[opponent] || {}),
+          disconnectedAt: null,
+          deadlineAt: null,
+        };
+      }
+      const alreadyOver = gameState?.phase === "over" || gameState?.winner;
+      const shouldForceNetworkLoss = opponentDeadlineAt && nowMs >= opponentDeadlineAt && !alreadyOver;
+      const updates = { presence };
+      if (shouldForceNetworkLoss) {
+        gameState = forceNetworkLossState(room, opponent, nowMs);
+        gameVersion += 1;
+        updates.game_state = gameState;
+        updates.game_version = gameVersion;
+        updates.status = "over";
+        updates.archived_at = new Date(nowMs).toISOString();
+        updates.closed_reason = "network_loss";
+      }
+      let updateQuery = client
+        .from("rooms")
+        .update(updates)
+        .eq("id", room.id)
+        .eq("updated_at", room.updated_at)
+        .eq("game_version", Number(room.game_version || 0))
+        .in("status", ["waiting", "joined"])
+        .select("presence,game_state,game_version,status,updated_at")
+        .maybeSingle();
+      updateQuery = withAbortSignal(updateQuery, signal);
+      const { data: updated, error: updateError } = await awaitWithAbort(updateQuery, signal);
+      throwIfAborted(signal);
+      if (updateError) throw supabaseError(updateError, "Could not update presence.");
+      if (!updated) continue;
+      return {
+        ok: true,
+        presence: publicPresence(updated, color),
+        state: updated.game_state || gameState || null,
+        version: Number(updated.game_version ?? gameVersion ?? 0),
       };
     }
-    const alreadyOver = gameState?.phase === "over" || gameState?.winner;
-    const shouldForceNetworkLoss = opponentDeadlineAt && nowMs >= opponentDeadlineAt && !alreadyOver;
-    const updates = { presence };
-    if (shouldForceNetworkLoss) {
-      gameState = forceNetworkLossState(room, opponent, nowMs);
-      gameVersion += 1;
-      updates.game_state = gameState;
-      updates.game_version = gameVersion;
-      updates.updated_at = new Date(nowMs).toISOString();
-      updates.status = "over";
-      updates.archived_at = new Date(nowMs).toISOString();
-      updates.closed_reason = "network_loss";
-    }
-    const { data: updated, error: updateError } = await client
-      .from("rooms")
-      .update(updates)
-      .eq("code", normalizedCode)
-      .select("presence,game_state,game_version,status")
-      .maybeSingle();
-    if (updateError) throw supabaseError(updateError, "Could not update presence.");
-    return {
-      ok: true,
-      presence: publicPresence(updated || { ...room, presence }, color),
-      state: updated?.game_state || gameState || null,
-      version: Number(updated?.game_version ?? gameVersion ?? 0),
-    };
+    throw roomError("Состояние присутствия изменилось одновременно. Повторите запрос.", 409, {
+      code: "PRESENCE_CONFLICT",
+    });
   }
 
   async function leaveRoom(code, payload = {}) {
@@ -1233,25 +1360,32 @@
     return { ok: true, removed: shouldClose, room: publicRoom(updated || room) };
   }
 
-  async function watchRoom(code, payload = {}) {
+  async function watchRoom(code, payload = {}, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/spectators`, {
         method: "POST",
         body: JSON.stringify(payload),
+        signal,
       });
     }
-    const { client, authUser, profile } = await currentAuthContext();
+    const { client, authUser, profile } = await currentAuthContext({ signal });
     const spectatorId = String(payload.spectatorId || authUser.id || "").slice(0, 80);
     const spectatorName = String(payload.name || profile.nickname || "Spectator").slice(0, 32);
-    const { data, error } = await client.rpc("touch_room_spectator", {
+    throwIfAborted(signal);
+    let query = client.rpc("touch_room_spectator", {
       p_code: normalizedCode,
       p_spectator_id: spectatorId,
       p_spectator_name: spectatorName,
       p_leave: false,
     });
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query, signal);
+    throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not watch room.");
-    const stateData = await getGameState(normalizedCode);
+    const stateData = await getGameState(normalizedCode, { signal });
     return {
       ok: true,
       spectators: Number(data || 0),
@@ -1260,21 +1394,28 @@
     };
   }
 
-  async function leaveSpectator(code, payload = {}) {
+  async function leaveSpectator(code, payload = {}, options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/spectators`, {
         method: "DELETE",
         body: JSON.stringify(payload),
+        signal,
       });
     }
-    const { client, authUser } = await currentAuthContext();
-    const { data, error } = await client.rpc("touch_room_spectator", {
+    const { client, authUser } = await currentAuthContext({ signal });
+    throwIfAborted(signal);
+    let query = client.rpc("touch_room_spectator", {
       p_code: normalizedCode,
       p_spectator_id: String(payload.spectatorId || authUser.id || "").slice(0, 80),
       p_spectator_name: String(payload.name || "Spectator").slice(0, 32),
       p_leave: true,
     });
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query, signal);
+    throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not leave spectator mode.");
     return { ok: true, spectators: Number(data || 0) };
   }

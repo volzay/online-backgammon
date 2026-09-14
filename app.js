@@ -10,6 +10,9 @@
   const BOARD_STYLE_KEY = 'narduh-board-style';
   const DEFAULT_RATING = 1000;
   const GUEST_PRESENCE_MS = 30000;
+  const PRESENCE_RESUME_DEBOUNCE_MS = 1000;
+  const PROFILE_PRESENCE_REFRESH_AFTER_MS = 10000;
+  const PROFILE_PRESENCE_ATTEMPT_TIMEOUT_MS = 10000;
   const STORED_HISTORY_LIMIT = 50;
   const REAUTH_CONTEXT_KEY = 'narduh-reauth-context';
   function safeStorageSet(key, value) {
@@ -1204,6 +1207,9 @@
 
   let lastGuestPresenceAt = 0;
   let lastProfilePresenceAt = 0;
+  let lastPresenceResumeAt = 0;
+  let profilePresencePromise = null;
+  let profilePresenceStartedAt = 0;
   function presenceHash(value) {
     const text = String(value || '');
     let hash = 2166136261;
@@ -1228,12 +1234,16 @@
       .insert(guestRow);
     if (insertError) {
       if (insertError.code !== '23505') throw insertError;
+      // The insert may have been suspended in a backgrounded mobile tab. Use
+      // the time of the actual retry so an older request cannot overwrite a
+      // newer foreground heartbeat with its stale creation timestamp.
+      const updateIso = new Date().toISOString();
       const { error: updateError } = await client
         .from('guest_presence')
         .update({
           name: guestRow.name,
-          last_seen_at: guestRow.last_seen_at,
-          updated_at: guestRow.updated_at,
+          last_seen_at: updateIso,
+          updated_at: updateIso,
         })
         .eq('id', guestRow.id);
       if (updateError) throw updateError;
@@ -1244,47 +1254,135 @@
     const key = presenceHash(user?.id || user?.email || user?.nickname || user?.name || 'local');
     return upsertGuestPresenceRow(user, `guest:local:${key}`);
   }
+  async function updateProfilePresenceRow(client, userId) {
+    const writtenAt = new Date().toISOString();
+    const result = await client
+      .from('profiles')
+      .update({ last_seen_at: writtenAt })
+      .or(`last_seen_at.is.null,last_seen_at.lt.${writtenAt}`)
+      .eq('id', userId);
+    return result.error || null;
+  }
+  async function profilePresenceAuth(client) {
+    try {
+      if (typeof client.auth.getSession === 'function') {
+        const { error: sessionError } = await client.auth.getSession();
+        if (sessionError && !isAuthSessionError(sessionError)) {
+          return { data: null, error: sessionError };
+        }
+      }
+      let result = await client.auth.getUser();
+      const missingUser = !result?.error && !result?.data?.user?.id;
+      if ((missingUser || isAuthSessionError(result?.error)) && typeof client.auth.refreshSession === 'function') {
+        const refresh = await client.auth.refreshSession();
+        if (!refresh?.error && refresh?.data?.session?.user?.id) {
+          result = await client.auth.getUser();
+        } else if (refresh?.error) {
+          return { data: null, error: refresh.error };
+        }
+      }
+      return result || { data: null, error: new Error('Authentication session is unavailable') };
+    } catch (error) {
+      return { data: null, error };
+    }
+  }
   async function touchGuestPresence({ force = false } = {}) {
     const user = getUser();
-    if (!user?.guest || !window.NarduSupabase?.configured?.()) return;
+    if (!user?.guest || !window.NarduSupabase?.configured?.()) return false;
     const nowMs = Date.now();
-    if (!force && nowMs - lastGuestPresenceAt < GUEST_PRESENCE_MS) return;
+    if (!force && nowMs - lastGuestPresenceAt < GUEST_PRESENCE_MS) return true;
     lastGuestPresenceAt = nowMs;
     try {
       await upsertGuestPresenceRow(user, user.id || guestId());
+      return true;
     } catch (error) {
+      lastGuestPresenceAt = 0;
       console.warn('Could not update guest presence', error.message || error);
+      return false;
     }
   }
-  async function touchProfilePresence({ force = false } = {}) {
+  function touchProfilePresence({ force = false } = {}) {
     const user = getUser();
-    if (!user || user.guest || !window.NarduSupabase?.configured?.()) return;
+    if (!user || user.guest || !window.NarduSupabase?.configured?.()) return false;
     const nowMs = Date.now();
-    if (!force && nowMs - lastProfilePresenceAt < GUEST_PRESENCE_MS) return;
-    lastProfilePresenceAt = nowMs;
-    try {
-      const client = await window.NarduSupabase.client();
-      const { data, error: authError } = await client.auth.getUser();
-      if (authError || !data?.user?.id) {
-        await touchLocalPresenceAlias(user);
-        return;
-      }
-      const { error: updateError } = await client
-        .from('profiles')
-        .update({ last_seen_at: new Date(nowMs).toISOString() })
-        .eq('id', data.user.id);
-      if (updateError) {
-        await touchLocalPresenceAlias(user);
-        throw updateError;
-      }
-    } catch (error) {
-      console.warn('Could not update profile presence', error.message || error);
+    if (profilePresencePromise && nowMs - profilePresenceStartedAt < PROFILE_PRESENCE_REFRESH_AFTER_MS) {
+      return profilePresencePromise;
     }
+    if (profilePresencePromise) profilePresencePromise = null;
+    if (!force && nowMs - lastProfilePresenceAt < GUEST_PRESENCE_MS) return true;
+    lastProfilePresenceAt = nowMs;
+    profilePresenceStartedAt = nowMs;
+    const attempt = (async () => {
+      try {
+        const client = await window.NarduSupabase.client();
+        const { data, error: authError } = await profilePresenceAuth(client);
+        if (authError || !data?.user?.id) {
+          await touchLocalPresenceAlias(user);
+          lastProfilePresenceAt = 0;
+          return false;
+        }
+        const updateError = await updateProfilePresenceRow(client, data.user.id);
+        if (updateError) {
+          await touchLocalPresenceAlias(user);
+          throw updateError;
+        }
+        return true;
+      } catch (error) {
+        lastProfilePresenceAt = 0;
+        console.warn('Could not update profile presence', error.message || error);
+        return false;
+      }
+    })();
+    let timeoutId = null;
+    const timeout = typeof setTimeout === 'function'
+      ? new Promise(resolve => {
+          timeoutId = setTimeout(() => resolve(false), PROFILE_PRESENCE_ATTEMPT_TIMEOUT_MS);
+        })
+      : null;
+    let pending;
+    pending = Promise.race(timeout ? [attempt, timeout] : [attempt])
+      .then(updated => {
+        if (updated === false) lastProfilePresenceAt = 0;
+        return updated;
+      })
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (profilePresencePromise === pending) {
+          profilePresencePromise = null;
+          profilePresenceStartedAt = 0;
+        }
+      });
+    profilePresencePromise = pending;
+    return pending;
   }
   function touchPresence(options = {}) {
     const user = getUser();
     if (user?.guest) return touchGuestPresence(options);
     return touchProfilePresence(options);
+  }
+
+  function resumePresence(event) {
+    if (document.visibilityState === 'hidden') {
+      profilePresencePromise = null;
+      profilePresenceStartedAt = 0;
+      lastPresenceResumeAt = 0;
+      return;
+    }
+    const now = Date.now();
+    if (now - lastPresenceResumeAt < PRESENCE_RESUME_DEBOUNCE_MS) return;
+    lastPresenceResumeAt = now;
+    if (event?.type === 'pageshow' || event?.type === 'online' || event?.type === 'visibilitychange') {
+      profilePresencePromise = null;
+      profilePresenceStartedAt = 0;
+    }
+    Promise.resolve(touchPresence({ force: true }))
+      .then(updated => {
+        if (updated === false) lastPresenceResumeAt = 0;
+      })
+      .catch(error => {
+        lastPresenceResumeAt = 0;
+        console.warn('Could not resume presence', error?.message || error);
+      });
   }
 
   /* ── SOUND TOGGLE (visual only) ── */
@@ -1368,8 +1466,20 @@
         if (!document.hidden) refreshLobbyMessageIndicator();
       });
     }
-    touchPresence({ force: true });
+    resumePresence();
     setInterval(() => touchPresence(), GUEST_PRESENCE_MS);
+    window.addEventListener('focus', resumePresence);
+    window.addEventListener('pageshow', resumePresence);
+    window.addEventListener('online', resumePresence);
+    window.addEventListener('pagehide', () => {
+      // A fetch suspended with an iOS BFCache page may never settle. Allow the
+      // restored page to start a fresh canonical heartbeat; the old attempt's
+      // identity check prevents it from clearing a newer in-flight request.
+      profilePresencePromise = null;
+      profilePresenceStartedAt = 0;
+      lastPresenceResumeAt = 0;
+    });
+    document.addEventListener('visibilitychange', resumePresence);
     if (document.querySelector('.lobby-head')) {
       const user = getUser();
       Promise.resolve().then(() => window.NarduRooms?.loadLongBotExperience?.({
@@ -1380,6 +1490,9 @@
     }
     paintSound();
     wirePasswordToggles();
+    if (!window.NARDU_ENTRY_BLOCKED) {
+      document.documentElement.classList?.remove?.('auth-pending');
+    }
   }
 
   window.NarduApp = {

@@ -138,7 +138,12 @@ function finishedGameContext({
   const archivesAtomically = atomicTraining === null ? !guest : atomicTraining;
   const window = {
     addEventListener() {},
-    setTimeout(callback, ms) { return setTimeout(callback, Math.min(Number(ms) || 0, 5)); },
+    setTimeout(callback, ms) {
+      const delay = Number(ms) || 0;
+      // Keep persistence retries fast, while preserving a visible window in
+      // which the finalizer can settle before the new fail-open exit deadline.
+      return setTimeout(callback, delay === 12500 ? 50 : Math.min(delay, 5));
+    },
     requestAnimationFrame(callback) { callback(); },
     NarduApp: {
       getUser() {
@@ -558,6 +563,9 @@ test("a hung analysis publish cannot block the finished-game lobby action", asyn
 
 test("analysis conflict recovery refuses to overwrite a finished server snapshot", async () => {
   const { context, controller, roomCalls } = finishedGameContext({ autoFinish: false });
+  // Initialization now verifies the server snapshot before any analysis write.
+  // Let the expected 404 restore settle before exercising conflict recovery.
+  await new Promise(resolve => setTimeout(resolve, 0));
   let recoveryReads = 0;
   context.window.NarduRooms.putGameState = async () => {
     roomCalls.putCalls += 1;
@@ -818,6 +826,7 @@ test("registered hard-bot finalization falls back to the old RPC signature", asy
     select() { return this; },
     update() { return this; },
     eq() { return this; },
+    or() { return this; },
     async maybeSingle() {
       return {
         data: { id: "user-1", nickname: "Tester", rating: 1500, rating_eligible: true },
@@ -1047,6 +1056,9 @@ test("cached server experience is applied before a slow refresh RPC finishes", a
   const cachedApplication = applied.find(item => item.source === "server-cache" && item.patterns.length);
   assert.equal(cachedApplication.patterns[0].actionKey, pattern.actionKey);
   assert.ok(applied.some(item => item.source === "server" && item.patterns.length === 0));
+  // The cache return is intentionally ahead of Supabase client acquisition;
+  // the refresh is started in the following microtask and may then stay slow.
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(rpcCalls[0].name, "get_long_bot_experience_patterns");
   assert.equal(rpcCalls[0].args.p_player_name, "warlord");
 });

@@ -36,9 +36,12 @@ window.NarduController = (function () {
   let isApplyingRemote = false;
   let botAnalysisReady = false;
   let botAnalysisDisabled = false;
+  let botAnalysisOwnershipUnknown = false;
+  let botAnalysisRestorePending = false;
   let botAnalysisVersion = 0;
   let botAnalysisEnsurePromise = null;
   let botAnalysisPublishQueue = Promise.resolve();
+  let botRatingPersistenceKey = null;
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
   let botTrainingArchivePromise = Promise.resolve(true);
@@ -74,6 +77,15 @@ window.NarduController = (function () {
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
   const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
+  const LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS = 4500;
+  // The Supabase loader may spend 5 s on each of two CDNs before a room read
+  // can begin. Keep restore bounded, but long enough for that fallback path.
+  const BOT_ANALYSIS_STARTUP_WAIT_MS = 15000;
+  const BOT_ANALYSIS_RESTORE_TIMEOUT_MS = 12000;
+  const BOT_ANALYSIS_ENSURE_TIMEOUT_MS = 5000;
+  const BOT_ANALYSIS_WRITE_TIMEOUT_MS = 5000;
+  // Covers drain + ownership confirmation + the first authoritative final write.
+  const BOT_GAME_EXIT_WAIT_MS = 12500;
   const BOT_ANALYSIS_DRAIN_TIMEOUT_MS = 1200;
   let gameplaySoundBusyUntil = 0;
   const UI_TEXT = {
@@ -483,9 +495,12 @@ window.NarduController = (function () {
     remoteVersion = 0;
     botAnalysisReady = false;
     botAnalysisDisabled = false;
+    botAnalysisOwnershipUnknown = false;
+    botAnalysisRestorePending = false;
     botAnalysisVersion = 0;
     botAnalysisEnsurePromise = null;
     botAnalysisPublishQueue = Promise.resolve();
+    botRatingPersistenceKey = null;
     botTrainingArchivePending = false;
     botTrainingArchiveDone = false;
     botTrainingArchivePromise = Promise.resolve(true);
@@ -517,6 +532,8 @@ window.NarduController = (function () {
         at: new Date().toISOString(),
       }];
     }
+    const shouldRestoreBotAnalysis = mode === 'bot' && !freshGame && canPublishBotAnalysis();
+    botAnalysisRestorePending = shouldRestoreBotAnalysis;
     undoStack = [];
 
     paintOpponent();
@@ -524,11 +541,30 @@ window.NarduController = (function () {
     render();
     preloadWildbgForHardShortBot();
 
-    if (applyLocalBearOffDemo(url)) return;
+    if (applyLocalBearOffDemo(url)) {
+      botAnalysisRestorePending = false;
+      render();
+      return;
+    }
     if (waitingForOpponent) return;
     if (!opts.skipRemoteSync) startRemoteSync();
-    if (mode === 'bot' && !restoredState && !freshGame && canPublishBotAnalysis()) {
-      restoreBotAnalysisState(url, roomCode).then(restored => {
+    // Local storage makes reloads fast, but the server snapshot remains
+    // authoritative. Always verify it before resuming writes under this code.
+    if (shouldRestoreBotAnalysis) {
+      const startupDeadlineAt = Date.now() + BOT_ANALYSIS_STARTUP_WAIT_MS;
+      promiseWithTimeout(
+        restoreBotAnalysisState(url, roomCode),
+        BOT_ANALYSIS_RESTORE_TIMEOUT_MS,
+        'Bot room restore timed out',
+      ).catch(error => {
+        // A missing room is handled by restoreBotAnalysisState. Any other
+        // failure leaves the server state unknown, so this local game must not
+        // publish under the same code and overwrite a recoverable room.
+        botAnalysisDisabled = true;
+        botAnalysisOwnershipUnknown = true;
+        console.warn('Could not restore bot room before startup', error?.message || error);
+        return null;
+      }).then(restored => {
         if (restored) {
           state = restored;
           adoptBotIdentity(state);
@@ -542,12 +578,21 @@ window.NarduController = (function () {
           persistBotGameConfig(roomCode, url);
           pending = null;
           undoStack = [];
-          render();
           persistRoomSnapshot();
         }
       }).finally(() => {
+        botAnalysisRestorePending = false;
+        render();
         queueBotAnalysisPublish(restoredState ? 200 : 900);
-        if (!opts.skipAutoStart) ensureAutoProgressAfterExperience(650);
+        if (!opts.skipAutoStart) {
+          ensureAutoProgressAfterExperience(
+            650,
+            Math.min(
+              LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS,
+              Math.max(0, startupDeadlineAt - Date.now()),
+            ),
+          );
+        }
       });
       return;
     }
@@ -559,7 +604,7 @@ window.NarduController = (function () {
     ensureAutoProgressAfterExperience(mode === 'remote' ? 1300 : 650);
   }
 
-  function ensureAutoProgressAfterExperience(delay) {
+  function ensureAutoProgressAfterExperience(delay, maxExperienceWaitMs = LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS) {
     if (mode !== 'bot' || botDifficulty !== 'hard') {
       ensureAutoProgress(delay);
       return;
@@ -579,11 +624,12 @@ window.NarduController = (function () {
       ensureAutoProgress(delay);
     };
     if (variant === 'long') {
-      loadLongBotExperienceBeforeStart()
-        .catch(error => {
+      Promise.race([
+        loadLongBotExperienceBeforeStart().catch(error => {
           console.warn('Could not load shared bot experience', error?.message || error);
-        })
-        .finally(startWithFrozenExperience);
+        }),
+        new Promise(resolve => setTimeout(resolve, Math.max(0, Number(maxExperienceWaitMs) || 0))),
+      ]).finally(startWithFrozenExperience);
       return;
     }
     const load = window.NarduRooms?.loadShortBotExperience?.();
@@ -916,6 +962,7 @@ window.NarduController = (function () {
   function canPublishBotAnalysis(options = {}) {
     return mode === 'bot' &&
       Boolean(remoteCode) &&
+      !botAnalysisOwnershipUnknown &&
       (options.force || !botAnalysisDisabled) &&
       Boolean(window.NarduRooms?.ensureBotAnalysisRoom);
   }
@@ -941,10 +988,9 @@ window.NarduController = (function () {
         roomCode: roomCode || data.state.roomCode || remoteCode,
       }, url);
     } catch (error) {
-      if (error?.status !== 404) {
-        console.warn('Could not restore bot room state', error?.message || error);
-      }
-      return null;
+      if (error?.status === 404) return null;
+      console.warn('Could not restore bot room state', error?.message || error);
+      throw error;
     }
   }
 
@@ -964,11 +1010,18 @@ window.NarduController = (function () {
           state: initialPayload || botAnalysisPayload(),
         });
         if (data?.skipped) return false;
+        if (data?.existing) {
+          botAnalysisDisabled = true;
+          botAnalysisOwnershipUnknown = true;
+          console.warn('Bot analysis room appeared before restore completed; keeping its server state unchanged');
+          return false;
+        }
         botAnalysisReady = true;
         botAnalysisVersion = Number.isFinite(data?.version) ? data.version : Number(data?.version || 0);
         return true;
       } catch (error) {
         botAnalysisDisabled = true;
+        botAnalysisOwnershipUnknown = true;
         console.warn('Could not enable bot analysis sync', error?.message || error);
         return false;
       } finally {
@@ -986,6 +1039,7 @@ window.NarduController = (function () {
   async function publishBotAnalysisState(options = {}) {
     const force = options.force === true;
     if (
+      botAnalysisRestorePending ||
       !canPublishBotAnalysis({ force }) ||
       state.phase === 'waiting' ||
       state.phase === 'over' ||
@@ -1041,6 +1095,7 @@ window.NarduController = (function () {
   }
 
   function ensureBotFinalStatePublished(trainingPayload = null) {
+    if (botAnalysisOwnershipUnknown) return Promise.resolve(false);
     if (gameOverPublishPromise) return gameOverPublishPromise;
     if (state?.gameOverPublishedAt) return Promise.resolve(true);
     // Registered games send the compact room state and the compact training
@@ -1056,14 +1111,36 @@ window.NarduController = (function () {
         Promise.resolve(pendingAnalysisPublishes).catch(() => false),
         wait(BOT_ANALYSIS_DRAIN_TIMEOUT_MS),
       ]);
+      if (botAnalysisOwnershipUnknown) return false;
+      if (!botAnalysisReady) {
+        let ready = false;
+        try {
+          ready = await promiseWithTimeout(
+            ensureBotAnalysisRoomReady(payload),
+            BOT_ANALYSIS_ENSURE_TIMEOUT_MS,
+            'Bot analysis room confirmation timed out',
+          );
+        } catch (error) {
+          botAnalysisDisabled = true;
+          botAnalysisOwnershipUnknown = true;
+          console.warn('Could not confirm bot analysis room before finalization', error?.message || error);
+          return false;
+        }
+        if (!ready || botAnalysisOwnershipUnknown) return false;
+      }
       let lastError = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
+        if (botAnalysisOwnershipUnknown) return false;
         try {
-          const saved = await window.NarduRooms.finishRoomGame(
-            remoteCode,
-            payload,
-            botAnalysisVersion,
-            trainingState,
+          const saved = await promiseWithTimeout(
+            window.NarduRooms.finishRoomGame(
+              remoteCode,
+              payload,
+              botAnalysisVersion,
+              trainingState,
+            ),
+            BOT_ANALYSIS_WRITE_TIMEOUT_MS,
+            'Finished bot game write timed out',
           );
           if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
           state.gameOverPublishedAt = new Date().toISOString();
@@ -1072,7 +1149,10 @@ window.NarduController = (function () {
             return true;
           }
           if (trainingState && saved?.trainingArchived === false) {
-            return archiveBotTrainingGame(trainingState, { finalStateReady: true });
+            // The authoritative finished room is already committed. Start the
+            // legacy archive fallback without delaying rating confirmation;
+            // navigation still waits for botTrainingArchivePromise below.
+            archiveBotTrainingGame(trainingState, { finalStateReady: true });
           }
           return true;
         } catch (error) {
@@ -1089,7 +1169,7 @@ window.NarduController = (function () {
               ) {
                 state.gameOverPublishedAt = new Date().toISOString();
                 if (trainingState) {
-                  return archiveBotTrainingGame(trainingState, { finalStateReady: true });
+                  archiveBotTrainingGame(trainingState, { finalStateReady: true });
                 }
                 return true;
               }
@@ -1110,7 +1190,10 @@ window.NarduController = (function () {
 
   function waitForFinishedBotPersistence() {
     if (mode !== 'bot' || !state?.winner) return Promise.resolve(true);
-    return Promise.resolve(botGameFinalizePromise).catch(() => false);
+    return Promise.race([
+      Promise.resolve(botGameFinalizePromise).catch(() => false),
+      wait(BOT_GAME_EXIT_WAIT_MS).then(() => false),
+    ]);
   }
 
   function ensureRemoteFinalStatePublished() {
@@ -1559,7 +1642,8 @@ window.NarduController = (function () {
       && !state.winner
       && !isAnimating
       && !isRolling
-      && !isChainingMove;
+      && !isChainingMove
+      && !botAnalysisRestorePending;
     btn.disabled = !canResign;
     btn.title = canResign ? tr('resign_title') : tr('cannot_resign_title');
   }
@@ -1571,6 +1655,11 @@ window.NarduController = (function () {
     row.innerHTML = '';
 
     if (state.phase === 'over') return;
+
+    if (botAnalysisRestorePending) {
+      addDiceMessage(row, tr('preparing'));
+      return;
+    }
 
     if (state.phase === 'waiting') {
       addDiceMessage(row, tr('dice_wait_opponent'));
@@ -1699,6 +1788,7 @@ window.NarduController = (function () {
 
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
+    if (botAnalysisRestorePending) return { text: tr('preparing'), tone: 'waiting' };
     if (state.phase === 'waiting') return { text: tr('turn_waiting'), tone: 'waiting' };
     if (state.phase === 'over' || state.winner) {
       return {
@@ -1980,7 +2070,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
-    if (spectatorMode) return false;
+    if (spectatorMode || botAnalysisRestorePending) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }
@@ -2196,7 +2286,7 @@ window.NarduController = (function () {
 
   /* ── user actions ─────────────────────────── */
   function scheduleAutoRoll(ms = 600) {
-    if (state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
+    if (botAnalysisRestorePending || state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isMyTurn()) return;
     autoRollTimer = schedule(() => {
       autoRollTimer = null;
@@ -2205,7 +2295,7 @@ window.NarduController = (function () {
   }
 
   function scheduleOpeningRoll(ms = 600) {
-    if (state.phase !== 'opening' || state.phase === 'over' || isRolling || autoRollTimer) return;
+    if (botAnalysisRestorePending || state.phase !== 'opening' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     autoRollTimer = schedule(() => {
       autoRollTimer = null;
@@ -2214,7 +2304,7 @@ window.NarduController = (function () {
   }
 
   function scheduleOpeningTurnRoll(ms = OPENING_RESULT_PAUSE_MS) {
-    if (state.phase !== 'opening-result' || state.phase === 'over' || isRolling || autoRollTimer) return;
+    if (botAnalysisRestorePending || state.phase !== 'opening-result' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     autoRollTimer = schedule(() => {
       autoRollTimer = null;
@@ -2246,7 +2336,7 @@ window.NarduController = (function () {
   }
 
   function ensureAutoProgress(ms = 650) {
-    if (!state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
+    if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isRolling || isAnimating || isChainingMove) return;
     if (state.phase === 'opening') {
       scheduleOpeningRoll(ms);
@@ -2270,7 +2360,7 @@ window.NarduController = (function () {
   }
 
   async function openingRoll() {
-    if (state.phase !== 'opening' || isRolling) return;
+    if (botAnalysisRestorePending || state.phase !== 'opening' || isRolling) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     const user = window.NarduApp?.getUser?.();
     isRolling = true;
@@ -2324,7 +2414,7 @@ window.NarduController = (function () {
   }
 
   function startOpeningTurnRoll() {
-    if (state.phase !== 'opening-result' || isRolling) return;
+    if (botAnalysisRestorePending || state.phase !== 'opening-result' || isRolling) return;
     const started = NarduGame.startOpeningTurn(state);
     if (!started) return;
     const openingHash = state.openingRoll?.sha256 || '';
@@ -2336,7 +2426,7 @@ window.NarduController = (function () {
   }
 
   async function autoRoll() {
-    if (state.phase !== 'roll' || isRolling) return;
+    if (botAnalysisRestorePending || state.phase !== 'roll' || isRolling) return;
     const rollingTurn = state.turn;
     isRolling = true;
     try {
@@ -2985,7 +3075,7 @@ window.NarduController = (function () {
   }
 
   function resignGame() {
-    if (!state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
+    if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isAnimating || isRolling || isChainingMove) return;
 
     if (autoRollTimer) clearTimeout(autoRollTimer);
@@ -3447,6 +3537,7 @@ window.NarduController = (function () {
   }
 
   function archiveBotTrainingGame(finalPayload = null, options = {}) {
+    if (botAnalysisOwnershipUnknown) return Promise.resolve(false);
     if (botTrainingArchivePending || botTrainingArchiveDone || !remoteCode || !window.NarduRooms?.archiveBotTrainingGame) {
       return botTrainingArchivePromise;
     }
@@ -3477,7 +3568,11 @@ window.NarduController = (function () {
           ) {
             throw new Error('Bot training payload has incomplete decision coverage.');
           }
-          const archived = await window.NarduRooms.archiveBotTrainingGame(remoteCode, payload);
+          const archived = await promiseWithTimeout(
+            window.NarduRooms.archiveBotTrainingGame(remoteCode, payload),
+            BOT_ANALYSIS_WRITE_TIMEOUT_MS,
+            'Bot training archive timed out',
+          );
           if (Number(archived?.decisionCount) !== expectedDecisions) {
             throw new Error(`Bot training archive saved ${archived?.decisionCount || 0}/${expectedDecisions} decisions.`);
           }
@@ -3508,6 +3603,7 @@ window.NarduController = (function () {
 
   function playBotTurn() {
     if (
+      botAnalysisRestorePending ||
       !state ||
       state.phase !== 'move' ||
       state.winner ||
@@ -3676,7 +3772,12 @@ window.NarduController = (function () {
         botPublishPromise = ensureBotFinalStatePublished(botFinalPayload);
       }
       if (mode === 'bot') {
-        botGameFinalizePromise = Promise.resolve(botPublishPromise).catch(() => false);
+        botGameFinalizePromise = Promise.resolve(botPublishPromise).then(
+          persisted => Promise.resolve(botTrainingArchivePromise)
+            .catch(() => false)
+            .then(() => persisted),
+          () => false,
+        );
       }
       if (
         mode === 'bot' &&
@@ -3689,7 +3790,8 @@ window.NarduController = (function () {
       }
 
       const didWin = state.winner === playerColor;
-      if ((mode === 'bot' || mode === 'remote') && localRatingRecordedKey !== resultKey) {
+      const recordRating = () => {
+        if (localRatingRecordedKey === resultKey || resultKey !== gameResultKey()) return;
         const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
           resultType: state.resultType || '',
           winner: state.winner,
@@ -3738,6 +3840,21 @@ window.NarduController = (function () {
             }, 500 * ratingRetryCount);
           }
         }
+      };
+      if (mode === 'remote') {
+        recordRating();
+      } else if (mode === 'bot' && botRatingPersistenceKey !== resultKey) {
+        // record_rating_result can also finalize a bot room. Do not invoke it
+        // until this exact room code has been restored or created safely.
+        botRatingPersistenceKey = resultKey;
+        Promise.resolve(botPublishPromise).then(persisted => {
+          if (botRatingPersistenceKey === resultKey) botRatingPersistenceKey = null;
+          if (!persisted || botAnalysisOwnershipUnknown || resultKey !== gameResultKey()) return;
+          recordRating();
+          renderGameOverModal();
+        }, () => {
+          if (botRatingPersistenceKey === resultKey) botRatingPersistenceKey = null;
+        });
       }
       if (gameOverSoundKey !== resultKey) {
         gameOverSoundKey = resultKey;

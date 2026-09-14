@@ -2228,7 +2228,11 @@ async function handleApi(req, res, url) {
           sendJson(res, 409, { error: "Код партии уже занят другой комнатой." });
           return;
         }
-        sendJson(res, 200, { ok: true, version: Number(existing.gameVersion || 0) });
+        sendJson(res, 200, {
+          ok: true,
+          existing: true,
+          version: Number(existing.gameVersion || 0),
+        });
         return;
       }
 
@@ -2303,7 +2307,7 @@ async function handleApi(req, res, url) {
       });
       saveAdminState();
       rooms.unshift(room);
-      sendJson(res, 201, { ok: true, version: 0, room: publicRoom(room) });
+      sendJson(res, 201, { ok: true, existing: false, version: 0, room: publicRoom(room) });
       return;
     }
 
@@ -2612,12 +2616,19 @@ async function handleApi(req, res, url) {
       const code = parts[2].toUpperCase();
       const index = rooms.findIndex(item => item.code === code);
       if (index === -1) {
-        sendJson(res, 200, { ok: true });
+        sendJson(res, 200, { ok: true, removed: false });
+        return;
+      }
+      if (
+        url.searchParams.get("waiting") === "1"
+        && (rooms[index].status !== "waiting" || rooms[index].guestName)
+      ) {
+        sendJson(res, 200, { ok: true, removed: false });
         return;
       }
       archiveFinishedRoom(rooms[index]);
       rooms.splice(index, 1);
-      sendJson(res, 200, { ok: true });
+      sendJson(res, 200, { ok: true, removed: true });
       return;
     }
 

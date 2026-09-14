@@ -122,11 +122,22 @@ test('a malformed profile and a legacy automatic guest are both migrated to sign
   });
   assert.deepEqual(legacyGuest.redirects, ['login.html?invite=ROOM#join']);
   assert.equal(legacyGuest.localStorage.getItem('narduh-user'), null);
+
+  const placeholderAccount = runLobbyGate({
+    'narduh-user': JSON.stringify({ id: '', name: 'A', guest: false }),
+  });
+  assert.deepEqual(placeholderAccount.redirects, ['login.html?invite=ROOM#join']);
+
+  const unnumberedGuest = runLobbyGate({
+    'narduh-user': JSON.stringify({ id: 'guest:broken', name: 'Guest', guest: true }),
+    'narduh-guest-entry-v1': '1',
+  });
+  assert.deepEqual(unnumberedGuest.redirects, ['login.html?invite=ROOM#join']);
 });
 
 test('registered users and explicitly admitted guests may enter the lobby', () => {
   const registered = runLobbyGate({
-    'narduh-user': JSON.stringify({ id: 'user-1', name: 'tester1', guest: false }),
+    'narduh-user': JSON.stringify({ id: '14743530-785c-45ed-9632-c1d57fbcccd7', name: 'tester1', guest: false }),
     'narduh-guest-entry-v1': '1',
   });
   assert.deepEqual(registered.redirects, []);
@@ -138,6 +149,11 @@ test('registered users and explicitly admitted guests may enter the lobby', () =
   });
   assert.deepEqual(guest.redirects, []);
   assert.equal(guest.localStorage.getItem('narduh-user') !== null, true);
+
+  const localServerAccount = runLobbyGate({
+    'narduh-user': JSON.stringify({ id: 'usr_local-account-1', name: 'local-player', guest: false }),
+  });
+  assert.deepEqual(localServerAccount.redirects, []);
 });
 
 test('the shared auth fallback redirects instead of silently creating a guest', () => {
@@ -148,6 +164,9 @@ test('the shared auth fallback redirects instead of silently creating a guest', 
   assert.match(loginHtml, /id="guest-btn"/);
   assert.match(loginHtml, /NarduApp\.beginGuestSession\(\)/);
   assert.doesNotMatch(lobbyHtml, /function makeGuest|localStorage\.setItem\(key, JSON\.stringify\(makeGuest/);
+  assert.match(lobbyHtml, /class="auth-pending"/);
+  assert.match(lobbyHtml, /Never expose the lobby's placeholder identity/);
+  assert.match(roomHtml, /Never expose a room's placeholder identity/);
 });
 
 test('guest access is persisted only by the explicit guest-session action', () => {

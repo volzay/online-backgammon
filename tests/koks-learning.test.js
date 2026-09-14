@@ -308,7 +308,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
-  const version = "20260913-probabilistic-fence-long-v33";
+  const version = "20260914-mobile-session-recovery-long-v33";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

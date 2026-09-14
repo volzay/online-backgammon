@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru" data-theme="night">
+<html lang="ru" data-theme="night" class="auth-pending">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
+<style>html.auth-pending body { visibility: hidden; }</style>
 <script>
   /* A direct room link follows the same explicit sign-in or guest-entry rule as the lobby. */
   (function(){
@@ -17,11 +18,17 @@
       var raw = localStorage.getItem(userKey);
       var user = raw ? JSON.parse(raw) : null;
       var name = String((user && (user.name || user.nickname)) || '').trim();
+      var userId = String((user && user.id) || '').trim();
       var validName = Boolean(name && name !== '—' && name !== '-');
       var explicitGuest = user && user.guest === true
+        && /^guest:/.test(userId)
+        && /^Guest\d{4}$/.test(name)
         && localStorage.getItem(guestEntryKey) === '1';
-      var registered = user && user.guest !== true;
+      var registered = user && user.guest !== true
+        && Boolean(userId)
+        && !/^guest:/i.test(userId);
       if (!validName || (!registered && !explicitGuest)) {
+        globalThis.NARDU_ENTRY_BLOCKED = true;
         localStorage.removeItem(userKey);
         localStorage.removeItem(guestEntryKey);
         location.replace('login.html');
@@ -29,6 +36,7 @@
         localStorage.removeItem(guestEntryKey);
       }
     } catch(e) {
+      globalThis.NARDU_ENTRY_BLOCKED = true;
       try {
         localStorage.removeItem('narduh-user');
         localStorage.removeItem('narduh-guest-entry-v1');
@@ -36,6 +44,14 @@
       location.replace('login.html');
     }
   })();
+</script>
+<script>
+  /* Never expose a room's placeholder identity when a required script fails. */
+  if (typeof setTimeout === 'function') setTimeout(function () {
+    if (!document.documentElement.classList.contains('auth-pending')) return;
+    globalThis.NARDU_ENTRY_BLOCKED = true;
+    location.replace('login.html');
+  }, 8000);
 </script>
 </head>
 <body>
@@ -423,21 +439,21 @@
 
 <!-- engine + bot + sound + rating + shared app -->
 <script src="game.js"></script>
-<script src="long-bot-engine.js?v=20260913-probabilistic-fence-long-v33"></script>
+<script src="long-bot-engine.js?v=20260914-mobile-session-recovery-long-v33"></script>
 <script src="short-bot-engine.js?v=20260911-short-analytic-v6"></script>
 <script src="short-bot-wildbg-client.js?v=20260911-short-analytic-v6-wildbg"></script>
-<script src="strong-bot.js?v=20260913-probabilistic-fence-long-v33"></script>
+<script src="strong-bot.js?v=20260914-mobile-session-recovery-long-v33"></script>
 <script src="bot.js"></script>
 <script src="sound.js"></script>
 <script src="rating.js"></script>
 <script src="runtime-config.js"></script>
-<script src="supabase-client.js?v=20260913-probabilistic-fence-long-v33"></script>
-<script src="app.js?v=20260913-probabilistic-fence-long-v33"></script>
-<script src="rooms-client.js?v=20260913-probabilistic-fence-long-v33"></script>
+<script src="supabase-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="app.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="rooms-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
 <script src="dice-engine.js"></script>
 <script src="dice-webgl.js"></script>
 <script src="board-engine.js"></script>
-<script src="game-controller.js?v=20260913-probabilistic-fence-long-v33"></script>
+<script src="game-controller.js?v=20260914-mobile-session-recovery-long-v33"></script>
 
 <script>
 /* ───── Long Backgammon initial state (длинные нарды) ─────
@@ -1264,8 +1280,18 @@ let presenceTimer = null;
 let spectatorTimer = null;
 let spectatorBusy = false;
 let presenceBusy = false;
+let spectatorRequestStartedAt = 0;
+let spectatorRequestId = 0;
+let spectatorAbortController = null;
+let spectatorAbortTimer = null;
+let presenceRequestId = 0;
+let presenceAbortController = null;
+let presenceAbortTimer = null;
+let lastRoomPresenceResumeAt = 0;
 let networkCountdownTimer = null;
 let networkDeadlineAt = 0;
+const ROOM_HEARTBEAT_REQUEST_STALE_MS = 10000;
+const ROOM_PRESENCE_RESUME_DEBOUNCE_MS = 1000;
 
 async function apiJson(url, options = {}) {
   const response = await fetch(url, {
@@ -1445,62 +1471,141 @@ async function sendPresenceHeartbeat() {
     return;
   }
   presenceBusy = true;
+  const requestId = ++presenceRequestId;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  presenceAbortController = controller;
+  if (controller) {
+    presenceAbortTimer = setTimeout(() => controller.abort(), ROOM_HEARTBEAT_REQUEST_STALE_MS);
+  }
   try {
     const data = await NarduRooms.updatePresence(roomCode, {
       color: localPlayerColor,
       name: NarduApp.getUser()?.name || earlyRoomText('guest'),
-    });
+    }, { signal: controller?.signal });
+    if (requestId !== presenceRequestId) return;
     if (data.state && Number.isFinite(data.version)) {
       window.NarduController?.receiveRemoteState?.(data.state, data.version);
     }
     handlePresence(data.presence);
-  } catch {
+  } catch (error) {
+    // Resume/pagehide cancellation increments the request id before aborting.
+    // An AbortError for the current request is the watchdog timing out a
+    // half-open connection and must be surfaced as a server outage.
+    if (requestId !== presenceRequestId) return;
     showNetworkPanel({
       title: t('network_loss_title'),
       text: t('server_unreachable_text'),
     });
   } finally {
-    presenceBusy = false;
+    if (requestId === presenceRequestId) {
+      if (presenceAbortTimer) clearTimeout(presenceAbortTimer);
+      presenceBusy = false;
+      presenceAbortController = null;
+      presenceAbortTimer = null;
+    }
   }
+}
+
+function cancelPresenceHeartbeatRequest() {
+  if (presenceAbortTimer) clearTimeout(presenceAbortTimer);
+  presenceAbortTimer = null;
+  presenceRequestId += 1;
+  presenceAbortController?.abort();
+  presenceAbortController = null;
+  presenceBusy = false;
 }
 
 function startPresenceProtocol() {
   if (!isActiveRemoteRoom()) return;
   sendPresenceHeartbeat();
-  presenceTimer = setInterval(sendPresenceHeartbeat, 3000);
-  window.addEventListener('online', sendPresenceHeartbeat);
+  if (!presenceTimer) presenceTimer = setInterval(sendPresenceHeartbeat, 3000);
 }
 
 async function sendSpectatorHeartbeat() {
-  if (!isSpectatorRoom || !roomCode || spectatorBusy) return;
+  if (!isSpectatorRoom || !roomCode) return;
+  const startedAt = Date.now();
+  if (spectatorBusy && startedAt - spectatorRequestStartedAt < ROOM_HEARTBEAT_REQUEST_STALE_MS) return;
+  if (spectatorBusy) cancelSpectatorHeartbeatRequest();
   spectatorBusy = true;
+  spectatorRequestStartedAt = startedAt;
+  const requestId = ++spectatorRequestId;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  spectatorAbortController = controller;
+  if (controller) {
+    spectatorAbortTimer = setTimeout(() => controller.abort(), ROOM_HEARTBEAT_REQUEST_STALE_MS);
+  }
   try {
     const data = await NarduRooms.watchRoom(roomCode, {
       spectatorId,
       name: NarduApp.getUser()?.name || earlyRoomText('spectator'),
-    });
+    }, { signal: controller?.signal });
+    if (requestId !== spectatorRequestId) return;
     if (data.state && Number.isFinite(data.version)) {
       window.NarduController?.receiveRemoteState?.(data.state, data.version);
     }
   } catch {
+    if (requestId !== spectatorRequestId) return;
     showNetworkPanel({
       title: t('room_unavailable_title'),
       text: t('room_unavailable_text'),
     });
   } finally {
-    spectatorBusy = false;
+    if (requestId === spectatorRequestId) {
+      if (spectatorAbortTimer) clearTimeout(spectatorAbortTimer);
+      spectatorBusy = false;
+      spectatorRequestStartedAt = 0;
+      spectatorAbortController = null;
+      spectatorAbortTimer = null;
+    }
   }
+}
+
+function cancelSpectatorHeartbeatRequest() {
+  if (spectatorAbortTimer) clearTimeout(spectatorAbortTimer);
+  spectatorAbortTimer = null;
+  spectatorRequestId += 1;
+  spectatorAbortController?.abort();
+  spectatorAbortController = null;
+  spectatorBusy = false;
+  spectatorRequestStartedAt = 0;
 }
 
 function startSpectatorProtocol() {
   if (!isSpectatorRoom || !roomCode) return;
   sendSpectatorHeartbeat();
-  spectatorTimer = setInterval(sendSpectatorHeartbeat, 5000);
-  window.addEventListener('online', sendSpectatorHeartbeat);
-  window.addEventListener('pagehide', () => {
-    NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
-  });
+  if (!spectatorTimer) spectatorTimer = setInterval(sendSpectatorHeartbeat, 5000);
 }
+
+function resumeRoomPresence() {
+  if (document.visibilityState === 'hidden') return;
+  const now = Date.now();
+  if (now - lastRoomPresenceResumeAt < ROOM_PRESENCE_RESUME_DEBOUNCE_MS) return;
+  lastRoomPresenceResumeAt = now;
+  if (presenceBusy) cancelPresenceHeartbeatRequest();
+  if (spectatorBusy) cancelSpectatorHeartbeatRequest();
+  startPresenceProtocol();
+  startSpectatorProtocol();
+}
+
+window.addEventListener('focus', resumeRoomPresence);
+window.addEventListener('pageshow', resumeRoomPresence);
+window.addEventListener('online', resumeRoomPresence);
+document.addEventListener('visibilitychange', resumeRoomPresence);
+window.addEventListener('pagehide', event => {
+  if (presenceTimer) clearInterval(presenceTimer);
+  if (spectatorTimer) clearInterval(spectatorTimer);
+  presenceTimer = null;
+  spectatorTimer = null;
+  lastRoomPresenceResumeAt = 0;
+  cancelPresenceHeartbeatRequest();
+  if (!isSpectatorRoom || !roomCode) return;
+  // A page kept in the back/forward cache is not gone. Invalidate any old
+  // heartbeat locally, but do not send a leave that could arrive after the
+  // restored page's new watch request and remove the active spectator again.
+  cancelSpectatorHeartbeatRequest();
+  if (event.persisted) return;
+  NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
+});
 
 async function reportActiveRemoteLeave() {
   if (!isActiveRemoteRoom()) return false;
@@ -1526,6 +1631,9 @@ async function reportActiveRemoteLeave() {
 async function leaveToLobby({ immediate = false } = {}) {
   if (presenceTimer) clearInterval(presenceTimer);
   if (spectatorTimer) clearInterval(spectatorTimer);
+  presenceTimer = null;
+  spectatorTimer = null;
+  cancelPresenceHeartbeatRequest();
   if (immediate) {
     location.href = 'index.html';
     return;
@@ -1541,6 +1649,8 @@ async function leaveToLobby({ immediate = false } = {}) {
     location.href = 'index.html';
   } catch (error) {
     if (NarduApp.redirectForAuthError?.(error)) return;
+    startPresenceProtocol();
+    startSpectatorProtocol();
     console.warn('Could not close room on lobby exit', error?.message || error);
     showNetworkPanel({
       title: t('network_loss_title'),

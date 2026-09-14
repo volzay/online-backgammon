@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
 
-test("lobby atomically closes every active room owned by the authenticated player", async () => {
+test("lobby closes only the active room codes captured before navigation", async () => {
   const operations = [];
 
   function query(table) {
@@ -25,8 +25,16 @@ test("lobby atomically closes every active room owned by the authenticated playe
         operation.filters.push(["eq", column, value]);
         return chain;
       },
+      in(column, value) {
+        operation.filters.push(["in", column, value]);
+        return chain;
+      },
       is(column, value) {
         operation.filters.push(["is", column, value]);
+        return chain;
+      },
+      or(value) {
+        operation.filters.push(["or", value]);
         return chain;
       },
       maybeSingle() {
@@ -74,10 +82,6 @@ test("lobby atomically closes every active room owned by the authenticated playe
         error: null,
       }),
     },
-    rpc: async name => {
-      assert.equal(name, "close_own_lobby_rooms");
-      return { data: ["ABCD-EFGH", "JKLM-NPQR"], error: null };
-    },
     from: query,
   };
   const context = {
@@ -113,24 +117,33 @@ test("lobby atomically closes every active room owned by the authenticated playe
     filename: "rooms-client.js",
   });
 
-  const result = await context.window.NarduRooms.closeOwnLobbyRooms();
+  const result = await context.window.NarduRooms.closeOwnLobbyRooms({
+    codes: ["ABCD-EFGH", "JKLM-NPQR"],
+  });
   assert.deepEqual(Array.from(result.closedCodes), ["ABCD-EFGH", "JKLM-NPQR"]);
-  assert.equal(operations.some(item => item.table === "rooms" && item.update), false);
+  const closeOperation = operations.find(item => item.table === "rooms" && item.update);
+  assert.ok(closeOperation);
+  assert.deepEqual(closeOperation.filters.map(item => [item[0], item[1], Array.isArray(item[2]) ? Array.from(item[2]) : item[2]]), [
+    ["eq", "host_user_id", "user-1"],
+    ["in", "code", ["ABCD-EFGH", "JKLM-NPQR"]],
+    ["in", "status", ["waiting", "joined"]],
+  ]);
 });
 
 test("room creation has client and database duplicate protection", () => {
   const lobby = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const schema = fs.readFileSync(path.join(ROOT, "supabase", "schema.sql"), "utf8");
 
-  assert.match(lobby, /if \(createRequestPending\) return;/);
+  assert.match(lobby, /if \(createRequestPending \|\| joinRequestPending\) return;/);
   assert.match(lobby, /createSubmit\.disabled = true;/);
   assert.match(lobby, /lobbyCleanupPromise = closeOwnRoomsOnLobbyEntry\(\)/);
   assert.match(lobby, /runLobbyCleanup\(\);/);
-  assert.match(lobby, /const cleanup = await lobbyCleanupPromise;/);
-  assert.match(lobby, /if \(e\.target\.closest\('\[data-room-password-input\]'\)\) return;\s+const cleanup = await lobbyCleanupPromise;/);
-  assert.match(lobby, /if \(a === 'browse'\) \{\s+await lobbyCleanupPromise;/);
+  assert.match(lobby, /async function ensureLobbyCleanup\(\)/);
+  assert.match(lobby, /const cleanup = await ensureLobbyCleanup\(\);/);
+  assert.match(lobby, /if \(e\.target\.closest\('\[data-room-password-input\]'\)\) return;\s+if \(createRequestPending \|\| joinRequestPending\) return;\s+const actionGeneration = beginLobbyAction\(\);\s+const cleanup = await ensureLobbyCleanup\(\);/);
+  assert.match(lobby, /if \(a === 'browse'\) \{\s+await ensureLobbyCleanup\(\);/);
   assert.match(lobby, /a === 'bot'[\s\S]*createState\.opponent = 'bot';[\s\S]*showCreatePanel\(\)/);
-  assert.match(lobby, /if \(joinRequestPending\) return/);
+  assert.match(lobby, /if \(joinRequestPending \|\| createRequestPending\) return/);
   assert.match(lobby, /joinRequestPending = false;/);
   assert.match(lobby, /window\.addEventListener\('pageshow', event => \{/);
   assert.match(lobby, /if \(!event\.persisted\) return;/);

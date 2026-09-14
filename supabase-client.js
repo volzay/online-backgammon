@@ -3,6 +3,8 @@
     "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
     "https://unpkg.com/@supabase/supabase-js@2",
   ];
+  const SUPABASE_SDK_LOAD_TIMEOUT_MS = 5000;
+  const SUPABASE_FETCH_TIMEOUT_MS = 6000;
   let clientPromise = null;
   const AUTH_RECLAIM_EXACT_KEYS = new Set([
     "narduh-long-bot-server-experience-v15",
@@ -138,21 +140,106 @@
     return Boolean(cfg.url && cfg.anonKey);
   }
 
+  function isAuthCriticalRequest(input) {
+    const value = typeof input === "string" ? input : String(input?.url || input || "");
+    return /\/auth\/v1\/|\/rest\/v1\/profiles(?:[/?#]|$)|\/rest\/v1\/rpc\/(?:nickname_auth_email|register_nickname_user)(?:[/?#]|$)/i.test(value);
+  }
+
+  async function boundedFetch(input, init = {}) {
+    if (!isAuthCriticalRequest(input)) return fetch(input, init);
+    if (typeof AbortController !== "function") return fetch(input, init);
+
+    const controller = new AbortController();
+    const externalSignal = init?.signal;
+    let externallyAborted = false;
+    let timedOut = false;
+    let timer = null;
+    const abortRequest = () => {
+      if (!controller.signal.aborted) controller.abort();
+    };
+    const forwardExternalAbort = () => {
+      externallyAborted = true;
+      abortRequest();
+    };
+
+    if (externalSignal?.aborted) {
+      forwardExternalAbort();
+    } else {
+      externalSignal?.addEventListener?.("abort", forwardExternalAbort, { once: true });
+    }
+
+    timer = setTimeout(() => {
+      if (externallyAborted) return;
+      timedOut = true;
+      abortRequest();
+    }, SUPABASE_FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      if (typeof response?.clone === "function") {
+        const bodyProbe = response.clone();
+        if (typeof bodyProbe?.arrayBuffer === "function") await bodyProbe.arrayBuffer();
+      }
+      return response;
+    } catch (error) {
+      if (!timedOut) throw error;
+      const timeoutError = new Error("Supabase request timed out.");
+      timeoutError.name = "TimeoutError";
+      timeoutError.code = "SUPABASE_FETCH_TIMEOUT";
+      timeoutError.cause = error;
+      throw timeoutError;
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+      externalSignal?.removeEventListener?.("abort", forwardExternalAbort);
+    }
+  }
+
   function loadScript(src) {
     return new Promise((resolve, reject) => {
+      let settled = false;
       const existing = document.querySelector(`script[src="${src}"]`);
-      if (existing) {
-        existing.addEventListener("load", resolve, { once: true });
-        existing.addEventListener("error", reject, { once: true });
-        if (window.supabase?.createClient) resolve();
+      const script = existing || document.createElement("script");
+      let timer = null;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        script.removeEventListener?.("load", handleLoad);
+        script.removeEventListener?.("error", handleError);
+      };
+      const finish = (handler, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        handler(value);
+      };
+      const handleLoad = () => {
+        if (window.supabase?.createClient) finish(resolve);
+        else {
+          script.remove?.();
+          finish(reject, new Error(`Supabase SDK did not initialize from ${src}`));
+        }
+      };
+      const handleError = () => {
+        script.remove?.();
+        finish(reject, new Error(`Could not load Supabase SDK from ${src}`));
+      };
+
+      if (window.supabase?.createClient) {
+        finish(resolve);
         return;
       }
-      const script = document.createElement("script");
-      script.src = src;
-      script.async = true;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
+
+      script.addEventListener?.("load", handleLoad, { once: true });
+      script.addEventListener?.("error", handleError, { once: true });
+      timer = setTimeout(() => {
+        script.remove?.();
+        finish(reject, new Error(`Supabase SDK load timed out for ${src}`));
+      }, SUPABASE_SDK_LOAD_TIMEOUT_MS);
+
+      if (!existing) {
+        script.src = src;
+        script.async = true;
+        document.head.appendChild(script);
+      }
     });
   }
 
@@ -175,10 +262,13 @@
       throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY for GitHub Pages.");
     }
     if (!clientPromise) {
-      clientPromise = (async () => {
+      const pending = (async () => {
         await loadSupabaseSdk();
         const cfg = config();
         return window.supabase.createClient(cfg.url, cfg.anonKey, {
+          global: {
+            fetch: boundedFetch,
+          },
           auth: {
             persistSession: true,
             autoRefreshToken: true,
@@ -190,6 +280,10 @@
           },
         });
       })();
+      clientPromise = pending;
+      pending.catch(() => {
+        if (clientPromise === pending) clientPromise = null;
+      });
     }
     return clientPromise;
   }

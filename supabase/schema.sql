@@ -227,10 +227,28 @@ add column if not exists allow_spectators boolean not null default false;
 alter table public.rooms
 add column if not exists spectators jsonb not null default '{}'::jsonb;
 
+create or replace function public.set_room_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Spectator heartbeats live in the same row but must not invalidate the
+  -- optimistic lock used to merge the two player-presence slots.
+  if (to_jsonb(new) - 'updated_at' - 'spectators')
+     is not distinct from
+     (to_jsonb(old) - 'updated_at' - 'spectators') then
+    new.updated_at = old.updated_at;
+  else
+    new.updated_at = now();
+  end if;
+  return new;
+end;
+$$;
+
 drop trigger if exists rooms_set_updated_at on public.rooms;
 create trigger rooms_set_updated_at
 before update on public.rooms
-for each row execute function public.set_updated_at();
+for each row execute function public.set_room_updated_at();
 
 create or replace function public.validate_room_game_state()
 returns trigger
@@ -920,7 +938,8 @@ on public.room_game_archives (completed_at desc);
 create or replace function public.archive_finished_room_game()
 returns trigger
 language plpgsql
-set search_path = public
+security definer
+set search_path = ''
 as $$
 declare
   gs jsonb := coalesce(new.game_state, '{}'::jsonb);
@@ -990,6 +1009,8 @@ begin
   return new;
 end;
 $$;
+
+revoke all on function public.archive_finished_room_game() from public;
 
 drop trigger if exists on_room_game_finished on public.rooms;
 create trigger on_room_game_finished

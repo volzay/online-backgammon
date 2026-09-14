@@ -10,7 +10,18 @@ const loginHtml = fs.readFileSync(path.join(ROOT, 'login.html'), 'utf8');
 const registerHtml = fs.readFileSync(path.join(ROOT, 'register.html'), 'utf8');
 const rulesHtml = fs.readFileSync(path.join(ROOT, 'rules.html'), 'utf8');
 
-function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', supabaseConfigured = true } = {}) {
+function authRuntime({
+  href = 'https://example.test/login.html',
+  lang = 'ru',
+  supabaseConfigured = true,
+  nicknameLookup = null,
+  signIn = null,
+  profileLookup = null,
+  clientImpl = null,
+  fetchImpl = null,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
   const calls = {
     resetRedirect: '',
     exchangedCode: '',
@@ -18,6 +29,10 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
     nicknameRegistration: null,
     emailRegistration: null,
     fallbackRegistrations: [],
+    nicknameLookups: 0,
+    signInAttempts: 0,
+    profileReads: 0,
+    clientAttempts: 0,
   };
   const authUser = {
     id: 'user-1',
@@ -36,12 +51,21 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
     select() { return this; },
     eq() { return this; },
     upsert() { return this; },
-    async maybeSingle() { return { data: profile, error: null }; },
+    async maybeSingle() {
+      calls.profileReads += 1;
+      if (profileLookup) return profileLookup(calls.profileReads);
+      return { data: profile, error: null };
+    },
     async single() { return { data: profile, error: null }; },
   };
   const supabase = {
     from() { return Object.create(query); },
     async rpc(name, args) {
+      if (name === 'nickname_auth_email') {
+        calls.nicknameLookups += 1;
+        if (nicknameLookup) return nicknameLookup(calls.nicknameLookups, args);
+        return { data: authUser.email, error: null };
+      }
       if (name !== 'register_nickname_user') throw new Error(`unexpected RPC ${name}`);
       calls.nicknameRegistration = args;
       return {
@@ -68,7 +92,9 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
         calls.updatedPassword = password;
         return { data: { user: authUser }, error: null };
       },
-      async signInWithPassword() {
+      async signInWithPassword(payload) {
+        calls.signInAttempts += 1;
+        if (signIn) return signIn(calls.signInAttempts, payload);
         return { data: { user: authUser }, error: null };
       },
       async signUp(payload) {
@@ -86,7 +112,7 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
       search: new URL(href).search,
     },
     history: { replaceState() {} },
-    fetch: async (_url, options = {}) => {
+    fetch: fetchImpl || (async (_url, options = {}) => {
       const body = JSON.parse(options.body || '{}');
       calls.fallbackRegistrations.push(body);
       return {
@@ -95,7 +121,10 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
           return { user: { id: `fallback-${calls.fallbackRegistrations.length}`, name: body.nickname, nickname: body.nickname, email: body.email } };
         },
       };
-    },
+    }),
+    AbortController,
+    setTimeout: setTimeoutFn,
+    clearTimeout: clearTimeoutFn,
     NarduApp: {
       currentLang: () => lang,
       ratingTierFor: () => 'Silver',
@@ -106,7 +135,11 @@ function authRuntime({ href = 'https://example.test/login.html', lang = 'ru', su
   context.window = context;
   context.NarduSupabase = {
     configured: () => supabaseConfigured,
-    client: async () => supabase,
+    client: async () => {
+      calls.clientAttempts += 1;
+      if (clientImpl) return clientImpl(calls.clientAttempts);
+      return supabase;
+    },
     config: () => ({ siteBaseUrl: 'https://example.test' }),
   };
   vm.createContext(context);
@@ -195,6 +228,190 @@ test('nickname-only fallback registration gives different synthetic emails to Cy
   assert.ok(emails.every(email => /^player\+[a-z0-9-]+@local\.nardy$/i.test(email)));
 });
 
+test('two aborted fallback response bodies finish login without a background retry', async () => {
+  assert.doesNotMatch(authSource, /withLoginDeadline|Promise\.race/);
+  const timers = new Map();
+  let nextTimerId = 0;
+  let formUnlocked = false;
+  let fetchCalls = 0;
+  let aborts = 0;
+  const { auth } = authRuntime({
+    supabaseConfigured: false,
+    fetchImpl: async (_url, options) => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        clone() {
+          return {
+            arrayBuffer() {
+              return new Promise((_, reject) => {
+                options.signal.addEventListener('abort', () => {
+                  aborts += 1;
+                  const error = new Error('body aborted');
+                  error.name = 'AbortError';
+                  reject(error);
+                }, { once: true });
+              });
+            },
+          };
+        },
+        async json() { return { user: { id: 'unexpected' } }; },
+      };
+    },
+    setTimeoutFn(handler, delay) {
+      const id = ++nextTimerId;
+      timers.set(id, { handler, delay });
+      return id;
+    },
+    clearTimeoutFn(id) {
+      timers.delete(id);
+    },
+  });
+
+  const pending = auth.login({ identifier: 'ВащеППЦ', password: 'secret12' })
+    .finally(() => { formUnlocked = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timers.size, 1);
+  let [{ handler, delay }] = timers.values();
+  assert.equal(delay, 6000);
+  handler();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(fetchCalls, 2);
+  assert.equal(aborts, 1);
+  assert.equal(timers.size, 1);
+  ([{ handler, delay }] = timers.values());
+  assert.equal(delay, 6000);
+  handler();
+
+  await assert.rejects(pending, error => {
+    assert.equal(error.code, 'AUTH_FETCH_TIMEOUT');
+    assert.equal(error.name, 'TimeoutError');
+    return true;
+  });
+  assert.equal(formUnlocked, true);
+  assert.equal(fetchCalls, 2);
+  assert.equal(aborts, 2);
+  assert.equal(timers.size, 0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetchCalls, 2, 'no retry may start after login has returned');
+});
+
+test('login retries one transient nickname lookup failure and then succeeds', async () => {
+  const transient = Object.assign(new Error('Supabase request timed out.'), {
+    name: 'TimeoutError',
+    code: 'SUPABASE_FETCH_TIMEOUT',
+  });
+  const { auth, calls } = authRuntime({
+    nicknameLookup(attempt) {
+      return attempt === 1
+        ? { data: null, error: transient }
+        : { data: 'player@example.test', error: null };
+    },
+  });
+
+  const result = await auth.login({ identifier: 'ВащеППЦ', password: 'secret12' });
+
+  assert.equal(result.user.nickname, 'tester1');
+  assert.equal(calls.clientAttempts, 1);
+  assert.equal(calls.nicknameLookups, 2);
+  assert.equal(calls.signInAttempts, 1);
+});
+
+test('a transient sign-in failure retries only sign-in, not nickname lookup', async () => {
+  const transient = Object.assign(new Error('TypeError: Failed to fetch'), {
+    code: 'ECONNRESET',
+  });
+  const { auth, calls } = authRuntime({
+    signIn: async attempt => attempt === 1
+      ? { data: { user: null }, error: transient }
+      : { data: { user: { id: 'user-1', email: 'player@example.test', user_metadata: { nickname: 'tester1' } } }, error: null },
+  });
+
+  const result = await auth.login({ identifier: 'ВащеППЦ', password: 'secret12' });
+
+  assert.equal(result.user.nickname, 'tester1');
+  assert.equal(calls.clientAttempts, 1);
+  assert.equal(calls.nicknameLookups, 1);
+  assert.equal(calls.signInAttempts, 2);
+  assert.equal(calls.profileReads, 1);
+});
+
+test('login does not repeat an SDK load failure after both CDN candidates are exhausted', async () => {
+  const { auth, calls } = authRuntime({
+    clientImpl: async () => {
+      throw new Error('Не удалось загрузить Supabase SDK. Проверьте интернет, блокировщик рекламы или попробуйте другой браузер.');
+    },
+  });
+
+  await assert.rejects(
+    () => auth.login({ identifier: 'ВащеППЦ', password: 'secret12' }),
+    /Не удалось загрузить Supabase SDK/,
+  );
+  assert.equal(calls.clientAttempts, 1);
+  assert.equal(calls.nicknameLookups, 0);
+  assert.equal(calls.signInAttempts, 0);
+});
+
+test('login never retries invalid credentials', async () => {
+  const { auth, calls } = authRuntime({
+    signIn: async () => ({
+      data: { user: null },
+      error: new Error('Invalid login credentials'),
+    }),
+  });
+
+  await assert.rejects(
+    () => auth.login({ identifier: 'ВащеППЦ', password: 'wrong-password' }),
+    /Неверный никнейм\/email или пароль/,
+  );
+  assert.equal(calls.nicknameLookups, 1);
+  assert.equal(calls.signInAttempts, 1);
+});
+
+test('a missing nickname RPC keeps its actionable setup message', async () => {
+  const { auth, calls } = authRuntime({
+    nicknameLookup: async () => ({
+      data: null,
+      error: new Error('Could not find the function public.nickname_auth_email in the schema cache'),
+    }),
+  });
+
+  let failure = null;
+  try {
+    await auth.login({ identifier: 'ВащеППЦ', password: 'secret12' });
+  } catch (error) {
+    failure = error;
+  }
+
+  assert.ok(failure);
+  assert.match(auth.errorMessage(failure), /^Вход по никнейму ещё не включён/);
+  assert.equal(calls.nicknameLookups, 1);
+  assert.equal(calls.signInAttempts, 0);
+});
+
+test('a repeated profile network failure is retried once and remains actionable', async () => {
+  const { auth, calls } = authRuntime({
+    profileLookup: async () => ({
+      data: null,
+      error: new Error('TypeError: Load failed'),
+    }),
+  });
+
+  let failure = null;
+  try {
+    await auth.login({ identifier: 'ВащеППЦ', password: 'secret12' });
+  } catch (error) {
+    failure = error;
+  }
+
+  assert.ok(failure);
+  assert.match(auth.errorMessage(failure), /Проверьте интернет/);
+  assert.equal(calls.profileReads, 2);
+  assert.equal(calls.signInAttempts, 1);
+  assert.equal(calls.nicknameLookups, 1);
+});
+
 test('auth pages expose honest controls and guard every asynchronous form', () => {
   assert.doesNotMatch(loginHtml, /Запомнить меня|data-i18n="remember"/);
   assert.doesNotMatch(`${loginHtml}\n${registerHtml}`, /href="#"/);
@@ -220,6 +437,8 @@ test('auth pages expose honest controls and guard every asynchronous form', () =
   assert.ok((registerHtml.match(/beginSubmit\(/g) || []).length >= 2);
   assert.match(loginHtml, /setAttribute\('aria-busy', 'true'\)/);
   assert.match(registerHtml, /setAttribute\('aria-busy', 'true'\)/);
+  assert.match(loginHtml, /src="auth-client\.js\?v=20260914-auth-hang-recovery"/);
+  assert.match(registerHtml, /src="auth-client\.js\?v=20260914-auth-hang-recovery"/);
 });
 
 test('technical auth failures are replaced by actionable messages', () => {
@@ -230,6 +449,15 @@ test('technical auth failures are replaced by actionable messages', () => {
   const recoveryMessage = 'Проверьте email и новый пароль. Пароль должен быть не короче 6 символов.';
   assert.equal(auth.errorMessage(new Error(recoveryMessage)), recoveryMessage);
   assert.match(auth.errorMessage(new Error('TypeError: Failed to fetch')), /Проверьте интернет/);
+  const timeout = Object.assign(new Error('Supabase request timed out.'), {
+    name: 'TimeoutError',
+    code: 'SUPABASE_FETCH_TIMEOUT',
+  });
+  assert.match(auth.errorMessage(timeout), /Проверьте интернет/);
+  assert.match(
+    auth.errorMessage(new Error('Не удалось загрузить Supabase SDK. Проверьте интернет.')),
+    /Не удалось загрузить модуль входа/,
+  );
   assert.equal(auth.errorMessage(new Error('database relation profiles_internal missing')), 'Ошибка авторизации.');
 });
 
