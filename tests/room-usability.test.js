@@ -6,6 +6,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const room = fs.readFileSync(path.join(ROOT, 'room.html'), 'utf8');
 const controller = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8');
+const styles = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
 
 function extractFunction(source, signature) {
   const start = source.indexOf(signature);
@@ -30,6 +31,22 @@ test('the game screen exposes an assertive visual status backed by engine state'
   assert.match(controller, /state\.phase === 'move' && !NarduGame\.hasAnyMoves\(state\)/);
   assert.match(controller, /state\.phase === 'over' \|\| state\.winner/);
   assert.match(controller, /paintTurnStatus\(status\.text, status\.tone\)/);
+});
+
+test('mobile full-screen entry is adjacent to the board without duplicating its exit control', () => {
+  const statusIndex = room.indexOf('class="game-turn-status"');
+  const entryIndex = room.indexOf('class="ghostbtn mobile-board-toggle"');
+  const boardIndex = room.indexOf('class="board-wrap"');
+
+  assert.ok(statusIndex >= 0 && entryIndex > statusIndex && entryIndex < boardIndex);
+  assert.match(room, /class="game-turn-row">\s*<div class="game-turn-status"[\s\S]*?<\/div>\s*<button class="ghostbtn mobile-board-toggle"/);
+  assert.equal((room.match(/class="ghostbtn mobile-board-toggle"/g) || []).length, 1);
+  assert.equal((room.match(/class="action-exit-focus"/g) || []).length, 1);
+  assert.match(styles, /body\.board-focus \.mobile-board-toggle \{\s*display: none;/);
+  assert.match(styles, /\.game-turn-row \.mobile-board-toggle \{\s*flex:[^}]*min-width: 44px;\s*min-height: 44px;/);
+  assert.match(styles, /body\.board-focus \.action-exit-focus \{\s*order: 1;\s*width: 44px;\s*height: 44px;/);
+  assert.match(room, /enterBoardFocus\(\)[\s\S]*?\.action-exit-focus[^\n]*focus/);
+  assert.match(room, /exitBoardFocus\(\)[\s\S]*?\.mobile-board-toggle[^\n]*focus/);
 });
 
 test('a spectator sees the actual winner instead of the spectator identity', () => {

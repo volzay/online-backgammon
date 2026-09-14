@@ -14,6 +14,15 @@ test('lobby exposes the personal account link and message bell', () => {
   assert.match(lobby, /data-message-notification-count/);
 });
 
+test('lobby exposes a translated sign-out button wired to the shared logout flow', () => {
+  const lobby = read('index.html');
+  const app = read('app.js');
+
+  assert.match(lobby, /class="iconbtn lobby-logout"[^>]*data-logout/);
+  assert.match(lobby, /data-i18n-aria="logout"[^>]*data-i18n-title="logout"/);
+  assert.match(app, /querySelectorAll\('\[data-logout\]'\)[\s\S]*addEventListener\('click', \(\) => logout\(\)\)/);
+});
+
 test('message bell combines unread player and administrator messages', () => {
   const app = read('app.js');
   assert.match(app, /from\('friend_messages'\)[\s\S]*?eq\('to_user_id', userId\)[\s\S]*?is\('read_at', null\)/);

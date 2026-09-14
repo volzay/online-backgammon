@@ -1819,7 +1819,7 @@ body.board-focus .network-panel {
   display: none !important;
 }
 body.board-focus .mobile-board-toggle {
-  display: inline-flex;
+  display: none;
 }
 body.board-focus .layout {
   display: block;
@@ -1902,6 +1902,8 @@ body.board-focus .action-exit-focus {
 }
 body.board-focus .action-exit-focus {
   order: 1;
+  width: 44px;
+  height: 44px;
 }
 body.board-focus .action-undo {
   order: 2;
@@ -4266,10 +4268,28 @@ body.board-focus .action-tray .dice-wait::before {
   border-radius: 8px;
   font-size: 13px;
 }
+.game-turn-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+.game-turn-row .game-turn-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
 .game-turn-status strong {
   min-width: 0;
   overflow-wrap: anywhere;
   font-weight: 650;
+}
+.game-turn-row .mobile-board-toggle {
+  flex: 0 0 auto;
+  height: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
 }
 .game-turn-status-dot {
   flex: 0 0 auto;
@@ -4311,6 +4331,15 @@ body.board-focus .action-tray .dice-wait::before {
     min-height: 36px;
     padding: 7px 10px;
     font-size: 12px;
+  }
+  .game-turn-row .mobile-board-toggle {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .game-turn-row .mobile-board-toggle .lbl {
+    display: none;
   }
 }
 
