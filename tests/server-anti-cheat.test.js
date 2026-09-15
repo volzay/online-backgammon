@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { spawn } = require("node:child_process");
+const { createHash } = require("node:crypto");
 
 const ROOT = path.join(__dirname, "..");
 const PORT = 42137;
@@ -26,6 +27,7 @@ let server;
 let dataDir;
 let roomCounter = 0;
 let serverOutput = "";
+const roomGuestCredentials = new Map();
 
 function captureServerOutput(chunk) {
   serverOutput = `${serverOutput}${chunk}`.slice(-16 * 1024);
@@ -64,23 +66,40 @@ async function waitForServer() {
 
 async function createRoom() {
   roomCounter += 1;
+  const guestProof = `gproof:${createHash("sha256").update(`anti-cheat:${roomCounter}`).digest("hex")}`;
+  const guestId = `guest:sha256:${createHash("sha256")
+    .update(`nardu/guest/v1:${guestProof}`)
+    .digest("hex")}`;
   const response = await fetch(`${BASE}/api/rooms`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-guest-id": guestId,
+      "x-guest-proof": guestProof,
+    },
     body: JSON.stringify({
       hostName: `Tester${roomCounter}`,
+      hostUserId: guestId,
+      hostRatingEligible: false,
       variant: "long",
       access: "open",
     }),
   });
   const body = await response.json();
-  return body.room?.code || body.code;
+  const code = body.room?.code || body.code;
+  if (code) roomGuestCredentials.set(code, { guestId, guestProof });
+  return code;
 }
 
-function putGame(code, state, version = 0, ownerToken = '') {
+function putGame(code, state, version = 0, ownerToken = '', cookie = '') {
+  const guest = roomGuestCredentials.get(code);
   return fetch(`${BASE}/api/rooms/${code}/game`, {
     method: "PUT",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(guest ? { "x-guest-id": guest.guestId, "x-guest-proof": guest.guestProof } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
     body: JSON.stringify({ state, version, ...(ownerToken ? { ownerToken } : {}) }),
   });
 }
@@ -207,7 +226,8 @@ test("API fallback hides an active bot game from the lobby and archives its resu
   };
   assert.equal((await putGame(code, finished, 0)).status, 403);
   assert.equal((await putGame(code, finished, 0, "wrong-owner-token-that-is-long-enough-123")).status, 403);
-  const finishResponse = await putGame(code, finished, 0, ownerToken);
+  assert.equal((await putGame(code, finished, 0, ownerToken)).status, 403);
+  const finishResponse = await putGame(code, finished, 0, '', accountCookie);
   assert.equal(finishResponse.status, 200);
 
   const loginResponse = await fetch(`${BASE}/api/admin/login`, {
@@ -239,10 +259,15 @@ test("API fallback hides an active bot game from the lobby and archives its resu
 
 test("preserves a complete voice chat payload beyond the former 1.5 MB limit", async () => {
   const code = await createRoom();
+  const guest = roomGuestCredentials.get(code);
   const audioData = `data:audio/webm;base64,${"A".repeat(5 * 1024 * 1024)}`;
   const response = await fetch(`${BASE}/api/rooms/${code}/chat`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-guest-id": guest.guestId,
+      "x-guest-proof": guest.guestProof,
+    },
     body: JSON.stringify({
       senderId: "voice-test",
       senderName: "Voice test",

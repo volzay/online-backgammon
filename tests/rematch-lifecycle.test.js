@@ -716,11 +716,12 @@ test("finished-game lobby navigation bypasses room cleanup network waits", () =>
   assert.match(source, /if \(immediate\) \{\s*location\.href = 'index\.html';\s*return;/);
 });
 
-test("saving a new game reopens an archived room", async () => {
+test("saving game state is restricted to an already joined room", async () => {
   const updates = [];
+  const filters = [];
   const builder = {
     update(value) { updates.push(value); return this; },
-    eq() { return this; },
+    eq(column, value) { filters.push([column, value]); return this; },
     select() { return this; },
     async maybeSingle() { return { data: { game_version: 8 }, error: null }; },
   };
@@ -753,6 +754,69 @@ test("saving a new game reopens an archived room", async () => {
   await context.window.NarduRooms.putGameState("TEST-RM1", { phase: "over", winner: "white" }, 8);
   assert.equal(updates[1].status, "over");
   assert.equal(updates[1].closed_reason, "finished");
+  assert.deepEqual(filters, [
+    ["code", "TEST-RM1"],
+    ["game_version", 7],
+    ["status", "joined"],
+    ["code", "TEST-RM1"],
+    ["game_version", 8],
+    ["status", "joined"],
+  ]);
+});
+
+test("a stale Supabase tab cannot resurrect a closed room", async () => {
+  const current = { status: "closed", gameVersion: 7 };
+  const filters = [];
+  let mutations = 0;
+  const builder = {
+    update(value) { this.pendingUpdate = value; return this; },
+    eq(column, value) { filters.push([column, value]); return this; },
+    select() { return this; },
+    async maybeSingle() {
+      const requiredStatus = filters.find(([column]) => column === "status")?.[1];
+      const requiredVersion = filters.find(([column]) => column === "game_version")?.[1];
+      if (requiredStatus !== current.status || requiredVersion !== current.gameVersion) {
+        return { data: null, error: null };
+      }
+      mutations += 1;
+      current.status = this.pendingUpdate.status || current.status;
+      current.gameVersion = this.pendingUpdate.game_version;
+      return { data: { game_version: current.gameVersion }, error: null };
+    },
+  };
+  const context = {
+    window: {
+      NarduSupabase: {
+        configured() { return true; },
+        async client() { return { from() { return builder; } }; },
+      },
+    },
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Uint8Array,
+    TextEncoder,
+    fetch,
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  await assert.rejects(
+    context.window.NarduRooms.putGameState("TEST-RM1", { phase: "move", mode: "bot" }, 7),
+    error => error?.status === 409,
+  );
+
+  assert.equal(mutations, 0);
+  assert.equal(current.status, "closed");
+  assert.deepEqual(filters, [
+    ["code", "TEST-RM1"],
+    ["game_version", 7],
+    ["status", "joined"],
+  ]);
 });
 
 test("guest hard-bot finalization uses the versioned room update", async () => {
@@ -817,7 +881,7 @@ test("guest hard-bot finalization uses the versioned room update", async () => {
   assert.equal(rpcCalls, 0);
   assert.equal(updates[0].status, "over");
   assert.deepEqual(updates[0].game_state.analysis.botMemory.decisions, decisions);
-  assert.deepEqual(filters, [["code", "TEST-RM1"], ["game_version", 3]]);
+  assert.deepEqual(filters, [["code", "TEST-RM1"], ["game_version", 3], ["status", "joined"]]);
 });
 
 test("registered hard-bot finalization falls back to the old RPC signature", async () => {
@@ -1123,7 +1187,7 @@ test("fresh long-bot experience replaces its cache source instead of doubling it
   assert.equal(applied[freshIndex - 1].patterns.length, 0);
 });
 
-test("late long-bot experience cannot replace the current player's memory", async () => {
+test("a superseded long-bot load rejects instead of masquerading as applied memory", async () => {
   let resolveWarlord;
   const warlordPattern = {
     creditVersion: 8,
@@ -1174,12 +1238,16 @@ test("late long-bot experience cannot replace the current player's memory", asyn
     refresh: true,
     playerName: "warlord",
   });
+  const staleRejection = assert.rejects(
+    staleLoad,
+    error => error?.code === "LONG_BOT_EXPERIENCE_SUPERSEDED",
+  );
   await context.window.NarduRooms.loadLongBotExperience({
     refresh: true,
     playerName: "tester1",
   });
   resolveWarlord({ data: [warlordPattern], error: null });
-  await staleLoad;
+  await staleRejection;
 
   const appliedServerActions = applied
     .filter(item => item.source === "server" && item.patterns.length)
@@ -1298,12 +1366,16 @@ test("an old failed refresh cannot delete a newer long-bot request", async () =>
   const reusedCurrent = context.window.NarduRooms.loadLongBotExperience({
     playerName: "warlord",
   });
+  const supersededCurrent = assert.rejects(
+    current,
+    error => error?.code === "LONG_BOT_EXPERIENCE_SUPERSEDED",
+  );
   assert.equal(rpcCalls, 2);
   pending[1]({
     data: [{ creditVersion: 8, contextKey: "route|fresh", actionKey: "route:fresh" }],
     error: null,
   });
-  await current;
+  await supersededCurrent;
   const loaded = await reusedCurrent;
 
   assert.equal(loaded[0].actionKey, "route:fresh");

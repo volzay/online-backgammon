@@ -202,6 +202,8 @@ create table if not exists public.rooms (
   status text not null default 'waiting' check (status in ('waiting', 'joined', 'over', 'closed')),
   host_user_id uuid references public.profiles(id) on delete set null,
   guest_user_id uuid references public.profiles(id) on delete set null,
+  host_guest_id text,
+  guest_guest_id text,
   host_name text not null,
   guest_name text,
   host_rating integer,
@@ -377,6 +379,794 @@ where host_user_id is not null
   and guest_user_id is null
   and status = 'waiting';
 
+-- A stable registered or guest identity may belong to only one active room,
+-- regardless of seat. Repair legacy duplicates before installing the indexes
+-- and cross-role claim triggers. Started games outrank waiting rooms; rooms of
+-- the same kind retain the newest one.
+begin;
+
+alter table public.rooms
+add column if not exists host_guest_id text;
+
+alter table public.rooms
+add column if not exists guest_guest_id text;
+
+create schema if not exists private;
+
+create or replace function private.guest_identity_from_proof(proof text)
+returns text
+language sql
+immutable
+strict
+set search_path = pg_catalog, extensions
+as $$
+  select case
+    when proof ~ '^gproof:[0-9a-f]{64}$' then
+      'guest:sha256:' || encode(
+        extensions.digest(convert_to('nardu/guest/v1:' || proof, 'UTF8'), 'sha256'),
+        'hex'
+      )
+    else null
+  end
+$$;
+
+revoke all on function private.guest_identity_from_proof(text)
+from public, anon, authenticated;
+
+create or replace function public.request_guest_identity()
+returns text
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, private
+as $$
+declare
+  request_headers jsonb := coalesce(
+    nullif(current_setting('request.headers', true), ''),
+    '{}'
+  )::jsonb;
+  declared_guest_id text := request_headers ->> 'x-guest-id';
+  proven_guest_id text := private.guest_identity_from_proof(
+    request_headers ->> 'x-guest-proof'
+  );
+begin
+  if declared_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+     and declared_guest_id = proven_guest_id then
+    return declared_guest_id;
+  end if;
+  return null;
+end;
+$$;
+
+revoke all on function public.request_guest_identity()
+from public, anon, authenticated;
+grant execute on function public.request_guest_identity()
+to anon, authenticated;
+
+drop policy if exists "authenticated users can create rooms" on public.rooms;
+create policy "authenticated users can create rooms"
+on public.rooms for insert
+to authenticated
+with check (
+  host_user_id = auth.uid()
+  and host_guest_id is null
+  and guest_user_id is null
+  and guest_guest_id is null
+  and status in ('waiting', 'joined')
+);
+
+drop policy if exists "anonymous guests can create rooms" on public.rooms;
+create policy "anonymous guests can create rooms"
+on public.rooms for insert
+to anon
+with check (
+  host_user_id is null
+  and host_guest_id is not null
+  and host_guest_id = public.request_guest_identity()
+  and host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+  and guest_user_id is null
+  and guest_guest_id is null
+  and host_registered = false
+  and status in ('waiting', 'joined')
+  and length(coalesce(host_name, '')) between 3 and 32
+);
+
+drop policy if exists "room players can update rooms" on public.rooms;
+create policy "room players can update rooms"
+on public.rooms for update
+to authenticated
+using (host_user_id = auth.uid() or guest_user_id = auth.uid())
+with check (host_user_id = auth.uid() or guest_user_id = auth.uid());
+
+drop policy if exists "anonymous guests can update guest rooms" on public.rooms;
+create policy "anonymous guests can update guest rooms"
+on public.rooms for update
+to anon
+using (
+  status in ('waiting', 'joined')
+  and (host_user_id is null or guest_user_id is null)
+  and public.request_guest_identity() in (host_guest_id, guest_guest_id)
+  and not (
+    host_user_id is not null
+    and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
+  )
+)
+with check (
+  status in ('waiting', 'joined', 'over', 'closed')
+  and (host_user_id is null or guest_user_id is null)
+  and public.request_guest_identity() in (host_guest_id, guest_guest_id)
+  and (host_guest_id is null or host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$')
+  and (guest_guest_id is null or guest_guest_id ~ '^guest:sha256:[0-9a-f]{64}$')
+  and not (host_user_id is not null and host_guest_id is not null)
+  and not (guest_user_id is not null and guest_guest_id is not null)
+  and not (
+    host_user_id is not null
+    and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
+  )
+);
+
+drop policy if exists "anonymous guests can join waiting rooms" on public.rooms;
+create policy "anonymous guests can join waiting rooms"
+on public.rooms for update
+to anon
+using (
+  status = 'waiting'
+  and guest_user_id is null
+  and guest_guest_id is null
+  and public.request_guest_identity() is not null
+  and public.request_guest_identity() is distinct from host_guest_id
+  and not (
+    host_user_id is not null
+    and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
+  )
+)
+with check (
+  status = 'joined'
+  and guest_user_id is null
+  and guest_guest_id = public.request_guest_identity()
+  and not (host_user_id is not null and host_guest_id is not null)
+);
+
+drop policy if exists "authenticated users can join waiting rooms" on public.rooms;
+create policy "authenticated users can join waiting rooms"
+on public.rooms for update
+to authenticated
+using (
+  status = 'waiting'
+  and guest_user_id is null
+  and guest_guest_id is null
+  and (host_user_id is null or host_user_id <> auth.uid())
+)
+with check (
+  status = 'joined'
+  and guest_user_id = auth.uid()
+  and guest_guest_id is null
+  and (host_user_id is null or host_user_id <> auth.uid())
+);
+
+drop trigger if exists rooms_validate_participant_transition_trg on public.rooms;
+drop trigger if exists rooms_enforce_single_active_room_per_player_trg on public.rooms;
+
+lock table public.rooms in share row exclusive mode;
+
+-- Raw guest:* values used to be both public data and ownership bearers. They
+-- cannot be rotated safely, so archive active legacy rooms and scrub the raw
+-- values before installing proof-only constraints.
+update public.rooms room
+set
+  status = 'closed',
+  archived_at = now(),
+  closed_reason = 'legacy_guest_credential_rotated'
+where room.status in ('waiting', 'joined')
+  and (
+    (room.host_guest_id is not null and room.host_guest_id !~ '^guest:sha256:[0-9a-f]{64}$')
+    or (room.guest_guest_id is not null and room.guest_guest_id !~ '^guest:sha256:[0-9a-f]{64}$')
+  );
+
+update public.rooms room
+set host_guest_id = null
+where room.host_guest_id is not null
+  and room.host_guest_id !~ '^guest:sha256:[0-9a-f]{64}$';
+
+update public.rooms room
+set guest_guest_id = null
+where room.guest_guest_id is not null
+  and room.guest_guest_id !~ '^guest:sha256:[0-9a-f]{64}$';
+
+-- Pre-v34 anonymous seats cannot be recovered safely: the browser has no
+-- durable credential that could prove ownership. Archive those rows instead of
+-- minting a predictable room-derived guest id that nobody legitimately owns.
+update public.rooms room
+set
+  status = 'closed',
+  archived_at = now(),
+  closed_reason = 'legacy_guest_identity_missing'
+where room.status in ('waiting', 'joined')
+  and (
+    (
+      room.host_user_id is null
+      and room.host_guest_id is null
+    )
+    or (
+      room.status = 'joined'
+      and room.guest_user_id is null
+      and room.guest_guest_id is null
+      and 'bot' not in (
+        coalesce(room.game_state->>'mode', ''),
+        coalesce(room.game_state->>'opponent', ''),
+        coalesce(room.game_state->'analysis'->>'mode', ''),
+        coalesce(room.game_state->'analysis'->>'opponent', '')
+      )
+    )
+  );
+
+update public.rooms room
+set
+  status = 'closed',
+  archived_at = now(),
+  closed_reason = 'duplicate_player_seats'
+where room.status in ('waiting', 'joined')
+  and (
+    (
+      room.host_user_id is not null
+      and room.host_user_id = room.guest_user_id
+    )
+    or (
+      room.host_guest_id is not null
+      and room.host_guest_id = room.guest_guest_id
+    )
+  );
+
+-- Normalize pre-v34 rows that cannot participate in the lifecycle state
+-- machine. A waiting room never has an occupied guest seat. A joined room must
+-- either have a durable guest identity or be recognizably owned by the bot
+-- engine. Closing malformed rows is safer than inventing a player identity or
+-- leaving an unjoinable room active.
+update public.rooms room
+set
+  status = 'closed',
+  archived_at = now(),
+  closed_reason = 'invalid_active_room_shape'
+where (
+    room.status = 'waiting'
+    and (
+      room.guest_user_id is not null
+      or room.guest_guest_id is not null
+    )
+  )
+  or (
+    room.status = 'joined'
+    and room.guest_user_id is null
+    and room.guest_guest_id is null
+    and 'bot' not in (
+      coalesce(room.game_state->>'mode', ''),
+      coalesce(room.game_state->>'opponent', ''),
+      coalesce(room.game_state->'analysis'->>'mode', ''),
+      coalesce(room.game_state->'analysis'->>'opponent', '')
+    )
+  );
+
+with active_memberships as (
+  select
+    room.id as room_id,
+    'user:' || room.host_user_id::text as identity_key,
+    room.status,
+    room.joined_at,
+    room.created_at
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.host_user_id is not null
+
+  union
+
+  select
+    room.id as room_id,
+    'user:' || room.guest_user_id::text as identity_key,
+    room.status,
+    room.joined_at,
+    room.created_at
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.guest_user_id is not null
+
+  union
+
+  select
+    room.id as room_id,
+    room.host_guest_id as identity_key,
+    room.status,
+    room.joined_at,
+    room.created_at
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.host_guest_id is not null
+
+  union
+
+  select
+    room.id as room_id,
+    room.guest_guest_id as identity_key,
+    room.status,
+    room.joined_at,
+    room.created_at
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.guest_guest_id is not null
+), ranked_memberships as (
+  select
+    membership.room_id,
+    row_number() over (
+      partition by membership.identity_key
+      order by
+        case membership.status when 'joined' then 0 else 1 end,
+        coalesce(membership.joined_at, membership.created_at) desc,
+        membership.created_at desc,
+        membership.room_id desc
+    ) as room_number
+  from active_memberships membership
+), duplicate_rooms as (
+  select distinct membership.room_id
+  from ranked_memberships membership
+  where membership.room_number > 1
+)
+update public.rooms room
+set
+  status = 'closed',
+  archived_at = now(),
+  closed_reason = 'duplicate_active_room'
+where room.id in (select duplicate.room_id from duplicate_rooms duplicate)
+  and room.status in ('waiting', 'joined');
+
+-- Recreate these indexes so rerunning the canonical schema replaces any
+-- earlier definition that used the same name with a stale predicate.
+drop index if exists public.rooms_one_active_room_per_host_idx;
+drop index if exists public.rooms_one_active_room_per_guest_idx;
+drop index if exists public.rooms_one_active_room_per_host_guest_idx;
+drop index if exists public.rooms_one_active_room_per_guest_guest_idx;
+
+create unique index rooms_one_active_room_per_host_idx
+on public.rooms (host_user_id)
+where host_user_id is not null
+  and status in ('waiting', 'joined');
+
+create unique index rooms_one_active_room_per_guest_idx
+on public.rooms (guest_user_id)
+where guest_user_id is not null
+  and status in ('waiting', 'joined');
+
+create unique index rooms_one_active_room_per_host_guest_idx
+on public.rooms (host_guest_id)
+where host_guest_id is not null
+  and status in ('waiting', 'joined');
+
+create unique index rooms_one_active_room_per_guest_guest_idx
+on public.rooms (guest_guest_id)
+where guest_guest_id is not null
+  and status in ('waiting', 'joined');
+
+alter table public.rooms
+drop constraint if exists rooms_participant_identity_shape_chk;
+
+alter table public.rooms
+add constraint rooms_participant_identity_shape_chk check (
+  (host_guest_id is null or (
+    host_user_id is null
+    and host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+  ))
+  and (guest_guest_id is null or (
+    guest_user_id is null
+    and guest_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+  ))
+);
+
+alter table public.rooms
+drop constraint if exists rooms_active_distinct_participants_chk;
+
+alter table public.rooms
+add constraint rooms_active_distinct_participants_chk check (
+  status not in ('waiting', 'joined')
+  or (
+    (host_user_id is null or guest_user_id is null or host_user_id <> guest_user_id)
+    and (host_guest_id is null or guest_guest_id is null or host_guest_id <> guest_guest_id)
+  )
+);
+
+alter table public.rooms
+drop constraint if exists rooms_waiting_guest_seats_empty_chk;
+
+alter table public.rooms
+add constraint rooms_waiting_guest_seats_empty_chk check (
+  status <> 'waiting'
+  or (
+    guest_user_id is null
+    and guest_guest_id is null
+  )
+);
+
+alter table public.rooms
+drop constraint if exists rooms_joined_has_opponent_chk;
+
+alter table public.rooms
+add constraint rooms_joined_has_opponent_chk check (
+  status <> 'joined'
+  or guest_user_id is not null
+  or guest_guest_id is not null
+  or 'bot' in (
+    coalesce(game_state->>'mode', ''),
+    coalesce(game_state->>'opponent', ''),
+    coalesce(game_state->'analysis'->>'mode', ''),
+    coalesce(game_state->'analysis'->>'opponent', '')
+  )
+);
+
+create schema if not exists private;
+
+create table if not exists private.active_room_players (
+  player_id uuid primary key references public.profiles(id) on delete cascade,
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  claimed_at timestamptz not null default now()
+);
+
+create index if not exists active_room_players_room_idx
+on private.active_room_players (room_id);
+
+create table if not exists private.active_room_guests (
+  guest_id text primary key,
+  room_id uuid not null references public.rooms(id) on delete cascade,
+  claimed_at timestamptz not null default now(),
+  check (guest_id ~ '^guest:sha256:[0-9a-f]{64}$')
+);
+
+create index if not exists active_room_guests_room_idx
+on private.active_room_guests (room_id);
+
+alter table private.active_room_players enable row level security;
+alter table private.active_room_guests enable row level security;
+revoke all on private.active_room_players from public, anon, authenticated, service_role;
+revoke all on private.active_room_guests from public, anon, authenticated, service_role;
+
+delete from private.active_room_players;
+delete from private.active_room_guests;
+
+insert into private.active_room_players (player_id, room_id)
+select membership.player_id, membership.room_id
+from (
+  select room.host_user_id as player_id, room.id as room_id
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.host_user_id is not null
+
+  union
+
+  select room.guest_user_id as player_id, room.id as room_id
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.guest_user_id is not null
+) membership
+order by membership.player_id::text;
+
+insert into private.active_room_guests (guest_id, room_id)
+select membership.guest_id, membership.room_id
+from (
+  select room.host_guest_id as guest_id, room.id as room_id
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.host_guest_id is not null
+
+  union
+
+  select room.guest_guest_id as guest_id, room.id as room_id
+  from public.rooms room
+  where room.status in ('waiting', 'joined')
+    and room.guest_guest_id is not null
+) membership
+order by membership.guest_id;
+
+create or replace function public.validate_room_participant_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, auth
+as $$
+declare
+  request_role text := coalesce(auth.role(), '');
+  player_id uuid := auth.uid();
+  request_guest_id text := public.request_guest_identity();
+  identities_unchanged boolean := false;
+begin
+  if request_role not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if request_role = 'authenticated' and coalesce(public.is_admin_user(), false) then
+    return new;
+  end if;
+
+  -- Same-state writes carry game/presence updates. Every actual state change is
+  -- forward-only. Service-role, SQL maintenance and authenticated admins have
+  -- already returned above so repair jobs can still normalize legacy rows.
+  if tg_op = 'UPDATE' then
+    if new.status is distinct from old.status
+       and not (
+         (old.status = 'waiting' and new.status in ('joined', 'closed'))
+         or (old.status = 'joined' and new.status in ('over', 'closed'))
+         or (old.status = 'over' and new.status = 'closed')
+       ) then
+      raise exception using
+        errcode = '23514',
+        message = format(
+          'Invalid room status transition from %s to %s.',
+          old.status,
+          new.status
+        ),
+        constraint = 'rooms_status_transition';
+    end if;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if request_role = 'authenticated'
+       and player_id is not null
+       and new.host_user_id = player_id
+       and new.host_guest_id is null
+       and new.guest_user_id is null
+       and new.guest_guest_id is null
+       and new.status in ('waiting', 'joined') then
+      return new;
+    end if;
+
+    if request_role = 'anon'
+       and new.host_user_id is null
+       and new.host_guest_id is not null
+       and new.host_guest_id = request_guest_id
+       and new.host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+       and new.guest_user_id is null
+       and new.guest_guest_id is null
+       and new.status in ('waiting', 'joined') then
+      return new;
+    end if;
+
+    raise exception using
+      errcode = '42501',
+      message = 'Invalid room participant identities for creation.';
+  end if;
+
+  identities_unchanged :=
+    new.host_user_id is not distinct from old.host_user_id
+    and new.guest_user_id is not distinct from old.guest_user_id
+    and new.host_guest_id is not distinct from old.host_guest_id
+    and new.guest_guest_id is not distinct from old.guest_guest_id;
+  if request_role = 'authenticated'
+     and identities_unchanged
+     and not (
+       old.status = 'waiting'
+       and new.status = 'joined'
+       and old.guest_user_id is null
+       and old.guest_guest_id is null
+     ) then
+    return new;
+  end if;
+
+  if request_role = 'authenticated'
+     and player_id is not null
+     and old.status = 'waiting'
+     and new.status = 'joined'
+     and old.guest_user_id is null
+     and old.guest_guest_id is null
+     and new.guest_user_id = player_id
+     and new.guest_guest_id is null
+     and new.host_user_id is not distinct from old.host_user_id
+     and new.host_guest_id is not distinct from old.host_guest_id
+     and old.host_user_id is distinct from player_id then
+    return new;
+  end if;
+
+  if request_role = 'anon'
+     and old.status = 'waiting'
+     and new.status = 'joined'
+     and old.guest_user_id is null
+     and old.guest_guest_id is null
+     and new.guest_user_id is null
+     and new.guest_guest_id is not null
+     and new.guest_guest_id = request_guest_id
+     and new.guest_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
+     and new.host_user_id is not distinct from old.host_user_id
+     and new.host_guest_id is not distinct from old.host_guest_id
+     and request_guest_id is distinct from old.host_guest_id then
+    return new;
+  end if;
+
+  if request_role = 'anon'
+     and identities_unchanged
+     and request_guest_id is not null
+     and (
+       request_guest_id = old.host_guest_id
+       or request_guest_id = old.guest_guest_id
+     )
+     and not (
+       old.status = 'waiting'
+       and new.status = 'joined'
+       and old.guest_user_id is null
+       and old.guest_guest_id is null
+     ) then
+    return new;
+  end if;
+
+  raise exception using
+    errcode = '42501',
+    message = 'Room participant identities are immutable.';
+end;
+$$;
+
+revoke all on function public.validate_room_participant_transition()
+from public, anon, authenticated;
+
+create trigger rooms_validate_participant_transition_trg
+before insert or update of status, host_user_id, guest_user_id, host_guest_id, guest_guest_id
+on public.rooms
+for each row execute function public.validate_room_participant_transition();
+
+create or replace function public.enforce_single_active_room_per_player()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, private
+as $$
+declare
+  old_identity_keys text[] := array[]::text[];
+  new_identity_keys text[] := array[]::text[];
+  lock_identity_key text;
+  claimed_player_id uuid;
+  conflicting_room_code text;
+begin
+  if tg_op = 'UPDATE' then
+    if old.status in ('waiting', 'joined') then
+      old_identity_keys := array[
+        case when old.host_user_id is not null then 'user:' || old.host_user_id::text end,
+        case when old.guest_user_id is not null then 'user:' || old.guest_user_id::text end,
+        old.host_guest_id,
+        old.guest_guest_id
+      ]::text[];
+    end if;
+  end if;
+
+  if new.status in ('waiting', 'joined') then
+    new_identity_keys := array[
+      case when new.host_user_id is not null then 'user:' || new.host_user_id::text end,
+      case when new.guest_user_id is not null then 'user:' || new.guest_user_id::text end,
+      new.host_guest_id,
+      new.guest_guest_id
+    ]::text[];
+  end if;
+
+  for lock_identity_key in
+    select participant.identity_key
+    from unnest(old_identity_keys || new_identity_keys) as participant(identity_key)
+    where participant.identity_key is not null
+    group by participant.identity_key
+    order by participant.identity_key
+  loop
+    perform pg_advisory_xact_lock(
+      hashtextextended('rooms:active-player:' || lock_identity_key, 0)
+    );
+  end loop;
+
+  if tg_op = 'UPDATE' then
+    delete from private.active_room_players claim
+    where claim.room_id = old.id;
+    delete from private.active_room_guests claim
+    where claim.room_id = old.id;
+  end if;
+
+  if new.status not in ('waiting', 'joined') then
+    return new;
+  end if;
+
+  for lock_identity_key in
+    select participant.identity_key
+    from unnest(new_identity_keys) as participant(identity_key)
+    where participant.identity_key is not null
+    group by participant.identity_key
+    order by participant.identity_key
+  loop
+    conflicting_room_code := null;
+
+    select room.code
+    into conflicting_room_code
+    from public.rooms room
+    where room.id is distinct from new.id
+      and room.status in ('waiting', 'joined')
+      and (
+        ('user:' || room.host_user_id::text) = lock_identity_key
+        or ('user:' || room.guest_user_id::text) = lock_identity_key
+        or room.host_guest_id = lock_identity_key
+        or room.guest_guest_id = lock_identity_key
+      )
+    order by
+      case room.status when 'joined' then 0 else 1 end,
+      coalesce(room.joined_at, room.created_at) desc,
+      room.created_at desc,
+      room.id desc
+    limit 1;
+
+    if conflicting_room_code is not null then
+      raise exception using
+        errcode = '23505',
+        message = format(
+          'Player %s already has active room %s.',
+          lock_identity_key,
+          conflicting_room_code
+        ),
+        detail = format(
+          'identity_key=%s, attempted_room=%s, conflicting_room=%s',
+          lock_identity_key,
+          new.code,
+          conflicting_room_code
+        ),
+        constraint = 'rooms_one_active_room_per_player';
+    end if;
+
+    begin
+      if left(lock_identity_key, 5) = 'user:' then
+        claimed_player_id := substring(lock_identity_key from 6)::uuid;
+        insert into private.active_room_players (player_id, room_id)
+        values (claimed_player_id, new.id);
+      else
+        insert into private.active_room_guests (guest_id, room_id)
+        values (lock_identity_key, new.id);
+      end if;
+    exception
+      when unique_violation then
+        conflicting_room_code := null;
+
+        if left(lock_identity_key, 5) = 'user:' then
+          select room.code
+          into conflicting_room_code
+          from private.active_room_players claim
+          join public.rooms room on room.id = claim.room_id
+          where claim.player_id = claimed_player_id
+          limit 1;
+        else
+          select room.code
+          into conflicting_room_code
+          from private.active_room_guests claim
+          join public.rooms room on room.id = claim.room_id
+          where claim.guest_id = lock_identity_key
+          limit 1;
+        end if;
+
+        raise exception using
+          errcode = '23505',
+          message = format(
+            'Player %s already has an active room%s.',
+            lock_identity_key,
+            case
+              when conflicting_room_code is null then ''
+              else ' ' || conflicting_room_code
+            end
+          ),
+          detail = format(
+            'identity_key=%s, attempted_room=%s, conflicting_room=%s',
+            lock_identity_key,
+            new.code,
+            coalesce(conflicting_room_code, 'unknown')
+          ),
+          constraint = 'rooms_one_active_room_per_player';
+    end;
+  end loop;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_single_active_room_per_player()
+from public, anon, authenticated;
+
+create trigger rooms_enforce_single_active_room_per_player_trg
+after insert or update of status, host_user_id, guest_user_id, host_guest_id, guest_guest_id
+on public.rooms
+for each row execute function public.enforce_single_active_room_per_player();
+
+commit;
+
 create or replace function public.close_own_lobby_rooms()
 returns text[]
 language plpgsql
@@ -509,7 +1299,9 @@ begin
     set
       game_state = p_final_state,
       game_version = next_version,
-      status = 'over',
+      -- A late final payload may race with lobby cleanup. Preserve the final
+      -- snapshot without reviving a terminally closed room.
+      status = case when target.status = 'closed' then 'closed' else 'over' end,
       archived_at = completed_at,
       closed_reason = 'finished'
     where id = target.id;
@@ -561,7 +1353,8 @@ begin
          'long-analytic-v30',
          'long-analytic-v31',
          'long-analytic-v32',
-         'long-analytic-v33'
+         'long-analytic-v33',
+         'long-analytic-v34'
        ) then
       if jsonb_typeof(training_coverage) <> 'object'
          or coalesce(training_coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -757,7 +1550,8 @@ begin
       'long-analytic-v30',
       'long-analytic-v31',
       'long-analytic-v32',
-      'long-analytic-v33'
+      'long-analytic-v33',
+      'long-analytic-v34'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -872,7 +1666,7 @@ where coalesce(room.game_state->>'mode', '') = 'bot'
       and coalesce(
         room.game_state->'analysis'->'botMemory'->>'engineVersion',
         ''
-      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33') then
+      ) in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33', 'long-analytic-v34') then
       coalesce(
         room.game_state->'analysis'->'botMemory'->'coverage'->'complete',
         'false'::jsonb
@@ -1480,23 +2274,37 @@ on public.guest_presence for select
 to authenticated
 using (true);
 
+delete from public.guest_presence
+where id like 'guest:%'
+  and id !~ '^guest:sha256:[0-9a-f]{64}$'
+  and id not like 'guest:local:%';
+
 drop policy if exists "clients can create guest presence" on public.guest_presence;
 create policy "clients can create guest presence"
 on public.guest_presence for insert
 to anon, authenticated
 with check (
-  id like 'guest:%'
-  and length(name) between 3 and 32
+  length(name) between 3 and 32
+  and (
+    id = public.request_guest_identity()
+    or (auth.uid() is not null and id like 'guest:local:%')
+  )
 );
 
 drop policy if exists "clients can update guest presence" on public.guest_presence;
 create policy "clients can update guest presence"
 on public.guest_presence for update
 to anon, authenticated
-using (id like 'guest:%')
+using (
+  id = public.request_guest_identity()
+  or (auth.uid() is not null and id like 'guest:local:%')
+)
 with check (
-  id like 'guest:%'
-  and length(name) between 3 and 32
+  length(name) between 3 and 32
+  and (
+    id = public.request_guest_identity()
+    or (auth.uid() is not null and id like 'guest:local:%')
+  )
 );
 
 grant select on public.guest_presence to authenticated;
@@ -1570,7 +2378,13 @@ drop policy if exists "authenticated users can create rooms" on public.rooms;
 create policy "authenticated users can create rooms"
 on public.rooms for insert
 to authenticated
-with check (coalesce(host_user_id, auth.uid()) = auth.uid());
+with check (
+  host_user_id = auth.uid()
+  and host_guest_id is null
+  and guest_user_id is null
+  and guest_guest_id is null
+  and status in ('waiting', 'joined')
+);
 
 drop policy if exists "anonymous guests can create rooms" on public.rooms;
 create policy "anonymous guests can create rooms"
@@ -1578,7 +2392,11 @@ on public.rooms for insert
 to anon
 with check (
   host_user_id is null
+  and host_guest_id is not null
+  and host_guest_id = public.request_guest_identity()
+  and host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$'
   and guest_user_id is null
+  and guest_guest_id is null
   and host_registered = false
   and status in ('waiting', 'joined')
   and length(coalesce(host_name, '')) between 3 and 32
@@ -1598,6 +2416,7 @@ to anon
 using (
   status in ('waiting', 'joined')
   and (host_user_id is null or guest_user_id is null)
+  and public.request_guest_identity() in (host_guest_id, guest_guest_id)
   and not (
     host_user_id is not null
     and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
@@ -1606,10 +2425,37 @@ using (
 with check (
   status in ('waiting', 'joined', 'over', 'closed')
   and (host_user_id is null or guest_user_id is null)
+  and public.request_guest_identity() in (host_guest_id, guest_guest_id)
+  and (host_guest_id is null or host_guest_id ~ '^guest:sha256:[0-9a-f]{64}$')
+  and (guest_guest_id is null or guest_guest_id ~ '^guest:sha256:[0-9a-f]{64}$')
+  and not (host_user_id is not null and host_guest_id is not null)
+  and not (guest_user_id is not null and guest_guest_id is not null)
   and not (
     host_user_id is not null
     and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
   )
+);
+
+drop policy if exists "anonymous guests can join waiting rooms" on public.rooms;
+create policy "anonymous guests can join waiting rooms"
+on public.rooms for update
+to anon
+using (
+  status = 'waiting'
+  and guest_user_id is null
+  and guest_guest_id is null
+  and public.request_guest_identity() is not null
+  and public.request_guest_identity() is distinct from host_guest_id
+  and not (
+    host_user_id is not null
+    and coalesce(game_state->>'mode', game_state->'analysis'->>'mode', '') = 'bot'
+  )
+)
+with check (
+  status = 'joined'
+  and guest_user_id is null
+  and guest_guest_id = public.request_guest_identity()
+  and not (host_user_id is not null and host_guest_id is not null)
 );
 
 drop policy if exists "authenticated users can join waiting rooms" on public.rooms;
@@ -1619,11 +2465,13 @@ to authenticated
 using (
   status = 'waiting'
   and guest_user_id is null
+  and guest_guest_id is null
   and (host_user_id is null or host_user_id <> auth.uid())
 )
 with check (
   status = 'joined'
   and guest_user_id = auth.uid()
+  and guest_guest_id is null
   and (host_user_id is null or host_user_id <> auth.uid())
 );
 
@@ -2341,7 +3189,8 @@ begin
       'long-analytic-v30',
       'long-analytic-v31',
       'long-analytic-v32',
-      'long-analytic-v33'
+      'long-analytic-v33',
+      'long-analytic-v34'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -2541,7 +3390,7 @@ as $$
       end) scanned(decision)
     ) integrity
     where g.difficulty = 'hard'
-      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33')
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33', 'long-analytic-v34')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -2625,12 +3474,6 @@ as $$
           when features ? 'avoidableHomeShuffleMoves'
             and coalesce(public.long_bot_safe_numeric(features->'avoidableHomeShuffleMoves'), 0) > 0
             and coalesce(descriptor->>'phase', '') <> 'bearoff'
-            and (
-              coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) <= 0
-              or coalesce(descriptor->>'phase', split_part(descriptor->>'contextKey', '|', 1), '')
-                in ('route', 'head-development')
-              or split_part(descriptor->>'contextKey', '|', 3) in ('o3', 'o4')
-            )
             then 1.5
           else 0
         end
@@ -2644,6 +3487,7 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
+        when engine_generation = 34 then 8.0
         when engine_generation = 33 then 7.0
         when engine_generation = 32 then 6.0
         when engine_generation = 31 then 5.0
@@ -2659,9 +3503,9 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30, 31, 32, 33, 34) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30, 31, 32, 33, 34) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -2688,13 +3532,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation in (29, 30, 31, 32, 33) then descriptor->>'actionKey' end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -2705,9 +3549,10 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation = 34 then nullif(descriptor->'behaviorActionKeys'->>3, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
@@ -2890,7 +3735,8 @@ begin
         'long-analytic-v30',
         'long-analytic-v31',
         'long-analytic-v32',
-        'long-analytic-v33'
+        'long-analytic-v33',
+        'long-analytic-v34'
       );
     if old_relevant then
       old_key := pg_catalog.lower(pg_catalog.btrim(old.player_name));
@@ -2904,7 +3750,8 @@ begin
         'long-analytic-v30',
         'long-analytic-v31',
         'long-analytic-v32',
-        'long-analytic-v33'
+        'long-analytic-v33',
+        'long-analytic-v34'
       );
     if new_relevant then
       new_key := pg_catalog.lower(pg_catalog.btrim(new.player_name));
@@ -2912,6 +3759,9 @@ begin
   end if;
 
   if old_relevant or new_relevant then
+    -- The committed ledger row is the immediate invalidation signal. Keeping
+    -- the trigger append-only avoids blocking game finalization behind a
+    -- background worker that may currently hold cache-key row locks.
     insert into private.long_bot_experience_changes(old_player_key, new_player_key)
     values (old_key, new_key);
   end if;
@@ -2954,19 +3804,14 @@ begin
     delete from private.long_bot_experience_changes
     returning old_player_key, new_player_key
   ), keys_to_dirty(player_key) as (
-    -- Ordinary changes refresh global plus their players. Only the synthetic
-    -- NULL/NULL sentinel fans out to every historical cache key.
+    -- Personalized aggregates include shared evidence, therefore every real
+    -- game change invalidates every existing personalized key.
     select ''::text
     where exists (select 1 from consumed_changes)
     union
     select cache_key.player_key
     from private.long_bot_experience_cache_keys cache_key
-    where exists (
-      select 1
-      from consumed_changes
-      where old_player_key is null
-        and new_player_key is null
-    )
+    where exists (select 1 from consumed_changes)
     union
     select old_player_key
     from consumed_changes
@@ -2990,10 +3835,22 @@ begin
     where cache_key.dirty
        or cached.player_key is null
        or cached.refreshed_at < pg_catalog.clock_timestamp() - interval '1 hour'
+    -- Keep the global fallback responsive to every invalidation, but reserve
+    -- the second slot for maintenance once a cache is more than two hours old.
+    -- Without that hard-age lane, a steady stream of global/player dirty pairs
+    -- can starve an inactive personalized cache forever.
     order by
+      (
+        cache_key.player_key = ''
+        and (cache_key.dirty or cached.player_key is null)
+      ) desc,
+      coalesce((
+        cached.refreshed_at < pg_catalog.clock_timestamp() - interval '2 hours'
+      ), false) desc,
       (cached.player_key is null) desc,
-      cached.refreshed_at asc nulls first,
+      cache_key.dirty desc,
       (cache_key.player_key = '') desc,
+      cached.refreshed_at asc nulls first,
       cache_key.player_key
     limit effective_batch_size
   loop
@@ -3037,7 +3894,8 @@ where g.difficulty = 'hard'
     'long-analytic-v30',
     'long-analytic-v31',
     'long-analytic-v32',
-    'long-analytic-v33'
+    'long-analytic-v33',
+    'long-analytic-v34'
   )
   and g.completed_at >= pg_catalog.now() - interval '180 days'
   and pg_catalog.btrim(g.player_name) <> ''
@@ -3054,7 +3912,21 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(20151, 3308);
   loop
     refreshed_count := private.refresh_long_bot_experience_cache(8);
-    exit when refreshed_count = 0;
+    -- Bootstrap is complete once every key invalidated above has a cache row.
+    -- Do not wait for the worker's hourly maintenance queue to become empty:
+    -- on a large dataset the earliest rows can age back into that queue before
+    -- the initial pass finishes, which would keep this migration open forever.
+    exit when not exists (
+      select 1
+      from private.long_bot_experience_cache_keys cache_key
+      left join private.long_bot_experience_cache cached
+        on cached.player_key = cache_key.player_key
+      where cache_key.dirty
+         or cached.player_key is null
+    );
+    if refreshed_count = 0 then
+      raise exception 'Long-bot experience cache bootstrap made no progress.';
+    end if;
   end loop;
 
   if not exists (
@@ -3084,7 +3956,8 @@ where g.difficulty = 'hard'
     'long-analytic-v30',
     'long-analytic-v31',
     'long-analytic-v32',
-    'long-analytic-v33'
+    'long-analytic-v33',
+    'long-analytic-v34'
   )
   and g.completed_at >= pg_catalog.now() - interval '180 days'
   and pg_catalog.btrim(g.player_name) <> ''
@@ -3107,6 +3980,34 @@ security definer
 set search_path = ''
 as $$
   select coalesce(
+    (
+      select cached.patterns
+      from private.long_bot_experience_cache cached
+      join private.long_bot_experience_cache_keys cache_key
+        on cache_key.player_key = cached.player_key
+      where cached.player_key = pg_catalog.lower(
+        pg_catalog.btrim(coalesce(p_player_name, ''))
+      )
+        and not cache_key.dirty
+        and not exists (
+          select 1 from private.long_bot_experience_changes pending_change
+        )
+    ),
+    (
+      select cached.patterns
+      from private.long_bot_experience_cache cached
+      join private.long_bot_experience_cache_keys cache_key
+        on cache_key.player_key = cached.player_key
+      where cached.player_key = ''
+        and not cache_key.dirty
+        and not exists (
+          select 1 from private.long_bot_experience_changes pending_change
+        )
+    ),
+    -- During the short worker window, retain the last coherent snapshot rather
+    -- than returning an indistinguishable empty history that a new game would
+    -- freeze for its entire session.  Once the worker commits, the clean global
+    -- row above supersedes any still-dirty personalized row.
     (
       select cached.patterns
       from private.long_bot_experience_cache cached
@@ -3135,7 +4036,9 @@ begin
     from cron.job
     where jobname in (
       'refresh-long-bot-experience-v33',
-      'cleanup-long-bot-experience-v33-job-history'
+      'cleanup-long-bot-experience-v33-job-history',
+      'refresh-long-bot-experience-v34',
+      'cleanup-long-bot-experience-v34-job-history'
     )
   loop
     perform cron.unschedule(old_job.jobid);
@@ -3144,21 +4047,44 @@ begin
   end loop;
 
   perform cron.schedule(
-    'refresh-long-bot-experience-v33',
+    'refresh-long-bot-experience-v34',
     '* * * * *',
-    $command$select private.refresh_long_bot_experience_cache(2);$command$
+    $command$
+      set statement_timeout = '2min';
+      select private.refresh_long_bot_experience_cache(8);
+    $command$
   );
   perform cron.schedule(
-    'cleanup-long-bot-experience-v33-job-history',
+    'cleanup-long-bot-experience-v34-job-history',
     '17 3 * * *',
     $command$
+      set statement_timeout = '2min';
+      select pg_catalog.pg_advisory_xact_lock(20151, 3308);
+      delete from private.long_bot_experience_cache_keys cache_key
+      where cache_key.player_key <> ''
+        and not exists (
+          select 1
+          from public.bot_training_games game
+          where game.difficulty = 'hard'
+            and game.engine_version in (
+              'long-analytic-v29',
+              'long-analytic-v30',
+              'long-analytic-v31',
+              'long-analytic-v32',
+              'long-analytic-v33',
+              'long-analytic-v34'
+            )
+            and game.completed_at >= pg_catalog.now() - interval '180 days'
+            and game.player_name = pg_catalog.btrim(game.player_name)
+            and pg_catalog.lower(game.player_name) = cache_key.player_key
+        );
       delete from cron.job_run_details details
       where details.jobid in (
         select job.jobid
         from cron.job job
         where job.jobname in (
-          'refresh-long-bot-experience-v33',
-          'cleanup-long-bot-experience-v33-job-history'
+          'refresh-long-bot-experience-v34',
+          'cleanup-long-bot-experience-v34-job-history'
         )
       )
         and details.end_time < pg_catalog.now() - interval '7 days';
@@ -3326,7 +4252,9 @@ begin
       set
         game_state = resolved_final_state,
         game_version = game_version + 1,
-        status = 'over',
+        -- Keep closed terminal if lobby cleanup won the race; this fallback may
+        -- still persist the authoritative result and archive metadata.
+        status = case when status = 'closed' then 'closed' else 'over' end,
         archived_at = coalesce(p_finished_at, now()),
         closed_reason = 'finished'
       where code = resolved_room_code

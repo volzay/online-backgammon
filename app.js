@@ -4,6 +4,10 @@
   const LANG_KEY = 'narduh-lang';
   const USER_KEY = 'narduh-user';
   const GUEST_ENTRY_KEY = 'narduh-guest-entry-v1';
+  const GUEST_CREDENTIAL_KEY = 'narduh-guest-credential-v1';
+  const GUEST_PROOF_DOMAIN = 'nardu/guest/v1';
+  const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
+  const GUEST_PROOF_RE = /^gproof:[0-9a-f]{64}$/;
   const SOUND_KEY = 'narduh-sound';
   const SHOW_RATING_KEY = 'narduh-show-rating';
   const ACCENT_KEY = 'narduh-accent';
@@ -936,14 +940,63 @@
   function guestName() {
     return `Guest${1000 + Math.floor(Math.random() * 9000)}`;
   }
-  function guestId() {
-    if (window.crypto?.randomUUID) return `guest:${window.crypto.randomUUID()}`;
-    return `guest:${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+
+  function clearGuestCredential() {
+    try { localStorage.removeItem(GUEST_CREDENTIAL_KEY); } catch (_) {}
   }
-  function createGuestUser() {
+
+  function readGuestCredential(expectedGuestId = '') {
+    try {
+      const value = JSON.parse(localStorage.getItem(GUEST_CREDENTIAL_KEY) || 'null');
+      const guestId = String(value?.guestId || '');
+      const proof = String(value?.proof || '');
+      if (Number(value?.version) !== 1) return null;
+      if (!GUEST_PUBLIC_ID_RE.test(guestId) || !GUEST_PROOF_RE.test(proof)) return null;
+      if (expectedGuestId && guestId !== expectedGuestId) return null;
+      return { version: 1, guestId, proof };
+    } catch {
+      return null;
+    }
+  }
+
+  function guestRequestHeaders(user = null) {
+    const currentUser = user || (() => {
+      try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); }
+      catch { return null; }
+    })();
+    if (currentUser?.guest !== true) return {};
+    const guestId = String(currentUser.id || '');
+    const credential = readGuestCredential(guestId);
+    if (!credential) return {};
+    return {
+      'X-Guest-Id': credential.guestId,
+      'X-Guest-Proof': credential.proof,
+    };
+  }
+
+  async function createGuestCredential() {
+    if (!window.crypto?.getRandomValues || !window.crypto?.subtle || typeof TextEncoder !== 'function') {
+      throw new Error('Secure guest sessions are not supported by this browser.');
+    }
+    const bytes = new Uint8Array(32);
+    window.crypto.getRandomValues(bytes);
+    const proof = `gproof:${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    const input = new TextEncoder().encode(`${GUEST_PROOF_DOMAIN}:${proof}`);
+    const digest = await window.crypto.subtle.digest('SHA-256', input);
+    const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    const credential = { version: 1, guestId: `guest:sha256:${hash}`, proof };
+    if (!safeStorageSet(GUEST_CREDENTIAL_KEY, JSON.stringify(credential))) {
+      throw new Error('Could not persist the guest credential.');
+    }
+    return credential;
+  }
+
+  function createGuestUser(guestId = '') {
+    const publicGuestId = String(guestId || '');
+    if (!GUEST_PUBLIC_ID_RE.test(publicGuestId) || !readGuestCredential(publicGuestId)) return null;
     const name = guestName();
     return {
-      id: guestId(),
+      id: publicGuestId,
       name,
       nickname: name,
       rating: null,
@@ -957,9 +1010,12 @@
     if (!user || typeof user !== 'object') return null;
     const name = String(user.name || user.nickname || '').trim();
     if (!name || name === '—' || name === '-') return null;
+    const id = String(user.id || '').trim();
+    if (user.guest === true && (!GUEST_PUBLIC_ID_RE.test(id) || !readGuestCredential(id))) return null;
+    if (user.guest !== true && !id) return null;
     return {
       ...user,
-      id: String(user.id || (user.guest ? guestId() : '')).trim(),
+      id,
       name,
       nickname: String(user.nickname || name).trim(),
     };
@@ -1062,11 +1118,13 @@
     return shouldShowRatingToOthers() && isRatedUser(user) ? Number(user.rating ?? DEFAULT_RATING) : null;
   }
   function setUser(u) {
-    u = normalizeStoredUser(u) || createGuestUser();
+    u = normalizeStoredUser(u);
+    if (!u) return null;
     assignProfileRating(u);
     persistStoredUser(u);
     if (!u.guest) {
       try { localStorage.removeItem(GUEST_ENTRY_KEY); } catch (_) {}
+      clearGuestCredential();
     }
     touchPresence({ force: true });
     return u;
@@ -1075,13 +1133,22 @@
     try { return localStorage.getItem(GUEST_ENTRY_KEY) === '1'; }
     catch { return false; }
   }
-  function beginGuestSession() {
-    const user = setUser(createGuestUser());
+  async function beginGuestSession() {
+    let credential;
+    try {
+      credential = await createGuestCredential();
+    } catch (error) {
+      console.warn('Could not create secure guest session', error?.message || error);
+      clearGuestCredential();
+      return null;
+    }
+    const user = setUser(createGuestUser(credential.guestId));
     if (!getUser() || !safeStorageSet(GUEST_ENTRY_KEY, '1')) {
       try {
         localStorage.removeItem(USER_KEY);
         localStorage.removeItem(GUEST_ENTRY_KEY);
       } catch (_) {}
+      clearGuestCredential();
       return null;
     }
     return user;
@@ -1096,6 +1163,7 @@
     }
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(GUEST_ENTRY_KEY);
+    clearGuestCredential();
     location.href = 'login.html';
   }
   function requireAuth() {
@@ -1105,16 +1173,35 @@
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem(GUEST_ENTRY_KEY);
     } catch (_) {}
+    clearGuestCredential();
     if (typeof location.replace === 'function') location.replace('login.html');
     else location.href = 'login.html';
     return null;
   }
   function requireGuest() {
     const user = getUser();
-    if (!user) return;
+    if (!user) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+        if (stored?.guest === true) {
+          localStorage.removeItem(USER_KEY);
+          localStorage.removeItem(GUEST_ENTRY_KEY);
+          clearGuestCredential();
+        }
+      } catch {
+        localStorage.removeItem(USER_KEY);
+        localStorage.removeItem(GUEST_ENTRY_KEY);
+        clearGuestCredential();
+      }
+      return;
+    }
     if (user.guest) {
       if (!guestEntryGranted()) {
-        try { localStorage.removeItem(USER_KEY); } catch (_) {}
+        try {
+          localStorage.removeItem(USER_KEY);
+          localStorage.removeItem(GUEST_ENTRY_KEY);
+        } catch (_) {}
+        clearGuestCredential();
       }
       return;
     }
@@ -1224,7 +1311,7 @@
     const client = await window.NarduSupabase.client();
     const nowIso = new Date().toISOString();
     const guestRow = {
-      id: String(id || user.id || guestId()).slice(0, 80),
+      id: String(id || user.id || '').slice(0, 80),
       name: String(user.name || user.nickname || guestName()).slice(0, 32),
       last_seen_at: nowIso,
       updated_at: nowIso,
@@ -1293,7 +1380,7 @@
     if (!force && nowMs - lastGuestPresenceAt < GUEST_PRESENCE_MS) return true;
     lastGuestPresenceAt = nowMs;
     try {
-      await upsertGuestPresenceRow(user, user.id || guestId());
+      await upsertGuestPresenceRow(user, user.id || '');
       return true;
     } catch (error) {
       lastGuestPresenceAt = 0;
@@ -1503,7 +1590,8 @@
     getUser, setUser, beginGuestSession, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating,
-    createGuestUser, compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
+    createGuestUser, createGuestCredential, readGuestCredential, guestRequestHeaders, clearGuestCredential,
+    compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
     safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,
     paintUser, currentSound, setSound, paintSound,
     refreshLobbyMessageIndicator,

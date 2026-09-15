@@ -276,11 +276,9 @@ test('production restore budget covers both Supabase CDN attempts', () => {
   const controllerSource = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8');
   const supabaseSource = fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8');
   const restoreMs = Number(controllerSource.match(/BOT_ANALYSIS_RESTORE_TIMEOUT_MS = (\d+)/)?.[1]);
-  const startupMs = Number(controllerSource.match(/BOT_ANALYSIS_STARTUP_WAIT_MS = (\d+)/)?.[1]);
   const cdnAttemptMs = Number(supabaseSource.match(/SUPABASE_SDK_LOAD_TIMEOUT_MS = (\d+)/)?.[1]);
 
   assert.ok(restoreMs > cdnAttemptMs * 2, 'restore must outlive both sequential CDN attempts');
-  assert.ok(startupMs >= restoreMs, 'startup must not release gameplay before restore settles');
 });
 
 test('finished-game exit budget covers the first authoritative persistence path', () => {
@@ -301,11 +299,93 @@ test('a failed ensure after a definitive restore 404 disables every server write
   init(harness.controller);
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), undefined);
+  assert.equal(
+    await harness.controller.__restoreSafetyTest.publishBotAnalysisState(),
+    false,
+    'the definitive 404 now reserves the server room before unlocking gameplay',
+  );
   assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), false);
+  const state = harness.controller.getState();
+  Object.assign(state, {
+    phase: 'move',
+    turn: 'white',
+    dice: [1, 2],
+    rolled: [1, 2],
+  });
+  harness.controller.onPointClick(24);
+  assert.equal(state.selected, null, 'a failed reservation must keep the board locked');
   finishLocally(harness.controller);
   assert.equal(await harness.controller.__restoreSafetyTest.ensureBotFinalStatePublished(), false);
   assert.equal(await harness.controller.__restoreSafetyTest.archiveBotTrainingGame({}), false);
+  assert.deepEqual(harness.calls, { ensure: 1, put: 0, finish: 0, archive: 0, rating: 0 });
+});
+
+test('a non-409 ensure failure stays locked and a successful retry unlocks safely', async () => {
+  let ensureAttempts = 0;
+  const harness = controllerHarness({
+    ensureBotAnalysisRoom: async () => {
+      ensureAttempts += 1;
+      if (ensureAttempts === 1) {
+        const error = new Error('temporary upstream failure');
+        error.status = 503;
+        throw error;
+      }
+      return { ok: true, existing: false, version: 4 };
+    },
+  });
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  const state = harness.controller.getState();
+  Object.assign(state, {
+    phase: 'move',
+    turn: 'white',
+    dice: [1, 2],
+    rolled: [1, 2],
+  });
+  harness.controller.onPointClick(24);
+  assert.equal(state.selected, null, 'the first failed ensure must not release gameplay');
+  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), false);
+  assert.equal(harness.calls.ensure, 1);
+  assert.equal(harness.calls.put, 0, 'the failed attempt must not publish local state');
+
+  assert.equal(await harness.controller.retryBotAnalysisStartup(), true);
+  assert.equal(harness.calls.ensure, 2);
+  assert.equal(harness.calls.put, 0, 'reservation success precedes the first state publish');
+
+  harness.controller.onPointClick(24);
+  assert.equal(state.selected, 24, 'the board unlocks only after the retry reserves the room');
+  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
+  assert.deepEqual(harness.calls, { ensure: 2, put: 1, finish: 0, archive: 0, rating: 0 });
+});
+
+test('a cross-tab active-room conflict redirects before the bot board unlocks', async () => {
+  const harness = controllerHarness({
+    ensureBotAnalysisRoom: async () => {
+      const error = new Error('active room conflict');
+      error.status = 409;
+      error.data = {
+        room: {
+          code: 'WAIT-ROOM',
+          status: 'waiting',
+          opponent: 'player',
+        },
+      };
+      throw error;
+    },
+  });
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  const state = harness.controller.getState();
+  state.phase = 'move';
+  state.turn = 'white';
+  state.dice = [1];
+  state.rolled = [1];
+  harness.controller.onPointClick(24);
+
+  assert.equal(state.selected, null, 'a rejected second room must never become interactive');
+  assert.match(harness.context.location.href, /index\.html\?roomConflict=1$/);
   assert.deepEqual(harness.calls, { ensure: 1, put: 0, finish: 0, archive: 0, rating: 0 });
 });
 

@@ -184,6 +184,56 @@ test('primary evaluates four candidates while deep analysis stays on the same to
   assert.equal(Object.hasOwn(byBaseScore.get(7).tactical, 'continuationExpected'), false);
 });
 
+test('reply sampling fills beam slots with distinct resulting positions', async () => {
+  const { analysis, evaluator } = await modules();
+  const observedReplyKinds = new Set();
+  const duplicateReply = kind => [
+    { from: 24, to: 23, die: 1, kind },
+    { from: 23, to: 22, die: 2, kind },
+  ];
+  const adapter = {
+    legalSequences(source, color) {
+      if (color !== 'white') return [];
+      return [
+        duplicateReply('same-a'),
+        [...duplicateReply('same-b')].reverse(),
+        duplicateReply('same-c'),
+        [{ from: 24, to: 21, die: 3, kind: 'distinct' }],
+      ];
+    },
+    applySequence(source, sequence, color) {
+      const next = JSON.parse(JSON.stringify(source));
+      if (color !== 'white') return next;
+      const kind = sequence[0]?.kind;
+      observedReplyKinds.add(kind === 'distinct' ? 'distinct' : 'same');
+      next.points = kind === 'distinct'
+        ? {
+          10: { color: 'dark', count: 15 },
+          21: { color: 'white', count: 1 },
+          24: { color: 'white', count: 14 },
+        }
+        : {
+          10: { color: 'dark', count: 15 },
+          22: { color: 'white', count: 1 },
+          24: { color: 'white', count: 14 },
+        };
+      return next;
+    },
+  };
+
+  const ranked = analysis.analyzeOpponentReplies(
+    adapter,
+    'dark',
+    candidates(1),
+    evaluator.mergeWeights(),
+    analysis.createAnalysisBudget(30),
+    { expandDoubles: true },
+  );
+
+  assert.deepEqual(observedReplyKinds, new Set(['same', 'distinct']));
+  assert.equal(ranked[0].tactical.distributionComplete, true);
+});
+
 test('an incomplete primary distribution is never exposed as an expectation', async () => {
   const { analysis, evaluator } = await modules();
   const source = candidates();

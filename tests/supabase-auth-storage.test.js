@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createHash } = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -102,6 +103,35 @@ test('Supabase auth token storage evicts reproducible game caches before losing 
   assert.equal(storage.getItem('sb-project-auth-token'), 'token'.repeat(40));
   assert.equal(storage.getItem('sb-other-auth-token'), 'active-session');
   assert.match(storage.getItem('narduh-user'), /warlord/);
+});
+
+test('Supabase REST mutations carry the guest id and its private proof', async () => {
+  const guestProof = `gproof:${'21'.repeat(32)}`;
+  const guestId = `guest:sha256:${createHash('sha256')
+    .update(`nardu/guest/v1:${guestProof}`)
+    .digest('hex')}`;
+  const storage = quotaStorage({
+    'narduh-user': JSON.stringify({ id: guestId, name: 'Guest4321', guest: true }),
+    'narduh-guest-credential-v1': JSON.stringify({ version: 1, guestId, proof: guestProof }),
+  }, 3000);
+  const requests = [];
+  const client = await loadClient(storage, {
+    fetchImpl: async (input, init) => {
+      requests.push({ input: String(input), init });
+      return { ok: true };
+    },
+  });
+
+  await client.options.global.fetch('https://example.supabase.co/rest/v1/rooms');
+  await client.options.global.fetch('https://example.supabase.co/auth/v1/user');
+  const restHeaders = requests[0].init.headers;
+  const header = name => typeof restHeaders?.get === 'function'
+    ? restHeaders.get(name)
+    : restHeaders?.[name];
+  assert.equal(header('X-Guest-Id'), guestId);
+  assert.equal(header('X-Guest-Proof'), guestProof);
+  const authHeaders = requests[1].init.headers || {};
+  assert.equal(typeof authHeaders?.get === 'function' ? authHeaders.get('X-Guest-Proof') : authHeaders['X-Guest-Proof'], undefined);
 });
 
 test('Supabase transport aborts a stalled request at its deadline', async () => {

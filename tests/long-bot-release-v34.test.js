@@ -6,13 +6,15 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('v33 runtime advances every long-bot experience generation', () => {
+test('v34 runtime advances the policy version without invalidating compatible credit', () => {
   const browser = read('bot-engine/long/browser.ts');
   const strongBot = read('strong-bot.js');
+  const controller = read('game-controller.js');
   const roomsClient = read('rooms-client.js');
   const supabaseClient = read('supabase-client.js');
 
-  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v33'/);
+  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v34'/);
+  assert.match(browser, /frozen-experience-v34:/);
   assert.match(browser, /frozen-experience-v33:/);
   assert.match(browser, /frozen-experience-v32:/);
   assert.match(browser, /fingerprint: `lbe8-/);
@@ -24,9 +26,10 @@ test('v33 runtime advances every long-bot experience generation', () => {
   assert.match(roomsClient, /LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 \* 60 \* 1000/);
   assert.match(supabaseClient, /server-experience-v15/);
   assert.match(supabaseClient, /long-bot-experience-v8/);
+  assert.match(controller, /long-analytic-v\(\?:29\|30\|31\|32\|33\|34\)\$/);
 });
 
-test('v33 decision records retain distribution and prospective-fence telemetry', () => {
+test('v34 decision records retain distribution and prospective-fence telemetry', () => {
   const browser = read('bot-engine/long/browser.ts');
   [
     'distributionWeight',
@@ -42,22 +45,24 @@ test('v33 decision records retain distribution and prospective-fence telemetry',
   ].forEach(field => assert.match(browser, new RegExp(`${field}:`), field));
 });
 
-test('v33 aggregate keeps compatible v29-v32 evidence and matches the schema', () => {
-  const migration = read('supabase/long-bot-strategy-v33.sql');
+test('v34 aggregate keeps compatible v29-v33 evidence and matches the schema', () => {
+  const migration = read('supabase/long-bot-strategy-v34.sql');
+  const previousMigration = read('supabase/long-bot-strategy-v33.sql');
   const schema = read('supabase/schema.sql');
   const builderDefinition = /create or replace function private\.compute_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const builder = migration.match(builderDefinition)?.[0] || '';
 
   assert.equal(builder, schema.match(builderDefinition)?.[0]);
-  assert.ok((migration.match(/long-analytic-v33/g) || []).length >= 4);
-  assert.match(builder, /g\.engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33'\)/);
+  assert.ok((migration.match(/long-analytic-v34/g) || []).length >= 4);
+  assert.match(builder, /g\.engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33', 'long-analytic-v34'\)/);
   assert.match(builder, /decision->>'engineVersion' = g\.engine_version/);
+  assert.match(builder, /when engine_generation = 34 then 8\.0/);
   assert.match(builder, /when engine_generation = 33 then 7\.0/);
   assert.match(builder, /when engine_generation = 32 then 6\.0/);
   assert.match(builder, /when engine_generation = 31 then 5\.0/);
   assert.match(builder, /when engine_generation = 30 then 4\.0/);
   assert.match(builder, /when engine_generation = 29 then 3\.0/);
-  assert.match(builder, /engine_generation in \(29, 30, 31, 32, 33\)/);
+  assert.match(builder, /engine_generation in \(29, 30, 31, 32, 33, 34\)/);
   assert.match(builder, /features->'avoidableProspectiveFenceInterruptionBreak'/);
   assert.match(
     builder,
@@ -65,13 +70,25 @@ test('v33 aggregate keeps compatible v29-v32 evidence and matches the schema', (
   );
   assert.doesNotMatch(builder, /features->'prospectiveFenceInterruptionBreak'/);
   assert.doesNotMatch(builder, /features->'prospectiveFenceExtensionDelta'/);
-  assert.match(builder, /descriptor->'behaviorActionKeys'->>2/);
+  assert.match(
+    builder,
+    /engine_generation in \(29, 30, 31, 32, 33, 34\) then nullif\(descriptor->'behaviorActionKeys'->>2/,
+  );
+  assert.match(
+    builder,
+    /engine_generation = 34 then nullif\(descriptor->'behaviorActionKeys'->>3/,
+  );
+  assert.doesNotMatch(
+    previousMigration,
+    /descriptor->'behaviorActionKeys'->>3/,
+    'the historical v33 migration must not reinterpret a fourth alias',
+  );
   assert.match(builder, /'creditVersion', 8/);
   assert.match(builder, /outcome-weighted evidence, not causal per-move attribution/);
 });
 
-test('v33 background builder combines integrity checks before its scoring expansion', () => {
-  const migration = read('supabase/long-bot-strategy-v33.sql');
+test('v34 background builder combines integrity checks before its scoring expansion', () => {
+  const migration = read('supabase/long-bot-strategy-v34.sql');
   const builderDefinition = /create or replace function private\.compute_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const builder = migration.match(builderDefinition)?.[0] || '';
 
@@ -86,21 +103,24 @@ test('v33 background builder combines integrity checks before its scoring expans
   assert.match(builder, /from valid_games g\s+cross join lateral jsonb_array_elements/);
 });
 
-test('v33 serves a private stale-while-refresh cache outside the game-finalization path', () => {
-  const migration = read('supabase/long-bot-strategy-v33.sql');
+test('v34 serves a coherently invalidated private cache outside game finalization', () => {
+  const migration = read('supabase/long-bot-strategy-v34.sql');
   const schema = read('supabase/schema.sql');
   const getterDefinition = /create or replace function public\.get_long_bot_experience_patterns\([\s\S]*?\n\$\$;/;
   const workerDefinition = /create or replace function private\.refresh_long_bot_experience_cache\([\s\S]*?\n\$\$;/;
   const triggerDefinition = /create or replace function private\.note_long_bot_experience_change\(\)[\s\S]*?\n\$\$;/;
+  const bootstrapDefinition = /do \$bootstrap\$[\s\S]*?\n\$bootstrap\$;/;
   const cronDefinition = /do \$cron_jobs\$[\s\S]*?\n\$cron_jobs\$;/;
   const getter = migration.match(getterDefinition)?.[0] || '';
   const worker = migration.match(workerDefinition)?.[0] || '';
   const changeTrigger = migration.match(triggerDefinition)?.[0] || '';
+  const bootstrap = migration.match(bootstrapDefinition)?.[0] || '';
   const cronJobs = migration.match(cronDefinition)?.[0] || '';
 
   assert.equal(getter, schema.match(getterDefinition)?.[0]);
   assert.equal(worker, schema.match(workerDefinition)?.[0]);
   assert.equal(changeTrigger, schema.match(triggerDefinition)?.[0]);
+  assert.equal(bootstrap, schema.match(bootstrapDefinition)?.[0]);
   assert.equal(cronJobs, schema.match(cronDefinition)?.[0]);
   assert.match(migration, /create extension if not exists pg_cron/);
   assert.match(migration, /create table if not exists private\.long_bot_experience_cache_keys/);
@@ -111,32 +131,61 @@ test('v33 serves a private stale-while-refresh cache outside the game-finalizati
   assert.match(migration, /revoke all on function private\.compute_long_bot_experience_patterns\(text\)[\s\S]*?service_role/);
   assert.doesNotMatch(getter, /bot_training_games|jsonb_array_elements|compute_long_bot/);
   assert.match(getter, /from private\.long_bot_experience_cache cached/);
+  assert.match(getter, /join private\.long_bot_experience_cache_keys cache_key/);
+  assert.equal((getter.match(/and not cache_key\.dirty/g) || []).length, 2);
+  assert.equal((getter.match(/not exists \(\s*select 1 from private\.long_bot_experience_changes pending_change/g) || []).length, 2);
+  assert.equal(
+    (getter.match(/from private\.long_bot_experience_cache cached/g) || []).length,
+    4,
+    'a pending refresh must fall back to the last snapshot instead of freezing empty memory',
+  );
+  assert.match(getter, /During the short worker window, retain the last coherent snapshot/);
   assert.match(getter, /pg_catalog\.lower\([\s\S]*?pg_catalog\.btrim/);
   assert.match(getter, /where cached\.player_key = ''/);
   assert.match(worker, /pg_try_advisory_xact_lock\(20151, 3308\)/);
   assert.match(worker, /delete from private\.long_bot_experience_changes[\s\S]*?returning old_player_key, new_player_key/);
   assert.match(worker, /select ''::text\s+where exists \(select 1 from consumed_changes\)/);
-  assert.match(
-    worker,
-    /select cache_key\.player_key[\s\S]*?where exists \(\s*select 1\s+from consumed_changes\s+where old_player_key is null\s+and new_player_key is null/,
-  );
+  assert.match(worker, /select cache_key\.player_key[\s\S]*?where exists \(select 1 from consumed_changes\)/);
   assert.match(worker, /select old_player_key\s+from consumed_changes\s+where old_player_key is not null/);
   assert.match(worker, /select new_player_key\s+from consumed_changes\s+where new_player_key is not null/);
   assert.match(worker, /set dirty = true/);
   assert.match(worker, /refreshed_at < pg_catalog\.clock_timestamp\(\) - interval '1 hour'/);
+  assert.match(
+    worker,
+    /order by\s+\(\s*cache_key\.player_key = ''\s+and \(cache_key\.dirty or cached\.player_key is null\)\s+\) desc,\s+coalesce\(\(\s*cached\.refreshed_at < pg_catalog\.clock_timestamp\(\) - interval '2 hours'\s+\), false\) desc,\s+\(cached\.player_key is null\) desc,\s+cache_key\.dirty desc/,
+    'global invalidations must stay first while hard-aged maintenance cannot starve',
+  );
   assert.match(worker, /limit effective_batch_size/);
   assert.match(worker, /private\.compute_long_bot_experience_patterns/);
+  assert.match(
+    bootstrap,
+    /exit when not exists \([\s\S]*?where cache_key\.dirty\s+or cached\.player_key is null\s+\);/,
+    'bootstrap must stop after invalidated and missing keys are complete, regardless of hourly maintenance work',
+  );
+  assert.match(bootstrap, /cache bootstrap made no progress/);
+  assert.doesNotMatch(bootstrap, /exit when refreshed_count = 0/);
   assert.match(changeTrigger, /insert into private\.long_bot_experience_changes/);
   assert.match(changeTrigger, /old_key := pg_catalog\.lower\(pg_catalog\.btrim\(old\.player_name\)\)/);
   assert.match(changeTrigger, /new_key := pg_catalog\.lower\(pg_catalog\.btrim\(new\.player_name\)\)/);
+  assert.doesNotMatch(changeTrigger, /update private\.long_bot_experience_cache_keys/);
   assert.doesNotMatch(changeTrigger, /compute_long_bot|refresh_long_bot/);
   assert.match(migration, /after insert or update or delete on public\.bot_training_games/);
   assert.match(migration, /perform pg_catalog\.pg_advisory_xact_lock\(20151, 3308\)/);
   assert.match(migration, /refreshed_count := private\.refresh_long_bot_experience_cache\(8\)/);
   assert.match(cronJobs, /perform cron\.unschedule\(old_job\.jobid\)/);
   assert.equal((cronJobs.match(/perform cron\.schedule\(/g) || []).length, 2);
-  assert.match(cronJobs, /'refresh-long-bot-experience-v33',[\s\S]*?'\* \* \* \* \*'/);
-  assert.match(cronJobs, /'cleanup-long-bot-experience-v33-job-history',[\s\S]*?'17 3 \* \* \*'/);
+  assert.match(cronJobs, /'refresh-long-bot-experience-v34',[\s\S]*?'\* \* \* \* \*'/);
+  assert.match(
+    cronJobs,
+    /'refresh-long-bot-experience-v34',[\s\S]*?set statement_timeout = '2min';\s+select private\.refresh_long_bot_experience_cache\(8\);/,
+    'the cron command must arm its timeout before starting the refresh statement',
+  );
+  assert.match(cronJobs, /'cleanup-long-bot-experience-v34-job-history',[\s\S]*?'17 3 \* \* \*'/);
+  assert.match(
+    cronJobs,
+    /'cleanup-long-bot-experience-v34-job-history',[\s\S]*?pg_advisory_xact_lock\(20151, 3308\)[\s\S]*?delete from private\.long_bot_experience_cache_keys cache_key[\s\S]*?cache_key\.player_key <> ''[\s\S]*?game\.completed_at >= pg_catalog\.now\(\) - interval '180 days'/,
+    'daily maintenance must prune personalized keys after their evidence ages out under the worker lock',
+  );
   assert.match(cronJobs, /delete from cron\.job_run_details details[\s\S]*?details\.jobid in \(/);
   assert.match(cronJobs, /details\.end_time < pg_catalog\.now\(\) - interval '7 days'/);
 });

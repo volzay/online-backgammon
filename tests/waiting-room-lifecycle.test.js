@@ -126,7 +126,9 @@ test("lobby closes only the active room codes captured before navigation", async
   assert.deepEqual(closeOperation.filters.map(item => [item[0], item[1], Array.isArray(item[2]) ? Array.from(item[2]) : item[2]]), [
     ["eq", "host_user_id", "user-1"],
     ["in", "code", ["ABCD-EFGH", "JKLM-NPQR"]],
-    ["in", "status", ["waiting", "joined"]],
+    ["eq", "status", "waiting"],
+    ["is", "guest_user_id", null],
+    ["is", "guest_guest_id", null],
   ]);
 });
 
@@ -140,7 +142,13 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(lobby, /runLobbyCleanup\(\);/);
   assert.match(lobby, /async function ensureLobbyCleanup\(\)/);
   assert.match(lobby, /const cleanup = await ensureLobbyCleanup\(\);/);
-  assert.match(lobby, /if \(e\.target\.closest\('\[data-room-password-input\]'\)\) return;\s+if \(createRequestPending \|\| joinRequestPending\) return;\s+const actionGeneration = beginLobbyAction\(\);\s+const cleanup = await ensureLobbyCleanup\(\);/);
+  const tableClickStart = lobby.indexOf("document.getElementById('tables-list').addEventListener('click'");
+  const participantReturn = lobby.indexOf('if (room && isRoomParticipant(room))', tableClickStart);
+  const joinCleanup = lobby.indexOf('const cleanup = await ensureLobbyCleanup();', participantReturn);
+  assert.ok(tableClickStart >= 0 && participantReturn > tableClickStart);
+  assert.ok(joinCleanup > participantReturn, 'returning to an owned room must bypass destructive cleanup');
+  assert.match(lobby, /data-close-room=/);
+  assert.match(lobby, /closeWaitingRoomWithTimeout\(code\)/);
   assert.match(lobby, /if \(a === 'browse'\) \{\s+await ensureLobbyCleanup\(\);/);
   assert.match(lobby, /a === 'bot'[\s\S]*createState\.opponent = 'bot';[\s\S]*showCreatePanel\(\)/);
   assert.match(lobby, /if \(joinRequestPending \|\| createRequestPending\) return/);
@@ -149,11 +157,66 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(lobby, /if \(!event\.persisted\) return;/);
   assert.match(lobby, /redirectForRoomAuthError\(err\)/);
   assert.match(schema, /rooms_one_waiting_room_per_host_idx/);
+  assert.match(schema, /rooms_one_active_room_per_host_idx/);
+  assert.match(schema, /rooms_one_active_room_per_guest_idx/);
+  assert.match(schema, /private\.active_room_players/);
+  assert.match(schema, /rooms_enforce_single_active_room_per_player_trg/);
   assert.match(schema, /create or replace function public\.close_own_lobby_rooms\(\)/);
   assert.match(schema, /closed_reason = 'lobby_exit_unfinished'/);
   assert.doesNotMatch(schema, /closed_reason = 'lobby_exit_forfeit'/);
   assert.match(schema, /status in \('waiting', 'joined'\)/);
   assert.match(schema, /where host_user_id is not null\s+and guest_user_id is null\s+and status = 'waiting'/);
+});
+
+test("leaving joined or finished rooms never falls back to an unsafe generic delete", async () => {
+  const roomPage = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
+  const removeStart = roomPage.indexOf("async function removeCurrentWaitingRoom()");
+  const removeEnd = roomPage.indexOf("function isActiveRemoteRoom()", removeStart);
+  const removeCurrentRoom = roomPage.slice(removeStart, removeEnd);
+  assert.match(removeCurrentRoom, /mode'\) === 'bot'[\s\S]*NarduRooms\.closeBotRoom\(roomCode\)/);
+  assert.doesNotMatch(removeCurrentRoom, /NarduRooms\.deleteRoom\(roomCode\)/);
+  assert.match(removeCurrentRoom, /clearCurrentRoomStorage\(\);[\s\S]*return true/);
+
+  let fetchCalls = 0;
+  const context = {
+    window: {
+      NarduSupabase: { configured: () => false },
+      NarduApp: {
+        getUser: () => ({ id: "user-1", name: "Tester", guest: false }),
+        guestRequestHeaders: () => ({}),
+        shouldShowRatingToOthers: () => true,
+        ratingTierFor: () => "Bronze",
+      },
+      crypto: globalThis.crypto,
+    },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    console,
+    Date,
+    Map,
+    Set,
+    TextEncoder,
+    Uint8Array,
+    AbortController,
+    fetch: async () => {
+      fetchCalls += 1;
+      throw new Error("generic delete reached transport");
+    },
+  };
+  context.window.window = context.window;
+  context.window.localStorage = context.localStorage;
+  context.window.sessionStorage = context.sessionStorage;
+  context.globalThis = context.window;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "rooms-client.js"), "utf8"), context, {
+    filename: "rooms-client.js",
+  });
+
+  await assert.rejects(
+    context.window.NarduRooms.deleteRoom("ABCD-EFGH"),
+    error => error?.status === 400,
+  );
+  assert.equal(fetchCalls, 0);
 });
 
 test("join-by-code accepts the complete current room code", () => {

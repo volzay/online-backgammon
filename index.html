@@ -24,6 +24,7 @@
   (function(){
     var userKey = 'narduh-user';
     var guestEntryKey = 'narduh-guest-entry-v1';
+    var guestCredentialKey = 'narduh-guest-credential-v1';
     function redirectToLogin() {
       globalThis.NARDU_ENTRY_BLOCKED = true;
       location.replace('login.html' + (location.search || '') + (location.hash || ''));
@@ -33,9 +34,14 @@
       var user = raw ? JSON.parse(raw) : null;
       var name = String((user && (user.name || user.nickname)) || '').trim();
       var userId = String((user && user.id) || '').trim();
+      var credentialRaw = localStorage.getItem(guestCredentialKey);
+      var credential = credentialRaw ? JSON.parse(credentialRaw) : null;
       var validName = Boolean(name && name !== '—' && name !== '-');
       var explicitGuest = user && user.guest === true
-        && /^guest:/.test(userId)
+        && /^guest:sha256:[0-9a-f]{64}$/.test(userId)
+        && credential && credential.version === 1
+        && credential.guestId === userId
+        && /^gproof:[0-9a-f]{64}$/.test(String(credential.proof || ''))
         && /^Guest\d{4}$/.test(name)
         && localStorage.getItem(guestEntryKey) === '1';
       var registered = user && user.guest !== true
@@ -44,6 +50,7 @@
       if (!validName || (!registered && !explicitGuest)) {
         localStorage.removeItem(userKey);
         localStorage.removeItem(guestEntryKey);
+        localStorage.removeItem(guestCredentialKey);
         redirectToLogin();
       } else if (registered) {
         localStorage.removeItem(guestEntryKey);
@@ -52,6 +59,7 @@
       try {
         localStorage.removeItem(userKey);
         localStorage.removeItem(guestEntryKey);
+        localStorage.removeItem(guestCredentialKey);
       } catch(_) {}
       redirectToLogin();
     }
@@ -318,9 +326,9 @@
 </div>
 
 <script src="runtime-config.js"></script>
-<script src="supabase-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
-<script src="app.js?v=20260914-mobile-session-recovery-long-v33"></script>
-<script src="rooms-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="supabase-client.js?v=20260915-long-bot-v34-v36"></script>
+<script src="app.js?v=20260915-long-bot-v34-v36"></script>
+<script src="rooms-client.js?v=20260915-long-bot-v34-v36"></script>
 <script>
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
@@ -335,6 +343,10 @@
     play_create_room: 'Создать комнату',
     play_create_room_sub: 'Настроить игру с другим игроком',
     play_code: 'Войти по коду',
+    close_room: 'Закрыть',
+    closing_room: 'Закрываем…',
+    active_room_conflict: 'У вас уже есть активная комната. Вернитесь в неё или закройте её перед созданием новой.',
+    close_room_failed: 'Не удалось закрыть комнату. Обновите список и повторите попытку.',
     sessions_loading: 'Загрузка игровых сессий…',
     sessions_load_failed: 'Не удалось обновить игровые сессии',
   });
@@ -348,6 +360,10 @@
     play_create_room: 'Create a room',
     play_create_room_sub: 'Set up a game with another player',
     play_code: 'Join by code',
+    close_room: 'Close',
+    closing_room: 'Closing…',
+    active_room_conflict: 'You already have an active room. Return to it or close it before creating another one.',
+    close_room_failed: 'Could not close the room. Refresh the list and try again.',
     sessions_loading: 'Loading game sessions…',
     sessions_load_failed: 'Could not refresh game sessions',
   });
@@ -372,6 +388,8 @@
   const CREATE_GAME_KEY = 'narduh-created-game';
   const STALE_ROOM_CODES_KEY = 'narduh-stale-room-codes';
   const LOBBY_CLEANUP_TIMEOUT_MS = 8000;
+  const LOBBY_ROOM_CLOSE_TIMEOUT_MS = 4000;
+  const LOBBY_ACTIVE_ROOM_TIMEOUT_MS = 5000;
   const LOBBY_ROOM_REFRESH_TIMEOUT_MS = 3000;
   const LOBBY_JOIN_TIMEOUT_MS = 10000;
   const LOBBY_JOIN_RECONCILE_TIMEOUT_MS = 3000;
@@ -402,6 +420,7 @@
   let roomsRefreshGeneration = 0;
   let activeLobbyRoomCode = '';
   const pendingStaleRoomCodes = new Set();
+  const closingRoomCodes = new Set();
   let activeSessionFilter = 'all';
 
   function readPlayerRooms() {
@@ -431,13 +450,25 @@
     const generation = ++roomsRefreshGeneration;
     try {
       const data = await NarduRooms.listRooms();
+      const activeData = await NarduRooms.getActiveRoom();
       if (generation !== roomsRefreshGeneration) return;
-      playerRooms = data.rooms || [];
+      const activeRoom = activeData?.room || null;
+      const mergedRooms = [...(data.rooms || [])];
+      if (activeRoom?.code && !mergedRooms.some(room => room.code === activeRoom.code)) {
+        mergedRooms.unshift(activeRoom);
+      }
+      playerRooms = mergedRooms;
+      if (activeRoom?.code) {
+        NarduApp.safeStorageSet('narduh-active-room-conflict', JSON.stringify(activeRoom));
+      } else {
+        try { localStorage.removeItem('narduh-active-room-conflict'); } catch {}
+      }
       roomsLoaded = true;
       roomsLoadFailed = false;
       renderTables();
-    } catch {
+    } catch (error) {
       if (generation !== roomsRefreshGeneration) return;
+      if (redirectForRoomAuthError(error)) return;
       roomsLoadFailed = true;
       renderTables();
       /* keep the last visible session list if the server is restarting */
@@ -467,6 +498,10 @@
     return [...new Set(codes)];
   }
 
+  function cleanupRoomCodes() {
+    return [...new Set([...pendingStaleRoomCodes, ...staleRoomCodes()])];
+  }
+
   function clearClosedRoomStorage(closedCodes, attemptedCodes = []) {
     const closed = new Set((closedCodes || []).map(code => String(code).trim().toUpperCase()));
     const settledStale = new Set([
@@ -491,27 +526,123 @@
         localStorage.removeItem(key);
       }
     });
+    closed.forEach(code => {
+      try { localStorage.removeItem(`narduh-bot-game:${code}`); } catch {}
+    });
+    try {
+      const conflict = JSON.parse(localStorage.getItem('narduh-active-room-conflict') || 'null');
+      if (conflict?.code && closed.has(String(conflict.code).trim().toUpperCase())) {
+        localStorage.removeItem('narduh-active-room-conflict');
+      }
+    } catch {
+      localStorage.removeItem('narduh-active-room-conflict');
+    }
   }
 
   async function closeOwnRoomsOnLobbyEntry() {
     let timeoutId;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
     try {
-      const capturedCodes = storedRoomCodes();
+      const capturedCodes = cleanupRoomCodes();
+      if (!capturedCodes.length) return { ok: true, closedCodes: [] };
       const data = await Promise.race([
-        NarduRooms.closeOwnLobbyRooms({ codes: capturedCodes }),
+        Promise.allSettled(capturedCodes.map(code => NarduRooms.closeWaitingRoom(code, {
+          signal: controller?.signal,
+        }))).then(results => {
+          const closedCodes = [];
+          const settledCodes = [];
+          const retryErrors = [];
+          let authError = null;
+          results.forEach((result, index) => {
+            const code = capturedCodes[index];
+            if (result.status === 'fulfilled') {
+              settledCodes.push(code);
+              if (result.value?.removed || result.value?.closed === true) closedCodes.push(code);
+              return;
+            }
+            const error = result.reason;
+            if (Number(error?.status) === 401) authError ||= error;
+            else if (Number(error?.status) === 403) settledCodes.push(code);
+            else retryErrors.push(error);
+          });
+          clearClosedRoomStorage(closedCodes, settledCodes);
+          if (authError) throw authError;
+          return {
+            ok: retryErrors.length === 0,
+            closedCodes,
+            retryErrors,
+          };
+        }),
         new Promise((_, reject) => {
           timeoutId = setTimeout(
-            () => reject(new Error(tt('err_session'))),
+            () => {
+              controller?.abort();
+              reject(new Error(tt('err_session')));
+            },
             LOBBY_CLEANUP_TIMEOUT_MS,
           );
         }),
       ]);
-      clearClosedRoomStorage(data.closedCodes || [], capturedCodes);
       return data;
     } catch (error) {
       if (redirectForRoomAuthError(error)) return { ok: false, redirected: true, closedCodes: [] };
       console.warn('Could not close owned rooms after lobby entry', error?.message || error);
       return { ok: false, closedCodes: [] };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async function closeWaitingRoomWithTimeout(code, timeoutMs = LOBBY_ROOM_CLOSE_TIMEOUT_MS) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId;
+    try {
+      return await Promise.race([
+        NarduRooms.closeWaitingRoom(code, { signal: controller?.signal }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            controller?.abort();
+            reject(new Error(tt('err_session')));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async function closeBotRoomWithTimeout(code, timeoutMs = LOBBY_ROOM_CLOSE_TIMEOUT_MS) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId;
+    try {
+      return await Promise.race([
+        NarduRooms.closeBotRoom(code, { signal: controller?.signal }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            controller?.abort();
+            reject(new Error(tt('err_session')));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async function loadActiveRoomWithTimeout() {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId;
+    try {
+      const data = await Promise.race([
+        NarduRooms.getActiveRoom({ signal: controller?.signal }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            controller?.abort();
+            reject(new Error(tt('err_session')));
+          }, LOBBY_ACTIVE_ROOM_TIMEOUT_MS);
+        }),
+      ]);
+      return data?.room || null;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -584,18 +715,21 @@
   }
 
   function goToExistingPlayerRoom(room) {
-    if (!room?.code) return false;
+    if (!room?.code || room.opponent === 'bot') return false;
     markLobbyRoomActive(room);
-    const isHost = normalizedName(room.hostName) === normalizedName(userName());
-      const params = new URLSearchParams({
-        mode: 'remote',
-        room: room.code,
-        color: isHost ? 'white' : 'dark',
-        opp: isHost ? (room.guestName || tt('opponent_waiting')) : room.hostName,
-        oppR: String(isHost ? (room.guestRating || 0) : (room.hostRating || 0)),
-        variant: room.variant || 'long',
-        opponent: 'player',
-        access: room.access || 'open',
+    const currentUserId = String(userId() || '');
+    const isHost = currentUserId
+      ? String(room.hostUserId || '') === currentUserId
+      : normalizedName(room.hostName) === normalizedName(userName());
+    const params = new URLSearchParams({
+      mode: 'remote',
+      room: room.code,
+      color: isHost ? 'white' : 'dark',
+      opp: isHost ? (room.guestName || tt('opponent_waiting')) : room.hostName,
+      oppR: String(isHost ? (room.guestRating || 0) : (room.hostRating || 0)),
+      variant: room.variant || 'long',
+      opponent: 'player',
+      access: room.access || 'open',
     });
     if (isHost) params.set('host', '1');
     else params.set('guest', '1');
@@ -606,6 +740,43 @@
     return true;
   }
 
+  function goToExistingBotRoom(room) {
+    if (!room?.code || room.opponent !== 'bot') return false;
+    const difficulty = ['easy', 'medium', 'hard'].includes(room.botDifficulty)
+      ? room.botDifficulty
+      : 'easy';
+    const playerColor = room.playerColor === 'dark' ? 'dark' : 'white';
+    const settings = {
+      game: room.code,
+      opponent: 'bot',
+      difficulty,
+      variant: room.variant || 'long',
+      botName: room.guestName || tt(botNameKeys[difficulty]),
+      botRating: Number(room.guestRating || botRatings[difficulty]),
+      updatedAt: new Date().toISOString(),
+    };
+    NarduApp.persistBotGameConfig(settings);
+    const params = new URLSearchParams({
+      mode: 'bot',
+      game: room.code,
+      color: playerColor,
+      opp: settings.botName,
+      oppR: String(settings.botRating),
+      variant: settings.variant,
+      opponent: 'bot',
+      access: 'open',
+      difficulty,
+    });
+    location.href = 'room.html?' + params.toString();
+    return true;
+  }
+
+  function goToExistingRoom(room) {
+    return room?.opponent === 'bot'
+      ? goToExistingBotRoom(room)
+      : goToExistingPlayerRoom(room);
+  }
+
   function tableRows() {
     const playerRooms = readPlayerRooms()
       .map(room => ({
@@ -613,7 +784,13 @@
           ? `${room.hostName} ${tt('vs') || 'vs'} ${room.guestName || tt('room_opponent')}`
           : room.hostName,
         hostName: room.hostName,
+        hostUserId: room.hostUserId || '',
         guestName: room.guestName || '',
+        guestUserId: room.guestUserId || '',
+        opponent: room.opponent || 'player',
+        bot: room.opponent === 'bot',
+        botDifficulty: room.botDifficulty || '',
+        playerColor: room.playerColor || '',
         rating: room.hostRating,
         tier: room.hostTier || '',
         mode: labelFor(variantLabelKeys, room.variant || 'long', 'long_backgammon'),
@@ -669,11 +846,28 @@
   }
 
   function isRoomParticipant(rowOrRoom) {
+    const currentUser = NarduApp.getUser() || {};
+    const currentUserId = String(currentUser.id || '');
+    const hostUserId = String(rowOrRoom.hostUserId || '');
+    const guestUserId = String(rowOrRoom.guestUserId || '');
+    if (currentUserId) {
+      if (hostUserId === currentUserId || guestUserId === currentUserId) return true;
+      if (currentUser.guest === true || hostUserId || guestUserId) return false;
+    }
     const name = normalizedName(userName());
     return Boolean(name) && (
       normalizedName(rowOrRoom.hostName) === name
       || normalizedName(rowOrRoom.guestName) === name
     );
+  }
+
+  function isRoomHost(rowOrRoom) {
+    const currentUser = NarduApp.getUser() || {};
+    const currentUserId = String(currentUser.id || '');
+    const hostUserId = String(rowOrRoom.hostUserId || '');
+    if (currentUserId && hostUserId) return hostUserId === currentUserId;
+    if (currentUser.guest === true) return false;
+    return normalizedName(rowOrRoom.hostName) === normalizedName(userName());
   }
 
   function playerRoomByCode(code) {
@@ -705,6 +899,10 @@
     const access = t.access || 'open';
     const status = t.status || 'waiting';
     const canReturn = t.roomCode && isRoomParticipant(t) && (status === 'joined' || status === 'waiting');
+    const canClose = t.roomCode && isRoomHost(t) && (
+      status === 'waiting'
+      || (status === 'joined' && t.opponent === 'bot')
+    );
     const canJoin = t.roomCode ? (status === 'waiting' || canReturn) : true;
     const canWatch = t.roomCode && status === 'joined' && t.allowSpectators === true && !canReturn;
     const actionLabel = canReturn ? tt('return_to_room') : (status === 'joined' ? tt('in_game') : tt('join'));
@@ -714,7 +912,7 @@
       ? `<span class="session-versus">${escapeHtml(t.hostName)} · ${escapeHtml(t.guestName || tt('room_opponent'))}</span>`
       : ratingMeta(t.rating, t.tier);
     return `
-      <div class="table-row ${status === 'joined' ? 'in-game' : ''} ${canReturn ? 'returnable' : ''}" data-host="${escapeHtml(t.host)}" data-access="${access}" data-status="${status}" data-variant="${t.variant || ''}" ${t.roomCode ? `data-room-code="${t.roomCode}"` : ''}>
+      <div class="table-row ${status === 'joined' ? 'in-game' : ''} ${canReturn ? 'returnable' : ''}" data-host="${escapeHtml(t.host)}" data-access="${access}" data-status="${status}" data-opponent="${escapeHtml(t.opponent || 'player')}" data-variant="${t.variant || ''}" ${t.roomCode ? `data-room-code="${t.roomCode}"` : ''}>
         <div class="t-host">
           <div class="t-av ${t.bot ? 'bot' : ''}">${initial}</div>
           <div>
@@ -729,6 +927,7 @@
         <div class="t-cell session-watchers-cell mono muted" data-label="${escapeHtml(tt('spectators'))}"><span class="watchers-pill" title="${escapeHtml(tt('spectators'))}">👁 ${Number(t.watchers || 0)}</span></div>
         <div class="t-cell session-actions-cell" data-label="${escapeHtml(tt('action'))}">
           ${canWatch ? `<button class="joinbtn secondary" data-watch-room="${escapeHtml(t.roomCode)}">${escapeHtml(tt('watch'))}</button>` : ''}
+          ${canClose ? `<button class="joinbtn secondary" data-close-room="${escapeHtml(t.roomCode)}">${escapeHtml(tt('close_room'))}</button>` : ''}
           <button class="joinbtn" ${canJoin ? `data-join="${escapeHtml(t.host)}"` : 'disabled'}>${actionLabel}</button>
         </div>
       </div>
@@ -815,14 +1014,52 @@
 
   document.getElementById('tables-list').addEventListener('click', async (e) => {
     const watchBtn = e.target.closest('[data-watch-room]');
+    const closeBtn = e.target.closest('[data-close-room]');
     const btn = e.target.closest('[data-join]');
     const row = e.target.closest('.table-row');
     if (!row) return;
     if (e.target.closest('[data-room-password-input]')) return;
     if (createRequestPending || joinRequestPending) return;
-    const actionGeneration = beginLobbyAction();
-    const cleanup = await ensureLobbyCleanup();
-    if (!isLobbyActionCurrent(actionGeneration) || !cleanup?.ok) return;
+
+    if (closeBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const code = String(closeBtn.dataset.closeRoom || '').trim().toUpperCase();
+      if (!code || closingRoomCodes.has(code)) return;
+      closingRoomCodes.add(code);
+      closeBtn.disabled = true;
+      closeBtn.textContent = tt('closing_room');
+      try {
+        const result = row.dataset.opponent === 'bot'
+          ? await closeBotRoomWithTimeout(code)
+          : await closeWaitingRoomWithTimeout(code);
+        if (result?.removed || result?.closed === true) {
+          clearClosedRoomStorage([code], [code]);
+          playerRooms = playerRooms.filter(room => String(room?.code || '').trim().toUpperCase() !== code);
+          renderTables();
+        } else {
+          await refreshPlayerRooms();
+          const currentRow = [...document.querySelectorAll('[data-room-code]')]
+            .find(item => String(item.dataset.roomCode || '').trim().toUpperCase() === code);
+          currentRow?.classList.add('row-error');
+          document.getElementById('sessions-status').textContent = result?.room?.status === 'joined'
+            ? tt('return_to_room')
+            : tt('close_room_failed');
+        }
+      } catch (error) {
+        if (redirectForRoomAuthError(error)) return;
+        row.classList.add('row-error');
+        document.getElementById('sessions-status').textContent = error?.message || tt('close_room_failed');
+      } finally {
+        closingRoomCodes.delete(code);
+        if (closeBtn.isConnected) {
+          closeBtn.disabled = false;
+          closeBtn.textContent = tt('close_room');
+        }
+      }
+      return;
+    }
+
     if (watchBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -833,11 +1070,15 @@
     if (row.dataset.status === 'joined' || row.dataset.status === 'waiting') {
       const room = playerRoomByCode(row.dataset.roomCode);
       if (room && isRoomParticipant(room)) {
-        goToExistingPlayerRoom(room);
+        goToExistingRoom(room);
         return;
       }
       if (row.dataset.status === 'joined') return;
     }
+
+    const actionGeneration = beginLobbyAction();
+    const cleanup = await ensureLobbyCleanup();
+    if (!isLobbyActionCurrent(actionGeneration) || !cleanup?.ok) return;
     if (row.dataset.roomCode) {
       const passwordInput = row.querySelector('[data-room-password-input]');
       const error = row.querySelector('[data-room-error]');
@@ -1000,6 +1241,30 @@
     createGameForm.setAttribute('aria-busy', 'true');
 
     if (createState.opponent === 'bot') {
+      try {
+        const cleanup = await ensureLobbyCleanup();
+        if (!isLobbyActionCurrent(actionGeneration)) return;
+        if (!cleanup?.ok) throw new Error(tt('err_session'));
+        const activeRoom = await loadActiveRoomWithTimeout();
+        if (!isLobbyActionCurrent(actionGeneration)) return;
+        if (activeRoom) {
+          if (activeRoom.opponent === 'bot' && goToExistingBotRoom(activeRoom)) return;
+          createError.textContent = tt('active_room_conflict');
+          createRequestPending = false;
+          createSubmit.disabled = false;
+          createGameForm.removeAttribute('aria-busy');
+          await refreshPlayerRooms();
+          return;
+        }
+      } catch (error) {
+        if (!isLobbyActionCurrent(actionGeneration)) return;
+        if (redirectForRoomAuthError(error)) return;
+        createError.textContent = error?.message || tt('err_session');
+        createRequestPending = false;
+        createSubmit.disabled = false;
+        createGameForm.removeAttribute('aria-busy');
+        return;
+      }
       const selectedDifficulty = document.querySelector('[data-create-option="difficulty"].active')?.dataset.value;
       if (['easy', 'medium', 'hard'].includes(selectedDifficulty)) {
         createState.difficulty = selectedDifficulty;
@@ -1062,7 +1327,7 @@
     } catch (err) {
       if (!isLobbyActionCurrent(actionGeneration)) return;
       if (redirectForRoomAuthError(err)) return;
-      if (err.data?.room && goToExistingPlayerRoom(err.data.room)) return;
+      if (err.data?.room && goToExistingRoom(err.data.room)) return;
       createError.textContent = err.message || tt('err_create_session');
       createRequestPending = false;
       createSubmit.disabled = false;

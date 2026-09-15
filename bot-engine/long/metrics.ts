@@ -903,6 +903,126 @@ export function blockingPrimeRun(state, color) {
   return longest;
 }
 
+function strongestBlockingPrime(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(opponent);
+  let best = null;
+  let runStart = -1;
+  let runLength = 0;
+
+  const consider = () => {
+    if (runStart < 0 || runLength < 4) return;
+    const trapped = path.slice(0, runStart).reduce((total, point) => (
+      total + countAt(state, point, opponent)
+    ), 0);
+    if (!trapped) return;
+    const candidate = {
+      start: runStart,
+      length: runLength,
+      trapped,
+      points: path.slice(runStart, runStart + runLength),
+    };
+    const value = Math.min(6, runLength) ** 2 * Math.min(5, trapped);
+    const bestValue = best
+      ? Math.min(6, best.length) ** 2 * Math.min(5, best.trapped)
+      : -1;
+    if (value > bestValue) best = candidate;
+  };
+
+  path.forEach((point, index) => {
+    if (colorAt(state, point) === color) {
+      if (!runLength) runStart = index;
+      runLength += 1;
+      return;
+    }
+    consider();
+    runStart = -1;
+    runLength = 0;
+  });
+  consider();
+  return best;
+}
+
+function blockingPrimeTiming(state, color) {
+  const prime = strongestBlockingPrime(state, color);
+  if (!prime) return null;
+  const opponent = opponentOf(color);
+  const opponentPath = pathFor(opponent);
+  const anchors = new Set(prime.points.map(Number));
+  let ownTiming = 0;
+  let ownMovers = 0;
+  let reserves = 0;
+  let opponentTiming = 0;
+
+  Object.entries(state.points || {}).forEach(([rawPoint, stack]) => {
+    const point = Number(rawPoint);
+    const count = Math.max(0, Number(stack?.count) || 0);
+    if (!count) return;
+    if (stack.color === color) {
+      const anchor = anchors.has(point) ? 1 : 0;
+      const movable = Math.max(0, count - anchor);
+      const position = pathPos(color, point);
+      if (anchor) reserves += movable;
+      if (position >= 0) {
+        ownMovers += movable;
+        // Only pips that can be consumed while every blocking point remains
+        // occupied count as timing.  Capping distant checkers prevents a head
+        // tower from looking like unlimited safe waiting time.
+        ownTiming += movable * Math.min(18, Math.max(0, 24 - position));
+      }
+      return;
+    }
+    if (stack.color !== opponent) return;
+    const position = pathPos(opponent, point);
+    if (position < 0) return;
+    const waitingDistance = position < prime.start
+      ? Math.max(0, prime.start - position - 1)
+      : Math.max(0, 24 - position);
+    opponentTiming += count * Math.min(18, waitingDistance);
+  });
+
+  return {
+    ...prime,
+    ownTiming,
+    ownMovers,
+    opponentTiming,
+    reserves,
+    margin: ownTiming - opponentTiming,
+  };
+}
+
+// A prime is useful only while the blocking side has enough harmless moves to
+// wait out the trapped side.  This 0..1 score deliberately separates the
+// strength of a blockade from its durability, which the old attack heuristic
+// treated as the same thing.
+export function primeSustainability(state, color) {
+  const timing = blockingPrimeTiming(state, color);
+  if (!timing) return 1;
+  const scale = 42 + Math.min(6, timing.length) * 7 + Math.min(5, timing.trapped) * 4;
+  const timingScore = Math.max(0, Math.min(1, 0.5 + timing.margin / scale));
+  const reserveScore = Math.max(0, Math.min(
+    1,
+    (timing.reserves * 1.6 + timing.ownTiming / 24)
+      / Math.max(4, Math.min(6, timing.length) * 1.5),
+  ));
+  return Math.max(0, Math.min(1, timingScore * 0.68 + reserveScore * 0.32));
+}
+
+// Risk grows when a powerful prime has no spare checkers and the opponent has
+// more waiting time.  It is intentionally zero when there is no active
+// four-point blockade, so normal racing positions are unaffected.
+export function primeCrunchRisk(state, color) {
+  const timing = blockingPrimeTiming(state, color);
+  if (!timing) return 0;
+  const runStrength = Math.max(0.25, Math.min(1, (Math.min(6, timing.length) - 3) / 3));
+  const trappedPressure = Math.min(2.2, 0.65 + Math.sqrt(timing.trapped) * 0.42);
+  const timingDeficit = Math.max(0, -timing.margin) / 30;
+  const reserveDeficit = timing.margin < 0
+    ? Math.max(0, 2 - timing.reserves) * 0.3
+    : 0;
+  return runStrength * trappedPressure * (timingDeficit + reserveDeficit);
+}
+
 function longestColorRun(state, points, color) {
   let longest = 0;
   let run = 0;

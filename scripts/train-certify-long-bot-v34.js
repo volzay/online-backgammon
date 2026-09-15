@@ -15,7 +15,7 @@ const {
   summarizeSplit,
   validateSuiteDiceStreams,
   validationPassed,
-} = require('./long-bot-v33-harness');
+} = require('./long-bot-v34-harness');
 const {
   fileFingerprint,
   fingerprintNamedBuffers,
@@ -175,7 +175,7 @@ function parseOptions(argv) {
   const trainedExperienceOutput = path.resolve(stringOption(
     parsed,
     'trained-experience-output',
-    output ? derivedExperiencePath(output) : 'long-bot-v33.experience.json',
+    output ? derivedExperiencePath(output) : 'long-bot-v34.experience.json',
   ));
   if (resolvedOutput && resolvedOutput === trainedExperienceOutput) {
     throw new Error('--output and --trained-experience-output must be different files');
@@ -477,7 +477,7 @@ function dryRunReport(options) {
   );
   const holdoutPairs = options.seedSplits.holdout.length * options.gamesPerSeed / 2;
   return {
-    harness: 'long-bot-v33-offline-training-certification',
+    harness: 'long-bot-v34-offline-training-certification',
     dryRun: true,
     provenance: provenance(),
     suiteFingerprint: suiteFingerprint(options.seedSplits, options.gamesPerSeed),
@@ -498,7 +498,7 @@ function dryRunReport(options) {
 function provenance() {
   return {
     orchestratorFingerprint: fileFingerprint(__filename),
-    metricsFingerprint: fileFingerprint(path.join(__dirname, 'long-bot-v33-harness.js')),
+    metricsFingerprint: fileFingerprint(path.join(__dirname, 'long-bot-v34-harness.js')),
     simulatorFingerprint: fileFingerprint(SIMULATOR),
     nodeVersion: process.version,
     platform: process.platform,
@@ -512,7 +512,7 @@ async function main() {
     console.log(JSON.stringify(dryRunReport(options), null, 2));
     return;
   }
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-bot-v33-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-bot-v34-'));
   try {
     const outcome = await runPipeline(options, realRunners(options, directory));
     atomicCopy(outcome.experience, options.trainedExperienceOutput);

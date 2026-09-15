@@ -3,9 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createHash } = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
+const MOBILE_GUEST_PROOF = `gproof:${'51'.repeat(32)}`;
+const MOBILE_GUEST_ID = `guest:sha256:${createHash('sha256')
+  .update(`nardu/guest/v1:${MOBILE_GUEST_PROOF}`)
+  .digest('hex')}`;
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -353,7 +358,12 @@ test('a resumed guest heartbeat cannot roll presence back to its suspended times
     static now() { return nowMs; }
   }
   const localStorage = memoryStorage({
-    'narduh-user': JSON.stringify({ id: 'guest:mobile', name: 'Mobile guest', guest: true }),
+    'narduh-user': JSON.stringify({ id: MOBILE_GUEST_ID, name: 'Mobile guest', guest: true }),
+    'narduh-guest-credential-v1': JSON.stringify({
+      version: 1,
+      guestId: MOBILE_GUEST_ID,
+      proof: MOBILE_GUEST_PROOF,
+    }),
   });
   let releaseFirstInsert;
   const firstInsert = new Promise(resolve => { releaseFirstInsert = resolve; });
@@ -655,7 +665,11 @@ test('a late lobby response cannot replace a newer room list', async () => {
         if (requests === 1) return oldRefresh;
         return Promise.resolve({ rooms: [{ code: 'NEW-ROOM' }] });
       },
+      getActiveRoom() {
+        return Promise.resolve({ room: null });
+      },
     },
+    redirectForRoomAuthError: () => false,
     renderTables() {},
   };
   vm.createContext(context);
@@ -1053,28 +1067,38 @@ test('the room heartbeat reports its own watchdog timeout but ignores lifecycle 
   assert.equal(networkPanels.length, 1, 'foreground/pagehide cancellation must stay silent');
 });
 
-test('bot startup and room presence do not depend on a suspended lobby request', () => {
+test('bot startup is guarded by the server room while room presence remains resumable', () => {
   const lobby = read('index.html');
   const room = read('room.html');
   const controller = read('game-controller.js');
   const roomsClient = read('rooms-client.js');
   const botBranch = lobby.indexOf("if (createState.opponent === 'bot')");
-  const playerCleanup = lobby.indexOf('const cleanup = await ensureLobbyCleanup();', botBranch);
+  const botCleanup = lobby.indexOf('const cleanup = await ensureLobbyCleanup();', botBranch);
+  const activeRoomGuard = lobby.indexOf('const activeRoom = await loadActiveRoomWithTimeout();', botCleanup);
+  const botNavigation = lobby.indexOf('const gameCode = createLocalGameCode();', activeRoomGuard);
 
-  assert.ok(botBranch >= 0 && playerCleanup > botBranch, 'local bot navigation must precede online-room cleanup');
+  assert.ok(botBranch >= 0 && botCleanup > botBranch);
+  assert.ok(activeRoomGuard > botCleanup && botNavigation > activeRoomGuard, 'bot navigation must wait for the server active-room guard');
   assert.match(lobby, /async function ensureLobbyCleanup\(\)[\s\S]*if \(cleanup\?\.ok \|\| cleanup\?\.redirected\) return cleanup;[\s\S]*return runLobbyCleanup\(\);/);
-  assert.match(lobby, /LOBBY_CLEANUP_TIMEOUT_MS = 8000[\s\S]*Promise\.race\(\[[\s\S]*closeOwnLobbyRooms/);
+  assert.match(lobby, /LOBBY_CLEANUP_TIMEOUT_MS = 8000[\s\S]*Promise\.allSettled\(capturedCodes\.map\(code => NarduRooms\.closeWaitingRoom/);
+  const cleanupCodes = lobby.match(/function cleanupRoomCodes\(\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.doesNotMatch(cleanupCodes, /ACTIVE_ROOM_KEY|CREATE_GAME_KEY/);
   assert.match(lobby, /const code = room\?\.code \|\| room\?\.game/);
   assert.match(lobby, /function resetLobbyPendingActions\(\)[\s\S]*createRequestPending = false;[\s\S]*createSubmit\.disabled = false/);
   assert.match(lobby, /pageshow[\s\S]*event\.persisted\) resetLobbyPendingActions\(\)/);
   assert.doesNotMatch(lobby, /lobbyCleanupPromise = closeOwnRoomsOnLobbyEntry\(\)\s*\.finally\(refreshPlayerRooms\)/);
-  assert.match(roomsClient, /if \(!codes\.length\) return \{ ok: true, closedCodes: \[\] \};[\s\S]*\.in\("code", codes\)/);
-  assert.match(controller, /LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS = 4500/);
-  assert.match(controller, /BOT_ANALYSIS_STARTUP_WAIT_MS = 15000/);
+  assert.match(roomsClient, /async function getActiveRoom\(options = \{\}\)/);
+  assert.match(roomsClient, /async function closeWaitingRoom\(code, options = \{\}\)/);
+  assert.match(roomsClient, /async function closeWaitingRoom[\s\S]*\.eq\("status", "waiting"\)[\s\S]*\.is\("guest_user_id", null\)[\s\S]*\.is\("guest_guest_id", null\)/);
+  assert.match(roomsClient, /identity\.userId\s*\? query\.eq\("host_user_id", identity\.userId\)\s*:\s*query\.eq\("host_guest_id", identity\.guestId\)/);
+  assert.match(controller, /LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS =\s*LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS \* LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS \+ 500/);
+  assert.doesNotMatch(controller, /BOT_ANALYSIS_STARTUP_WAIT_MS/);
   assert.match(controller, /BOT_ANALYSIS_RESTORE_TIMEOUT_MS = 12000/);
   assert.match(controller, /promiseWithTimeout\(\s*restoreBotAnalysisState[\s\S]*BOT_ANALYSIS_RESTORE_TIMEOUT_MS/);
-  assert.match(controller, /ensureAutoProgressAfterExperience\(\s*650,\s*Math\.min\(\s*LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS,\s*Math\.max\(0, startupDeadlineAt - Date\.now\(\)\)/);
-  assert.match(controller, /Promise\.race\(\[[\s\S]*loadLongBotExperienceBeforeStart\(\)[\s\S]*Number\(maxExperienceWaitMs\)/);
+  assert.match(controller, /error\?\.status === 404[\s\S]*ensureBotAnalysisRoomReady\(botAnalysisPayload\(\)\)/);
+  assert.match(controller, /ensureAutoProgressAfterExperience\(\s*650,\s*LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS/);
+  assert.match(controller, /const loadExperience = loadLongBotExperienceBeforeStart\(\)/);
+  assert.match(controller, /Promise\.race\(\[\s*loadExperience,[\s\S]*Number\(maxExperienceWaitMs\)/);
   assert.match(controller, /botAnalysisOwnershipUnknown = true/);
   assert.match(controller, /Promise\.resolve\(botPublishPromise\)\.then\(persisted => \{[\s\S]*!persisted \|\| botAnalysisOwnershipUnknown[\s\S]*recordRating\(\)/);
   assert.match(controller, /BOT_ANALYSIS_WRITE_TIMEOUT_MS = 5000/);

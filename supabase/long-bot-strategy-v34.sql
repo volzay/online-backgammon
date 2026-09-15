@@ -129,7 +129,8 @@ begin
          'long-analytic-v30',
          'long-analytic-v31',
          'long-analytic-v32',
-         'long-analytic-v33'
+         'long-analytic-v33',
+         'long-analytic-v34'
        ) then
       if jsonb_typeof(training_coverage) <> 'object'
          or coalesce(training_coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -257,7 +258,8 @@ begin
       'long-analytic-v30',
       'long-analytic-v31',
       'long-analytic-v32',
-      'long-analytic-v33'
+      'long-analytic-v33',
+      'long-analytic-v34'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -432,7 +434,8 @@ begin
       'long-analytic-v30',
       'long-analytic-v31',
       'long-analytic-v32',
-      'long-analytic-v33'
+      'long-analytic-v33',
+      'long-analytic-v34'
     ) then
     if jsonb_typeof(coverage) <> 'object'
       or coalesce(coverage->'complete', 'false'::jsonb) <> 'true'::jsonb
@@ -632,7 +635,7 @@ as $$
       end) scanned(decision)
     ) integrity
     where g.difficulty = 'hard'
-      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33')
+      and g.engine_version in ('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33', 'long-analytic-v34')
       and g.completed_at >= now() - interval '180 days'
       and jsonb_typeof(g.decisions) = 'array'
       and coalesce(g.final_state->>'variant', '') = 'long'
@@ -729,6 +732,7 @@ as $$
       case
         when actor = 'opponent' and capture_version >= 2 then 4.0
         when actor = 'opponent' then 0.0
+        when engine_generation = 34 then 8.0
         when engine_generation = 33 then 7.0
         when engine_generation = 32 then 6.0
         when engine_generation = 31 then 5.0
@@ -744,9 +748,9 @@ as $$
   ), labeled as (
     select
       *,
-      actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
+      actor = 'bot' and engine_generation in (29, 30, 31, 32, 33, 34) and choice_count > 1
         and winner <> bot_color and harm_signal >= 1.1 as harmful,
-      (actor = 'bot' and engine_generation in (29, 30, 31, 32, 33) and choice_count > 1
+      (actor = 'bot' and engine_generation in (29, 30, 31, 32, 33, 34) and choice_count > 1
         and winner = bot_color and harm_signal < 1.1)
         or (
           actor = 'opponent'
@@ -773,13 +777,13 @@ as $$
     cross join lateral (
       select distinct candidate as action_key
       from (values
-        (case when engine_generation in (29, 30, 31, 32, 33) then descriptor->>'actionKey' end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->>'strategicActionKey', '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then descriptor->>'actionKey' end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->>'strategicActionKey', '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then coalesce(
           nullif(descriptor->>'familyActionKey', ''),
           regexp_replace(descriptor->>'actionKey', '\|route:[^|]*$', '')
         ) end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then coalesce(
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then coalesce(
           nullif(descriptor->>'legacyActionKey', ''),
           regexp_replace(
             coalesce(
@@ -790,9 +794,10 @@ as $$
             ''
           )
         ) end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
-        (case when engine_generation in (29, 30, 31, 32, 33) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>0, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>1, '') end),
+        (case when engine_generation in (29, 30, 31, 32, 33, 34) then nullif(descriptor->'behaviorActionKeys'->>2, '') end),
+        (case when engine_generation = 34 then nullif(descriptor->'behaviorActionKeys'->>3, '') end),
         (concat(
           'entry:', case
             when coalesce(public.long_bot_safe_numeric(features->'outsideReduction'), 0) > 0 then 'gain'
@@ -975,7 +980,8 @@ begin
         'long-analytic-v30',
         'long-analytic-v31',
         'long-analytic-v32',
-        'long-analytic-v33'
+        'long-analytic-v33',
+        'long-analytic-v34'
       );
     if old_relevant then
       old_key := pg_catalog.lower(pg_catalog.btrim(old.player_name));
@@ -989,7 +995,8 @@ begin
         'long-analytic-v30',
         'long-analytic-v31',
         'long-analytic-v32',
-        'long-analytic-v33'
+        'long-analytic-v33',
+        'long-analytic-v34'
       );
     if new_relevant then
       new_key := pg_catalog.lower(pg_catalog.btrim(new.player_name));
@@ -1132,7 +1139,8 @@ where g.difficulty = 'hard'
     'long-analytic-v30',
     'long-analytic-v31',
     'long-analytic-v32',
-    'long-analytic-v33'
+    'long-analytic-v33',
+    'long-analytic-v34'
   )
   and g.completed_at >= pg_catalog.now() - interval '180 days'
   and pg_catalog.btrim(g.player_name) <> ''
@@ -1193,7 +1201,8 @@ where g.difficulty = 'hard'
     'long-analytic-v30',
     'long-analytic-v31',
     'long-analytic-v32',
-    'long-analytic-v33'
+    'long-analytic-v33',
+    'long-analytic-v34'
   )
   and g.completed_at >= pg_catalog.now() - interval '180 days'
   and pg_catalog.btrim(g.player_name) <> ''
@@ -1272,7 +1281,9 @@ begin
     from cron.job
     where jobname in (
       'refresh-long-bot-experience-v33',
-      'cleanup-long-bot-experience-v33-job-history'
+      'cleanup-long-bot-experience-v33-job-history',
+      'refresh-long-bot-experience-v34',
+      'cleanup-long-bot-experience-v34-job-history'
     )
   loop
     perform cron.unschedule(old_job.jobid);
@@ -1281,7 +1292,7 @@ begin
   end loop;
 
   perform cron.schedule(
-    'refresh-long-bot-experience-v33',
+    'refresh-long-bot-experience-v34',
     '* * * * *',
     $command$
       set statement_timeout = '2min';
@@ -1289,7 +1300,7 @@ begin
     $command$
   );
   perform cron.schedule(
-    'cleanup-long-bot-experience-v33-job-history',
+    'cleanup-long-bot-experience-v34-job-history',
     '17 3 * * *',
     $command$
       set statement_timeout = '2min';
@@ -1305,7 +1316,8 @@ begin
               'long-analytic-v30',
               'long-analytic-v31',
               'long-analytic-v32',
-              'long-analytic-v33'
+              'long-analytic-v33',
+              'long-analytic-v34'
             )
             and game.completed_at >= pg_catalog.now() - interval '180 days'
             and game.player_name = pg_catalog.btrim(game.player_name)
@@ -1316,8 +1328,8 @@ begin
         select job.jobid
         from cron.job job
         where job.jobname in (
-          'refresh-long-bot-experience-v33',
-          'cleanup-long-bot-experience-v33-job-history'
+          'refresh-long-bot-experience-v34',
+          'cleanup-long-bot-experience-v34-job-history'
         )
       )
         and details.end_time < pg_catalog.now() - interval '7 days';

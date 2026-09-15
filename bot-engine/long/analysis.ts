@@ -8,9 +8,11 @@ import {
   opponentTrapRisk,
   outsideHomeCount,
   pipsFor,
+  primeCrunchRisk,
 } from './metrics.ts';
 
 const MAX_REPLY_SEQUENCES = 8;
+const MAX_DOUBLE_REPLY_SEQUENCES = 4;
 export const MAX_TACTICAL_CANDIDATES = 4;
 const MAX_DEEP_CANDIDATES = 2;
 const MAX_RECOVERY_SEQUENCES = 2;
@@ -106,6 +108,7 @@ export function analyzeOpponentReplies(
   const opponent = opponentOf(color);
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
+    expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
     expectedImpact: 0,
     weight: 0,
     worstImpact: 0,
@@ -134,18 +137,29 @@ export function analyzeOpponentReplies(
         roll.dice,
         expandDoubles,
       );
+      const expandedDouble = expandDoubles
+        && roll.dice.length === 2
+        && roll.dice[0] === roll.dice[1];
       const legalReplies = adapter.legalSequences(replyState, opponent, {
-        limit: expandDoubles ? 18 : 0,
+        limit: accumulator.expandedReplyCoverage
+          ? (expandedDouble ? 24 : 0)
+          : (expandDoubles ? 18 : 0),
       });
-      const replySequences = expandDoubles
-        ? legalReplies.slice(0, 2)
-        : sampledSequences(legalReplies, MAX_REPLY_SEQUENCES);
+      const replySequences = sampledSequenceResults(
+        adapter,
+        replyState,
+        opponent,
+        legalReplies,
+        accumulator.expandedReplyCoverage
+          ? (expandedDouble ? MAX_DOUBLE_REPLY_SEQUENCES : MAX_REPLY_SEQUENCES)
+          : 2,
+        { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
+      );
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
 
-      for (const reply of replySequences) {
-        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+      for (const { sequence: reply, after: replyAfter } of replySequences) {
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
@@ -214,6 +228,7 @@ export function analyzeOpponentReplies(
       expectedOpponentHeadRelease: accumulator.opponentHeadRelease / accumulator.weight,
       expectedOpponentOutsideReduction: accumulator.opponentOutsideReduction / accumulator.weight,
       doublesExpanded: expandDoubles,
+      replyCoverageExpanded: accumulator.expandedReplyCoverage,
     };
   });
 
@@ -266,6 +281,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'routeContinuityTacticalReservation',
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
+    'primeSustainabilityTacticalReservation',
   ];
   candidates.forEach((candidate) => {
     const key = positionKey(candidate.after);
@@ -348,14 +364,16 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
       const legalRecoverySequences = adapter.legalSequences(recoveryState, color, {
         limit: expandDoubles ? 4 : 0,
       });
-      const recoverySequences = sampledSequences(
+      const recoverySequences = sampledSequenceResults(
+        adapter,
+        recoveryState,
+        color,
         legalRecoverySequences,
         MAX_RECOVERY_SEQUENCES,
       );
       let bestRecovery = recoverySequences.length ? -Infinity : 0;
       let bestRecoveryState = recoveryState;
-      for (const sequence of recoverySequences) {
-        const recoveryAfter = adapter.applySequence(recoveryState, sequence, color);
+      for (const { sequence, after: recoveryAfter } of recoverySequences) {
         const sequenceValue = scoreSequence(
           recoveryState,
           recoveryAfter,
@@ -451,7 +469,8 @@ function hasTacticalReservation(candidate) {
   return Number(features.homeEntryTacticalReservation || 0) > 0
     || Number(features.routeContinuityTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
-    || Number(features.contestedHeadExitTacticalReservation || 0) > 0;
+    || Number(features.contestedHeadExitTacticalReservation || 0) > 0
+    || Number(features.primeSustainabilityTacticalReservation || 0) > 0;
 }
 
 function completeProvisionalLeaderAnalysis(
@@ -534,10 +553,15 @@ function analyzeContinuationReplies(
       const legalReplies = adapter.legalSequences(replyState, opponent, {
         limit: expandDoubles ? 4 : 0,
       });
-      const replies = sampledSequences(legalReplies, MAX_CONTINUATION_SEQUENCES);
+      const replies = sampledSequenceResults(
+        adapter,
+        replyState,
+        opponent,
+        legalReplies,
+        MAX_CONTINUATION_SEQUENCES,
+      );
       let worstValue = beforeValue;
-      for (const reply of replies) {
-        const replyAfter = adapter.applySequence(replyState, reply, opponent);
+      for (const { sequence: reply, after: replyAfter } of replies) {
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
@@ -685,7 +709,15 @@ export function experienceDescriptor(
       signedFlag('block', features.opponentMoveBlockGain),
       signedFlag('latent', features.latentFenceExposureDelta),
     ].join('|'),
+    // Keep the established v33 aliases at indexes 0..2.  The server-side
+    // aggregate and frozen sessions already treat index 2 as prospective-fence
+    // evidence, so new compatible aliases must only be appended.
     prospectiveFenceBehavior,
+    [
+      signedFlag('prime-timing', features.primeSustainabilityDelta),
+      signedFlag('self-crunch', features.primeCrunchRiskDelta),
+      `prime-run:${Math.max(0, Number(features.primeRunAfter) || 0)}`,
+    ].join('|'),
   ];
 
   const urgency = 1
@@ -711,6 +743,16 @@ export function experienceDescriptor(
     4,
     Math.max(0, -(Number(features.latentFenceExposureDelta) || 0)),
   );
+  mistakeSeverity += Math.min(
+    4.5,
+    Math.max(0, -(Number(features.primeCrunchRiskDelta) || 0)) * 1.7,
+  );
+  if (
+    Number(features.primeRunAfter || 0) >= 4
+    && Number(features.primeSustainabilityAfter || 0) < 0.32
+  ) {
+    mistakeSeverity += (0.32 - Number(features.primeSustainabilityAfter || 0)) * 5;
+  }
   if (
     Number(features.primeRunBefore || 0) >= 4
     && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -722,9 +764,19 @@ export function experienceDescriptor(
     mistakeSeverity += Math.min(2.4, Number(features.trapBefore) / 180);
   }
   const outsideAfterMove = Math.max(0, outside - Number(features.outsideReduction || 0));
-  if (outsideAfterMove > 0 && avoidableHomeShuffleMoves > 0) {
+  const completedEntryWithAvoidableShuffle = phase === 'late-entry'
+    && outsideAfterMove === 0
+    && avoidableHomeShuffleMoves > 0;
+  if (
+    avoidableHomeShuffleMoves > 0
+    && (outsideAfterMove > 0 || completedEntryWithAvoidableShuffle)
+  ) {
     const baseShuffleSeverity = Number(features.outsideReduction || 0) > 0 ? 0.75 : 1.15;
-    mistakeSeverity += baseShuffleSeverity + Math.min(1.2, outsideAfterMove / 8);
+    // Entering the final checker does not excuse spending the other die on a
+    // safely avoidable home shuffle. In 8RMS that hid a legal bear-off from
+    // outcome credit and let a win reinforce the objectively weaker move.
+    mistakeSeverity += baseShuffleSeverity
+      + (completedEntryWithAvoidableShuffle ? 0.55 : Math.min(1.2, outsideAfterMove / 8));
   }
   if (ownHead > 0 && Number(features.headGain || 0) <= 0 && (ownHead <= 2 || opponentOff > 0)) {
     mistakeSeverity += 1.4;
@@ -759,8 +811,13 @@ export function experienceDescriptor(
       6,
       Math.max(0, Number(features.avoidableProspectiveFenceAnchorMiss) || 0) / 12,
     ),
-    avoidableHomeShuffleMoves > 0 && outsideAfterMove > 0
-      ? 1.1 + Math.min(2.2, outsideAfterMove / 5)
+    Math.min(6, Math.max(0, -(Number(features.primeCrunchRiskDelta) || 0)) * 1.8),
+    Number(features.primeRunAfter || 0) >= 4
+      ? Math.max(0, 0.35 - Number(features.primeSustainabilityAfter || 0)) * 8
+      : 0,
+    avoidableHomeShuffleMoves > 0
+      && (outsideAfterMove > 0 || completedEntryWithAvoidableShuffle)
+      ? 1.1 + Math.min(2.2, Math.max(1, outsideAfterMove) / 5)
       : 0,
     Number(features.primeRunBefore || 0) >= 4
       && Number(features.primeRunAfter || 0) < Number(features.primeRunBefore || 0)
@@ -1016,27 +1073,47 @@ function prepareReplyState(state, color, dice, expandDoubles = false) {
   };
 }
 
-function sampledSequences(sequences, limit) {
+function sampledSequenceResults(adapter, state, color, sequences, limit, options = {}) {
   const legal = (Array.isArray(sequences) ? sequences : []).filter(sequence => sequence?.length);
-  if (legal.length <= limit) return legal;
-  const sampled = [];
-  const seen = new Set();
-  const add = (sequence) => {
-    if (!sequence || sampled.length >= limit) return;
-    const key = sequence.map(move => `${move.from}:${move.die}`).join(',');
-    if (seen.has(key)) return;
-    seen.add(key);
-    sampled.push(sequence);
+  if (!legal.length) return [];
+  const normalizedLimit = Math.max(1, Number(limit) || 1);
+  const preferredIndexes = [];
+  const queuedIndexes = new Set();
+  const queue = (index) => {
+    if (index < 0 || index >= legal.length || queuedIndexes.has(index)) return;
+    queuedIndexes.add(index);
+    preferredIndexes.push(index);
   };
-  const bestBearOff = legal.reduce((best, sequence) => {
-    const offMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
-    const bestOffMoves = best.filter(move => move.bearOff || move.to === 0).length;
-    return offMoves > bestOffMoves ? sequence : best;
-  }, legal[0]);
-  if (bestBearOff.some(move => move.bearOff || move.to === 0)) add(bestBearOff);
-  for (let index = 0; index < limit; index += 1) {
-    const sourceIndex = Math.round(index * (legal.length - 1) / Math.max(1, limit - 1));
-    add(legal[sourceIndex]);
+  if (options.preferLeading) {
+    for (let index = 0; index < normalizedLimit; index += 1) queue(index);
+  } else {
+    const bestBearOffIndex = legal.reduce((bestIndex, sequence, index) => {
+      const offMoves = sequence.filter(move => move.bearOff || move.to === 0).length;
+      const bestOffMoves = legal[bestIndex]
+        .filter(move => move.bearOff || move.to === 0).length;
+      return offMoves > bestOffMoves ? index : bestIndex;
+    }, 0);
+    if (legal[bestBearOffIndex].some(move => move.bearOff || move.to === 0)) {
+      queue(bestBearOffIndex);
+    }
+    for (let index = 0; index < normalizedLimit; index += 1) {
+      queue(Math.round(index * (legal.length - 1) / Math.max(1, normalizedLimit - 1)));
+    }
+  }
+  // Uniform probes retain the old sampling bias. The ordered fallback only
+  // fills holes when those probes are equivalent move orders.
+  for (let index = 0; index < legal.length; index += 1) queue(index);
+
+  const sampled = [];
+  const seenPositions = new Set();
+  for (const index of preferredIndexes) {
+    if (sampled.length >= normalizedLimit) break;
+    const sequence = legal[index];
+    const after = adapter.applySequence(state, sequence, color);
+    const key = positionKey(after);
+    if (seenPositions.has(key)) continue;
+    seenPositions.add(key);
+    sampled.push({ sequence, after });
   }
   return sampled;
 }

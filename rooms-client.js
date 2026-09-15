@@ -11,6 +11,14 @@
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
   const SHORT_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  const ROOM_SNAPSHOT_PREFIX = "narduh-room-state:";
+  const ROOM_SNAPSHOT_MAX_AGE_MS = 96 * 60 * 60 * 1000;
+  const ROOM_SNAPSHOT_RETAIN_LIMIT = 8;
+  const ROOM_SNAPSHOT_SCAN_LIMIT = 256;
+  const ROOM_SNAPSHOT_PRUNE_LIMIT = 32;
+  const ACTIVE_ROOM_STORAGE_KEY = "narduh-active-room";
+  const BOT_ANALYSIS_OWNER_STORAGE_VERSION = 1;
+  const BOT_ANALYSIS_OWNER_STORAGE_PREFIX = "narduh-bot-analysis-owner-v2:";
   const roomIdCache = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
@@ -50,22 +58,110 @@
   }
 
   function writeLongBotExperienceCache(patterns, playerKey) {
+    let payload = "";
     try {
       localStorage.removeItem(LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY);
       const validated = validatedLongBotExperience(patterns);
       if (!validated) {
         localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
-        return;
+        return false;
       }
-      localStorage.setItem(LONG_BOT_EXPERIENCE_CACHE_KEY, JSON.stringify({
+      payload = JSON.stringify({
         savedAt: Date.now(),
         playerKey: String(playerKey || ""),
         creditVersion: LONG_BOT_EXPERIENCE_CREDIT_VERSION,
         patterns: validated,
-      }));
-    } catch {
-      // Server experience remains optional when browser storage is unavailable.
+      });
+      localStorage.setItem(LONG_BOT_EXPERIENCE_CACHE_KEY, payload);
+      return true;
+    } catch (error) {
+      if (!payload || !isStorageQuotaError(error)) return false;
+      // Room recovery data must not prevent the next game from using shared
+      // experience. Keep the active room plus the bounded recent recovery
+      // window, remove only our own snapshots, then retry once.
+      pruneOldRoomSnapshotsForBotCache();
+      try {
+        localStorage.setItem(LONG_BOT_EXPERIENCE_CACHE_KEY, payload);
+        return true;
+      } catch {
+        return false;
+      }
     }
+  }
+
+  function isStorageQuotaError(error) {
+    const name = String(error?.name || "");
+    const message = String(error?.message || "");
+    const code = Number(error?.code);
+    return name === "QuotaExceededError"
+      || name === "NS_ERROR_DOM_QUOTA_REACHED"
+      || code === 22
+      || code === 1014
+      || /quota/i.test(message);
+  }
+
+  function pruneOldRoomSnapshotsForBotCache() {
+    const snapshots = [];
+    try {
+      const now = Date.now();
+      let activeRoomCode = "";
+      try {
+        const activeRoom = JSON.parse(localStorage.getItem(ACTIVE_ROOM_STORAGE_KEY) || "null");
+        activeRoomCode = normalizeCode(activeRoom?.code || activeRoom?.game || "");
+      } catch {}
+      let currentSnapshotKey = "";
+      try {
+        const pathname = String(window.location?.pathname || "");
+        const search = String(window.location?.search || "");
+        if (pathname) currentSnapshotKey = `${ROOM_SNAPSHOT_PREFIX}${pathname}${search}`;
+      } catch {}
+
+      const length = Math.min(
+        ROOM_SNAPSHOT_SCAN_LIMIT,
+        Math.max(0, Number(localStorage.length) || 0),
+      );
+      for (let index = 0; index < length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith(ROOM_SNAPSHOT_PREFIX)) continue;
+        let at = 0;
+        let valid = false;
+        let roomCode = "";
+        try {
+          const snapshot = JSON.parse(localStorage.getItem(key) || "null");
+          at = Number(snapshot?.at) || 0;
+          valid = Boolean(snapshot?.state && at > 0);
+          roomCode = normalizeCode(snapshot?.roomCode || snapshot?.state?.roomCode || "");
+        } catch {}
+        snapshots.push({
+          key,
+          at,
+          valid,
+          recent: valid && now - at <= ROOM_SNAPSHOT_MAX_AGE_MS,
+          current: valid && key === currentSnapshotKey,
+          activeRoom: valid && Boolean(activeRoomCode && roomCode === activeRoomCode),
+        });
+      }
+      const protectedKeys = new Set(
+        snapshots.filter(snapshot => snapshot.current).map(snapshot => snapshot.key),
+      );
+      const activeRoomSnapshot = snapshots
+        .filter(snapshot => snapshot.activeRoom)
+        .sort((left, right) => right.at - left.at)[0];
+      if (activeRoomSnapshot) protectedKeys.add(activeRoomSnapshot.key);
+      const recoverySlots = Math.max(0, ROOM_SNAPSHOT_RETAIN_LIMIT - protectedKeys.size);
+      const retainedRecentKeys = new Set(
+        snapshots
+          .filter(snapshot => snapshot.recent && !protectedKeys.has(snapshot.key))
+          .sort((left, right) => right.at - left.at)
+          .slice(0, recoverySlots)
+          .map(snapshot => snapshot.key),
+      );
+      snapshots
+        .filter(snapshot => !protectedKeys.has(snapshot.key) && !retainedRecentKeys.has(snapshot.key))
+        .sort((left, right) => left.at - right.at)
+        .slice(0, ROOM_SNAPSHOT_PRUNE_LIMIT)
+        .forEach(snapshot => localStorage.removeItem(snapshot.key));
+    } catch {}
   }
 
   function validatedShortBotExperience(patterns) {
@@ -133,14 +229,72 @@
     return `${code.slice(0, 4)}-${code.slice(4)}`;
   }
 
-  function botAnalysisOwnerToken(code) {
+  function validBotAnalysisOwnerToken(value) {
+    const token = String(value || "");
+    return /^[A-Za-z0-9_-]{32,128}$/.test(token) ? token : "";
+  }
+
+  function botAnalysisOwnerContext(code) {
     const normalizedCode = normalizeCode(code);
-    if (botAnalysisOwnerTokens.has(normalizedCode)) return botAnalysisOwnerTokens.get(normalizedCode);
-    const storageKey = `narduh-bot-analysis-owner:${normalizedCode}`;
+    const localUser = window.NarduApp?.getUser?.() || {};
+    const guestId = localUser.guest === true ? normalizedGuestId(localUser.id) : "";
+    const userId = localUser.guest === true ? "" : String(localUser.id || "").trim().slice(0, 128);
+    const ownerScope = guestId ? `guest|${guestId}` : (userId ? `user|${userId}` : "unknown");
+    return {
+      normalizedCode,
+      guestId,
+      cacheKey: `${ownerScope}|${normalizedCode}`,
+      sessionKey: `narduh-bot-analysis-owner:${normalizedCode}`,
+      persistentKey: guestId
+        ? `${BOT_ANALYSIS_OWNER_STORAGE_PREFIX}${guestId}:${normalizedCode}`
+        : `${BOT_ANALYSIS_OWNER_STORAGE_PREFIX}${normalizedCode}`,
+    };
+  }
+
+  function readPersistentBotAnalysisOwnerToken(context) {
+    if (!context.guestId) return "";
     try {
-      const stored = String(window.sessionStorage?.getItem(storageKey) || '');
-      if (/^[A-Za-z0-9_-]{32,}$/.test(stored)) {
-        botAnalysisOwnerTokens.set(normalizedCode, stored);
+      const stored = JSON.parse(window.localStorage?.getItem(context.persistentKey) || "null");
+      if (
+        Number(stored?.version) !== BOT_ANALYSIS_OWNER_STORAGE_VERSION
+        || stored?.guestId !== context.guestId
+      ) return "";
+      return validBotAnalysisOwnerToken(stored.token);
+    } catch {
+      return "";
+    }
+  }
+
+  function persistBotAnalysisOwnerToken(context, token) {
+    try { window.sessionStorage?.setItem(context.sessionKey, token); } catch {}
+    if (!context.guestId) return;
+    try {
+      window.localStorage?.setItem(context.persistentKey, JSON.stringify({
+        version: BOT_ANALYSIS_OWNER_STORAGE_VERSION,
+        guestId: context.guestId,
+        token,
+      }));
+    } catch {
+      // sessionStorage still keeps existing tabs usable when persistent storage is unavailable.
+    }
+  }
+
+  function botAnalysisOwnerToken(code) {
+    const context = botAnalysisOwnerContext(code);
+    if (botAnalysisOwnerTokens.has(context.cacheKey)) return botAnalysisOwnerTokens.get(context.cacheKey);
+
+    const persisted = readPersistentBotAnalysisOwnerToken(context);
+    if (persisted) {
+      botAnalysisOwnerTokens.set(context.cacheKey, persisted);
+      try { window.sessionStorage?.setItem(context.sessionKey, persisted); } catch {}
+      return persisted;
+    }
+
+    try {
+      const stored = validBotAnalysisOwnerToken(window.sessionStorage?.getItem(context.sessionKey));
+      if (stored) {
+        botAnalysisOwnerTokens.set(context.cacheKey, stored);
+        persistBotAnalysisOwnerToken(context, stored);
         return stored;
       }
     } catch {}
@@ -148,16 +302,25 @@
     if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
     else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
     const token = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-    botAnalysisOwnerTokens.set(normalizedCode, token);
-    try { window.sessionStorage?.setItem(storageKey, token); } catch {}
+    botAnalysisOwnerTokens.set(context.cacheKey, token);
+    persistBotAnalysisOwnerToken(context, token);
     return token;
   }
 
+  function forgetBotAnalysisOwnerToken(code) {
+    const context = botAnalysisOwnerContext(code);
+    botAnalysisOwnerTokens.delete(context.cacheKey);
+    try { window.sessionStorage?.removeItem(context.sessionKey); } catch {}
+    try { window.localStorage?.removeItem(context.persistentKey); } catch {}
+  }
+
   async function apiJson(url, options = {}) {
+    const guestHeaders = window.NarduApp?.guestRequestHeaders?.() || {};
     const response = await fetch(url, {
       ...options,
       headers: {
         ...(options.headers || {}),
+        ...guestHeaders,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
       },
     });
@@ -335,20 +498,31 @@
     if (!row) return null;
     const hostRating = row.host_registered ? normalizeRating(row.host_rating) : null;
     const guestRating = row.guest_registered ? normalizeRating(row.guest_rating) : null;
+    const botAnalysis = isBotAnalysisRow(row);
     const room = {
       id: row.id,
       code: normalizeCode(row.code),
+      hostUserId: row.host_user_id || row.host_guest_id || row.hostUserId || "",
+      hostGuestId: row.host_guest_id || row.hostGuestId || "",
       hostName: row.host_name || row.hostName || "",
       hostRating,
       hostTier: row.host_registered && hostRating ? ratingTierFor(hostRating) : "",
       hostRegistered: Boolean(row.host_registered),
       hostRatingEligible: Boolean(row.host_registered),
+      guestUserId: row.guest_user_id || row.guest_guest_id || row.guestUserId || "",
+      guestGuestId: row.guest_guest_id || row.guestGuestId || "",
       guestName: row.guest_name || row.guestName || "",
       guestRating,
       guestTier: row.guest_registered && guestRating ? ratingTierFor(guestRating) : "",
       guestRegistered: Boolean(row.guest_registered),
       guestRatingEligible: Boolean(row.guest_registered),
-      opponent: "player",
+      opponent: botAnalysis ? "bot" : "player",
+      botDifficulty: botAnalysis
+        ? String(row.game_state?.analysis?.difficulty || row.game_state?.botDifficulty || row.botDifficulty || "")
+        : "",
+      playerColor: botAnalysis
+        ? (row.game_state?.analysis?.playerColor === "dark" ? "dark" : "white")
+        : "",
       variant: row.variant === "short" ? "short" : "long",
       access: row.access === "closed" ? "closed" : "open",
       status: row.status || "waiting",
@@ -475,7 +649,7 @@
   async function getRoomRow(code, { includePassword = false, maybeClosed = false, signal } = {}) {
     throwIfAborted(signal);
     const client = await supabase({ signal });
-    const columns = includePassword ? "*" : "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,created_at,joined_at,updated_at";
+    const columns = includePassword ? "*" : "id,code,variant,access,status,host_user_id,guest_user_id,host_guest_id,guest_guest_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,game_state,created_at,joined_at,updated_at";
     let query = client
       .from("rooms")
       .select(columns)
@@ -489,8 +663,28 @@
     return data || null;
   }
 
-  function isParticipant(row, userId) {
-    return Boolean(row && userId && (row.host_user_id === userId || row.guest_user_id === userId));
+  function normalizedGuestId(value) {
+    const guestId = String(value || "").trim();
+    return /^guest:sha256:[0-9a-f]{64}$/.test(guestId) ? guestId : "";
+  }
+
+  function playerIdentity(authUser = null) {
+    if (authUser?.id) return { userId: String(authUser.id), guestId: "" };
+    const localUser = window.NarduApp?.getUser?.() || {};
+    return localUser.guest === true
+      ? { userId: "", guestId: normalizedGuestId(localUser.id) }
+      : { userId: "", guestId: "" };
+  }
+
+  function isParticipant(row, identity) {
+    if (!row || !identity) return false;
+    if (identity.userId && (row.host_user_id === identity.userId || row.guest_user_id === identity.userId)) {
+      return true;
+    }
+    return Boolean(
+      identity.guestId
+      && (row.host_guest_id === identity.guestId || row.guest_guest_id === identity.guestId)
+    );
   }
 
   function localUserIsGuest() {
@@ -511,33 +705,63 @@
         guest: true,
       };
     }
-    try {
-      return { ...(await currentAuthContext({ signal })), guest: false };
-    } catch (error) {
-      if (!options.allowLocalFallback || Number(error?.status) !== 401) throw error;
-      const client = await supabase({ signal });
-      throwIfAborted(signal);
-      window.NarduApp?.touchPresence?.({ force: true });
-      return {
-        client,
-        authUser: null,
-        profile: {},
-        guest: true,
-        authFallback: true,
-      };
-    }
+    return { ...(await currentAuthContext({ signal })), guest: false };
   }
 
-  async function findActiveRoomFor(client, userId) {
-    const { data, error } = await client
+  async function findActiveRoomFor(client, identity, options = {}) {
+    const { signal, excludeCode = "" } = options;
+    throwIfAborted(signal);
+    const filters = [];
+    if (identity?.userId) {
+      filters.push(`host_user_id.eq.${identity.userId}`, `guest_user_id.eq.${identity.userId}`);
+    }
+    if (identity?.guestId) {
+      filters.push(`host_guest_id.eq.${identity.guestId}`, `guest_guest_id.eq.${identity.guestId}`);
+    }
+    if (!filters.length) return null;
+    let query = client
       .from("rooms")
       .select("*")
-      .or(`host_user_id.eq.${userId},guest_user_id.eq.${userId}`)
+      .or(filters.join(","))
       .in("status", ["waiting", "joined"])
       .order("updated_at", { ascending: false })
       .limit(50);
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query, signal);
+    throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not check active room.");
-    return (data || []).find(row => !isBotAnalysisRow(row)) || null;
+    const excluded = normalizeCode(excludeCode);
+    return (data || []).find(row => !excluded || normalizeCode(row.code) !== excluded) || null;
+  }
+
+  function isActiveRoomConstraintError(error) {
+    const text = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+    return error?.code === "23505" || /ACTIVE_ROOM_CONFLICT|one active room|active room per player/i.test(text);
+  }
+
+  function activeRoomError(row, extras = {}) {
+    return roomError(
+      "У вас уже есть активная игровая комната. Сначала вернитесь в неё или закройте её.",
+      409,
+      { room: publicRoom(row, extras) },
+    );
+  }
+
+  async function getActiveRoom(options = {}) {
+    const { signal } = options;
+    throwIfAborted(signal);
+    if (!configured()) {
+      const localUser = window.NarduApp?.getUser?.() || {};
+      const guestId = localUser.guest === true ? normalizedGuestId(localUser.id) : "";
+      return apiJson("/api/rooms/active", {
+        headers: guestId ? { "X-Guest-Id": guestId } : {},
+        signal,
+      });
+    }
+    const { client, authUser } = await roomClientContext({ signal });
+    const identity = playerIdentity(authUser);
+    const row = await findActiveRoomFor(client, identity, { signal });
+    return { room: publicRoom(row) };
   }
 
   async function listRooms() {
@@ -545,7 +769,7 @@
     const client = await supabase();
     const { data, error } = await client
       .from("rooms")
-      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,game_state,created_at,joined_at,updated_at")
+      .select("id,code,variant,access,status,host_user_id,guest_user_id,host_guest_id,guest_guest_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,allow_spectators,spectators,game_state,created_at,joined_at,updated_at")
       .in("status", ["waiting", "joined"])
       .order("created_at", { ascending: false })
       .limit(50);
@@ -567,13 +791,11 @@
 
     const { client, authUser, profile, guest } = await roomClientContext();
     const roomProfile = localRoomProfile(profile);
-    const activeRoom = authUser?.id ? await findActiveRoomFor(client, authUser.id) : null;
-    if (!guest && activeRoom) {
-      throw roomError(
-        "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
-        409,
-        { room: publicRoom(activeRoom, { password: payload.password || "" }) }
-      );
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
+    const activeRoom = await findActiveRoomFor(client, identity);
+    if (activeRoom) {
+      throw activeRoomError(activeRoom, { password: payload.password || "" });
     }
 
     const access = payload.access === "closed" ? "closed" : "open";
@@ -589,6 +811,9 @@
       password_hash: passwordHash,
       status: "waiting",
       host_user_id: authUser?.id || null,
+      host_guest_id: guest ? identity.guestId : null,
+      guest_user_id: null,
+      guest_guest_id: null,
       host_name: roomProfile.name,
       host_rating: roomProfile.registered ? roomProfile.rating : null,
       host_registered: roomProfile.registered,
@@ -610,14 +835,10 @@
         return { room: publicRoom(data, { password }) };
       }
       lastError = error;
-      if (error.code === "23505" && authUser?.id) {
-        const existingRoom = await findActiveRoomFor(client, authUser.id);
+      if (isActiveRoomConstraintError(error)) {
+        const existingRoom = await findActiveRoomFor(client, identity);
         if (existingRoom) {
-          throw roomError(
-            "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
-            409,
-            { room: publicRoom(existingRoom, { password }) }
-          );
+          throw activeRoomError(existingRoom, { password });
         }
       }
       if (error.code !== "23505") break;
@@ -644,6 +865,7 @@
       opponent: "bot",
       difficulty: String(payload.difficulty || state.botDifficulty || "").slice(0, 20),
       botName,
+      playerColor: payload.playerColor === "dark" ? "dark" : "white",
       updatedAt: new Date().toISOString(),
     };
 
@@ -669,18 +891,23 @@
       });
     }
 
-    const { client, authUser, profile } = await roomClientContext({ allowLocalFallback: true });
+    const { client, authUser, profile, guest } = await roomClientContext();
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
     const roomProfile = localRoomProfile(profile, { registered: Boolean(authUser?.id) });
 
     const { data: existing, error: existingError } = await client
       .from("rooms")
-      .select("id,code,status,host_user_id,game_state,game_version")
+      .select("id,code,status,host_user_id,host_guest_id,game_state,game_version")
       .eq("code", normalizedCode)
       .neq("status", "closed")
       .maybeSingle();
     if (existingError) throw supabaseError(existingError, "Could not load bot analysis room.");
     if (existing?.id) {
-      if (existing.host_user_id && existing.host_user_id !== authUser?.id) {
+      const ownsExisting = authUser?.id
+        ? existing.host_user_id === authUser.id
+        : existing.host_guest_id === identity.guestId;
+      if (!ownsExisting) {
         throw roomError("Код партии уже занят другой комнатой.", 409);
       }
       roomIdCache.set(normalizedCode, existing.id);
@@ -692,6 +919,9 @@
       };
     }
 
+    const activeRoom = await findActiveRoomFor(client, identity, { excludeCode: normalizedCode });
+    if (activeRoom) throw activeRoomError(activeRoom);
+
     const now = new Date().toISOString();
     const { data, error } = await client
       .from("rooms")
@@ -701,6 +931,9 @@
         access: "open",
         status: "joined",
         host_user_id: authUser?.id || null,
+        host_guest_id: guest ? identity.guestId : null,
+        guest_user_id: null,
+        guest_guest_id: null,
         host_name: roomProfile.name,
         host_rating: roomProfile.registered ? roomProfile.rating : null,
         host_registered: roomProfile.registered,
@@ -720,7 +953,13 @@
       })
       .select("id,game_version")
       .maybeSingle();
-    if (error) throw supabaseError(error, "Could not create bot analysis room.");
+    if (error) {
+      if (isActiveRoomConstraintError(error)) {
+        const conflictingRoom = await findActiveRoomFor(client, identity, { excludeCode: normalizedCode });
+        if (conflictingRoom) throw activeRoomError(conflictingRoom);
+      }
+      throw supabaseError(error, "Could not create bot analysis room.");
+    }
     if (data?.id) roomIdCache.set(normalizedCode, data.id);
     return { ok: true, existing: false, version: Number(data?.game_version || 0) };
   }
@@ -750,18 +989,24 @@
 
     const { client, authUser, profile, guest } = await roomClientContext({ signal });
     throwIfAborted(signal);
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
     const roomProfile = localRoomProfile(profile);
     const room = await getRoomRow(normalizedCode, { includePassword: true, signal });
     if (!room) throw roomError("Комната с таким кодом не найдена.", 404);
 
     if (room.status !== "waiting") {
-      if (authUser?.id && isParticipant(room, authUser.id)) return { room: publicRoom(room) };
+      if (isParticipant(room, identity)) return { room: publicRoom(room) };
       throw roomError("Эта комната уже занята.", 409);
     }
-    if (authUser?.id && room.host_user_id === authUser.id) return { room: publicRoom(room) };
-    if (String(room.host_name || "").trim().toLowerCase() === String(roomProfile.name || "").trim().toLowerCase()) {
+    if (isParticipant(room, identity)) {
       return { room: publicRoom(room) };
     }
+    const activeRoom = await findActiveRoomFor(client, identity, {
+      signal,
+      excludeCode: normalizedCode,
+    });
+    if (activeRoom) throw activeRoomError(activeRoom);
     if (room.access === "closed") {
       throwIfAborted(signal);
       const providedHash = await sha256Hex(String(payload.password || "").trim());
@@ -776,6 +1021,7 @@
       .update({
         status: "joined",
         guest_user_id: authUser?.id || null,
+        guest_guest_id: guest ? identity.guestId : null,
         guest_name: roomProfile.name,
         guest_rating: roomProfile.registered ? roomProfile.rating : null,
         guest_registered: roomProfile.registered,
@@ -791,10 +1037,19 @@
     const { data, error } = await awaitWithAbort(joinQuery.maybeSingle(), signal);
     throwIfAborted(signal);
 
-    if (error) throw supabaseError(error, "Could not join room.");
+    if (error) {
+      if (isActiveRoomConstraintError(error)) {
+        const conflictingRoom = await findActiveRoomFor(client, identity, {
+          signal,
+          excludeCode: normalizedCode,
+        });
+        if (conflictingRoom) throw activeRoomError(conflictingRoom);
+      }
+      throw supabaseError(error, "Could not join room.");
+    }
     if (!data) {
       const latest = await getRoomRow(normalizedCode, { includePassword: true, signal });
-      if (authUser?.id && isParticipant(latest, authUser.id)) return { room: publicRoom(latest) };
+      if (isParticipant(latest, identity)) return { room: publicRoom(latest) };
       throw roomError("Эта комната уже занята.", 409);
     }
     roomIdCache.set(normalizedCode, data.id);
@@ -803,28 +1058,145 @@
 
   async function deleteRoom(code, options = {}) {
     const normalizedCode = normalizeCode(code);
-    if (!configured()) {
-      const waitingOnly = options.waitingOnly === true ? "?waiting=1" : "";
-      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}${waitingOnly}`, { method: "DELETE" });
+    const { signal } = options;
+    throwIfAborted(signal);
+    if (options.waitingOnly !== true) {
+      throw roomError("Закрытие комнаты требует точного безопасного режима.", 400);
     }
-    const { client } = await roomClientContext();
+    if (!configured()) {
+      const guestId = playerIdentity().guestId;
+      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}?waiting=1`, {
+        method: "DELETE",
+        headers: guestId ? { "X-Guest-Id": guestId } : {},
+        signal,
+      });
+    }
+    return closeWaitingRoom(normalizedCode, { signal });
+  }
+
+  async function closeWaitingRoom(code, options = {}) {
+    const normalizedCode = normalizeCode(code);
+    const { signal } = options;
+    throwIfAborted(signal);
+    if (!configured()) {
+      return deleteRoom(normalizedCode, { waitingOnly: true, signal });
+    }
+
+    const { client, authUser, guest } = await roomClientContext({ signal });
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
+
     let query = client
       .from("rooms")
       .update({
         status: "closed",
         archived_at: new Date().toISOString(),
-        closed_reason: "removed",
+        closed_reason: "waiting_host_exit",
       })
       .eq("code", normalizedCode)
-      .neq("status", "closed");
-    if (options.waitingOnly === true) {
-      query = query.eq("status", "waiting").is("guest_user_id", null);
+      .eq("status", "waiting")
+      .is("guest_user_id", null)
+      .is("guest_guest_id", null)
+      .select("code");
+    query = identity.userId
+      ? query.eq("host_user_id", identity.userId)
+      : query.eq("host_guest_id", identity.guestId);
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    throwIfAborted(signal);
+    if (error) throw supabaseError(error, "Could not close waiting room.");
+    if (data) return { ok: true, removed: true, closed: true, code: normalizedCode };
+
+    const current = await getRoomRow(normalizedCode, { maybeClosed: true, signal });
+    if (!current || !["waiting", "joined"].includes(current.status)) {
+      return { ok: true, removed: false, closed: true, code: normalizedCode };
     }
-    const { data, error } = await query
-      .select("code")
-      .maybeSingle();
-    if (error) throw supabaseError(error, "Could not close room.");
-    return { ok: true, removed: Boolean(data), code: normalizedCode };
+    const ownsCurrent = identity.userId
+      ? current.host_user_id === identity.userId
+      : current.host_guest_id === identity.guestId;
+    if (!ownsCurrent) {
+      throw roomError("Закрыть комнату может только её создатель.", 403);
+    }
+    return {
+      ok: true,
+      removed: false,
+      closed: false,
+      code: normalizedCode,
+      room: publicRoom(current),
+    };
+  }
+
+  async function closeBotRoom(code, options = {}) {
+    const normalizedCode = normalizeCode(code);
+    const { signal } = options;
+    throwIfAborted(signal);
+    if (!configured()) {
+      const ownerToken = botAnalysisOwnerToken(normalizedCode);
+      const guestId = playerIdentity().guestId;
+      const result = await apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}?bot=1`, {
+        method: "DELETE",
+        headers: {
+          ...(ownerToken ? { "X-Bot-Owner": ownerToken } : {}),
+          ...(guestId ? { "X-Guest-Id": guestId } : {}),
+        },
+        signal,
+      });
+      if (result?.ok && (result.removed || result.closed || !result.room)) {
+        forgetBotAnalysisOwnerToken(normalizedCode);
+      }
+      return result;
+    }
+
+    const { client, authUser, guest } = await roomClientContext({ signal });
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
+    const current = await getRoomRow(normalizedCode, { includePassword: true, maybeClosed: true, signal });
+    if (!current || current.status === "closed" || current.status === "over") {
+      forgetBotAnalysisOwnerToken(normalizedCode);
+      return { ok: true, removed: false, closed: true, code: normalizedCode };
+    }
+    const ownsCurrent = identity.userId
+      ? current.host_user_id === identity.userId
+      : current.host_guest_id === identity.guestId;
+    if (!ownsCurrent || !isBotAnalysisRow(current)) {
+      throw roomError("Закрыть бот-партию может только её создатель.", 403);
+    }
+
+    const currentVersion = Math.max(0, Number(current.game_version) || 0);
+    let query = client
+      .from("rooms")
+      .update({
+        status: "closed",
+        archived_at: new Date().toISOString(),
+        closed_reason: "bot_abandoned",
+        game_version: currentVersion + 1,
+      })
+      .eq("id", current.id)
+      .eq("status", "joined")
+      .eq("game_version", currentVersion)
+      .select("code");
+    query = identity.userId
+      ? query.eq("host_user_id", identity.userId)
+      : query.eq("host_guest_id", identity.guestId);
+    query = withAbortSignal(query, signal);
+    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    throwIfAborted(signal);
+    if (error) throw supabaseError(error, "Could not close bot room.");
+    if (data) {
+      forgetBotAnalysisOwnerToken(normalizedCode);
+      return { ok: true, removed: true, closed: true, code: normalizedCode };
+    }
+
+    const latest = await getRoomRow(normalizedCode, { includePassword: true, maybeClosed: true, signal });
+    const result = {
+      ok: true,
+      removed: false,
+      closed: !latest || !["waiting", "joined"].includes(latest.status),
+      code: normalizedCode,
+      room: publicRoom(latest),
+    };
+    if (result.closed) forgetBotAnalysisOwnerToken(normalizedCode);
+    return result;
   }
 
   async function closeOwnLobbyRooms(payload = {}) {
@@ -832,7 +1204,7 @@
     if (!configured()) {
       const closed = [];
       for (const code of codes) {
-        const result = await deleteRoom(code);
+        const result = await closeWaitingRoom(code);
         if (result.removed) closed.push(code);
       }
       return { ok: true, closedCodes: closed };
@@ -850,7 +1222,9 @@
         })
         .eq("host_user_id", authUser.id)
         .in("code", codes)
-        .in("status", ["waiting", "joined"])
+        .eq("status", "waiting")
+        .is("guest_user_id", null)
+        .is("guest_guest_id", null)
         .select("code");
       if (error) throw supabaseError(error, "Could not close captured lobby rooms.");
       return {
@@ -861,7 +1235,7 @@
 
     const closed = [];
     for (const code of codes) {
-      const result = await deleteRoom(code);
+      const result = await closeWaitingRoom(code);
       if (result.removed) closed.push(code);
     }
     return { ok: true, closedCodes: closed };
@@ -928,6 +1302,7 @@
       .update(updates)
       .eq("code", normalizedCode)
       .eq("game_version", Number(version) || 0)
+      .eq("status", "joined")
       .select("game_version")
       .maybeSingle();
     if (error) throw supabaseError(error, "Could not save game state.");
@@ -1001,6 +1376,12 @@
     return data || { ok: true };
   }
 
+  function supersededLongBotExperienceError() {
+    const error = new Error("Long-bot experience load was superseded.");
+    error.code = "LONG_BOT_EXPERIENCE_SUPERSEDED";
+    return error;
+  }
+
   async function loadLongBotExperience({ refresh = false, playerName = "" } = {}) {
     if (!configured()) return [];
     const engine = window.NarduLongBotEngine;
@@ -1018,51 +1399,45 @@
     if (cachedPatterns.length) {
       engine?.setExperience?.(cachedPatterns, "server-cache");
     }
-    if (longBotExperiencePromises.has(playerKey) && !refresh) {
-      const currentPromise = longBotExperiencePromises.get(playerKey).then(patterns => {
-        const validated = validatedLongBotExperience(patterns);
-        if (validated && loadGeneration === longBotExperienceLoadGeneration) {
-          engine?.setExperience?.([], "server-cache");
-          engine?.setExperience?.(validated, "server");
-          writeLongBotExperienceCache(validated, playerKey);
+    let experiencePromise = !refresh ? longBotExperiencePromises.get(playerKey) : null;
+    if (!experiencePromise) {
+      experiencePromise = (async () => {
+        const client = await supabase();
+        const { data, error } = await client.rpc("get_long_bot_experience_patterns", {
+          p_player_name: resolvedPlayerName || null,
+        });
+        if (error) throw supabaseError(error, "Could not load long-bot experience.");
+        const patterns = validatedLongBotExperience(data);
+        if (!patterns) {
+          console.warn("Ignored incompatible long-bot experience generation.");
+          return { patterns: cachedPatterns, fresh: false };
         }
-        return validated || [];
-      });
-      if (cachedPatterns.length) {
-        currentPromise.catch(() => {});
-        return cachedPatterns;
-      }
-      return currentPromise;
+        return { patterns, fresh: true };
+      })();
+      longBotExperiencePromises.set(playerKey, experiencePromise);
+      experiencePromise.finally(() => {
+        if (longBotExperiencePromises.get(playerKey) === experiencePromise) {
+          longBotExperiencePromises.delete(playerKey);
+        }
+      }).catch(() => {});
     }
-    const experiencePromise = (async () => {
-      const client = await supabase();
-      const { data, error } = await client.rpc("get_long_bot_experience_patterns", {
-        p_player_name: resolvedPlayerName || null,
-      });
-      if (error) throw supabaseError(error, "Could not load long-bot experience.");
-      const patterns = validatedLongBotExperience(data);
-      if (!patterns) {
-        console.warn("Ignored incompatible long-bot experience generation.");
-        return cachedPatterns;
+    const currentPromise = experiencePromise.then(result => {
+      if (loadGeneration !== longBotExperienceLoadGeneration) {
+        throw supersededLongBotExperienceError();
       }
-      if (loadGeneration === longBotExperienceLoadGeneration) {
+      const patterns = validatedLongBotExperience(result?.patterns) || [];
+      if (result?.fresh === true) {
         engine?.setExperience?.([], "server-cache");
         engine?.setExperience?.(patterns, "server");
         writeLongBotExperienceCache(patterns, playerKey);
       }
       return patterns;
-    })();
-    longBotExperiencePromises.set(playerKey, experiencePromise);
-    experiencePromise.finally(() => {
-      if (longBotExperiencePromises.get(playerKey) === experiencePromise) {
-        longBotExperiencePromises.delete(playerKey);
-      }
-    }).catch(() => {});
+    });
     if (cachedPatterns.length && !refresh) {
-      experiencePromise.catch(() => {});
+      currentPromise.catch(() => {});
       return cachedPatterns;
     }
-    return experiencePromise;
+    return currentPromise;
   }
 
   async function loadShortBotExperience({ refresh = false, playerName = "" } = {}) {
@@ -1331,8 +1706,9 @@
         body: JSON.stringify(payload),
       });
     }
-    const client = await supabase();
-    const color = payload.color === "dark" ? "dark" : "white";
+    const { client, authUser, guest } = await roomClientContext();
+    const identity = playerIdentity(authUser);
+    if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
     const { data: room, error: loadError } = await client
       .from("rooms")
       .select("*")
@@ -1340,6 +1716,13 @@
       .maybeSingle();
     if (loadError) throw supabaseError(loadError, "Could not load room.");
     if (!room) return { ok: true, removed: true };
+    const color = identity.userId
+      ? (room.host_user_id === identity.userId ? "white" : (room.guest_user_id === identity.userId ? "dark" : ""))
+      : (room.host_guest_id === identity.guestId ? "white" : (room.guest_guest_id === identity.guestId ? "dark" : ""));
+    if (!color) throw roomError("Покинуть комнату может только участник партии.", 403);
+    if (payload.color && payload.color !== color) {
+      throw roomError("Нельзя завершить сессию другого участника.", 403);
+    }
     const leftPlayers = { ...(room.left_players || {}), [color]: true };
     const shouldClose = room.status === "waiting" || (leftPlayers.white && leftPlayers.dark);
     const updates = {
@@ -1350,13 +1733,20 @@
         closed_reason: "left",
       } : {}),
     };
-    const { data: updated, error } = await client
+    let updateQuery = client
       .from("rooms")
       .update(updates)
-      .eq("code", normalizedCode)
+      .eq("id", room.id)
+      .in("status", ["waiting", "joined"]);
+    updateQuery = identity.userId
+      ? updateQuery.eq(color === "white" ? "host_user_id" : "guest_user_id", identity.userId)
+      : updateQuery.eq(color === "white" ? "host_guest_id" : "guest_guest_id", identity.guestId);
+    if (room.updated_at) updateQuery = updateQuery.eq("updated_at", room.updated_at);
+    const { data: updated, error } = await updateQuery
       .select("*")
       .maybeSingle();
     if (error) throw supabaseError(error, "Could not leave room.");
+    if (!updated) throw roomError("Состояние комнаты уже изменилось. Повторите выход.", 409);
     return { ok: true, removed: shouldClose, room: publicRoom(updated || room) };
   }
 
@@ -1523,9 +1913,12 @@
     listRooms,
     createRoom,
     ensureBotAnalysisRoom,
+    getActiveRoom,
     getRoom,
     joinRoom,
     deleteRoom,
+    closeWaitingRoom,
+    closeBotRoom,
     closeOwnLobbyRooms,
     closeOwnWaitingRooms,
     getGameState,

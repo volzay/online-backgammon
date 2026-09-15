@@ -80,9 +80,12 @@ export interface LongBotTacticalAnalysis {
 export interface LongBotExperienceDescriptor {
   contextKey: string;
   actionKey: string;
+  strategicActionKey?: string;
   familyActionKey?: string;
   legacyActionKey?: string;
+  behaviorActionKeys?: string[];
   mistakeSeverity: number;
+  riskSignal?: number;
   phase: string;
 }
 

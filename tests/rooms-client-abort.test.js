@@ -3,10 +3,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { createHash } = require("node:crypto");
 
 const ROOT = path.join(__dirname, "..");
+const TEST_GUEST_PROOF = `gproof:${"31".repeat(32)}`;
+const TEST_GUEST_ID = `guest:sha256:${createHash("sha256")
+  .update(`nardu/guest/v1:${TEST_GUEST_PROOF}`)
+  .digest("hex")}`;
 
 function loadRooms({ configured, fetchImpl = fetch, client = null, user = null, dateImpl = Date }) {
+  const currentUser = user || ({ id: TEST_GUEST_ID, name: "Guest1234", guest: true });
   const context = {
     window: {
       NarduSupabase: {
@@ -14,7 +20,11 @@ function loadRooms({ configured, fetchImpl = fetch, client = null, user = null, 
         client: async () => client,
       },
       NarduApp: {
-        getUser: () => user || ({ id: "guest-1", name: "Guest", guest: true }),
+        getUser: () => currentUser,
+        guestRequestHeaders: () => currentUser.guest === true ? {
+          "X-Guest-Id": TEST_GUEST_ID,
+          "X-Guest-Proof": TEST_GUEST_PROOF,
+        } : {},
         shouldShowRatingToOthers: () => true,
         ratingTierFor: () => "Bronze",
       },
@@ -67,6 +77,8 @@ test("API room reads, joins, presence, and spectator calls forward AbortSignal",
   assert.equal(requests.length, 5);
   assert.ok(requests.every(request => request.options.signal === controller.signal));
   assert.deepEqual(requests.map(request => request.options.method || "GET"), ["GET", "POST", "POST", "POST", "DELETE"]);
+  assert.ok(requests.every(request => request.options.headers["X-Guest-Id"] === TEST_GUEST_ID));
+  assert.ok(requests.every(request => request.options.headers["X-Guest-Proof"] === TEST_GUEST_PROOF));
 });
 
 test("a pre-aborted join stops before the API mutation", async () => {
@@ -96,7 +108,9 @@ function createRoomQueryClient({ abortBeforeFirstRead = null } = {}) {
     status: "waiting",
     access: "open",
     host_name: "Host",
+    host_guest_id: `guest:sha256:${"98".repeat(32)}`,
     guest_user_id: null,
+    guest_guest_id: null,
     host_registered: false,
     guest_registered: false,
   };
@@ -115,6 +129,10 @@ function createRoomQueryClient({ abortBeforeFirstRead = null } = {}) {
       eq() { return chain; },
       neq() { return chain; },
       is() { return chain; },
+      or() { return chain; },
+      in() { return chain; },
+      order() { return chain; },
+      limit() { return chain; },
       abortSignal(signal) {
         operation.signal = signal;
         return chain;
@@ -151,8 +169,8 @@ test("Supabase getRoom and joinRoom attach the signal to every room query", asyn
   await rooms.getRoom("ABCD-EFGH", { signal: controller.signal });
   await rooms.joinRoom("ABCD-EFGH", {}, { signal: controller.signal });
 
-  assert.equal(operations.length, 3);
-  assert.deepEqual(operations.map(operation => operation.kind), ["read", "read", "update"]);
+  assert.equal(operations.length, 4);
+  assert.deepEqual(operations.map(operation => operation.kind), ["read", "read", "read", "update"]);
   assert.ok(operations.every(operation => operation.signal === controller.signal));
 });
 

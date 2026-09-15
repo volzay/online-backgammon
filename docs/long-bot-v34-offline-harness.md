@@ -1,4 +1,4 @@
-# Long hard-bot v33 offline harness
+# Long hard-bot v34 offline harness
 
 The harness trains an experience snapshot on one deterministic seed split,
 checks it on a separate validation split, and opens the holdout split only if
@@ -7,19 +7,19 @@ validation qualifies.
 Inspect the frozen defaults without running games:
 
 ```sh
-npm run train:long-bot-v33 -- --dry-run
+npm run train:long-bot-v34 -- --dry-run
 ```
 
 Run the complete default suite:
 
 ```sh
-npm run train:long-bot-v33 -- \
-  --output reports/long-bot-v33-offline.json \
+npm run train:long-bot-v34 -- \
+  --output reports/long-bot-v34-offline.json \
   --jobs 4
 ```
 
 The companion experience artifact is written next to the report as
-`reports/long-bot-v33-offline.experience.json`.
+`reports/long-bot-v34-offline.experience.json`.
 
 ## Release checks
 
@@ -37,10 +37,10 @@ and control swap colors. The holdout gate requires all of the following:
 - paired Wilson 95% lower bound at or above the target;
 - severe-loss rate at or below `0.10`;
 - at least 200 holdout pairs;
-- exactly `long-analytic-v33`, experience credit version 8, one runtime
+- exactly `long-analytic-v34`, experience credit version 8, one runtime
   fingerprint, and one experience fingerprint.
 
-The v33 engine and credit generation are fixed, not CLI-overridable. The report
+The v34 engine and credit generation are fixed, not CLI-overridable. The report
 includes aggregate and per-result ordinary/Mars/Koks match points using weights
 1/2/3. The copied experience artifact is fingerprinted again before the report
 is published. Volatile wall-clock update labels are omitted from offline

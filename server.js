@@ -27,6 +27,9 @@ const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_RATING = 1000;
 const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
+const GUEST_PROOF_DOMAIN = "nardu/guest/v1";
+const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
+const GUEST_PROOF_RE = /^gproof:[0-9a-f]{64}$/;
 const RATING_TIERS = [
   { name: "Diamond", min: 2100 },
   { name: "Platinum", min: 1800 },
@@ -314,23 +317,40 @@ function requireAdmin(req) {
   return adminToken ? { login: adminToken.login, token } : null;
 }
 
-function publicRoom(room, includePassword = false) {
+function publicRoom(room, includePassword = false, viewerGuestId = "") {
   if (!room) return null;
+  const normalizedViewerGuestId = normalizeGuestUserId(viewerGuestId);
+  const visibleHostUserId = room.hostRegistered
+    ? (room.hostUserId || "")
+    : (normalizedViewerGuestId && normalizeGuestUserId(room.hostUserId) === normalizedViewerGuestId
+      ? (room.hostUserId || "")
+      : "");
+  const visibleGuestUserId = room.guestRegistered
+    ? (room.guestUserId || "")
+    : (normalizedViewerGuestId && normalizeGuestUserId(room.guestUserId) === normalizedViewerGuestId
+      ? (room.guestUserId || "")
+      : "");
   const spectatorCount = activeSpectatorCount(room);
   const safe = {
     id: room.id,
     code: room.code,
+    hostUserId: visibleHostUserId,
     hostName: room.hostName,
     hostRating: room.hostRegistered ? normalizeRating(room.hostRating) : null,
     hostTier: room.hostRegistered ? ratingTierFor(room.hostRating) : "",
     hostRegistered: Boolean(room.hostRegistered),
     hostRatingEligible: Boolean(room.hostRegistered),
+    guestUserId: visibleGuestUserId,
     guestName: room.guestName || "",
     guestRating: room.guestRegistered ? normalizeRating(room.guestRating) : null,
     guestTier: room.guestRegistered ? ratingTierFor(room.guestRating) : "",
     guestRegistered: Boolean(room.guestRegistered),
     guestRatingEligible: Boolean(room.guestRegistered),
     opponent: room.opponent === "bot" ? "bot" : "player",
+    botDifficulty: room.opponent === "bot" ? String(room.botDifficulty || room.gameState?.botDifficulty || "") : "",
+    playerColor: room.opponent === "bot"
+      ? (room.gameState?.analysis?.playerColor === "dark" ? "dark" : "white")
+      : "",
     variant: room.variant,
     access: room.access,
     status: room.status,
@@ -429,6 +449,87 @@ function registeredRoomProfile({ name, userId, ratingEligible }) {
     || (nameValue && normalizePlayerName(item.nickname) === nameValue)
   )) || null;
   return user ? assignRegisteredRating(user) : null;
+}
+
+function normalizeGuestUserId(value) {
+  const guestId = String(value || "").trim();
+  return GUEST_PUBLIC_ID_RE.test(guestId) ? guestId : "";
+}
+
+function guestIdentityFromProof(value) {
+  const proof = String(value || "").trim();
+  if (!GUEST_PROOF_RE.test(proof)) return "";
+  return `guest:sha256:${sha256(`${GUEST_PROOF_DOMAIN}:${proof}`)}`;
+}
+
+function requestGuestUserId(req) {
+  const declaredGuestId = normalizeGuestUserId(req?.headers?.["x-guest-id"]);
+  const provenGuestId = guestIdentityFromProof(req?.headers?.["x-guest-proof"]);
+  if (!declaredGuestId || !provenGuestId) return "";
+  return constantTimeStringEqual(declaredGuestId, provenGuestId) ? declaredGuestId : "";
+}
+
+function publicRoomForRequest(req, room, includePassword = false) {
+  return publicRoom(room, includePassword, requestGuestUserId(req));
+}
+
+function roomActorFromRequest(req, body = {}, role = "host") {
+  const accountSession = accountSessionFromRequest(req);
+  if (accountSession?.user) {
+    const user = assignRegisteredRating(accountSession.user);
+    return {
+      accountSession,
+      id: user.id,
+      name: user.nickname,
+      rating: normalizeRating(user.rating),
+      registered: true,
+      user,
+    };
+  }
+
+  const nameField = role === "guest" ? "guestName" : "hostName";
+  const idField = role === "guest" ? "guestUserId" : "hostUserId";
+  const ratingField = role === "guest" ? "guestRating" : "hostRating";
+  const eligibleField = role === "guest" ? "guestRatingEligible" : "hostRatingEligible";
+  const registeredField = role === "guest" ? "guestRegistered" : "hostRegistered";
+  const requestedName = String(body[nameField] || (role === "guest" ? "Соперник" : "Гость")).trim().slice(0, 32)
+    || (role === "guest" ? "Соперник" : "Гость");
+  const requestedId = String(body[idField] || "").trim();
+  const guestId = normalizeGuestUserId(requestedId);
+  const requestGuestId = requestGuestUserId(req);
+  const ratingClaimed = body[ratingField] !== undefined
+    && body[ratingField] !== null
+    && String(body[ratingField]).trim() !== "";
+  const registeredIdentityClaim = Boolean(findAccountUser({
+    nickname: requestedName,
+    userId: requestedId,
+  }));
+  const claimsRegisteredIdentity = body[eligibleField] === true
+    || body[registeredField] === true
+    || ratingClaimed
+    || (requestedId && !guestId)
+    || registeredIdentityClaim;
+
+  if (claimsRegisteredIdentity) {
+    return {
+      error: "Сессия аккаунта истекла. Войдите в аккаунт заново.",
+      status: 401,
+    };
+  }
+  if (!guestId || requestGuestId !== guestId) {
+    return {
+      error: "Не удалось подтвердить гостевую сессию.",
+      status: 401,
+    };
+  }
+  return {
+    accountSession: null,
+    id: guestId,
+    name: requestedName,
+    rating: null,
+    registered: false,
+    user: null,
+  };
 }
 
 function publicUser(user) {
@@ -1031,14 +1132,61 @@ function isBotAnalysisRoom(room) {
   ));
 }
 
-function isRoomActiveForPlayer(room, playerName) {
-  if (isBotAnalysisRoom(room)) return false;
+function isRoomActiveForPlayer(room, playerName, playerUserId = "") {
   const name = normalizePlayerName(playerName);
-  if (!name || !["waiting", "joined"].includes(room.status)) return false;
+  const userId = String(playerUserId || "").trim();
+  if ((!name && !userId) || !["waiting", "joined"].includes(room.status)) return false;
   const left = room.leftPlayers || {};
-  const isHost = normalizePlayerName(room.hostName) === name && left.white !== true;
-  const isGuest = normalizePlayerName(room.guestName) === name && left.dark !== true;
+  const isHost = (userId
+    ? String(room.hostUserId || "") === userId
+    : !room.hostUserId && name && normalizePlayerName(room.hostName) === name
+  ) && left.white !== true;
+  const isGuest = (userId
+    ? String(room.guestUserId || "") === userId
+    : !room.guestUserId && name && normalizePlayerName(room.guestName) === name
+  ) && left.dark !== true;
   return isHost || isGuest;
+}
+
+function findActiveRoomForPlayer(playerName, playerUserId = "", excludeCode = "") {
+  const excluded = String(excludeCode || "").trim().toUpperCase();
+  return rooms.find(room => (
+    (!excluded || room.code !== excluded)
+    && isRoomActiveForPlayer(room, playerName, playerUserId)
+  )) || null;
+}
+
+function requestOwnsRoomHost(req, room) {
+  if (!room) return false;
+  if (room.hostRegistered) {
+    const accountSession = accountSessionFromRequest(req);
+    if (!accountSession?.user) return false;
+    if (room.hostUserId) return room.hostUserId === accountSession.user.id;
+    return normalizePlayerName(room.hostName) === normalizePlayerName(accountSession.user.nickname);
+  }
+  const guestId = requestGuestUserId(req);
+  return Boolean(guestId && normalizeGuestUserId(room.hostUserId) === guestId);
+}
+
+function requestRoomParticipantColor(req, room) {
+  if (!room) return "";
+  const accountSession = accountSessionFromRequest(req);
+  if (accountSession?.user?.id) {
+    if (String(room.hostUserId || "") === accountSession.user.id) return "white";
+    if (String(room.guestUserId || "") === accountSession.user.id) return "dark";
+    return "";
+  }
+  const guestId = requestGuestUserId(req);
+  if (!guestId) return "";
+  if (normalizeGuestUserId(room.hostUserId) === guestId) return "white";
+  if (normalizeGuestUserId(room.guestUserId) === guestId) return "dark";
+  return "";
+}
+
+function requestCanAccessBotRoom(req, room, ownerToken = "") {
+  if (!isBotAnalysisRoom(room) || !requestOwnsRoomHost(req, room)) return false;
+  if (room.hostRegistered) return true;
+  return room.botOwnerTokenHash === sha256(String(ownerToken || ""));
 }
 
 function opponentColor(color) {
@@ -1395,6 +1543,33 @@ function archiveFinishedRoom(room, reason = archiveReasonForRoom(room)) {
   return archiveRoom(room, reason);
 }
 
+function hasLegacyGuestIdentity(room) {
+  if (!room || !["waiting", "joined"].includes(room.status)) return false;
+  if (!room.hostRegistered && !normalizeGuestUserId(room.hostUserId)) return true;
+  if (
+    !isBotAnalysisRoom(room)
+    && room.status === "joined"
+    && room.guestName
+    && !room.guestRegistered
+    && !normalizeGuestUserId(room.guestUserId)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function closeLegacyGuestRooms() {
+  for (let index = rooms.length - 1; index >= 0; index -= 1) {
+    const room = rooms[index];
+    if (!hasLegacyGuestIdentity(room)) continue;
+    room.status = "closed";
+    room.closedReason = "legacy_guest_credential_rotated";
+    room.closedAt = now();
+    archiveRoom(room, "legacy_guest_credential_rotated");
+    rooms.splice(index, 1);
+  }
+}
+
 function normalizeAdminCloseReason(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
 }
@@ -1727,6 +1902,8 @@ async function handleApi(req, res, url) {
   const parts = url.pathname.split("/").filter(Boolean);
 
   try {
+    closeLegacyGuestRooms();
+
     if (parts[0] === "api" && parts[1] === "admin") {
       await handleAdminApi(req, res, url);
       return;
@@ -2195,7 +2372,24 @@ async function handleApi(req, res, url) {
         if (room.status !== "joined") return false;
         return !room.leftPlayers?.white && !room.leftPlayers?.dark;
       });
-      sendJson(res, 200, { rooms: visibleRooms.map(room => publicRoom(room)) });
+      sendJson(res, 200, { rooms: visibleRooms.map(room => publicRoomForRequest(req, room)) });
+      return;
+    }
+
+    if (method === "GET" && parts.length === 3 && parts[0] === "api" && parts[1] === "rooms" && parts[2] === "active") {
+      const accountSession = accountSessionFromRequest(req);
+      const guestId = accountSession ? "" : requestGuestUserId(req);
+      if (!accountSession && !guestId) {
+        sendJson(res, 401, { error: "Не удалось подтвердить игровую сессию." }, { "Cache-Control": "no-store" });
+        return;
+      }
+      rooms.forEach(room => updatePresenceStatus(room));
+      const activeRoom = accountSession
+        ? findActiveRoomForPlayer(accountSession.user.nickname, accountSession.user.id)
+        : findActiveRoomForPlayer("", guestId);
+      sendJson(res, 200, {
+        room: activeRoom ? publicRoomForRequest(req, activeRoom, true) : null,
+      }, { "Cache-Control": "no-store" });
       return;
     }
 
@@ -2213,18 +2407,20 @@ async function handleApi(req, res, url) {
         return;
       }
 
-      const requestedHostName = String(body.hostName || "Гость").trim().slice(0, 32) || "Гость";
-      const accountSession = accountSessionFromRequest(req);
-      const claimedProfile = registeredRoomProfile({ name: requestedHostName, userId: body.hostUserId, ratingEligible: true });
-      if (!accountSession && (body.hostRatingEligible !== false || claimedProfile)) {
-        sendJson(res, 401, { error: "Сессия аккаунта истекла. Войдите в аккаунт заново." });
+      const actor = roomActorFromRequest(req, body, "host");
+      if (actor.error) {
+        sendJson(res, actor.status, { error: actor.error });
         return;
       }
-      const hostProfile = accountSession?.user || null;
-      const hostName = hostProfile?.nickname || requestedHostName;
+      const hostProfile = actor.user;
+      const hostName = actor.name;
       const existing = rooms.find(item => item.code === code);
       if (existing) {
-        if (!isBotAnalysisRoom(existing) || existing.botOwnerTokenHash !== sha256(ownerToken) || normalizePlayerName(existing.hostName) !== normalizePlayerName(hostName)) {
+        if (
+          !isBotAnalysisRoom(existing)
+          || String(existing.hostUserId || "") !== actor.id
+          || (!actor.registered && existing.botOwnerTokenHash !== sha256(ownerToken))
+        ) {
           sendJson(res, 409, { error: "Код партии уже занят другой комнатой." });
           return;
         }
@@ -2232,6 +2428,15 @@ async function handleApi(req, res, url) {
           ok: true,
           existing: true,
           version: Number(existing.gameVersion || 0),
+        });
+        return;
+      }
+
+      const activeRoom = findActiveRoomForPlayer(hostName, actor.id);
+      if (activeRoom) {
+        sendJson(res, 409, {
+          error: "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
+          room: publicRoomForRequest(req, activeRoom, true),
         });
         return;
       }
@@ -2248,6 +2453,7 @@ async function handleApi(req, res, url) {
         opponent: "bot",
         difficulty: state.botDifficulty,
         botName: String(body.botName || "Bot").trim().slice(0, 32) || "Bot",
+        playerColor: body.playerColor === "dark" ? "dark" : "white",
         updatedAt: now(),
       };
       const stateError = validatePublishedGameState(state);
@@ -2261,12 +2467,13 @@ async function handleApi(req, res, url) {
       }
 
       const createdAt = now();
-      const hostRegistered = Boolean(hostProfile);
-      const hostRating = hostRegistered ? normalizeRating(hostProfile.rating) : null;
+      const hostRegistered = actor.registered;
+      const hostRating = actor.rating;
       const botName = state.analysis.botName;
       const room = {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         code,
+        hostUserId: actor.id,
         hostName,
         hostRating,
         hostTier: hostRegistered ? ratingTierFor(hostRating) : "",
@@ -2307,7 +2514,7 @@ async function handleApi(req, res, url) {
       });
       saveAdminState();
       rooms.unshift(room);
-      sendJson(res, 201, { ok: true, existing: false, version: 0, room: publicRoom(room) });
+      sendJson(res, 201, { ok: true, existing: false, version: 0, room: publicRoomForRequest(req, room) });
       return;
     }
 
@@ -2315,14 +2522,15 @@ async function handleApi(req, res, url) {
       const body = await readJsonBody(req);
       const access = body.access === "closed" ? "closed" : "open";
       const password = access === "closed" ? String(body.password || "").trim() : "";
-      const hostName = String(body.hostName || "Гость").slice(0, 32);
-      const hostProfile = registeredRoomProfile({
-        name: hostName,
-        userId: body.hostUserId,
-        ratingEligible: body.hostRatingEligible,
-      });
-      const hostRegistered = Boolean(hostProfile);
-      const hostRating = hostRegistered ? normalizeRating(hostProfile.rating) : null;
+      const actor = roomActorFromRequest(req, body, "host");
+      if (actor.error) {
+        sendJson(res, actor.status, { error: actor.error });
+        return;
+      }
+      const hostProfile = actor.user;
+      const hostName = actor.name;
+      const hostRegistered = actor.registered;
+      const hostRating = actor.rating;
       if (access === "closed" && password.length < 4) {
         sendJson(res, 400, { error: "Введите пароль закрытой игры минимум из 4 символов." });
         return;
@@ -2331,11 +2539,11 @@ async function handleApi(req, res, url) {
         sendJson(res, 403, { error: "Этот игрок заблокирован администратором." });
         return;
       }
-      const activeRoom = rooms.find(room => isRoomActiveForPlayer(room, hostName));
+      const activeRoom = findActiveRoomForPlayer(hostName, actor.id);
       if (activeRoom) {
         sendJson(res, 409, {
           error: "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
-          room: publicRoom(activeRoom, true),
+          room: publicRoomForRequest(req, activeRoom, true),
         });
         return;
       }
@@ -2343,6 +2551,7 @@ async function handleApi(req, res, url) {
       const room = {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         code: createRoomCode(),
+        hostUserId: actor.id,
         hostName,
         hostRating,
         hostTier: hostRegistered ? ratingTierFor(hostRating) : "",
@@ -2362,7 +2571,7 @@ async function handleApi(req, res, url) {
       touchAdminUser({ name: hostName, email: hostProfile?.email || "", rating: hostRating, registered: hostRegistered, ratingEligible: hostRegistered, ip: clientIp(req), source: hostRegistered ? "account" : "guest" });
       saveAdminState();
       rooms.unshift(room);
-      sendJson(res, 201, { room: publicRoom(room, true) });
+      sendJson(res, 201, { room: publicRoomForRequest(req, room, true) });
       return;
     }
 
@@ -2373,7 +2582,7 @@ async function handleApi(req, res, url) {
         return;
       }
       updatePresenceStatus(room);
-      sendJson(res, 200, { room: publicRoom(room) });
+      sendJson(res, 200, { room: publicRoomForRequest(req, room) });
       return;
     }
 
@@ -2383,7 +2592,7 @@ async function handleApi(req, res, url) {
         sendJson(res, 404, { error: "Комната не найдена." });
         return;
       }
-      if (isBotAnalysisRoom(room) && room.botOwnerTokenHash !== sha256(String(req.headers["x-bot-owner"] || ""))) {
+      if (isBotAnalysisRoom(room) && !requestCanAccessBotRoom(req, room, req.headers["x-bot-owner"])) {
         sendJson(res, 403, { error: "Нет доступа к этой бот-партии." });
         return;
       }
@@ -2399,8 +2608,16 @@ async function handleApi(req, res, url) {
         return;
       }
       const body = await readJsonBody(req);
-      if (isBotAnalysisRoom(room) && room.botOwnerTokenHash !== sha256(String(body.ownerToken || ""))) {
+      if (!["waiting", "joined"].includes(room.status)) {
+        sendJson(res, 409, { error: "Эта игровая сессия уже завершена.", version: Number(room.gameVersion) || 0 });
+        return;
+      }
+      if (isBotAnalysisRoom(room) && !requestCanAccessBotRoom(req, room, body.ownerToken)) {
         sendJson(res, 403, { error: "Нет доступа к этой бот-партии." });
+        return;
+      }
+      if (!isBotAnalysisRoom(room) && !requestRoomParticipantColor(req, room)) {
+        sendJson(res, 403, { error: "Обновлять партию могут только её участники." });
         return;
       }
       if (!body.state || typeof body.state !== "object") {
@@ -2452,6 +2669,11 @@ async function handleApi(req, res, url) {
         return;
       }
       const body = await readJsonBody(req);
+      const participantColor = requestRoomParticipantColor(req, room);
+      if (!participantColor || (body.color && body.color !== participantColor)) {
+        sendJson(res, 403, { error: "Отправлять сообщения могут только участники комнаты." });
+        return;
+      }
       const kind = body.kind === "emoji" ? "emoji" : (body.kind === "voice" ? "voice" : "text");
       const text = kind === "voice" ? "Голосовое сообщение" : normalizeChatText(body.text);
       const audioData = kind === "voice" ? String(body.audioData || "") : "";
@@ -2465,9 +2687,9 @@ async function handleApi(req, res, url) {
       const message = {
         id: room.chatVersion,
         roomCode: room.code,
-        senderId: String(body.senderId || "").slice(0, 80),
-        senderName: String(body.senderName || "Игрок").slice(0, 32),
-        color: body.color === "dark" ? "dark" : "white",
+        senderId: participantColor === "white" ? room.hostUserId : room.guestUserId,
+        senderName: participantColor === "white" ? room.hostName : room.guestName,
+        color: participantColor,
         text,
         kind,
         audioData,
@@ -2489,24 +2711,42 @@ async function handleApi(req, res, url) {
         return;
       }
       const body = await readJsonBody(req);
-      const guestName = String(body.guestName || "Соперник").slice(0, 32);
-      const guestProfile = registeredRoomProfile({
-        name: guestName,
-        userId: body.guestUserId,
-        ratingEligible: body.guestRatingEligible,
-      });
-      const guestRegistered = Boolean(guestProfile);
-      const guestRating = guestRegistered ? normalizeRating(guestProfile.rating) : null;
+      const actor = roomActorFromRequest(req, body, "guest");
+      if (actor.error) {
+        sendJson(res, actor.status, { error: actor.error });
+        return;
+      }
+      const guestProfile = actor.user;
+      const guestName = actor.name;
+      const guestRegistered = actor.registered;
+      const guestRating = actor.rating;
       if (room.status !== "waiting") {
-        if (isRoomActiveForPlayer(room, guestName)) {
-          sendJson(res, 200, { room: publicRoom(room) });
+        if (isRoomActiveForPlayer(room, guestName, actor.id)) {
+          sendJson(res, 200, { room: publicRoomForRequest(req, room) });
+          return;
+        }
+        const activeRoom = findActiveRoomForPlayer(guestName, actor.id, room.code);
+        if (activeRoom) {
+          sendJson(res, 409, {
+            error: "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
+            room: publicRoomForRequest(req, activeRoom, true),
+          });
           return;
         }
         sendJson(res, 409, { error: "Эта комната уже занята." });
         return;
       }
-      if (normalizePlayerName(room.hostName) === normalizePlayerName(guestName)) {
-        sendJson(res, 200, { room: publicRoom(room) });
+      if (String(room.hostUserId || "") === actor.id) {
+        sendJson(res, 200, { room: publicRoomForRequest(req, room) });
+        return;
+      }
+
+      const activeRoom = findActiveRoomForPlayer(guestName, actor.id, room.code);
+      if (activeRoom) {
+        sendJson(res, 409, {
+          error: "У вас уже есть активная игровая комната. Сначала завершите или покиньте текущую комнату.",
+          room: publicRoomForRequest(req, activeRoom, true),
+        });
         return;
       }
 
@@ -2520,6 +2760,7 @@ async function handleApi(req, res, url) {
       }
 
       room.status = "joined";
+      room.guestUserId = actor.id;
       room.guestName = guestName;
       room.guestRating = guestRating;
       room.guestTier = guestRegistered ? ratingTierFor(guestRating) : "";
@@ -2532,7 +2773,7 @@ async function handleApi(req, res, url) {
       };
       touchAdminUser({ name: guestName, email: guestProfile?.email || "", rating: guestRating, registered: guestRegistered, ratingEligible: guestRegistered, ip: clientIp(req), source: guestRegistered ? "account" : "guest" });
       saveAdminState();
-      sendJson(res, 200, { room: publicRoom(room) });
+      sendJson(res, 200, { room: publicRoomForRequest(req, room) });
       return;
     }
 
@@ -2543,8 +2784,12 @@ async function handleApi(req, res, url) {
         return;
       }
       const body = await readJsonBody(req);
-      const color = body.color === "dark" ? "dark" : "white";
-      touchPresence(room, color, body.name || (color === "white" ? room.hostName : room.guestName));
+      const color = requestRoomParticipantColor(req, room);
+      if (!color || (body.color && body.color !== color)) {
+        sendJson(res, 403, { error: "Обновлять присутствие может только соответствующий участник." });
+        return;
+      }
+      touchPresence(room, color, color === "white" ? room.hostName : room.guestName);
       updatePresenceStatus(room);
       sendJson(res, 200, {
         ok: true,
@@ -2595,11 +2840,19 @@ async function handleApi(req, res, url) {
       }
       const room = rooms[index];
       const body = await readJsonBody(req);
-      const color = body.color === "dark" ? "dark" : "white";
+      const color = requestRoomParticipantColor(req, room);
+      if (!color) {
+        sendJson(res, 403, { ok: false, removed: false, error: "Покинуть комнату может только участник партии." });
+        return;
+      }
+      if (body.color && body.color !== color) {
+        sendJson(res, 403, { ok: false, removed: false, error: "Нельзя завершить сессию другого участника." });
+        return;
+      }
       room.leftPlayers ||= {};
       room.leftPlayers[color] = true;
       room.lastLeftAt = new Date().toISOString();
-      room.lastLeftBy = String(body.name || "").slice(0, 32);
+      room.lastLeftBy = String(color === "white" ? room.hostName : room.guestName).slice(0, 32);
 
       if (room.status === "waiting" || (room.leftPlayers.white && room.leftPlayers.dark)) {
         archiveFinishedRoom(room);
@@ -2608,7 +2861,7 @@ async function handleApi(req, res, url) {
         return;
       }
 
-      sendJson(res, 200, { ok: true, removed: false, room: publicRoom(room) });
+      sendJson(res, 200, { ok: true, removed: false, room: publicRoomForRequest(req, room) });
       return;
     }
 
@@ -2619,12 +2872,56 @@ async function handleApi(req, res, url) {
         sendJson(res, 200, { ok: true, removed: false });
         return;
       }
+      const botOnly = url.searchParams.get("bot") === "1";
+      const waitingOnly = url.searchParams.get("waiting") === "1";
+      if (!botOnly && !waitingOnly) {
+        sendJson(res, 400, {
+          ok: false,
+          removed: false,
+          error: "Не указан безопасный режим закрытия комнаты.",
+        });
+        return;
+      }
+      if (botOnly) {
+        const room = rooms[index];
+        if (!isBotAnalysisRoom(room) || !["waiting", "joined"].includes(room.status)) {
+          sendJson(res, 200, { ok: true, removed: false, room: publicRoomForRequest(req, room) });
+          return;
+        }
+        const ownsRoom = requestOwnsRoomHost(req, room);
+        const hasBotProof = room.hostRegistered
+          || room.botOwnerTokenHash === sha256(String(req.headers["x-bot-owner"] || ""));
+        if (!ownsRoom || !hasBotProof) {
+          sendJson(res, 403, {
+            ok: false,
+            removed: false,
+            error: "Только создатель может закрыть эту бот-партию.",
+            room: publicRoomForRequest(req, room),
+          });
+          return;
+        }
+        archiveFinishedRoom(room);
+        rooms.splice(index, 1);
+        sendJson(res, 200, { ok: true, removed: true });
+        return;
+      }
       if (
-        url.searchParams.get("waiting") === "1"
+        waitingOnly
         && (rooms[index].status !== "waiting" || rooms[index].guestName)
       ) {
-        sendJson(res, 200, { ok: true, removed: false });
+        sendJson(res, 200, { ok: true, removed: false, room: publicRoomForRequest(req, rooms[index]) });
         return;
+      }
+      if (waitingOnly) {
+        if (!requestOwnsRoomHost(req, rooms[index])) {
+          sendJson(res, 403, {
+            ok: false,
+            removed: false,
+            error: "Только создатель может закрыть эту комнату.",
+            room: publicRoomForRequest(req, rooms[index]),
+          });
+          return;
+        }
       }
       archiveFinishedRoom(rooms[index]);
       rooms.splice(index, 1);

@@ -151,8 +151,8 @@
 </div>
 
 <script src="runtime-config.js"></script>
-<script src="supabase-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
-<script src="app.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="supabase-client.js?v=20260915-long-bot-v34-v36"></script>
+<script src="app.js?v=20260915-long-bot-v34-v36"></script>
 <script src="auth-client.js?v=20260914-auth-hang-recovery"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
@@ -291,14 +291,22 @@
     }
   });
 
-  document.getElementById('guest-btn').addEventListener('click', () => {
-    const guest = NarduApp.beginGuestSession();
-    if (!guest) {
-      setMessage('login-message', NarduApp.t('err_session'), 'error');
-      return;
+  document.getElementById('guest-btn').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    setMessage('login-message', 'Создаём защищённую гостевую сессию…');
+    try {
+      const guest = await NarduApp.beginGuestSession();
+      if (!guest) {
+        setMessage('login-message', NarduApp.t('err_session'), 'error');
+        return;
+      }
+      NarduApp.clearReauthContext?.();
+      location.href = NarduAuth.postAuthDestination();
+    } finally {
+      button.disabled = false;
     }
-    NarduApp.clearReauthContext?.();
-    location.href = NarduAuth.postAuthDestination();
   });
 
   document.getElementById('forgot-toggle').addEventListener('click', () => {

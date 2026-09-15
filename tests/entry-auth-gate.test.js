@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createHash, webcrypto } = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 const lobbyHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -11,6 +12,22 @@ const appSource = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
 const loginHtml = fs.readFileSync(path.join(ROOT, 'login.html'), 'utf8');
 const gateMatch = lobbyHtml.match(/<script>\s*(\/\* Keep the lobby private[\s\S]*?)<\/script>/);
 const roomGateMatch = roomHtml.match(/<script>\s*(\/\* A direct room link[\s\S]*?)<\/script>/);
+const TEST_GUEST_PROOF = `gproof:${'42'.repeat(32)}`;
+const TEST_GUEST_ID = `guest:sha256:${createHash('sha256')
+  .update(`nardu/guest/v1:${TEST_GUEST_PROOF}`)
+  .digest('hex')}`;
+
+function secureGuestStorage(name = 'Guest5678') {
+  return {
+    'narduh-user': JSON.stringify({ id: TEST_GUEST_ID, name, guest: true }),
+    'narduh-guest-entry-v1': '1',
+    'narduh-guest-credential-v1': JSON.stringify({
+      version: 1,
+      guestId: TEST_GUEST_ID,
+      proof: TEST_GUEST_PROOF,
+    }),
+  };
+}
 
 function storage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -68,7 +85,7 @@ function loadApp(initial = {}) {
     addEventListener() {},
   };
   const context = {
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, crypto: webcrypto },
     document,
     localStorage,
     sessionStorage,
@@ -82,6 +99,8 @@ function loadApp(initial = {}) {
     Math,
     JSON,
     setInterval() { return 1; },
+    TextEncoder,
+    Uint8Array,
   };
   context.window.window = context.window;
   context.globalThis = context.window;
@@ -143,10 +162,7 @@ test('registered users and explicitly admitted guests may enter the lobby', () =
   assert.deepEqual(registered.redirects, []);
   assert.equal(registered.localStorage.getItem('narduh-guest-entry-v1'), null);
 
-  const guest = runLobbyGate({
-    'narduh-user': JSON.stringify({ id: 'guest:new', name: 'Guest5678', guest: true }),
-    'narduh-guest-entry-v1': '1',
-  });
+  const guest = runLobbyGate(secureGuestStorage());
   assert.deepEqual(guest.redirects, []);
   assert.equal(guest.localStorage.getItem('narduh-user') !== null, true);
 
@@ -169,16 +185,21 @@ test('the shared auth fallback redirects instead of silently creating a guest', 
   assert.match(roomHtml, /Never expose a room's placeholder identity/);
 });
 
-test('guest access is persisted only by the explicit guest-session action', () => {
+test('guest access is persisted only by the explicit guest-session action', async () => {
   const { app, localStorage, redirects } = loadApp();
 
   assert.equal(app.requireAuth(), null);
   assert.deepEqual(redirects, ['login.html']);
   assert.equal(localStorage.getItem('narduh-user'), null);
 
-  const guest = app.beginGuestSession();
+  const guest = await app.beginGuestSession();
   assert.equal(guest?.guest, true);
+  assert.match(guest.id, /^guest:sha256:[0-9a-f]{64}$/);
   assert.equal(localStorage.getItem('narduh-guest-entry-v1'), '1');
+  const credential = JSON.parse(localStorage.getItem('narduh-guest-credential-v1'));
+  assert.equal(credential.guestId, guest.id);
+  assert.match(credential.proof, /^gproof:[0-9a-f]{64}$/);
+  assert.equal(JSON.parse(localStorage.getItem('narduh-user')).proof, undefined);
   assert.equal(app.requireAuth()?.id, guest.id);
   assert.deepEqual(redirects, ['login.html']);
 });
@@ -195,10 +216,7 @@ test('the sign-in page clears a legacy guest instead of bouncing back to the lob
 });
 
 test('an explicitly admitted guest can open auth pages to create a permanent account', () => {
-  const { app, localStorage, location } = loadApp({
-    'narduh-user': JSON.stringify({ id: 'guest:new', name: 'Guest5678', guest: true }),
-    'narduh-guest-entry-v1': '1',
-  });
+  const { app, localStorage, location } = loadApp(secureGuestStorage());
 
   app.requireGuest();
 
@@ -213,9 +231,25 @@ test('a direct room link cannot bypass explicit guest entry', () => {
   assert.deepEqual(legacyGuest.redirects, ['login.html']);
   assert.equal(legacyGuest.localStorage.getItem('narduh-user'), null);
 
-  const explicitGuest = runRoomGate({
-    'narduh-user': JSON.stringify({ id: 'guest:new', name: 'Guest5678', guest: true }),
+  const explicitGuest = runRoomGate(secureGuestStorage());
+  assert.deepEqual(explicitGuest.redirects, []);
+});
+
+test('a copied public guest id without its matching proof fails closed', () => {
+  const copied = runLobbyGate({
+    'narduh-user': JSON.stringify({ id: TEST_GUEST_ID, name: 'Guest5678', guest: true }),
     'narduh-guest-entry-v1': '1',
   });
-  assert.deepEqual(explicitGuest.redirects, []);
+  assert.deepEqual(copied.redirects, ['login.html?invite=ROOM#join']);
+  assert.equal(copied.localStorage.getItem('narduh-user'), null);
+
+  const wrongProof = runRoomGate({
+    ...secureGuestStorage(),
+    'narduh-guest-credential-v1': JSON.stringify({
+      version: 1,
+      guestId: TEST_GUEST_ID,
+      proof: `gproof:${'99'.repeat(32)}`,
+    }),
+  });
+  assert.deepEqual(wrongProof.redirects, [], 'shape-only entry gate defers cryptographic verification to RLS');
 });

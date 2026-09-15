@@ -9,6 +9,10 @@ async function analysisModule() {
   return import(pathToFileURL(path.join(ROOT, 'bot-engine/long/analysis.ts')).href);
 }
 
+async function engineModule() {
+  return import(pathToFileURL(path.join(ROOT, 'bot-engine/long/engine.ts')).href);
+}
+
 test('risky decisions cannot let neutral exact evidence hide a harmful behavior alias', async () => {
   const analysis = await analysisModule();
   const behaviorKey = 'entry:flat|progress:flat|home:shuffle|tower:loss|prime:loss|prime-run:3|off:no';
@@ -141,4 +145,48 @@ test('risky alias arbitration favors a penalty over conflicting exact rewards', 
 
   assert.ok(analysis.experienceAdjustment(descriptor, exactOnly) > 0);
   assert.ok(analysis.experienceAdjustment(descriptor, conflicted) < 0);
+});
+
+test('fresh local loss evidence overrides an older live-server copy', async () => {
+  const { createLongBotEngine } = await engineModule();
+  const engine = createLongBotEngine({});
+  const common = {
+    creditVersion: 8,
+    contextKey: 'route|egxa-memory',
+    actionKey: 'route:self-lock',
+  };
+  engine.setExperience([{
+    ...common,
+    samples: 3,
+    wins: 3,
+    updatedAt: '2026-09-14T19:00:00.000Z',
+  }], 'server');
+  engine.setExperience([{
+    ...common,
+    samples: 4,
+    losses: 4,
+    updatedAt: '2026-09-14T20:00:00.000Z',
+  }], 'local');
+
+  const selected = engine.experienceSnapshotPatterns();
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].losses, 4);
+  assert.equal(selected[0].updatedAt, '2026-09-14T20:00:00.000Z');
+});
+
+test('newer live-server evidence still supersedes an older local copy', async () => {
+  const { createLongBotEngine } = await engineModule();
+  const engine = createLongBotEngine({});
+  const common = {
+    creditVersion: 8,
+    contextKey: 'route|fresh-server',
+    actionKey: 'route:known',
+  };
+  engine.setExperience([{ ...common, losses: 2, updatedAt: '2026-09-14T19:00:00.000Z' }], 'local');
+  engine.setExperience([{ ...common, wins: 5, updatedAt: '2026-09-14T21:00:00.000Z' }], 'server');
+
+  const selected = engine.experienceSnapshotPatterns();
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].wins, 5);
+  assert.equal(selected[0].updatedAt, '2026-09-14T21:00:00.000Z');
 });

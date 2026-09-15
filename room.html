@@ -15,13 +15,19 @@
     try {
       var userKey = 'narduh-user';
       var guestEntryKey = 'narduh-guest-entry-v1';
+      var guestCredentialKey = 'narduh-guest-credential-v1';
       var raw = localStorage.getItem(userKey);
       var user = raw ? JSON.parse(raw) : null;
       var name = String((user && (user.name || user.nickname)) || '').trim();
       var userId = String((user && user.id) || '').trim();
+      var credentialRaw = localStorage.getItem(guestCredentialKey);
+      var credential = credentialRaw ? JSON.parse(credentialRaw) : null;
       var validName = Boolean(name && name !== '—' && name !== '-');
       var explicitGuest = user && user.guest === true
-        && /^guest:/.test(userId)
+        && /^guest:sha256:[0-9a-f]{64}$/.test(userId)
+        && credential && credential.version === 1
+        && credential.guestId === userId
+        && /^gproof:[0-9a-f]{64}$/.test(String(credential.proof || ''))
         && /^Guest\d{4}$/.test(name)
         && localStorage.getItem(guestEntryKey) === '1';
       var registered = user && user.guest !== true
@@ -31,6 +37,7 @@
         globalThis.NARDU_ENTRY_BLOCKED = true;
         localStorage.removeItem(userKey);
         localStorage.removeItem(guestEntryKey);
+        localStorage.removeItem(guestCredentialKey);
         location.replace('login.html');
       } else if (registered) {
         localStorage.removeItem(guestEntryKey);
@@ -40,6 +47,7 @@
       try {
         localStorage.removeItem('narduh-user');
         localStorage.removeItem('narduh-guest-entry-v1');
+        localStorage.removeItem('narduh-guest-credential-v1');
       } catch(_) {}
       location.replace('login.html');
     }
@@ -441,21 +449,21 @@
 
 <!-- engine + bot + sound + rating + shared app -->
 <script src="game.js"></script>
-<script src="long-bot-engine.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="long-bot-engine.js?v=20260915-long-bot-v34-v36"></script>
 <script src="short-bot-engine.js?v=20260911-short-analytic-v6"></script>
 <script src="short-bot-wildbg-client.js?v=20260911-short-analytic-v6-wildbg"></script>
-<script src="strong-bot.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="strong-bot.js?v=20260915-long-bot-v34-v36"></script>
 <script src="bot.js"></script>
 <script src="sound.js"></script>
 <script src="rating.js"></script>
 <script src="runtime-config.js"></script>
-<script src="supabase-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
-<script src="app.js?v=20260914-mobile-session-recovery-long-v33"></script>
-<script src="rooms-client.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="supabase-client.js?v=20260915-long-bot-v34-v36"></script>
+<script src="app.js?v=20260915-long-bot-v34-v36"></script>
+<script src="rooms-client.js?v=20260915-long-bot-v34-v36"></script>
 <script src="dice-engine.js"></script>
 <script src="dice-webgl.js"></script>
 <script src="board-engine.js"></script>
-<script src="game-controller.js?v=20260914-mobile-session-recovery-long-v33"></script>
+<script src="game-controller.js?v=20260915-long-bot-v34-v36"></script>
 
 <script>
 /* ───── Long Backgammon initial state (длинные нарды) ─────
@@ -1261,6 +1269,8 @@ mic.addEventListener('click', async (event) => {
 /* room lifecycle */
 const ACTIVE_ROOM_KEY = 'narduh-active-room';
 const CREATE_GAME_KEY = 'narduh-created-game';
+const STALE_ROOM_CODES_KEY = 'narduh-stale-room-codes';
+const WAITING_ROOM_CLOSE_TIMEOUT_MS = 4000;
 const roomUrl = new URL(location.href);
 const roomCode = roomUrl.searchParams.get('room') || '';
 const localGameCode = roomCode ? '' : ensureLocalGameCode();
@@ -1278,6 +1288,7 @@ if (!spectatorId) {
 }
 let waitingPoll = null;
 let waitingPollBusy = false;
+let waitingRoomExitStarted = false;
 let presenceTimer = null;
 let spectatorTimer = null;
 let spectatorBusy = false;
@@ -1357,13 +1368,34 @@ async function activeRoom() {
   }
 }
 
-async function removeCurrentWaitingRoom() {
-  if (!roomCode) return true;
-  if (isWaitingHost && NarduRooms.closeOwnLobbyRooms) {
-    await NarduRooms.closeOwnLobbyRooms({ codes: [roomCode] });
-  } else {
-    await NarduRooms.deleteRoom(roomCode);
+function readStaleRoomCodes() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STALE_ROOM_CODES_KEY) || '[]');
+    return Array.isArray(value)
+      ? value.map(code => String(code || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
   }
+}
+
+function rememberWaitingRoomForCleanup() {
+  if (!roomCode) return;
+  const codes = [...new Set([...readStaleRoomCodes(), String(roomCode).trim().toUpperCase()])];
+  NarduApp.safeStorageSet(STALE_ROOM_CODES_KEY, JSON.stringify(codes));
+}
+
+function forgetWaitingRoomCleanup() {
+  if (!roomCode) return;
+  const normalizedCode = String(roomCode).trim().toUpperCase();
+  const codes = readStaleRoomCodes().filter(code => code !== normalizedCode);
+  if (codes.length) NarduApp.safeStorageSet(STALE_ROOM_CODES_KEY, JSON.stringify(codes));
+  else {
+    try { localStorage.removeItem(STALE_ROOM_CODES_KEY); } catch {}
+  }
+}
+
+function clearCurrentRoomStorage() {
   try {
     const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
     if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
@@ -1373,6 +1405,50 @@ async function removeCurrentWaitingRoom() {
     localStorage.removeItem(CREATE_GAME_KEY);
     localStorage.removeItem(ACTIVE_ROOM_KEY);
   }
+}
+
+async function closeWaitingRoomWithTimeout() {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const closeWaitingRoom = NarduRooms.closeWaitingRoom
+    || ((code, options = {}) => NarduRooms.deleteRoom(code, { ...options, waitingOnly: true }));
+  let timeoutId;
+  try {
+    return await Promise.race([
+      closeWaitingRoom(roomCode, { signal: controller?.signal }),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller?.abort();
+          const error = new Error('Waiting room close timed out.');
+          error.code = 'WAITING_ROOM_CLOSE_TIMEOUT';
+          reject(error);
+        }, WAITING_ROOM_CLOSE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function removeCurrentWaitingRoom() {
+  if (!roomCode) return true;
+  if (isWaitingHost) {
+    rememberWaitingRoomForCleanup();
+    const result = await closeWaitingRoomWithTimeout();
+    if (result?.removed || result?.closed === true || (result?.ok && !result?.room)) {
+      forgetWaitingRoomCleanup();
+      clearCurrentRoomStorage();
+      return true;
+    }
+    if (result?.room?.status === 'joined') {
+      forgetWaitingRoomCleanup();
+      return false;
+    }
+    throw new Error('Waiting room was not closed.');
+  }
+  if (roomUrl.searchParams.get('mode') === 'bot') {
+    await NarduRooms.closeBotRoom(roomCode);
+  }
+  clearCurrentRoomStorage();
   return true;
 }
 function isActiveRemoteRoom() {
@@ -1630,7 +1706,16 @@ async function reportActiveRemoteLeave() {
   }
   return true;
 }
+function stopWaitingRoomWatchForExit() {
+  if (!isWaitingHost) return;
+  waitingRoomExitStarted = true;
+  if (waitingPoll) clearInterval(waitingPoll);
+  waitingPoll = null;
+}
 async function leaveToLobby({ immediate = false } = {}) {
+  // Once the host has chosen the lobby, an already in-flight waiting-room
+  // poll must never redirect the page back into a room that joined meanwhile.
+  stopWaitingRoomWatchForExit();
   if (presenceTimer) clearInterval(presenceTimer);
   if (spectatorTimer) clearInterval(spectatorTimer);
   presenceTimer = null;
@@ -1642,6 +1727,16 @@ async function leaveToLobby({ immediate = false } = {}) {
   }
   if (isSpectatorRoom) {
     await NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
+    location.href = 'index.html';
+    return;
+  }
+  if (isWaitingHost) {
+    try {
+      await removeCurrentWaitingRoom();
+    } catch (error) {
+      if (NarduApp.redirectForAuthError?.(error)) return;
+      console.warn('Waiting room cleanup will retry in the lobby', error?.message || error);
+    }
     location.href = 'index.html';
     return;
   }
@@ -1754,19 +1849,22 @@ document.querySelector('[data-copy-invite]')?.addEventListener('click', event =>
 });
 
 function watchWaitingRoom() {
-  if (!isWaitingHost) return;
+  if (!isWaitingHost || waitingRoomExitStarted) return;
   waitingPoll = setInterval(async () => {
-    if (waitingPollBusy) return;
+    if (waitingRoomExitStarted || waitingPollBusy) return;
     waitingPollBusy = true;
     const room = await activeRoom();
     waitingPollBusy = false;
+    if (waitingRoomExitStarted) return;
     if (!room) {
       clearInterval(waitingPoll);
+      waitingPoll = null;
       location.href = 'index.html';
       return;
     }
     if (room.status === 'joined') {
       clearInterval(waitingPoll);
+      waitingPoll = null;
       const params = new URLSearchParams({
         mode: 'remote',
         room: room.code,

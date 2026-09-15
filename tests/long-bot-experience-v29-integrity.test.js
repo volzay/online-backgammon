@@ -263,7 +263,7 @@ test('v29 loads existing local experience before the first frozen decision', () 
   assert.deepEqual(JSON.parse(JSON.stringify(experienceCalls[0].patterns)), [pattern]);
 });
 
-test('v33 rejects a mixed local credit generation before engine sync', () => {
+test('v34 rejects a mixed local credit generation before engine sync', () => {
   const storage = memoryStorage({
     [EXPERIENCE_KEY]: JSON.stringify([
       {
@@ -427,7 +427,7 @@ test('v29 keeps server aggregate authoritative while retaining local-only keys',
   assert.deepEqual(cached.experienceSnapshotEntries(), entries);
 });
 
-test('v33 uses a newer local lesson before a stale server cache can hide it', async () => {
+test('v34 uses a newer local lesson before a stale server cache can hide it', async () => {
   const browser = await import(pathToFileURL(
     path.join(ROOT, 'bot-engine/long/browser.ts'),
   ).href);
@@ -548,6 +548,8 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   const originalFingerprint = first.freezeExperience().fingerprint;
   assert.equal(storage.getItem('narduh-long-bot-frozen-experience-v32:stale'), null);
   first.setExperience(updated, 'server');
+  assert.deepEqual(first.experienceSnapshot().pendingSources, ['server']);
+  assert.equal(first.experienceSnapshot().pendingPatternCount, updated.length);
 
   const reloaded = browser.createBrowserLongBotEngine(context.window.NarduGame, {
     experienceStorage: storage,
@@ -562,6 +564,71 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
 
   first.beginExperienceSession('GUKS-UURG:2000');
   assert.notEqual(first.freezeExperience().fingerprint, originalFingerprint);
+});
+
+test('v34 isolates v33 frozen evidence and duplicate begin keeps the session immutable', async () => {
+  const browser = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/browser.ts'),
+  ).href);
+  const { context } = loadStrongBot();
+  const storage = memoryStorage();
+  const sessionKey = 'EGXA-Z2PG:1000';
+  const stalePattern = {
+    contextKey: 'route|v33-stale',
+    actionKey: 'prime-timing:loss|self-crunch:loss|prime-run:6',
+    samples: 9,
+    losses: 9,
+    lossWeight: 18,
+  };
+  storage.setItem(`narduh-long-bot-frozen-experience-v33:${sessionKey}`, JSON.stringify({
+    engineVersion: 'long-analytic-v33',
+    patterns: [stalePattern],
+  }));
+
+  const engine = browser.createBrowserLongBotEngine(context.window.NarduGame, {
+    experienceStorage: storage,
+  });
+  const initial = [{
+    contextKey: 'route|v34-current',
+    actionKey: 'prime-timing:gain|self-crunch:gain|prime-run:5',
+    samples: 4,
+    wins: 4,
+    winWeight: 4,
+  }];
+  const pending = [{
+    contextKey: 'route|arrived-mid-game',
+    actionKey: 'prime-timing:flat|self-crunch:flat|prime-run:4',
+    samples: 4,
+    losses: 4,
+    lossWeight: 6,
+  }];
+
+  engine.setExperience(initial, 'server-cache');
+  const begun = engine.beginExperienceSession(sessionKey);
+  assert.equal(begun.frozen, false);
+  assert.equal(
+    engine.experienceSnapshotEntries().some(([key]) => key.includes('v33-stale')),
+    false,
+  );
+
+  const frozen = engine.freezeExperience();
+  const frozenSize = engine.experienceSize();
+  const storedV34 = JSON.parse(storage.getItem(
+    `narduh-long-bot-frozen-experience-v34:${sessionKey}`,
+  ));
+  assert.equal(storedV34.engineVersion, 'long-analytic-v34');
+  assert.equal(storage.getItem(`narduh-long-bot-frozen-experience-v33:${sessionKey}`), null);
+
+  engine.setExperience(pending, 'server');
+  const beforeDuplicateBegin = engine.experienceSnapshot();
+  assert.deepEqual(beforeDuplicateBegin.pendingSources, ['server']);
+  const duplicate = engine.beginExperienceSession(sessionKey);
+
+  assert.equal(duplicate.fingerprint, frozen.fingerprint);
+  assert.equal(duplicate.size, frozenSize);
+  assert.deepEqual(duplicate.pendingSources, ['server']);
+  assert.equal(duplicate.pendingPatternCount, pending.length);
+  assert.deepEqual(engine.experienceSnapshot(), beforeDuplicateBegin);
 });
 
 test('v29 local learning rejects unfrozen or mixed experience snapshots', () => {

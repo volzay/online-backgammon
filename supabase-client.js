@@ -5,6 +5,9 @@
   ];
   const SUPABASE_SDK_LOAD_TIMEOUT_MS = 5000;
   const SUPABASE_FETCH_TIMEOUT_MS = 6000;
+  const GUEST_CREDENTIAL_KEY = 'narduh-guest-credential-v1';
+  const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
+  const GUEST_PROOF_RE = /^gproof:[0-9a-f]{64}$/;
   let clientPromise = null;
   const AUTH_RECLAIM_EXACT_KEYS = new Set([
     "narduh-long-bot-server-experience-v15",
@@ -145,12 +148,48 @@
     return /\/auth\/v1\/|\/rest\/v1\/profiles(?:[/?#]|$)|\/rest\/v1\/rpc\/(?:nickname_auth_email|register_nickname_user)(?:[/?#]|$)/i.test(value);
   }
 
+  function currentGuestRequestCredential() {
+    try {
+      const user = JSON.parse(localStorage.getItem('narduh-user') || 'null');
+      const stored = JSON.parse(localStorage.getItem(GUEST_CREDENTIAL_KEY) || 'null');
+      const guestId = user?.guest === true ? String(user.id || '').trim() : '';
+      const proof = String(stored?.proof || '').trim();
+      if (Number(stored?.version) !== 1 || stored?.guestId !== guestId) return null;
+      if (!GUEST_PUBLIC_ID_RE.test(guestId) || !GUEST_PROOF_RE.test(proof)) return null;
+      return { guestId, proof };
+    } catch {
+      return null;
+    }
+  }
+
+  function withGuestRequestHeaders(input, init = {}) {
+    const url = typeof input === 'string' ? input : String(input?.url || input || '');
+    if (!/\/rest\/v1\//i.test(url)) return init;
+    const credential = currentGuestRequestCredential();
+    if (!credential) return init;
+    if (typeof Headers === 'function') {
+      const headers = new Headers(init.headers || {});
+      headers.set('X-Guest-Id', credential.guestId);
+      headers.set('X-Guest-Proof', credential.proof);
+      return { ...init, headers };
+    }
+    return {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        'X-Guest-Id': credential.guestId,
+        'X-Guest-Proof': credential.proof,
+      },
+    };
+  }
+
   async function boundedFetch(input, init = {}) {
-    if (!isAuthCriticalRequest(input)) return fetch(input, init);
-    if (typeof AbortController !== "function") return fetch(input, init);
+    const requestInit = withGuestRequestHeaders(input, init);
+    if (!isAuthCriticalRequest(input)) return fetch(input, requestInit);
+    if (typeof AbortController !== "function") return fetch(input, requestInit);
 
     const controller = new AbortController();
-    const externalSignal = init?.signal;
+    const externalSignal = requestInit?.signal;
     let externallyAborted = false;
     let timedOut = false;
     let timer = null;
@@ -175,7 +214,7 @@
     }, SUPABASE_FETCH_TIMEOUT_MS);
 
     try {
-      const response = await fetch(input, { ...init, signal: controller.signal });
+      const response = await fetch(input, { ...requestInit, signal: controller.signal });
       if (typeof response?.clone === "function") {
         const bodyProbe = response.clone();
         if (typeof bodyProbe?.arrayBuffer === "function") await bodyProbe.arrayBuffer();

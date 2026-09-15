@@ -273,14 +273,14 @@ test("winner reconstruction preserves destinations and bear-off moves", () => {
   assert.match(captured[0].experience.actionKey, /off:yes/);
 });
 
-test("the v33 opponent-memory RPC preserves severity and valid winning examples", () => {
+test("the v34 opponent-memory RPC preserves severity and valid winning examples", () => {
   const schema = fs.readFileSync(path.join(ROOT, "supabase/schema.sql"), "utf8");
   const severityMigration = fs.readFileSync(
     path.join(ROOT, "supabase/long-bot-result-severity-v15.sql"),
     "utf8",
   );
   const migration = fs.readFileSync(
-    path.join(ROOT, "supabase/long-bot-strategy-v33.sql"),
+    path.join(ROOT, "supabase/long-bot-strategy-v34.sql"),
     "utf8",
   );
   const severityOrder = /when result_type = 'koks' then 1\.5\s+when result_type = 'mars' then 0\.75/;
@@ -308,7 +308,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
-  const version = "20260914-mobile-session-recovery-long-v33";
+  const version = "20260915-long-bot-v34-v36";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

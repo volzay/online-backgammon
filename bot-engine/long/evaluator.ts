@@ -34,6 +34,8 @@ import {
   phasePressure,
   pipsFor,
   prematureHomeRushPenalty,
+  primeCrunchRisk,
+  primeSustainability,
   prospectiveFenceInterruptionBreak,
   routeCompletionPressure,
   routeTowerRisk,
@@ -87,6 +89,8 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
   const ownFenceClosureRisk = fenceClosureRisk(state, color);
   const opponentTrapReward = cappedTrapReward(opponentTrapRisk(state, opponent));
   const ownKoksPressure = koksRescuePressure(state, color);
+  const ownPrimeCrunchRisk = primeCrunchRisk(state, color);
+  const opponentPrimeCrunchRisk = primeCrunchRisk(state, opponent);
 
   return (opponentPips - ownPips) * weights.progress
     + homeTotalCount(state, color) * weights.homeCheckers
@@ -116,6 +120,8 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     + opponentTrapReward * weights.trapRisk * 0.055
     - escapeGatewayRisk(state, color) * weights.escapeGatewayRisk
     + escapeGatewayRisk(state, opponent) * weights.escapeGatewayRisk * 0.12
+    - ownPrimeCrunchRisk * weights.trapRisk * 64
+    + opponentPrimeCrunchRisk * weights.trapRisk * 10
     - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
@@ -160,6 +166,10 @@ export function sequenceStats(before, after, color, sequence = []) {
       ? Math.max(maximum, Number(stack.count) || 0)
       : maximum
   ), 0);
+  const primeSustainabilityBefore = primeSustainability(before, color);
+  const primeSustainabilityAfter = primeSustainability(after, color);
+  const primeCrunchRiskBefore = primeCrunchRisk(before, color);
+  const primeCrunchRiskAfter = primeCrunchRisk(after, color);
   const routeSignature = sequence
     .map(move => {
       const from = Math.max(0, pathPos(color, Number(move.from)));
@@ -203,6 +213,12 @@ export function sequenceStats(before, after, color, sequence = []) {
     homeShuffleMoves,
     routeSignature,
     maxRouteTowerAfter,
+    primeSustainabilityBefore,
+    primeSustainabilityAfter,
+    primeSustainabilityDelta: primeSustainabilityAfter - primeSustainabilityBefore,
+    primeCrunchRiskBefore,
+    primeCrunchRiskAfter,
+    primeCrunchRiskDelta: primeCrunchRiskBefore - primeCrunchRiskAfter,
     startZoneBefore,
     startZoneAfter,
     startZoneReduction,

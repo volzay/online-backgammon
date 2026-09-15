@@ -1,9 +1,10 @@
 import { createLongBotEngine } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
-const ENGINE_VERSION = 'long-analytic-v33';
-const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v33:';
+const ENGINE_VERSION = 'long-analytic-v34';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v34:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
+  'narduh-long-bot-frozen-experience-v33:',
   'narduh-long-bot-frozen-experience-v32:',
 ];
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
@@ -101,13 +102,25 @@ export function createBrowserLongBotEngine(game, options = {}) {
     },
 
     beginExperienceSession(sessionKey = '') {
+      const nextSessionKey = String(sessionKey || '');
+      // Startup recovery can announce the same room more than once. Once its
+      // evidence is frozen, reopening that identical session must be a no-op:
+      // draining pending sources here would mix lessons fetched mid-game into
+      // a decision stream that promises one immutable fingerprint.
+      if (
+        experienceFrozen
+        && nextSessionKey
+        && nextSessionKey === experienceSessionKey
+      ) {
+        return experienceSnapshot();
+      }
       experienceFrozen = false;
       engine.setExperience([], 'frozen-session');
       pendingExperienceSources.forEach((patterns, source) => {
         engine.setExperience(patterns, source);
       });
       pendingExperienceSources.clear();
-      experienceSessionKey = String(sessionKey || '');
+      experienceSessionKey = nextSessionKey;
       if (restoreFrozenExperience()) experienceFrozen = true;
       return experienceSnapshot();
     },
@@ -143,6 +156,11 @@ export function createBrowserLongBotEngine(game, options = {}) {
       fingerprint: `lbe8-${(hash >>> 0).toString(16).padStart(8, '0')}`,
       size: engine.experienceSize(),
       frozen: experienceFrozen,
+      pendingSources: Array.from(pendingExperienceSources.keys()).sort(),
+      pendingPatternCount: Array.from(pendingExperienceSources.values()).reduce(
+        (total, patterns) => total + patterns.length,
+        0,
+      ),
     };
   }
 
@@ -211,7 +229,15 @@ function decisionRecord(
     1,
     ...ranked.map(candidate => Number(candidate.features?.choiceCount) || 0),
   );
-  const candidates = ranked.slice(0, 4).map(candidate => ({
+  const uniqueRanked = [];
+  const seenPositions = new Set();
+  ranked.forEach((candidate) => {
+    const key = decisionCandidatePositionKey(candidate);
+    if (seenPositions.has(key)) return;
+    seenPositions.add(key);
+    uniqueRanked.push(candidate);
+  });
+  const candidates = uniqueRanked.slice(0, 4).map(candidate => ({
     score: Math.round(candidate.score),
     moves: candidate.sequence.map(move => ({
       from: move.from,
@@ -248,6 +274,7 @@ function decisionRecord(
       expectedOpponentHeadRelease: Number(candidate.tactical.expectedOpponentHeadRelease) || 0,
       expectedOpponentOutsideReduction: Number(candidate.tactical.expectedOpponentOutsideReduction) || 0,
       doublesExpanded: Boolean(candidate.tactical.doublesExpanded),
+      replyCoverageExpanded: Boolean(candidate.tactical.replyCoverageExpanded),
       plies: Number(candidate.tactical.plies) || 2,
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
@@ -279,6 +306,14 @@ function decisionRecord(
     alternatives: candidates.slice(1),
     experience: candidates[0].experience ? { ...candidates[0].experience } : null,
   };
+}
+
+function decisionCandidatePositionKey(candidate) {
+  const points = Object.entries(candidate?.after?.points || {})
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
+    .join('|');
+  return `${points}|${Number(candidate?.after?.off?.white) || 0}:${Number(candidate?.after?.off?.dark) || 0}`;
 }
 
 function positionFingerprint(state, color) {

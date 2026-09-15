@@ -12,6 +12,7 @@ import {
   blockingPrimeScore,
   colorAt,
   developmentPressure,
+  escapeGatewayRisk,
   headCheckers,
   headPoint,
   homeEntryMoveCount,
@@ -31,6 +32,8 @@ import {
   koksRescuePressure,
   latentFenceExposure,
   prospectiveFenceExtensionRisk,
+  primeCrunchRisk,
+  primeSustainability,
   startZoneCount,
   startZoneExitMoveCount,
 } from './metrics.ts';
@@ -68,7 +71,7 @@ export function createLongBotEngine(adapter, options = {}) {
     const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
-    const candidates = prefilterSequences(state, color, sequences, maxCandidates);
+    const candidates = prefilterSequences(adapter, state, color, sequences, maxCandidates);
     const ranked = [];
     const advancedBeforeMetrics = advancedStrategy
       ? advancedStateMetrics(state, color)
@@ -165,6 +168,11 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       strategicallyRanked,
     );
+    strategicallyRanked = reservePrimeSustainabilityForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
     const maxEntry = Math.max(...strategicallyRanked.map(
@@ -257,7 +265,12 @@ export function createLongBotEngine(adapter, options = {}) {
               color,
               reprioritized,
             );
-            return reserveDevelopingFenceEscapeForTacticalAnalysis(
+            reprioritized = reserveDevelopingFenceEscapeForTacticalAnalysis(
+              state,
+              color,
+              reprioritized,
+            );
+            return reservePrimeSustainabilityForTacticalAnalysis(
               state,
               color,
               reprioritized,
@@ -477,11 +490,11 @@ function selectExperiencePatterns(sources) {
 
 function shouldReplaceExperiencePattern(current, candidate) {
   if (!current) return true;
-  const cacheAndLocal = new Set([current.source, candidate.source]);
+  const serverAndLocal = new Set([current.source, candidate.source]);
   if (
-    cacheAndLocal.size === 2
-    && cacheAndLocal.has('local')
-    && cacheAndLocal.has('server-cache')
+    serverAndLocal.size === 2
+    && serverAndLocal.has('local')
+    && (serverAndLocal.has('server') || serverAndLocal.has('server-cache'))
   ) {
     const currentTimestamp = Math.max(
       0,
@@ -595,9 +608,18 @@ function advancedStrategyAdjustment(state, color, features) {
     && Number(features.escapeGatewayDelta || 0) >= 0
   );
   const establishedPrime = primeRunAfter >= 4 || primeRunBefore >= 4;
+  const primeSustainabilityAfter = Math.max(
+    0,
+    Math.min(1, Number(features.primeSustainabilityAfter) || 0),
+  );
+  const primeCrunchRiskAfter = Math.max(0, Number(features.primeCrunchRiskAfter) || 0);
+  const sustainabilityScale = primeRunAfter >= 4
+    ? 0.16 + primeSustainabilityAfter * 0.84
+    : 1;
   const constructivePressure = attackPressure
     * (establishedPrime ? 1 : 0.18)
-    * (safetyCompatible ? 1 : 0.12);
+    * (safetyCompatible ? 1 : 0.12)
+    * sustainabilityScale;
   const preservationPressure = attackPressure
     * Math.max(0.55, 1 / (1 + trapBefore / 1800));
   let score = 0;
@@ -669,6 +691,11 @@ function advancedStrategyAdjustment(state, color, features) {
     score += outsidePipGain * 4000000;
     score -= homeShuffleMoves * 8000000;
   }
+  if (establishedPrime) {
+    score += Number(features.primeSustainabilityDelta || 0) * 28000000;
+    score += Number(features.primeCrunchRiskDelta || 0) * 18000000;
+    score -= primeCrunchRiskAfter * 12000000;
+  }
   return score;
 }
 
@@ -679,6 +706,8 @@ function advancedStateMetrics(state, color) {
     opponentMoveBlock: opponentMoveBlockScore(state, color),
     latentFenceExposure: latentFenceExposure(state, color),
     prospectiveFenceExtension: prospectiveFenceExtensionRisk(state, color),
+    primeSustainability: primeSustainability(state, color),
+    primeCrunchRisk: primeCrunchRisk(state, color),
   };
 }
 
@@ -687,6 +716,8 @@ function advancedSequenceStats(beforeMetrics, after, color) {
   const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
   const latentFenceExposureAfter = latentFenceExposure(after, color);
   const prospectiveFenceExtensionAfter = prospectiveFenceExtensionRisk(after, color);
+  const primeSustainabilityAfter = primeSustainability(after, color);
+  const primeCrunchRiskAfter = primeCrunchRisk(after, color);
   return {
     primeScoreBefore: beforeMetrics.primeScore,
     primeScoreAfter,
@@ -703,6 +734,12 @@ function advancedSequenceStats(beforeMetrics, after, color) {
     prospectiveFenceExtensionAfter,
     prospectiveFenceExtensionDelta: beforeMetrics.prospectiveFenceExtension
       - prospectiveFenceExtensionAfter,
+    primeSustainabilityBefore: beforeMetrics.primeSustainability,
+    primeSustainabilityAfter,
+    primeSustainabilityDelta: primeSustainabilityAfter - beforeMetrics.primeSustainability,
+    primeCrunchRiskBefore: beforeMetrics.primeCrunchRisk,
+    primeCrunchRiskAfter,
+    primeCrunchRiskDelta: beforeMetrics.primeCrunchRisk - primeCrunchRiskAfter,
   };
 }
 
@@ -716,8 +753,23 @@ function advancedTacticalAdjustment(state, color, candidate) {
   const pressure = Math.min(3, 1
     + Math.max(0, raceDebt) / 90
     + Math.max(0, opponentHead - 3) / 10);
+  const primeRunAfter = Math.max(0, Number(candidate.features?.primeRunAfter) || 0);
+  const primeSustainabilityAfter = Math.max(
+    0,
+    Math.min(1, Number(candidate.features?.primeSustainabilityAfter) || 0),
+  );
+  const primeCrunchRiskAfter = Math.max(
+    0,
+    Number(candidate.features?.primeCrunchRiskAfter) || 0,
+  );
+  const blockingValueScale = primeRunAfter >= 4
+    ? 0.14 + primeSustainabilityAfter * 0.86
+    : 1;
   let score = 0;
-  score += (Number(tactical.blockedProbability) || 0) * 95000000 * pressure;
+  score += (Number(tactical.blockedProbability) || 0)
+    * 95000000
+    * pressure
+    * blockingValueScale;
   score -= (Number(tactical.expectedOpponentPipGain) || 0) * 520000 * pressure;
   score -= (Number(tactical.expectedOpponentHeadRelease) || 0)
     * (16000000 + opponentHead * 2400000)
@@ -725,6 +777,7 @@ function advancedTacticalAdjustment(state, color, candidate) {
   score -= (Number(tactical.expectedOpponentOutsideReduction) || 0)
     * (7000000 + Math.max(0, 8 - opponentOutside) * 1800000);
   score -= Math.log1p(Number(tactical.expectedReplySequences) || 0) * 1800000 * pressure;
+  if (primeRunAfter >= 4) score -= primeCrunchRiskAfter * 22000000 * pressure;
   return score;
 }
 
@@ -938,39 +991,57 @@ function prioritizeTransitionBearOff(state, color, ranked) {
   const finishing = entering.filter(candidate => (
     Number(candidate.features.offGain || 0) === maxOff
     && Number(candidate.features.homeShuffleMoves || 0) === 0
-    && isSafeTransitionBearOffAlternative(candidate, ranked[0])
+    && isSafeTransitionBearOffAlternative(state, color, candidate, ranked[0])
   ));
   if (!finishing.length) return ranked;
   finishing.sort((left, right) => Number(right.score) - Number(left.score));
   return promoteCandidate(ranked, finishing[0], 'transitionBearOffAdjustment');
 }
 
-function isSafeTransitionBearOffAlternative(candidate, selected) {
+function isSafeTransitionBearOffAlternative(state, color, candidate, selected) {
   if (candidate === selected) return true;
   if (!candidate?.tactical || !selected?.tactical) return false;
+  const uncontested = isUncontestedLateRaceState(state, color, selected.features);
+  const structuralTolerance = uncontested ? 0 : 2;
+  const gatewayTolerance = uncontested ? 0 : 3;
+  const preservesStructure = Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0) - structuralTolerance
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0) - structuralTolerance
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0) - gatewayTolerance
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      >= Number(selected.features.latentFenceExposureDelta || 0) - structuralTolerance
+    && Number(candidate.features.prospectiveFenceExtensionDelta || 0)
+      >= Number(selected.features.prospectiveFenceExtensionDelta || 0)
+    && (
+      !uncontested
+      || Number(candidate.features.prospectiveFenceInterruptionBreak || 0)
+        <= Number(selected.features.prospectiveFenceInterruptionBreak || 0)
+    )
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.features.primeScoreAfter || 0)
+      >= Number(selected.features.primeScoreAfter || 0)
+    && Number(candidate.features.opponentMoveBlockAfter || 0)
+      >= Number(selected.features.opponentMoveBlockAfter || 0)
+    && Number(candidate.features.routeTowerAfter || 0)
+      <= Number(selected.features.routeTowerAfter || 0)
+    && Number(candidate.features.resultSafetyAfter || 0)
+      >= Number(selected.features.resultSafetyAfter || 0);
+  if (!preservesStructure) return false;
+
+  const continuationIsComparable = uncontested
+    || Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.continuationWorst || 0) - 8000000;
   return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 8000000
     && Number(candidate.experienceAdjustment || 0)
       >= Number(selected.experienceAdjustment || 0) - 500000
-    && Number(candidate.features.trapDelta || 0)
-      >= Number(selected.features.trapDelta || 0) - 2
-    && Number(candidate.features.fenceClosureDelta || 0)
-      >= Number(selected.features.fenceClosureDelta || 0) - 2
-    && Number(candidate.features.escapeGatewayDelta || 0)
-      >= Number(selected.features.escapeGatewayDelta || 0) - 3
-    && Number(candidate.features.latentFenceExposureDelta || 0)
-      >= Number(selected.features.latentFenceExposureDelta || 0) - 2
-    && Number(candidate.features.primeRunAfter || 0)
-      >= Number(selected.features.primeRunAfter || 0)
-    && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0)
-    && Number(candidate.features.resultSafetyAfter || 0)
-      >= Number(selected.features.resultSafetyAfter || 0)
     && Number(candidate.tactical.expectedImpact || 0)
       >= Number(selected.tactical.expectedImpact || 0) - 8000000
     && Number(candidate.tactical.worstImpact || 0)
       >= Number(selected.tactical.worstImpact || 0) - 15000000
-    && Number(candidate.tactical.continuationWorst || 0)
-      >= Number(selected.tactical.continuationWorst || 0) - 8000000;
+    && continuationIsComparable;
 }
 
 function criticalFenceGatewayPoints(state, color) {
@@ -1491,6 +1562,58 @@ export function reserveDevelopingFenceEscapeForTacticalAnalysis(
   return reorderTacticalReservations(ranked, slotCount);
 }
 
+export function reservePrimeSustainabilityForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
+  const selectedRun = Number(selected?.features?.primeRunAfter) || 0;
+  const selectedRisk = Number(selected?.features?.primeCrunchRiskAfter) || 0;
+  const selectedSustainability = Number(selected?.features?.primeSustainabilityAfter) || 0;
+  if (
+    !selected
+    || homeReady(state, color)
+    || selectedRun < 4
+    || (selectedRisk < 0.45 && selectedSustainability >= 0.38)
+  ) {
+    return ranked;
+  }
+
+  const safer = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.primeCrunchRiskAfter || 0) <= selectedRisk - 0.2
+    && Number(candidate.features.primeSustainabilityAfter || 0)
+      >= selectedSustainability + 0.06
+    // It is valid to shorten an unsustainable blockade by one point in order
+    // to retain the timing needed to escape.  Larger collapses still require
+    // stronger tactical proof later in the search.
+    && Number(candidate.features.primeRunAfter || 0) >= Math.max(3, selectedRun - 1)
+    && Number(candidate.features.resultSafetyAfter || 0)
+      >= Number(selected.features.resultSafetyAfter || 0)
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0) - 12
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0) - 4
+    && Number(candidate.score) >= Number(selected.score) - 180000000
+  ));
+  if (!safer.length) return ranked;
+
+  safer.sort((left, right) => (
+    Number(left.features.primeCrunchRiskAfter || 0)
+      - Number(right.features.primeCrunchRiskAfter || 0)
+    || Number(right.features.primeSustainabilityAfter || 0)
+      - Number(left.features.primeSustainabilityAfter || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  safer[0].features.primeSustainabilityTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, slotCount);
+}
+
 function reorderTacticalReservations(ranked, limit) {
   if (!ranked.length) return ranked;
   const slotCount = Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES);
@@ -1501,6 +1624,7 @@ function reorderTacticalReservations(ranked, limit) {
       Number(candidate.features.homeEntryTacticalReservation || 0) > 0
       || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
       || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+      || Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0
     )
   ));
   if (!reservations.length) return ranked;
@@ -1531,6 +1655,7 @@ function reorderTacticalReservations(ranked, limit) {
 
 function tacticalReservationPriority(candidate) {
   if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
+  if (Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
   return 3;
 }
@@ -1614,10 +1739,47 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     && headCheckers(state, color) === 0
     && outsideHomeCount(state, color) <= 10
     && opponentTrapRisk(state, color) < 120
-    && Number(selected.features.homeShuffleMoves || 0) > 0;
+    && (
+      Number(selected.features.homeShuffleMoves || 0) > 0
+      || isUncontestedPreHomeStaging(state, color, selected)
+    );
+}
+
+function isUncontestedLateRaceState(state, color, features = {}) {
+  const outside = outsideHomeCount(state, color);
+  // The deep continuation score is allowed to yield to race progress only when
+  // the advanced profile has proved that no present or one-roll fence exists.
+  // Missing v19 metrics must fail closed instead of looking like numeric zero.
+  const advancedMetricsAvailable = [
+    'latentFenceExposureBefore',
+    'prospectiveFenceExtensionBefore',
+    'primeScoreBefore',
+    'opponentMoveBlockBefore',
+  ].every(key => Object.prototype.hasOwnProperty.call(features, key));
+  return outside > 0
+    && outside <= 10
+    && advancedMetricsAvailable
+    && headCheckers(state, color) === 0
+    && headCheckers(state, opponentOf(color)) === 0
+    && opponentTrapRisk(state, color) === 0
+    && escapeGatewayRisk(state, color) === 0
+    && Number(features.trapBefore || 0) === 0
+    && Number(features.fenceClosureBefore || 0) === 0
+    && Number(features.opponentFenceRunBefore || 0) < 3
+    && Number(features.latentFenceExposureBefore || 0) === 0
+    && Number(features.prospectiveFenceExtensionBefore || 0) === 0;
+}
+
+function isUncontestedPreHomeStaging(state, color, selected) {
+  return Boolean(selected)
+    && outsideHomeCount(state, color) <= 6
+    && Number(selected.features.homeShuffleMoves || 0) === 0
+    && Number(selected.features.outsideDevelopmentMoves || 0) > 0
+    && isUncontestedLateRaceState(state, color, selected.features);
 }
 
 function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const stagedReplacement = isUncontestedPreHomeStaging(state, color, selected);
   const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
   const directReplacement = isDirectLateHomeEntryReplacement(
     state,
@@ -1641,7 +1803,31 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     : forcedLateEntry
       ? Number(selected.features.escapeGatewayDelta || 0)
       : 0;
-  return Number(candidate.features.trapDelta || 0) >= trapFloor
+  const stagingStructureIsPreserved = !stagedReplacement || (
+    Number(candidate.features.homeShuffleMoves || 0) === 0
+    && Number(candidate.features.trapDelta || 0)
+      >= Number(selected.features.trapDelta || 0)
+    && Number(candidate.features.fenceClosureDelta || 0)
+      >= Number(selected.features.fenceClosureDelta || 0)
+    && Number(candidate.features.escapeGatewayDelta || 0)
+      >= Number(selected.features.escapeGatewayDelta || 0)
+    && Number(candidate.features.latentFenceExposureDelta || 0)
+      >= Number(selected.features.latentFenceExposureDelta || 0)
+    && Number(candidate.features.prospectiveFenceExtensionDelta || 0)
+      >= Number(selected.features.prospectiveFenceExtensionDelta || 0)
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.features.primeScoreAfter || 0)
+      >= Number(selected.features.primeScoreAfter || 0)
+    && Number(candidate.features.opponentMoveBlockAfter || 0)
+      >= Number(selected.features.opponentMoveBlockAfter || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0)
+    && Number(candidate.features.resultSafetyAfter || 0)
+      >= Number(selected.features.resultSafetyAfter || 0)
+  );
+  return stagingStructureIsPreserved
+    && Number(candidate.features.trapDelta || 0) >= trapFloor
     && Number(candidate.features.fenceClosureDelta || 0) >= fenceFloor
     && Number(candidate.features.escapeGatewayDelta || 0) >= gatewayFloor
     && Number(candidate.features.maxRouteTowerAfter || 0)
@@ -1684,7 +1870,11 @@ function boundedExperienceAdjustment(rawAdjustment, immediateScore) {
   const raw = Number(rawAdjustment) || 0;
   const budget = Math.min(
     18000000,
-    Math.max(6000000, Math.abs(Number(immediateScore) || 0) * 0.06),
+    // Experience is applied only after the cold tactical policy and remains
+    // inside its safety envelope.  Let repeated or severe evidence correct a
+    // close heuristic margin instead of capping it at an ineffectual six per
+    // cent of the already noisy composite score.
+    Math.max(6000000, Math.abs(Number(immediateScore) || 0) * 0.28),
   );
   return Math.max(-budget, Math.min(Math.min(6000000, budget), raw));
 }
@@ -1701,7 +1891,7 @@ function policyAwareExperienceAdjustment(descriptor, experience, immediateScore)
   return adjustment > 0 && harmSignal >= 1.1 ? 0 : adjustment;
 }
 
-function prefilterSequences(state, color, sequences, maxCandidates) {
+function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
   const ready = homeReady(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
@@ -1752,12 +1942,16 @@ function prefilterSequences(state, color, sequences, maxCandidates) {
     .sort((a, b) => b.priority - a.priority);
 
   const selected = [];
-  const seen = new Set();
+  const seenPositions = new Set();
   const add = (item) => {
     if (!item || selected.length >= maxCandidates) return;
-    const key = item.sequence.map(move => `${move.from}:${move.die}`).join(',');
-    if (seen.has(key)) return;
-    seen.add(key);
+    // A legal turn can be emitted in many commuting move orders, especially
+    // for doubles. They are one choice once the turn is complete and must not
+    // consume separate shortlist slots ahead of genuinely different boards.
+    const after = adapter.applySequence(state, item.sequence, color);
+    const key = candidatePositionKey({ after });
+    if (seenPositions.has(key)) return;
+    seenPositions.add(key);
     selected.push(item.sequence);
   };
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
@@ -1832,7 +2026,12 @@ function prioritizeForcedRacePlay(state, color, ranked) {
     if (trapPressure > 850 && fenceRun >= 4) {
       candidate.score += Number(features.trapDelta || 0) * 2200000;
       candidate.score += Number(features.escapeGatewayDelta || 0) * 2800000;
-      candidate.score += Math.max(0, Number(features.laggardDebtDelta) || 0) * 340000;
+      // Laggard progress is already priced by scoreSequence.  The emergency
+      // race bonus must not pay for the same progress again when the move
+      // dismantles the prime or the only escape gateway protecting it.
+      if (routeProgressPreservesDefense(state, color, features)) {
+        candidate.score += Math.max(0, Number(features.laggardDebtDelta) || 0) * 340000;
+      }
       candidate.score += Number(features.outsideDevelopmentMoves || 0) * 12000000;
       candidate.score -= Number(features.homeEntryMoves || 0) * 18000000;
     } else if (trapPressure > 850 && outside <= 8 && maxEntry > 0) {
@@ -1863,6 +2062,27 @@ function prioritizeForcedRacePlay(state, color, ranked) {
     }
   });
   return ranked;
+}
+
+function routeProgressPreservesDefense(state, color, features = {}) {
+  const primeRunBefore = Number(features.primeRunBefore) || 0;
+  const primeRunAfter = Number(features.primeRunAfter) || 0;
+  const trapBefore = Number(features.trapBefore) || 0;
+  // Ordinary route play still needs to trade temporary structure for tempo.
+  // The duplicate progress bonus becomes dangerous only under a developed
+  // trap, which is exactly where LZE8-Z538 dismantled its own four-prime.
+  if (trapBefore < 600) return true;
+  const criticalClearedHeadEscape = headCheckers(state, color) === 0
+    && headCheckers(state, opponentOf(color)) === 0
+    && primeRunBefore >= 5
+    && Number(features.laggardDebtDelta || 0) >= 120
+    && Number(features.startZoneReduction || 0) > 0;
+  if (criticalClearedHeadEscape) return true;
+  return !(primeRunBefore >= 3 && primeRunAfter < primeRunBefore)
+    && Number(features.primeScoreGain || 0) >= 0
+    && Number(features.opponentMoveBlockGain || 0) >= 0
+    && Number(features.fenceClosureDelta || 0) >= 0
+    && Number(features.escapeGatewayDelta || 0) >= 0;
 }
 
 function prioritizeDevelopingFenceEscape(state, color, ranked) {
@@ -2197,14 +2417,32 @@ function isVerifiedDeepSafetyAlternative(state, color, candidate, selected) {
       >= Number(selectedFeatures.primeRunAfter || 0) - 1;
   if (!progressIsPreserved) return false;
 
+  const directRecoveryProof = Number(candidateTactical.recoveryExpected || 0)
+      >= Number(selectedTactical.recoveryExpected || 0) + 8000000
+    && Number(candidateTactical.recoveryWorst || 0)
+      >= Number(selectedTactical.recoveryWorst || 0) + 75000000;
+  const corroboratedContinuationProof = Number(candidateTactical.recoveryExpected || 0)
+      >= Number(selectedTactical.recoveryExpected || 0) + 6000000
+    && Number(candidateTactical.recoveryWorst || 0)
+      >= Number(selectedTactical.recoveryWorst || 0) + 20000000
+    && Number(candidateTactical.continuationExpected || 0)
+      >= Number(selectedTactical.continuationExpected || 0) + 30000000
+    && Number(candidateTactical.continuationWorst || 0)
+      >= Number(selectedTactical.continuationWorst || 0) + 60000000
+    && Number(candidateFeatures.trapDelta || 0)
+      >= Number(selectedFeatures.trapDelta || 0)
+    && Number(candidateFeatures.fenceClosureDelta || 0)
+      >= Number(selectedFeatures.fenceClosureDelta || 0)
+    && Number(candidateFeatures.escapeGatewayDelta || 0)
+      >= Number(selectedFeatures.escapeGatewayDelta || 0) - 1
+    && Number(candidateFeatures.latentFenceExposureDelta || 0)
+      >= Number(selectedFeatures.latentFenceExposureDelta || 0);
+
   return Number(candidateTactical.expectedImpact || 0)
       >= Number(selectedTactical.expectedImpact || 0) - 12000000
     && Number(candidateTactical.worstImpact || 0)
       >= Number(selectedTactical.worstImpact || 0) - 12000000
-    && Number(candidateTactical.recoveryExpected || 0)
-      >= Number(selectedTactical.recoveryExpected || 0) + 8000000
-    && Number(candidateTactical.recoveryWorst || 0)
-      >= Number(selectedTactical.recoveryWorst || 0) + 75000000
+    && (directRecoveryProof || corroboratedContinuationProof)
     && Number(candidateTactical.recoveryTailRisk || 0)
       >= Number(selectedTactical.recoveryTailRisk || 0) - 25000000
     && Number(candidateTactical.continuationExpected || 0)
@@ -2989,7 +3227,9 @@ function strategicSafetyAdjustment(state, color, features) {
     score -= Number(features.homeShuffleMoves)
       * Math.min(160000000, Number(features.trapBefore) * 9500);
   }
-  score += Math.max(0, Number(features.laggardDebtDelta) || 0)
-    * (155000 + developmentPressure(state, color) * 42000);
+  if (routeProgressPreservesDefense(state, color, features)) {
+    score += Math.max(0, Number(features.laggardDebtDelta) || 0)
+      * (155000 + developmentPressure(state, color) * 42000);
+  }
   return score;
 }

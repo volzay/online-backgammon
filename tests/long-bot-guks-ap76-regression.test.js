@@ -253,7 +253,12 @@ test('long-bot experience is immutable during a game and carries a fingerprint',
   target.setExperience(first, 'snapshot-test');
   const frozen = target.freezeExperience();
   target.setExperience(second, 'snapshot-test');
-  assert.deepEqual(target.experienceSnapshot(), frozen);
+  const deferred = target.experienceSnapshot();
+  assert.equal(deferred.fingerprint, frozen.fingerprint);
+  assert.equal(deferred.size, frozen.size);
+  assert.equal(deferred.frozen, true);
+  assert.equal(JSON.stringify(deferred.pendingSources), '["snapshot-test"]');
+  assert.equal(deferred.pendingPatternCount, second.length);
 
   const nextGame = target.beginExperienceSession();
   assert.notEqual(nextGame.fingerprint, frozen.fingerprint);

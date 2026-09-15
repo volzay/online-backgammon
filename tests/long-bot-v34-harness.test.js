@@ -20,7 +20,7 @@ const {
   validateSeedSplits,
   validateSuiteDiceStreams,
   wilsonInterval,
-} = require('../scripts/long-bot-v33-harness');
+} = require('../scripts/long-bot-v34-harness');
 const {
   assertExperienceIdentity,
   EMPTY_EXPERIENCE_FINGERPRINT,
@@ -28,7 +28,7 @@ const {
   describeExperience,
   parseOptions,
   runPipeline,
-} = require('../scripts/train-certify-long-bot-v33');
+} = require('../scripts/train-certify-long-bot-v34');
 
 const HASH_A = `sha256:${'a'.repeat(64)}`;
 const HASH_B = `sha256:${'b'.repeat(64)}`;
@@ -38,7 +38,7 @@ function pairedPayload(seed, {
   wins = games,
   severeLosses = 0,
   learn = false,
-  engineVersion = 'long-analytic-v33',
+  engineVersion = 'long-analytic-v34',
   runtimeFingerprint = HASH_A,
   experienceFingerprint = HASH_B,
 } = {}) {
@@ -76,7 +76,7 @@ function pairedPayload(seed, {
   };
 }
 
-test('v33 suite seeds are deterministic and strictly disjoint', () => {
+test('v34 suite seeds are deterministic and strictly disjoint', () => {
   const validated = validateSeedSplits(DEFAULT_SEED_SPLITS);
   const all = Object.values(validated).flat();
   assert.equal(new Set(all).size, all.length);
@@ -120,7 +120,7 @@ test('simulator exports the newest local experience generation deterministically
 });
 
 test('experience description fails closed on mixed credit generations', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-v33-credit-test-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-v34-credit-test-'));
   const file = path.join(directory, 'experience.json');
   try {
     fs.writeFileSync(file, JSON.stringify({
@@ -150,10 +150,10 @@ test('Wilson lower bound prevents a small or marginal sample from claiming 68 pe
     winRate: 1,
     severeLossRate: 0,
     pairedWinWilson95: wilsonInterval(20, 20),
-    engineVersions: ['long-analytic-v33'],
+    engineVersions: ['long-analytic-v34'],
     runtimeFingerprints: [HASH_A],
     experienceFingerprints: [HASH_B],
-  }, { creditVersion: 8, experienceEngineVersion: 'long-analytic-v33' });
+  }, { creditVersion: 8, experienceEngineVersion: 'long-analytic-v34' });
   assert.equal(smallPerfect.checks.sampleSufficient, false);
   assert.equal(smallPerfect.passed, false);
 });
@@ -199,7 +199,7 @@ test('published experience identity is checked byte-for-byte', () => {
     fingerprint: HASH_A,
     patternCount: 12,
     creditVersion: 8,
-    engineVersion: 'long-analytic-v33',
+    engineVersion: 'long-analytic-v34',
     storageKey: 'narduh-long-bot-experience-v8',
   };
   assert.doesNotThrow(() => assertExperienceIdentity(description, { ...description }));
@@ -229,8 +229,8 @@ test('holdout gate rejects wrong engine generation and experience credit', () =>
 
   const eligible = evaluateHoldoutGate({
     ...summary,
-    engineVersions: ['long-analytic-v33'],
-  }, { creditVersion: 8, experienceEngineVersion: 'long-analytic-v33' });
+    engineVersions: ['long-analytic-v34'],
+  }, { creditVersion: 8, experienceEngineVersion: 'long-analytic-v34' });
   assert.equal(eligible.passed, true);
 });
 
@@ -245,7 +245,7 @@ test('pipeline never evaluates holdout after validation fails', async () => {
       targetWinRate: 0.68,
       maxSevereLossRate: 0.1,
       minHoldoutPairs: DEFAULT_MIN_HOLDOUT_PAIRS,
-      expectedEngineVersion: 'long-analytic-v33',
+      expectedEngineVersion: 'long-analytic-v34',
       expectedCreditVersion: 8,
     },
   };
@@ -270,7 +270,7 @@ test('pipeline never evaluates holdout after validation fails', async () => {
     },
     async describeExperience() {
       return {
-        engineVersion: 'long-analytic-v33',
+        engineVersion: 'long-analytic-v34',
         creditVersion: 8,
         fingerprint: HASH_B,
         patternCount: 10,
@@ -296,7 +296,7 @@ test('pipeline may inspect a qualified holdout but cannot certify its tiny sampl
       targetWinRate: 0.68,
       maxSevereLossRate: 0.1,
       minHoldoutPairs: DEFAULT_MIN_HOLDOUT_PAIRS,
-      expectedEngineVersion: 'long-analytic-v33',
+      expectedEngineVersion: 'long-analytic-v34',
       expectedCreditVersion: 8,
     },
   };
@@ -319,7 +319,7 @@ test('pipeline may inspect a qualified holdout but cannot certify its tiny sampl
     },
     async describeExperience() {
       return {
-        engineVersion: 'long-analytic-v33',
+        engineVersion: 'long-analytic-v34',
         creditVersion: 8,
         fingerprint: HASH_B,
         patternCount: 10,
@@ -350,7 +350,7 @@ test('pipeline rejects a training child that ignored its input experience', asyn
       targetWinRate: 0.68,
       maxSevereLossRate: 0.1,
       minHoldoutPairs: DEFAULT_MIN_HOLDOUT_PAIRS,
-      expectedEngineVersion: 'long-analytic-v33',
+      expectedEngineVersion: 'long-analytic-v34',
       expectedCreditVersion: 8,
     },
   };
@@ -366,7 +366,7 @@ test('pipeline rejects a training child that ignored its input experience', asyn
     },
     async describeExperience() {
       return {
-        engineVersion: 'long-analytic-v33',
+        engineVersion: 'long-analytic-v34',
         creditVersion: 8,
         fingerprint: HASH_B,
         patternCount: 10,
@@ -383,7 +383,7 @@ test('report rejects holdout consumption when validation did not qualify', () =>
     trainRecords: [{ seed: 41, payload: pairedPayload(41, { learn: true }) }],
     validationRecords: [{ seed: 42, payload: pairedPayload(42, { wins: 0 }) }],
     holdoutRecords: [{ seed: 43, payload: pairedPayload(43) }],
-    trainedExperience: { engineVersion: 'long-analytic-v33', creditVersion: 8 },
+    trainedExperience: { engineVersion: 'long-analytic-v34', creditVersion: 8 },
   }), /Holdout results must not be consumed/);
 });
 
@@ -399,7 +399,7 @@ test('report rejects runtime drift between train and validation', () => {
     }],
     holdoutRecords: null,
     trainedExperience: {
-      engineVersion: 'long-analytic-v33',
+      engineVersion: 'long-analytic-v34',
       creditVersion: 8,
       fingerprint: HASH_B,
     },

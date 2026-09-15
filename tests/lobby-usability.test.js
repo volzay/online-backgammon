@@ -25,7 +25,7 @@ test('session list has an honest loading state before the first server response'
 
   assert.match(lobby, /let roomsLoaded = false;/);
   assert.match(lobby, /if \(!roomsLoaded\) \{[\s\S]*sessions_loading/);
-  assert.match(lobby, /playerRooms = data\.rooms \|\| \[\];\s+roomsLoaded = true;/);
+  assert.match(lobby, /const mergedRooms = \[\.\.\.\(data\.rooms \|\| \[\]\)\];[\s\S]*playerRooms = mergedRooms;[\s\S]*roomsLoaded = true;/);
   assert.match(lobby, /id="sessions-status"[^>]*role="status"[^>]*aria-live="polite"/);
 });
 

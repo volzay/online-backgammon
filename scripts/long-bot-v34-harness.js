@@ -9,9 +9,9 @@ const WILSON_Z_95 = 1.959963984540054;
 const DEFAULT_TARGET_WIN_RATE = 0.68;
 const DEFAULT_MAX_SEVERE_LOSS_RATE = 0.1;
 const DEFAULT_MIN_HOLDOUT_PAIRS = 200;
-const DEFAULT_EXPECTED_ENGINE_VERSION = 'long-analytic-v33';
+const DEFAULT_EXPECTED_ENGINE_VERSION = 'long-analytic-v34';
 const DEFAULT_EXPECTED_CREDIT_VERSION = 8;
-const SUITE_NAMESPACE = 'nardu/long-bot-v33/offline-suite/v1';
+const SUITE_NAMESPACE = 'nardu/long-bot-v34/offline-suite/v1';
 
 const DEFAULT_SPLIT_SIZES = Object.freeze({
   train: 6,
@@ -442,7 +442,7 @@ function buildReport({
     };
   return {
     schemaVersion: 1,
-    harness: 'long-bot-v33-offline-training-certification',
+    harness: 'long-bot-v34-offline-training-certification',
     methodology: {
       splitIsolation: 'train, validation, and holdout seeds are disjoint and checked before play',
       pairing: 'each pair reuses physical white/dark streams while candidate and control swap colors',

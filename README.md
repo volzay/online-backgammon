@@ -55,7 +55,8 @@ DATA_DIR=/tmp/nardy-dev ADMIN_PASSWORD=adminpass npm start
 - Возврат в активную комнату, если игрок уже находится в партии.
 - Фильтры сессий: все, длинные, короткие, друзья, в игре.
 
-Лидерборд и список друзей сейчас работают как демонстрационные данные на клиенте.
+Друзья, заявки и личные сообщения зарегистрированных игроков сохраняются через
+локальный account API или Supabase. Отдельного публичного лидерборда пока нет.
 
 ### Игровая комната
 
@@ -243,7 +244,19 @@ DELETE /api/admin/users/:id
 
 ## Проверка
 
-В проекте пока нет отдельного test runner. Быстрая синтаксическая проверка:
+Полный набор тестов на встроенном `node:test`:
+
+```bash
+npm test
+```
+
+Проверка статической сборки для GitHub Pages:
+
+```bash
+npm run build
+```
+
+Для быстрой точечной проверки синтаксиса также можно использовать:
 
 ```bash
 node --check server.js
@@ -258,11 +271,9 @@ node --check homegate.js
 
 ## Деплой
 
-Текущая версия зависит от `server.js`, поэтому ей нужен Node.js runtime с постоянным процессом и writable storage для `DATA_DIR`.
-
-Статический деплой на Vercel / GitHub Pages / Netlify покажет HTML/CSS/JS, но не даст рабочие аккаунты, комнаты, чат, рейтинг и админку. Для полноценного деплоя используйте Node-хостинг, контейнер или VPS.
-
-Альтернативный бесплатный путь в работе: GitHub Pages для frontend и Supabase Auth/Postgres/Realtime для backend. Подготовительные файлы:
+Проект поддерживает два пути запуска: локальный/self-hosted `server.js` с
+writable `DATA_DIR` и статический frontend на GitHub Pages с Supabase
+Auth/Postgres/Realtime в роли backend. Для второго пути используются:
 
 - `docs/deploy-supabase-github-pages.md`;
 - `supabase/schema.sql`;
@@ -274,12 +285,13 @@ node --check homegate.js
 Для GitHub Pages используйте source `GitHub Actions`. Workflow `Deploy GitHub Pages` собирает `dist` командой `npm run build`.
 Ожидаемый адрес GitHub Pages: `https://volzay.github.io/online-backgammon/`.
 
-Для production нужно заменить JSON-хранилище на БД, подключить SMTP/почтовый сервис и задать сильный `ADMIN_PASSWORD`.
+Для публичного запуска локального Node backend нужно подключить почтовый сервис,
+задать сильный `ADMIN_PASSWORD` и обеспечить резервное копирование `DATA_DIR`.
 
 ## Текущие ограничения
 
 - Сервер принимает опубликованное клиентом состояние партии; полноценная серверная валидация каждого хода ещё не вынесена на backend.
-- Активные комнаты живут в памяти процесса.
-- Email отправляется только в локальный outbox.
-- Реальные лидерборд, друзья, matchmaking, турниры и сезоны пока не подключены к серверу.
-- Realtime построен на HTTP polling, не на WebSocket.
+- В локальном Node fallback активные комнаты живут в памяти процесса.
+- В локальном Node fallback email отправляется только в outbox.
+- Публичный лидерборд, matchmaking, турниры и сезоны пока не реализованы.
+- Игровое состояние и presence синхронизируются polling-запросами, не WebSocket.

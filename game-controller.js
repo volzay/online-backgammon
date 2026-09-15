@@ -38,9 +38,14 @@ window.NarduController = (function () {
   let botAnalysisDisabled = false;
   let botAnalysisOwnershipUnknown = false;
   let botAnalysisRestorePending = false;
+  let botAnalysisConflictRedirected = false;
   let botAnalysisVersion = 0;
   let botAnalysisEnsurePromise = null;
+  let botAnalysisEnsureGeneration = 0;
   let botAnalysisPublishQueue = Promise.resolve();
+  let botAnalysisStartupPromise = null;
+  let botAnalysisStartupRetry = null;
+  let botAnalysisStartupGeneration = 0;
   let botRatingPersistenceKey = null;
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
@@ -69,6 +74,10 @@ window.NarduController = (function () {
   const CREATE_GAME_KEY = 'narduh-created-game';
   const ROOM_RELOAD_MAX_AGE_MS = 10 * 60 * 1000;
   const ROOM_PERSIST_MAX_AGE_MS = 96 * 60 * 60 * 1000;
+  const ROOM_PERSIST_MAX_SNAPSHOTS = 8;
+  const ROOM_PERSIST_SNAPSHOT_SCAN_LIMIT = 256;
+  const ROOM_PERSIST_SNAPSHOT_PRUNE_LIMIT = 32;
+  const ROOM_PERSIST_QUOTA_RECOVERY_REMOVALS = 4;
   const BOT_MEMORY_MAX_DECISIONS = 180;
   const OPENING_RESULT_PAUSE_MS = 2600;
   const MOVE_SOUND_SETTLE_MS = 210;
@@ -77,10 +86,13 @@ window.NarduController = (function () {
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
   const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
-  const LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS = 4500;
+  // A live production load has legitimately taken almost seven seconds.  Do
+  // not freeze an empty session until both bounded loader attempts can finish.
+  // Restored frozen sessions take the separate immediate/deferred path below.
+  const LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS =
+    LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS * LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS + 500;
   // The Supabase loader may spend 5 s on each of two CDNs before a room read
   // can begin. Keep restore bounded, but long enough for that fallback path.
-  const BOT_ANALYSIS_STARTUP_WAIT_MS = 15000;
   const BOT_ANALYSIS_RESTORE_TIMEOUT_MS = 12000;
   const BOT_ANALYSIS_ENSURE_TIMEOUT_MS = 5000;
   const BOT_ANALYSIS_WRITE_TIMEOUT_MS = 5000;
@@ -332,17 +344,174 @@ window.NarduController = (function () {
     }
   }
 
+  function roomSnapshotStorageError(error) {
+    const name = String(error?.name || '');
+    const message = String(error?.message || '');
+    const code = Number(error?.code);
+    if (
+      name === 'QuotaExceededError' ||
+      name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      code === 22 ||
+      code === 1014 ||
+      /quota/i.test(message)
+    ) return 'quota-exceeded';
+    return (name || 'storage-error').slice(0, 64);
+  }
+
+  function recordRoomSnapshotPersistence(details) {
+    if (!state || typeof state !== 'object') return;
+    if (!state.analysis || typeof state.analysis !== 'object' || Array.isArray(state.analysis)) {
+      state.analysis = {};
+    }
+    state.analysis.roomSnapshotPersistence = {
+      at: Date.now(),
+      status: details.status,
+      sessionSaved: details.sessionSaved,
+      persistentSaved: details.persistentSaved,
+      retried: details.retried,
+      pruned: details.pruned,
+      error: details.error || '',
+    };
+  }
+
+  function roomSnapshotEntries(preserveKey = '') {
+    const entries = [];
+    try {
+      const length = Math.min(
+        ROOM_PERSIST_SNAPSHOT_SCAN_LIMIT,
+        Math.max(0, Number(localStorage.length) || 0),
+      );
+      for (let index = 0; index < length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key || key === preserveKey || !key.startsWith(ROOM_PERSIST_SNAPSHOT_PREFIX)) continue;
+        let at = 0;
+        let valid = false;
+        try {
+          const snapshot = JSON.parse(localStorage.getItem(key) || 'null');
+          at = Number(snapshot?.at) || 0;
+          valid = Boolean(snapshot?.state && at > 0);
+        } catch {}
+        entries.push({ key, at, valid });
+      }
+    } catch {}
+    return entries;
+  }
+
+  function pruneRoomSnapshots({ preserveKey = '', quotaRecovery = false } = {}) {
+    const now = Date.now();
+    const entries = roomSnapshotEntries(preserveKey);
+    const oldestFirst = entries.slice().sort((left, right) => left.at - right.at);
+    const removable = new Set();
+
+    oldestFirst.forEach(entry => {
+      if (!entry.valid || now - entry.at > ROOM_PERSIST_MAX_AGE_MS) removable.add(entry.key);
+    });
+
+    const validNewestFirst = entries
+      .filter(entry => entry.valid && !removable.has(entry.key))
+      .sort((left, right) => right.at - left.at);
+    const otherSnapshotLimit = Math.max(0, ROOM_PERSIST_MAX_SNAPSHOTS - 1);
+    validNewestFirst.slice(otherSnapshotLimit).forEach(entry => removable.add(entry.key));
+
+    if (quotaRecovery) {
+      for (const entry of oldestFirst) {
+        if (removable.size >= ROOM_PERSIST_QUOTA_RECOVERY_REMOVALS) break;
+        removable.add(entry.key);
+      }
+    }
+
+    let removed = 0;
+    for (const key of removable) {
+      if (removed >= ROOM_PERSIST_SNAPSHOT_PRUNE_LIMIT) break;
+      try {
+        localStorage.removeItem(key);
+        removed += 1;
+      } catch {}
+    }
+    return removed;
+  }
+
+  function setRoomSnapshot(storage, key, json, retryQuota) {
+    try {
+      storage.setItem(key, json);
+      return { ok: true, retried: false, error: '' };
+    } catch (error) {
+      const firstError = roomSnapshotStorageError(error);
+      if (firstError !== 'quota-exceeded') {
+        return { ok: false, retried: false, error: firstError };
+      }
+      try {
+        retryQuota?.();
+        storage.setItem(key, json);
+        return { ok: true, retried: true, error: '' };
+      } catch (retryError) {
+        return {
+          ok: false,
+          retried: true,
+          error: roomSnapshotStorageError(retryError),
+        };
+      }
+    }
+  }
+
   function writeRoomSnapshot({ session = false, persistent = true } = {}) {
     const snapshot = buildRoomSnapshot();
     if (!snapshot) return false;
-    const json = JSON.stringify(snapshot);
+    let json;
     try {
-      if (session) sessionStorage.setItem(ROOM_RELOAD_SNAPSHOT_KEY, json);
-    } catch {}
-    try {
-      if (persistent) localStorage.setItem(roomPersistentSnapshotKey(snapshot.signature), json);
-    } catch {}
-    return true;
+      json = JSON.stringify(snapshot);
+    } catch (error) {
+      recordRoomSnapshotPersistence({
+        status: 'failed',
+        sessionSaved: false,
+        persistentSaved: false,
+        retried: false,
+        pruned: 0,
+        error: roomSnapshotStorageError(error),
+      });
+      return false;
+    }
+
+    let pruned = 0;
+    let sessionResult = { ok: false, retried: false, error: '' };
+    let persistentResult = { ok: false, retried: false, error: '' };
+    if (session) {
+      sessionResult = setRoomSnapshot(
+        sessionStorage,
+        ROOM_RELOAD_SNAPSHOT_KEY,
+        json,
+        () => {},
+      );
+    }
+    if (persistent) {
+      const persistentKey = roomPersistentSnapshotKey(snapshot.signature);
+      pruned += pruneRoomSnapshots({ preserveKey: persistentKey });
+      persistentResult = setRoomSnapshot(localStorage, persistentKey, json, () => {
+        pruned += pruneRoomSnapshots({ preserveKey: persistentKey, quotaRecovery: true });
+      });
+    }
+
+    const saved = (session && sessionResult.ok) || (persistent && persistentResult.ok);
+    const degraded = saved && (
+      (session && !sessionResult.ok) ||
+      (persistent && !persistentResult.ok)
+    );
+    const errors = [
+      session && !sessionResult.ok ? `session:${sessionResult.error}` : '',
+      persistent && !persistentResult.ok ? `persistent:${persistentResult.error}` : '',
+    ].filter(Boolean);
+    recordRoomSnapshotPersistence({
+      status: saved ? (degraded ? 'degraded' : 'ready') : 'failed',
+      sessionSaved: session ? sessionResult.ok : null,
+      persistentSaved: persistent ? persistentResult.ok : null,
+      retried: sessionResult.retried || persistentResult.retried,
+      pruned,
+      error: errors.join(','),
+    });
+    if (!saved && (session || persistent)) {
+      console.warn('Could not persist room snapshot', errors.join(',') || 'storage-error');
+    }
+    return Boolean(saved);
   }
 
   function prepareRoomReload() {
@@ -350,7 +519,7 @@ window.NarduController = (function () {
   }
 
   function persistRoomSnapshot() {
-    return writeRoomSnapshot({ session: false, persistent: true });
+    return writeRoomSnapshot({ session: true, persistent: true });
   }
 
   function clearRoomSnapshots() {
@@ -448,6 +617,7 @@ window.NarduController = (function () {
   /* ── init ──────────────────────────────────── */
   function init(opts = {}) {
     cancelBotTurnActivity();
+    const startupGeneration = ++botAnalysisStartupGeneration;
     const url = new URL(location.href);
     const freshGame = opts.freshGame === true;
     mode = opts.mode || url.searchParams.get('mode') || 'bot';
@@ -497,9 +667,12 @@ window.NarduController = (function () {
     botAnalysisDisabled = false;
     botAnalysisOwnershipUnknown = false;
     botAnalysisRestorePending = false;
+    botAnalysisConflictRedirected = false;
     botAnalysisVersion = 0;
-    botAnalysisEnsurePromise = null;
+    invalidateBotAnalysisEnsureAttempt();
     botAnalysisPublishQueue = Promise.resolve();
+    botAnalysisStartupPromise = null;
+    botAnalysisStartupRetry = null;
     botRatingPersistenceKey = null;
     botTrainingArchivePending = false;
     botTrainingArchiveDone = false;
@@ -551,49 +724,14 @@ window.NarduController = (function () {
     // Local storage makes reloads fast, but the server snapshot remains
     // authoritative. Always verify it before resuming writes under this code.
     if (shouldRestoreBotAnalysis) {
-      const startupDeadlineAt = Date.now() + BOT_ANALYSIS_STARTUP_WAIT_MS;
-      promiseWithTimeout(
-        restoreBotAnalysisState(url, roomCode),
-        BOT_ANALYSIS_RESTORE_TIMEOUT_MS,
-        'Bot room restore timed out',
-      ).catch(error => {
-        // A missing room is handled by restoreBotAnalysisState. Any other
-        // failure leaves the server state unknown, so this local game must not
-        // publish under the same code and overwrite a recoverable room.
-        botAnalysisDisabled = true;
-        botAnalysisOwnershipUnknown = true;
-        console.warn('Could not restore bot room before startup', error?.message || error);
-        return null;
-      }).then(restored => {
-        if (restored) {
-          state = restored;
-          adoptBotIdentity(state);
-          attachRuntimeStateFields(roomCode);
-          if (variant === 'long' && botDifficulty === 'hard') {
-            window.NarduLongBotEngine?.beginExperienceSession?.(
-              longBotExperienceSessionKey(roomCode),
-            );
-            window.NarduStrongBot?.syncLocalExperience?.();
-          }
-          persistBotGameConfig(roomCode, url);
-          pending = null;
-          undoStack = [];
-          persistRoomSnapshot();
-        }
-      }).finally(() => {
-        botAnalysisRestorePending = false;
-        render();
-        queueBotAnalysisPublish(restoredState ? 200 : 900);
-        if (!opts.skipAutoStart) {
-          ensureAutoProgressAfterExperience(
-            650,
-            Math.min(
-              LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS,
-              Math.max(0, startupDeadlineAt - Date.now()),
-            ),
-          );
-        }
+      botAnalysisStartupRetry = () => runBotAnalysisStartup({
+        url,
+        roomCode,
+        startupGeneration,
+        publishDelay: restoredState ? 200 : 900,
+        skipAutoStart: opts.skipAutoStart === true,
       });
+      void retryBotAnalysisStartup();
       return;
     }
     if (mode === 'bot') {
@@ -602,6 +740,98 @@ window.NarduController = (function () {
     }
     if (opts.skipAutoStart) return;
     ensureAutoProgressAfterExperience(mode === 'remote' ? 1300 : 650);
+  }
+
+  function invalidateBotAnalysisEnsureAttempt() {
+    botAnalysisEnsureGeneration += 1;
+    botAnalysisEnsurePromise = null;
+  }
+
+  function retryBotAnalysisStartup() {
+    if (
+      mode !== 'bot' ||
+      !remoteCode ||
+      !botAnalysisRestorePending ||
+      botAnalysisConflictRedirected ||
+      typeof botAnalysisStartupRetry !== 'function'
+    ) return Promise.resolve(false);
+    if (botAnalysisStartupPromise) return botAnalysisStartupPromise;
+
+    // A timed-out ensure request cannot be reused forever. Its eventual result
+    // is ignored, while the database constraint keeps a new retry idempotent.
+    invalidateBotAnalysisEnsureAttempt();
+    return botAnalysisStartupRetry();
+  }
+
+  function runBotAnalysisStartup({
+    url,
+    roomCode,
+    startupGeneration,
+    publishDelay,
+    skipAutoStart,
+  }) {
+    if (botAnalysisStartupPromise) return botAnalysisStartupPromise;
+    if (
+      startupGeneration !== botAnalysisStartupGeneration ||
+      botAnalysisConflictRedirected
+    ) return Promise.resolve(false);
+
+    botAnalysisReady = false;
+    botAnalysisDisabled = false;
+    botAnalysisOwnershipUnknown = false;
+    botAnalysisRestorePending = true;
+    render();
+    const attempt = promiseWithTimeout(
+      restoreBotAnalysisState(url, roomCode, startupGeneration),
+      BOT_ANALYSIS_RESTORE_TIMEOUT_MS,
+      'Bot room restore timed out',
+    ).then(restored => {
+      if (startupGeneration !== botAnalysisStartupGeneration) return false;
+      if (!botAnalysisReady) {
+        throw new Error('Bot room reservation was not confirmed.');
+      }
+      if (restored) {
+        state = restored;
+        adoptBotIdentity(state);
+        attachRuntimeStateFields(roomCode);
+        if (variant === 'long' && botDifficulty === 'hard') {
+          window.NarduLongBotEngine?.beginExperienceSession?.(
+            longBotExperienceSessionKey(roomCode),
+          );
+          window.NarduStrongBot?.syncLocalExperience?.();
+        }
+        persistBotGameConfig(roomCode, url);
+        pending = null;
+        undoStack = [];
+        persistRoomSnapshot();
+      }
+
+      botAnalysisDisabled = false;
+      botAnalysisOwnershipUnknown = false;
+      botAnalysisRestorePending = false;
+      render();
+      queueBotAnalysisPublish(publishDelay);
+      if (!skipAutoStart) {
+        ensureAutoProgressAfterExperience(
+          650,
+          LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS,
+        );
+      }
+      return true;
+    }).catch(error => {
+      if (startupGeneration !== botAnalysisStartupGeneration) return false;
+      invalidateBotAnalysisEnsureAttempt();
+      botAnalysisDisabled = true;
+      botAnalysisOwnershipUnknown = true;
+      botAnalysisRestorePending = true;
+      render();
+      console.warn('Could not restore bot room before startup', error?.message || error);
+      return false;
+    }).finally(() => {
+      if (botAnalysisStartupPromise === attempt) botAnalysisStartupPromise = null;
+    });
+    botAnalysisStartupPromise = attempt;
+    return attempt;
   }
 
   function ensureAutoProgressAfterExperience(delay, maxExperienceWaitMs = LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS) {
@@ -624,10 +854,19 @@ window.NarduController = (function () {
       ensureAutoProgress(delay);
     };
     if (variant === 'long') {
+      const loadExperience = loadLongBotExperienceBeforeStart().catch(error => {
+        console.warn('Could not load shared bot experience', error?.message || error);
+      });
+      // A restored game already owns an immutable evidence snapshot. Network
+      // refreshes are intentionally queued for the next session, so waiting
+      // here cannot improve this game's decisions and only stalls its resume.
+      if (window.NarduLongBotEngine?.experienceSnapshot?.()?.frozen === true) {
+        loadExperience.catch(() => {});
+        startWithFrozenExperience();
+        return;
+      }
       Promise.race([
-        loadLongBotExperienceBeforeStart().catch(error => {
-          console.warn('Could not load shared bot experience', error?.message || error);
-        }),
+        loadExperience,
         new Promise(resolve => setTimeout(resolve, Math.max(0, Number(maxExperienceWaitMs) || 0))),
       ]).finally(startWithFrozenExperience);
       return;
@@ -670,12 +909,39 @@ window.NarduController = (function () {
           'Long-bot experience request timed out',
         );
         const experienceSize = Number(window.NarduLongBotEngine?.experienceSize?.()) || 0;
+        const engineSnapshot = window.NarduLongBotEngine?.experienceSnapshot?.();
+        const experienceDeferred = Number(engineSnapshot?.pendingPatternCount) > 0;
+        if (
+          Array.isArray(patterns)
+          && patterns.length > 0
+          && engineSnapshot?.frozen === true
+          && experienceDeferred
+        ) {
+          recordLongBotExperienceLoad({
+            status: 'deferred',
+            deferred: true,
+            durationMs: Date.now() - startedAt,
+            attempts: attempt,
+            patternCount: patterns.length,
+            experienceSize,
+            error: '',
+          });
+          return patterns;
+        }
+        if (
+          Array.isArray(patterns)
+          && patterns.length > 0
+          && (experienceSize <= 0 || experienceDeferred)
+        ) {
+          throw new Error('Long-bot experience was fetched but not applied');
+        }
         recordLongBotExperienceLoad({
           status: 'ready',
           durationMs: Date.now() - startedAt,
           attempts: attempt,
           patternCount: Array.isArray(patterns) ? patterns.length : 0,
           experienceSize,
+          deferred: false,
           error: '',
         });
         return patterns;
@@ -948,7 +1214,7 @@ window.NarduController = (function () {
     const expected = Number(coverage?.expectedBotDecisions);
     const recorded = Number(coverage?.recordedBotDecisions);
     const recovered = Number(coverage?.recoveredBotDecisions);
-    const requiresCompleteCoverage = /long-analytic-v(?:29|30|31|32)$/.test(
+    const requiresCompleteCoverage = /long-analytic-v(?:29|30|31|32|33|34)$/.test(
       String(memory?.engineVersion || ''),
     );
     return coverage?.complete === true &&
@@ -976,11 +1242,14 @@ window.NarduController = (function () {
       Boolean(source.botDifficulty);
   }
 
-  async function restoreBotAnalysisState(url, roomCode) {
+  async function restoreBotAnalysisState(url, roomCode, startupGeneration = botAnalysisStartupGeneration) {
     if (!canPublishBotAnalysis()) return null;
     try {
       const data = await window.NarduRooms.getGameState(remoteCode);
-      if (!data?.state || !isBotAnalysisState(data.state)) return null;
+      if (startupGeneration !== botAnalysisStartupGeneration) return null;
+      if (!data?.state || !isBotAnalysisState(data.state)) {
+        throw new Error('Bot room state was not confirmed.');
+      }
       if (Number.isFinite(data.version)) botAnalysisVersion = data.version;
       botAnalysisReady = true;
       return normalizeRestoredState({
@@ -988,7 +1257,17 @@ window.NarduController = (function () {
         roomCode: roomCode || data.state.roomCode || remoteCode,
       }, url);
     } catch (error) {
-      if (error?.status === 404) return null;
+      if (startupGeneration !== botAnalysisStartupGeneration) throw error;
+      if (error?.status === 404) {
+        // A new bot game must reserve its server room before the board becomes
+        // interactive. This closes the cross-tab race between the lobby guard
+        // and the database's authoritative single-room constraint.
+        const reserved = await ensureBotAnalysisRoomReady(botAnalysisPayload());
+        if (!reserved || !botAnalysisReady) {
+          throw new Error('Bot room reservation was not confirmed.');
+        }
+        return null;
+      }
       console.warn('Could not restore bot room state', error?.message || error);
       throw error;
     }
@@ -998,7 +1277,8 @@ window.NarduController = (function () {
     if (!canPublishBotAnalysis()) return false;
     if (botAnalysisReady) return true;
     if (botAnalysisEnsurePromise) return botAnalysisEnsurePromise;
-    botAnalysisEnsurePromise = (async () => {
+    const ensureGeneration = ++botAnalysisEnsureGeneration;
+    const ensurePromise = Promise.resolve().then(async () => {
       try {
         const data = await window.NarduRooms.ensureBotAnalysisRoom({
           code: remoteCode,
@@ -1009,7 +1289,8 @@ window.NarduController = (function () {
           playerColor,
           state: initialPayload || botAnalysisPayload(),
         });
-        if (data?.skipped) return false;
+        if (ensureGeneration !== botAnalysisEnsureGeneration) return false;
+        if (!data || data.ok === false || data.skipped) return false;
         if (data?.existing) {
           botAnalysisDisabled = true;
           botAnalysisOwnershipUnknown = true;
@@ -1020,15 +1301,29 @@ window.NarduController = (function () {
         botAnalysisVersion = Number.isFinite(data?.version) ? data.version : Number(data?.version || 0);
         return true;
       } catch (error) {
+        if (ensureGeneration !== botAnalysisEnsureGeneration) return false;
         botAnalysisDisabled = true;
         botAnalysisOwnershipUnknown = true;
+        if (Number(error?.status) === 409 && error?.data?.room) {
+          botAnalysisConflictRedirected = true;
+          botAnalysisRestorePending = true;
+          try {
+            window.NarduApp?.safeStorageSet?.('narduh-active-room-conflict', JSON.stringify(error.data.room));
+          } catch {}
+          const lobbyUrl = new URL('index.html', location.href);
+          lobbyUrl.searchParams.set('roomConflict', '1');
+          location.href = lobbyUrl.toString();
+        }
         console.warn('Could not enable bot analysis sync', error?.message || error);
         return false;
-      } finally {
+      }
+    }).finally(() => {
+      if (ensureGeneration === botAnalysisEnsureGeneration) {
         botAnalysisEnsurePromise = null;
       }
-    })();
-    return botAnalysisEnsurePromise;
+    });
+    botAnalysisEnsurePromise = ensurePromise;
+    return ensurePromise;
   }
 
   function queueBotAnalysisPublish(delay = 0) {
@@ -1245,7 +1540,10 @@ window.NarduController = (function () {
       }
       const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(window.NarduApp?.guestRequestHeaders?.() || {}),
+        },
         body: JSON.stringify({ state: payload, version }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1342,7 +1640,9 @@ window.NarduController = (function () {
         applyRemoteState(data.state, data.version);
         return;
       }
-      const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`);
+      const response = await fetch(`/api/rooms/${encodeURIComponent(remoteCode)}/game`, {
+        headers: window.NarduApp?.guestRequestHeaders?.() || {},
+      });
       const data = await response.json().catch(() => ({}));
       if (response.status === 404) {
         handleRemoteRoomMissing();
@@ -4100,9 +4400,15 @@ window.NarduController = (function () {
   window.addEventListener('scroll', cancelActiveDrag, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) cancelActiveDrag();
-    else ensureAutoProgress(350);
+    else {
+      void retryBotAnalysisStartup();
+      ensureAutoProgress(350);
+    }
   });
-  window.addEventListener('online', () => ensureAutoProgress(350));
+  window.addEventListener('online', () => {
+    void retryBotAnalysisStartup();
+    ensureAutoProgress(350);
+  });
 
   document.addEventListener('click', (e) => {
     if (Date.now() < suppressClickUntil) {
@@ -4155,6 +4461,7 @@ window.NarduController = (function () {
     startBotGameInNewRoom,
     startNextGame,
     resolveBotDifficulty,
+    retryBotAnalysisStartup,
     preferredMoveAction,
   };
 })();

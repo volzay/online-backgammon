@@ -856,7 +856,7 @@ test("48RU-XSRE preserves the escape gateway instead of helping the opponent ext
   );
 });
 
-test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () => {
+test("CYPN-CS7P keeps equivalent move orders out of tactical beam slots", () => {
   const { engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 1 },
@@ -887,13 +887,18 @@ test("CYPN-CS7P applies four-ply risk analysis to equivalent move orders", () =>
     analysisNodeBudget: 480,
   });
 
-  assert.ok(ranked.length >= 2);
+  assert.ok(ranked.length >= 1);
   assert.ok(ranked.every(candidate => candidate.tactical));
   assert.deepEqual(
     new Set(ranked.map(candidate => candidate.tactical.plies)),
     new Set([4]),
   );
-  assert.ok(ranked.some(candidate => candidate.tactical.equivalentPosition));
+  const positions = ranked.map(candidate => JSON.stringify({
+    points: candidate.after.points,
+    off: candidate.after.off,
+  }));
+  assert.equal(new Set(positions).size, ranked.length);
+  assert.equal(ranked.some(candidate => candidate.tactical.equivalentPosition), false);
 });
 
 test("PRBV-GYBH turn 11 avoids a five-checker tower behind a developing fence", () => {
@@ -1507,7 +1512,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v33");
+  assert.equal(decision.engineVersion, "long-analytic-v34");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -2191,7 +2196,7 @@ test("shared long-bot experience is exposed by a read-only aggregate RPC", () =>
   assert.match(schema, /'winWeight', win_weight/);
   assert.match(schema, /'lossWeight', loss_weight/);
   assert.match(schema, /familyActionKey/);
-  assert.match(schema, /engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33'\)/);
+  assert.match(schema, /engine_version in \('long-analytic-v29', 'long-analytic-v30', 'long-analytic-v31', 'long-analytic-v32', 'long-analytic-v33', 'long-analytic-v34'\)/);
   assert.match(schema, /Guest bot game must match the finished room snapshot/);
   assert.match(schema, /rooms_archive_finished_bot_training/);
   assert.match(schema, /archive_finished_bot_training_game/);
