@@ -1395,15 +1395,21 @@ function forgetWaitingRoomCleanup() {
   }
 }
 
-function clearCurrentRoomStorage() {
+function clearCurrentRoomStorage(targetRoomCode = displayRoomCode) {
+  const normalizedCode = String(targetRoomCode || '').trim().toUpperCase();
   try {
     const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
-    if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
+    const createdCode = String(created?.code || created?.game || '').trim().toUpperCase();
+    if (normalizedCode && createdCode === normalizedCode) localStorage.removeItem(CREATE_GAME_KEY);
     const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
-    if (active?.code === roomCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
+    const activeCode = String(active?.code || active?.game || '').trim().toUpperCase();
+    if (normalizedCode && activeCode === normalizedCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
   } catch {
     localStorage.removeItem(CREATE_GAME_KEY);
     localStorage.removeItem(ACTIVE_ROOM_KEY);
+  }
+  if (normalizedCode) {
+    try { localStorage.removeItem(`narduh-bot-game:${normalizedCode}`); } catch {}
   }
 }
 
@@ -1430,13 +1436,15 @@ async function closeWaitingRoomWithTimeout() {
 }
 
 async function removeCurrentWaitingRoom() {
-  if (!roomCode) return true;
+  const mode = roomUrl.searchParams.get('mode');
+  const targetRoomCode = mode === 'bot' ? displayRoomCode : roomCode;
+  if (!targetRoomCode) return true;
   if (isWaitingHost) {
     rememberWaitingRoomForCleanup();
     const result = await closeWaitingRoomWithTimeout();
     if (result?.removed || result?.closed === true || (result?.ok && !result?.room)) {
       forgetWaitingRoomCleanup();
-      clearCurrentRoomStorage();
+      clearCurrentRoomStorage(targetRoomCode);
       return true;
     }
     if (result?.room?.status === 'joined') {
@@ -1445,10 +1453,11 @@ async function removeCurrentWaitingRoom() {
     }
     throw new Error('Waiting room was not closed.');
   }
-  if (roomUrl.searchParams.get('mode') === 'bot') {
-    await NarduRooms.closeBotRoom(roomCode);
+  if (mode === 'bot') {
+    const result = await NarduRooms.closeBotRoom(targetRoomCode);
+    if (!(result?.removed || result?.closed === true)) return false;
   }
-  clearCurrentRoomStorage();
+  clearCurrentRoomStorage(targetRoomCode);
   return true;
 }
 function isActiveRemoteRoom() {
@@ -1742,7 +1751,10 @@ async function leaveToLobby({ immediate = false } = {}) {
   }
   try {
     const remoteLeaveReported = await reportActiveRemoteLeave();
-    if (!remoteLeaveReported) await removeCurrentWaitingRoom();
+    if (!remoteLeaveReported) {
+      const removed = await removeCurrentWaitingRoom();
+      if (removed === false) throw new Error('The active room was not closed.');
+    }
     location.href = 'index.html';
   } catch (error) {
     if (NarduApp.redirectForAuthError?.(error)) return;

@@ -1143,38 +1143,41 @@
       throw roomError("Закрыть бот-партию может только её создатель.", 403);
     }
 
-    const currentVersion = Math.max(0, Number(current.game_version) || 0);
-    let query = client
-      .from("rooms")
-      .update({
-        status: "closed",
-        archived_at: new Date().toISOString(),
-        closed_reason: "bot_abandoned",
-        game_version: currentVersion + 1,
-      })
-      .eq("id", current.id)
-      .eq("status", "joined")
-      .eq("game_version", currentVersion)
-      .select("code");
-    query = identity.userId
-      ? query.eq("host_user_id", identity.userId)
-      : query.eq("host_guest_id", identity.guestId);
-    query = withAbortSignal(query, signal);
-    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
-    throwIfAborted(signal);
-    if (error) throw supabaseError(error, "Could not close bot room.");
-    if (data) {
-      forgetBotAnalysisOwnerToken(normalizedCode);
-      return { ok: true, removed: true, closed: true, code: normalizedCode };
-    }
+    const closeAtVersion = async expectedVersion => {
+      let query = client.rpc("close_own_bot_room", {
+        p_room_code: normalizedCode,
+        p_expected_version: expectedVersion,
+      });
+      query = withAbortSignal(query, signal);
+      const { data, error } = await awaitWithAbort(query, signal);
+      throwIfAborted(signal);
+      if (error) throw supabaseError(error, "Could not close bot room.");
+      return data && typeof data === "object" ? data : {};
+    };
 
-    const latest = await getRoomRow(normalizedCode, { includePassword: true, maybeClosed: true, signal });
+    const currentVersion = Math.max(0, Number(current.game_version) || 0);
+    let payload = await closeAtVersion(currentVersion);
+    const retryVersion = Number(payload?.room?.version);
+    if (
+      payload?.closed !== true &&
+      payload?.conflict === true &&
+      payload?.room?.status === "joined" &&
+      Number.isInteger(retryVersion) &&
+      retryVersion > currentVersion
+    ) {
+      // A final autosave may win the first compare-and-swap while the player
+      // is pressing Lobby. Retry exactly once with the server-returned
+      // version; never loop indefinitely against a still-running writer.
+      payload = await closeAtVersion(retryVersion);
+    }
     const result = {
       ok: true,
-      removed: false,
-      closed: !latest || !["waiting", "joined"].includes(latest.status),
+      removed: payload.removed === true,
+      closed: payload.closed === true,
       code: normalizedCode,
-      room: publicRoom(latest),
+      ...(payload.conflict === true ? { conflict: true } : {}),
+      ...(Number.isInteger(Number(payload.version)) ? { version: Number(payload.version) } : {}),
+      ...(payload.room && typeof payload.room === "object" ? { room: payload.room } : {}),
     };
     if (result.closed) forgetBotAnalysisOwnerToken(normalizedCode);
     return result;

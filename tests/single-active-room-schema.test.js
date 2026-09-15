@@ -17,6 +17,10 @@ const waitingRoomClose = fs.readFileSync(
   path.join(ROOT, 'supabase', 'waiting-room-owner-close-v35.sql'),
   'utf8',
 );
+const botRoomClose = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'bot-room-owner-close-v35.sql'),
+  'utf8',
+);
 
 function waitingRoomCloseFunction(source) {
   const start = source.indexOf('create or replace function public.close_own_waiting_room(p_room_code text)');
@@ -25,6 +29,16 @@ function waitingRoomCloseFunction(source) {
     start,
   );
   assert.ok(start >= 0 && end > start, 'the owner-only waiting-room close RPC must exist');
+  return source.slice(start, end);
+}
+
+function botRoomCloseFunction(source) {
+  const start = source.indexOf('create or replace function public.close_own_bot_room(');
+  const end = source.indexOf(
+    'revoke all on function public.close_own_bot_room(text, bigint)',
+    start,
+  );
+  assert.ok(start >= 0 && end > start, 'the owner-only bot-room close RPC must exist');
   return source.slice(start, end);
 }
 
@@ -147,6 +161,111 @@ test('waiting-room closure bypasses the terminal-row RLS conflict without exposi
   assert.ok(authenticatedSelect);
   assert.match(authenticatedSelect[1], /status <> 'closed'/);
   assert.doesNotMatch(authenticatedSelect[1], /host_user_id|guest_user_id/);
+});
+
+test('bot-room closure is an owner-only, versioned terminal transition', () => {
+  const transactionStart = botRoomClose.indexOf('begin;');
+  const functionStart = botRoomClose.indexOf(
+    'create or replace function public.close_own_bot_room(',
+  );
+  const revoke = botRoomClose.indexOf(
+    'revoke all on function public.close_own_bot_room(text, bigint)',
+  );
+  const grant = botRoomClose.indexOf(
+    'grant execute on function public.close_own_bot_room(text, bigint)',
+  );
+  const notify = botRoomClose.indexOf("notify pgrst, 'reload schema';");
+  const transactionCommit = botRoomClose.indexOf('commit;');
+  assert.ok(transactionStart >= 0);
+  assert.ok(functionStart > transactionStart);
+  assert.ok(revoke > functionStart);
+  assert.ok(grant > revoke);
+  assert.ok(notify > grant);
+  assert.ok(transactionCommit > notify);
+  assert.match(botRoomClose, /^begin;$/m);
+  assert.match(botRoomClose, /^commit;$/m);
+  assert.equal(
+    (botRoomClose.match(/notify pgrst, 'reload schema';/g) || []).length,
+    1,
+    'the standalone migration must reload the PostgREST schema exactly once',
+  );
+
+  for (const source of [botRoomClose, schema]) {
+    const closeRoom = botRoomCloseFunction(source);
+    const fallbackStart = closeRoom.indexOf(
+      'select\n    room.status,\n    room.game_version,',
+    );
+    const fallbackEnd = closeRoom.indexOf(
+      "if owned_status = 'joined' and owned_closable then",
+      fallbackStart,
+    );
+    assert.ok(fallbackStart >= 0 && fallbackEnd > fallbackStart);
+    const fallback = closeRoom.slice(fallbackStart, fallbackEnd);
+
+    assert.match(closeRoom, /returns jsonb[\s\S]*language plpgsql[\s\S]*security definer/);
+    assert.match(closeRoom, /set search_path = pg_catalog, auth/);
+    assert.doesNotMatch(closeRoom, /set search_path = [^\n]*public/);
+
+    assert.match(closeRoom, /clean_code text := upper\(trim\(coalesce\(p_room_code, ''\)\)\)/);
+    assert.match(closeRoom, /clean_code !~ '\^\[A-HJ-NP-Z2-9\]\{4\}-\[A-HJ-NP-Z2-9\]\{4\}\$'/);
+    assert.match(closeRoom, /raise exception 'Invalid room code\.' using errcode = '22023'/);
+    assert.match(closeRoom, /p_expected_version is null[\s\S]*p_expected_version < 0[\s\S]*p_expected_version > 2147483646/);
+    assert.match(closeRoom, /raise exception 'Invalid game version\.' using errcode = '22023'/);
+
+    assert.match(closeRoom, /request_role text := coalesce\(auth\.role\(\), ''\)/);
+    assert.match(closeRoom, /player_id uuid := auth\.uid\(\)/);
+    assert.match(closeRoom, /guest_id text := case[\s\S]*auth\.role\(\), ''\) = 'anon'[\s\S]*public\.request_guest_identity\(\)[\s\S]*else null/);
+    assert.match(closeRoom, /request_role not in \('authenticated', 'anon'\)/);
+    assert.match(closeRoom, /request_role = 'authenticated' and player_id is null/);
+    assert.match(closeRoom, /request_role = 'anon' and guest_id is null/);
+    assert.match(closeRoom, /raise exception 'Authentication is required\.' using errcode = '42501'/);
+
+    const updateStart = closeRoom.indexOf('update public.rooms room');
+    const updateEnd = closeRoom.indexOf('if closed_code is not null then', updateStart);
+    assert.ok(updateStart >= 0 && updateEnd > updateStart);
+    const guardedUpdate = closeRoom.slice(updateStart, updateEnd);
+    assert.match(guardedUpdate, /status = 'closed'/);
+    assert.match(guardedUpdate, /archived_at = now\(\)/);
+    assert.match(guardedUpdate, /closed_reason = 'bot_abandoned'/);
+    assert.match(guardedUpdate, /game_version = room\.game_version \+ 1/);
+    assert.match(guardedUpdate, /room\.code = clean_code/);
+    assert.match(guardedUpdate, /room\.status = 'joined'/);
+    assert.match(guardedUpdate, /room\.game_version = p_expected_version/);
+    assert.match(guardedUpdate, /room\.guest_user_id is null/);
+    assert.match(guardedUpdate, /room\.guest_guest_id is null/);
+    assert.match(guardedUpdate, /room\.game_state->>'roomCode' = clean_code/);
+    assert.match(guardedUpdate, /room\.game_state->>'mode'/);
+    assert.match(guardedUpdate, /room\.game_state->>'opponent'/);
+    assert.match(guardedUpdate, /room\.game_state->'analysis'->>'mode'/);
+    assert.match(guardedUpdate, /room\.game_state->'analysis'->>'opponent'/);
+    assert.match(guardedUpdate, /player_id is not null and room\.host_user_id = player_id/);
+    assert.match(guardedUpdate, /player_id is null[\s\S]*guest_id is not null[\s\S]*room\.host_guest_id = guest_id/);
+    assert.match(guardedUpdate, /returning room\.code, room\.game_version/);
+
+    assert.match(fallback, /room\.status = 'joined'/);
+    assert.match(fallback, /room\.guest_user_id is null/);
+    assert.match(fallback, /room\.guest_guest_id is null/);
+    assert.match(fallback, /room\.game_state->>'roomCode' = clean_code/);
+    assert.match(fallback, /room\.game_state->>'mode'/);
+    assert.match(fallback, /room\.game_state->>'opponent'/);
+    assert.match(fallback, /room\.game_state->'analysis'->>'mode'/);
+    assert.match(fallback, /room\.game_state->'analysis'->>'opponent'/);
+    assert.match(fallback, /into owned_status, owned_version, owned_closable/);
+    assert.match(fallback, /room\.code = clean_code/);
+    assert.match(fallback, /player_id is not null and room\.host_user_id = player_id/);
+    assert.match(fallback, /player_id is null[\s\S]*guest_id is not null[\s\S]*room\.host_guest_id = guest_id/);
+    assert.match(closeRoom, /if owned_status = 'joined' and owned_closable then[\s\S]*'closed', false[\s\S]*'conflict', owned_version <> p_expected_version[\s\S]*'version', owned_version/);
+    assert.equal(
+      (closeRoom.match(/'conflict', owned_version <> p_expected_version/g) || []).length,
+      1,
+      'only a still-closable bot room may report a version conflict',
+    );
+    assert.match(closeRoom, /if owned_status in \('waiting', 'joined'\) then[\s\S]*'closed', false[\s\S]*'conflict', false/);
+    assert.match(closeRoom, /end if;[\s\S]*return jsonb_build_object\([\s\S]*'closed', true[\s\S]*'version', owned_version/);
+
+    assert.match(source, /revoke all on function public\.close_own_bot_room\(text, bigint\)[\s\S]*from public, anon, authenticated/);
+    assert.match(source, /grant execute on function public\.close_own_bot_room\(text, bigint\)[\s\S]*to anon, authenticated/);
+  }
 });
 
 test('the room lifecycle is forward-only for untrusted callers while trusted maintenance bypasses it', () => {

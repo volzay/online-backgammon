@@ -78,9 +78,12 @@ function createSupabaseHarness({
   closeResult = null,
   closeRpcResult = null,
   closeRpcError = null,
+  closeBotRpcResult = null,
+  closeBotRpcError = null,
   currentRoom = null,
 } = {}) {
   const operations = [];
+  let closeBotRpcCall = 0;
 
   function resultFor(operation) {
     if (operation.table === 'profiles') {
@@ -133,7 +136,14 @@ function createSupabaseHarness({
     operations.push(operation);
     const result = name === 'close_own_waiting_room'
       ? { data: closeRpcResult, error: closeRpcError }
-      : { data: null, error: null };
+      : (name === 'close_own_bot_room'
+        ? {
+          data: Array.isArray(closeBotRpcResult)
+            ? closeBotRpcResult[Math.min(closeBotRpcCall++, closeBotRpcResult.length - 1)]
+            : closeBotRpcResult,
+          error: closeBotRpcError,
+        }
+        : { data: null, error: null });
     const chain = {
       abortSignal(signal) { operation.signal = signal; return chain; },
       then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
@@ -510,7 +520,7 @@ test('closeWaitingRoom preserves a room that was joined before the close request
 test('closing a bot room invalidates the exact game version held by stale tabs', async () => {
   const currentRoom = {
     id: 'room-bot-close-1',
-    code: 'BOTC-LOSE',
+    code: 'BCTC-LSSE',
     variant: 'long',
     access: 'open',
     status: 'joined',
@@ -526,23 +536,133 @@ test('closing a bot room invalidates the exact game version held by stale tabs',
     game_state: {
       mode: 'bot',
       analysis: { mode: 'bot', opponent: 'bot', difficulty: 'hard' },
+      roomCode: 'BCTC-LSSE',
     },
   };
   const { client, operations } = createSupabaseHarness({
     currentRoom,
-    closeResult: { code: 'BOTC-LOSE' },
+    closeBotRpcResult: {
+      ok: true,
+      removed: true,
+      closed: true,
+      code: 'BCTC-LSSE',
+      version: 13,
+    },
+  });
+  const rooms = loadRoomsClient(client);
+  const controller = new AbortController();
+
+  const result = await rooms.closeBotRoom('bctclsse', { signal: controller.signal });
+
+  assert.equal(result.closed, true);
+  const close = operations.find(operation => operation.rpc === 'close_own_bot_room');
+  assert.ok(close, 'bot abandonment must use the ownership-checked terminal RPC');
+  assert.deepEqual({ ...close.args }, {
+    p_room_code: 'BCTC-LSSE',
+    p_expected_version: 12,
+  });
+  assert.equal(close.signal, controller.signal);
+  assert.equal(
+    operations.some(operation => operation.table === 'rooms' && operation.update),
+    false,
+    'bot abandonment must not use a terminal direct update rejected by RLS',
+  );
+
+  const closeCount = operations.filter(operation => operation.rpc === 'close_own_bot_room').length;
+  const aborted = new AbortController();
+  aborted.abort();
+  await assert.rejects(
+    rooms.closeBotRoom('BCTC-LSSE', { signal: aborted.signal }),
+    error => error?.name === 'AbortError',
+  );
+  assert.equal(
+    operations.filter(operation => operation.rpc === 'close_own_bot_room').length,
+    closeCount,
+    'an already-aborted bot close must not issue a mutation',
+  );
+});
+
+test('a bot close retries one autosave race with the server-returned version', async () => {
+  const currentRoom = {
+    id: 'room-bot-close-race',
+    code: 'RACE-B2T5',
+    status: 'joined',
+    host_user_id: 'user-1',
+    guest_user_id: null,
+    host_guest_id: null,
+    guest_guest_id: null,
+    host_name: 'Наблюдатель',
+    host_registered: true,
+    game_version: 14,
+    game_state: { mode: 'bot', roomCode: 'RACE-B2T5' },
+  };
+  const { client, operations } = createSupabaseHarness({
+    currentRoom,
+    closeBotRpcResult: [
+      {
+        ok: true,
+        removed: false,
+        closed: false,
+        conflict: true,
+        code: 'RACE-B2T5',
+        room: { code: 'RACE-B2T5', status: 'joined', version: 15 },
+      },
+      {
+        ok: true,
+        removed: true,
+        closed: true,
+        code: 'RACE-B2T5',
+        version: 16,
+      },
+    ],
   });
   const rooms = loadRoomsClient(client);
 
-  const result = await rooms.closeBotRoom('botclose');
+  const result = await rooms.closeBotRoom('raceb2t5');
 
+  assert.equal(result.removed, true);
   assert.equal(result.closed, true);
-  const close = operations.find(operation => operation.table === 'rooms' && operation.update);
-  assert.equal(close.update.status, 'closed');
-  assert.equal(close.update.game_version, 13);
-  assert.ok(
-    close.filters.some(filter => filter[0] === 'eq' && filter[1] === 'game_version' && filter[2] === 12),
-    'the close must compare-and-swap the version it invalidates',
+  const closeCalls = operations.filter(operation => operation.rpc === 'close_own_bot_room');
+  assert.deepEqual(closeCalls.map(call => ({ ...call.args })), [
+    { p_room_code: 'RACE-B2T5', p_expected_version: 14 },
+    { p_room_code: 'RACE-B2T5', p_expected_version: 15 },
+  ]);
+});
+
+test('a non-conflict bot close refusal never retries or clears an active room', async () => {
+  const currentRoom = {
+    id: 'room-bot-close-refused',
+    code: 'SAFE-B2T5',
+    status: 'joined',
+    host_user_id: 'user-1',
+    guest_user_id: null,
+    host_guest_id: null,
+    guest_guest_id: null,
+    host_name: 'Наблюдатель',
+    host_registered: true,
+    game_version: 20,
+    game_state: { mode: 'bot', roomCode: 'SAFE-B2T5' },
+  };
+  const { client, operations } = createSupabaseHarness({
+    currentRoom,
+    closeBotRpcResult: {
+      ok: true,
+      removed: false,
+      closed: false,
+      conflict: false,
+      code: 'SAFE-B2T5',
+      room: { code: 'SAFE-B2T5', status: 'joined', version: 20 },
+    },
+  });
+  const rooms = loadRoomsClient(client);
+
+  const result = await rooms.closeBotRoom('safeb2t5');
+
+  assert.equal(result.closed, false);
+  assert.equal(result.removed, false);
+  assert.equal(
+    operations.filter(operation => operation.rpc === 'close_own_bot_room').length,
+    1,
   );
 });
 
@@ -651,6 +771,8 @@ test('a waiting-host timeout queues an exact retry and still reaches the lobby',
   vm.createContext(context);
   vm.runInContext(`
     const roomCode = 'WAIT-ROOM';
+    const displayRoomCode = roomCode;
+    const roomUrl = { searchParams: { get() { return 'remote'; } } };
     const ACTIVE_ROOM_KEY = ${JSON.stringify(activeKey)};
     const CREATE_GAME_KEY = ${JSON.stringify(createKey)};
     const STALE_ROOM_CODES_KEY = ${JSON.stringify(staleKey)};
@@ -725,6 +847,8 @@ test('choosing the lobby permanently disarms an in-flight waiting-room join redi
   vm.createContext(context);
   vm.runInContext(`
     const roomCode = 'RACE-ROOM';
+    const displayRoomCode = roomCode;
+    const roomUrl = { searchParams: { get() { return 'remote'; } } };
     const ACTIVE_ROOM_KEY = ${JSON.stringify(activeKey)};
     const CREATE_GAME_KEY = ${JSON.stringify(createKey)};
     const STALE_ROOM_CODES_KEY = ${JSON.stringify(staleKey)};

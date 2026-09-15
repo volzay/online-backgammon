@@ -192,9 +192,9 @@ test("leaving joined or finished rooms never falls back to an unsafe generic del
   const removeStart = roomPage.indexOf("async function removeCurrentWaitingRoom()");
   const removeEnd = roomPage.indexOf("function isActiveRemoteRoom()", removeStart);
   const removeCurrentRoom = roomPage.slice(removeStart, removeEnd);
-  assert.match(removeCurrentRoom, /mode'\) === 'bot'[\s\S]*NarduRooms\.closeBotRoom\(roomCode\)/);
+  assert.match(removeCurrentRoom, /const mode = roomUrl\.searchParams\.get\('mode'\)[\s\S]*mode === 'bot'[\s\S]*NarduRooms\.closeBotRoom\(targetRoomCode\)/);
   assert.doesNotMatch(removeCurrentRoom, /NarduRooms\.deleteRoom\(roomCode\)/);
-  assert.match(removeCurrentRoom, /clearCurrentRoomStorage\(\);[\s\S]*return true/);
+  assert.match(removeCurrentRoom, /clearCurrentRoomStorage\(targetRoomCode\);[\s\S]*return true/);
 
   let fetchCalls = 0;
   const context = {
