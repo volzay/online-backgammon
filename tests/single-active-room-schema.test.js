@@ -13,6 +13,20 @@ const longBotStrategy = fs.readFileSync(
   path.join(ROOT, 'supabase', 'long-bot-strategy-v34.sql'),
   'utf8',
 );
+const waitingRoomClose = fs.readFileSync(
+  path.join(ROOT, 'supabase', 'waiting-room-owner-close-v35.sql'),
+  'utf8',
+);
+
+function waitingRoomCloseFunction(source) {
+  const start = source.indexOf('create or replace function public.close_own_waiting_room(p_room_code text)');
+  const end = source.indexOf(
+    'grant execute on function public.close_own_waiting_room(text) to anon, authenticated;',
+    start,
+  );
+  assert.ok(start >= 0 && end > start, 'the owner-only waiting-room close RPC must exist');
+  return source.slice(start, end);
+}
 
 function assertSingleRoomGuard(source) {
   assert.match(source, /add column if not exists host_guest_id text/);
@@ -101,6 +115,38 @@ test('the canonical Supabase schema retains the cross-role single-room guard', (
   assert.ok(guestCreatePolicy > guardStart && guestCreatePolicy < guardCommit);
   assert.ok(guestJoinPolicy > guestCreatePolicy && guestJoinPolicy < guardCommit);
   assert.ok(transitionGuard > guestJoinPolicy && transitionGuard < guardCommit);
+});
+
+test('waiting-room closure bypasses the terminal-row RLS conflict without exposing closed rooms', () => {
+  assert.match(waitingRoomClose, /^begin;/m);
+  assert.match(waitingRoomClose, /^commit;/m);
+
+  for (const source of [waitingRoomClose, schema]) {
+    const closeRoom = waitingRoomCloseFunction(source);
+    assert.match(closeRoom, /security definer/);
+    assert.match(closeRoom, /set search_path = pg_catalog, auth/);
+    assert.match(closeRoom, /clean_code !~ '\^\[A-HJ-NP-Z2-9\]\{4\}-\[A-HJ-NP-Z2-9\]\{4\}\$'/);
+    assert.match(closeRoom, /request_role not in \('authenticated', 'anon'\)/);
+    assert.match(closeRoom, /player_id uuid := auth\.uid\(\)/);
+    assert.match(closeRoom, /guest_id text := case[\s\S]*public\.request_guest_identity\(\)/);
+    assert.match(closeRoom, /room\.status = 'waiting'/);
+    assert.match(closeRoom, /room\.guest_user_id is null[\s\S]*room\.guest_guest_id is null/);
+    assert.match(closeRoom, /room\.host_user_id = player_id/);
+    assert.match(closeRoom, /room\.host_guest_id = guest_id/);
+    assert.match(closeRoom, /status = 'closed'[\s\S]*closed_reason = 'waiting_host_exit'/);
+    assert.match(closeRoom, /owned_status in \('waiting', 'joined'\)/);
+    assert.match(source, /revoke all on function public\.close_own_waiting_room\(text\)[\s\S]*from public, anon, authenticated/);
+    assert.match(source, /grant execute on function public\.close_own_waiting_room\(text\) to anon, authenticated/);
+  }
+
+  assert.match(waitingRoomClose, /notify pgrst, 'reload schema';/);
+
+  const authenticatedSelect = schema.match(
+    /create policy "authenticated users can see non-closed rooms"[\s\S]*?using \(([^;]+)\);/,
+  );
+  assert.ok(authenticatedSelect);
+  assert.match(authenticatedSelect[1], /status <> 'closed'/);
+  assert.doesNotMatch(authenticatedSelect[1], /host_user_id|guest_user_id/);
 });
 
 test('the room lifecycle is forward-only for untrusted callers while trusted maintenance bypasses it', () => {

@@ -1086,43 +1086,24 @@
     const identity = playerIdentity(authUser);
     if (guest && !identity.guestId) throw roomError("Не удалось подтвердить гостевую сессию.", 401);
 
-    let query = client
-      .from("rooms")
-      .update({
-        status: "closed",
-        archived_at: new Date().toISOString(),
-        closed_reason: "waiting_host_exit",
-      })
-      .eq("code", normalizedCode)
-      .eq("status", "waiting")
-      .is("guest_user_id", null)
-      .is("guest_guest_id", null)
-      .select("code");
-    query = identity.userId
-      ? query.eq("host_user_id", identity.userId)
-      : query.eq("host_guest_id", identity.guestId);
+    // A closed room is deliberately hidden by the rooms SELECT policy.  A
+    // direct UPDATE from waiting -> closed is consequently rejected by RLS
+    // before the active-room claim can be released.  The RPC keeps that
+    // privacy boundary and performs only this ownership-checked transition.
+    let query = client.rpc("close_own_waiting_room", {
+      p_room_code: normalizedCode,
+    });
     query = withAbortSignal(query, signal);
-    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    const { data, error } = await awaitWithAbort(query, signal);
     throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not close waiting room.");
-    if (data) return { ok: true, removed: true, closed: true, code: normalizedCode };
-
-    const current = await getRoomRow(normalizedCode, { maybeClosed: true, signal });
-    if (!current || !["waiting", "joined"].includes(current.status)) {
-      return { ok: true, removed: false, closed: true, code: normalizedCode };
-    }
-    const ownsCurrent = identity.userId
-      ? current.host_user_id === identity.userId
-      : current.host_guest_id === identity.guestId;
-    if (!ownsCurrent) {
-      throw roomError("Закрыть комнату может только её создатель.", 403);
-    }
+    const result = data && typeof data === "object" ? data : {};
     return {
       ok: true,
-      removed: false,
-      closed: false,
+      removed: result.removed === true,
+      closed: result.closed === true,
       code: normalizedCode,
-      room: publicRoom(current),
+      ...(result.room && typeof result.room === "object" ? { room: result.room } : {}),
     };
   }
 
@@ -1201,42 +1182,10 @@
 
   async function closeOwnLobbyRooms(payload = {}) {
     const codes = [...new Set((payload.codes || []).map(normalizeCode).filter(Boolean))];
-    if (!configured()) {
-      const closed = [];
-      for (const code of codes) {
-        const result = await closeWaitingRoom(code);
-        if (result.removed) closed.push(code);
-      }
-      return { ok: true, closedCodes: closed };
-    }
-
-    const { client, authUser } = await roomClientContext();
-    if (authUser?.id) {
-      if (!codes.length) return { ok: true, closedCodes: [] };
-      const { data, error } = await client
-        .from("rooms")
-        .update({
-          status: "closed",
-          archived_at: new Date().toISOString(),
-          closed_reason: "lobby_exit",
-        })
-        .eq("host_user_id", authUser.id)
-        .in("code", codes)
-        .eq("status", "waiting")
-        .is("guest_user_id", null)
-        .is("guest_guest_id", null)
-        .select("code");
-      if (error) throw supabaseError(error, "Could not close captured lobby rooms.");
-      return {
-        ok: true,
-        closedCodes: (data || []).map(row => normalizeCode(row.code)).filter(Boolean),
-      };
-    }
-
     const closed = [];
     for (const code of codes) {
       const result = await closeWaitingRoom(code);
-      if (result.removed) closed.push(code);
+      if (result.removed || result.closed === true) closed.push(code);
     }
     return { ok: true, closedCodes: closed };
   }

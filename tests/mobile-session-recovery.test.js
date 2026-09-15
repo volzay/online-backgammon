@@ -1089,8 +1089,11 @@ test('bot startup is guarded by the server room while room presence remains resu
   assert.doesNotMatch(lobby, /lobbyCleanupPromise = closeOwnRoomsOnLobbyEntry\(\)\s*\.finally\(refreshPlayerRooms\)/);
   assert.match(roomsClient, /async function getActiveRoom\(options = \{\}\)/);
   assert.match(roomsClient, /async function closeWaitingRoom\(code, options = \{\}\)/);
-  assert.match(roomsClient, /async function closeWaitingRoom[\s\S]*\.eq\("status", "waiting"\)[\s\S]*\.is\("guest_user_id", null\)[\s\S]*\.is\("guest_guest_id", null\)/);
-  assert.match(roomsClient, /identity\.userId\s*\? query\.eq\("host_user_id", identity\.userId\)\s*:\s*query\.eq\("host_guest_id", identity\.guestId\)/);
+  assert.match(roomsClient, /async function closeWaitingRoom[\s\S]*client\.rpc\("close_own_waiting_room", \{[\s\S]*p_room_code: normalizedCode/);
+  assert.doesNotMatch(
+    roomsClient.match(/async function closeWaitingRoom[\s\S]*?\n  async function closeBotRoom/)?.[0] || '',
+    /\.from\("rooms"\)[\s\S]*status: "closed"/,
+  );
   assert.match(controller, /LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS =\s*LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS \* LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS \+ 500/);
   assert.doesNotMatch(controller, /BOT_ANALYSIS_STARTUP_WAIT_MS/);
   assert.match(controller, /BOT_ANALYSIS_RESTORE_TIMEOUT_MS = 12000/);

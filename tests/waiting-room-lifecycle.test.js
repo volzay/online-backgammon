@@ -83,6 +83,23 @@ test("lobby closes only the active room codes captured before navigation", async
       }),
     },
     from: query,
+    rpc(name, args) {
+      const operation = { rpc: name, args };
+      operations.push(operation);
+      const result = {
+        data: {
+          ok: true,
+          removed: true,
+          closed: true,
+          code: args.p_room_code,
+        },
+        error: null,
+      };
+      return {
+        abortSignal(signal) { operation.signal = signal; return this; },
+        then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+      };
+    },
   };
   const context = {
     window: {
@@ -121,15 +138,16 @@ test("lobby closes only the active room codes captured before navigation", async
     codes: ["ABCD-EFGH", "JKLM-NPQR"],
   });
   assert.deepEqual(Array.from(result.closedCodes), ["ABCD-EFGH", "JKLM-NPQR"]);
-  const closeOperation = operations.find(item => item.table === "rooms" && item.update);
-  assert.ok(closeOperation);
-  assert.deepEqual(closeOperation.filters.map(item => [item[0], item[1], Array.isArray(item[2]) ? Array.from(item[2]) : item[2]]), [
-    ["eq", "host_user_id", "user-1"],
-    ["in", "code", ["ABCD-EFGH", "JKLM-NPQR"]],
-    ["eq", "status", "waiting"],
-    ["is", "guest_user_id", null],
-    ["is", "guest_guest_id", null],
+  const closeOperations = operations.filter(item => item.rpc === "close_own_waiting_room");
+  assert.deepEqual(closeOperations.map(item => ({ ...item.args })), [
+    { p_room_code: "ABCD-EFGH" },
+    { p_room_code: "JKLM-NPQR" },
   ]);
+  assert.equal(
+    operations.some(item => item.table === "rooms" && item.update),
+    false,
+    "lobby cleanup must not use the RLS-rejected terminal update",
+  );
 });
 
 test("room creation has client and database duplicate protection", () => {
@@ -161,6 +179,7 @@ test("room creation has client and database duplicate protection", () => {
   assert.match(schema, /rooms_one_active_room_per_guest_idx/);
   assert.match(schema, /private\.active_room_players/);
   assert.match(schema, /rooms_enforce_single_active_room_per_player_trg/);
+  assert.match(schema, /create or replace function public\.close_own_waiting_room\(p_room_code text\)/);
   assert.match(schema, /create or replace function public\.close_own_lobby_rooms\(\)/);
   assert.match(schema, /closed_reason = 'lobby_exit_unfinished'/);
   assert.doesNotMatch(schema, /closed_reason = 'lobby_exit_forfeit'/);

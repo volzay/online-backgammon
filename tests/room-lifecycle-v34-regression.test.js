@@ -73,7 +73,13 @@ function extractFunction(source, name) {
   assert.fail(`function ${name} body is incomplete`);
 }
 
-function createSupabaseHarness({ activeRows = [], closeResult = null, currentRoom = null } = {}) {
+function createSupabaseHarness({
+  activeRows = [],
+  closeResult = null,
+  closeRpcResult = null,
+  closeRpcError = null,
+  currentRoom = null,
+} = {}) {
   const operations = [];
 
   function resultFor(operation) {
@@ -122,6 +128,19 @@ function createSupabaseHarness({ activeRows = [], closeResult = null, currentRoo
     return chain;
   }
 
+  function rpc(name, args) {
+    const operation = { rpc: name, args };
+    operations.push(operation);
+    const result = name === 'close_own_waiting_room'
+      ? { data: closeRpcResult, error: closeRpcError }
+      : { data: null, error: null };
+    const chain = {
+      abortSignal(signal) { operation.signal = signal; return chain; },
+      then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+    };
+    return chain;
+  }
+
   const client = {
     auth: {
       getSession: async () => ({
@@ -145,6 +164,7 @@ function createSupabaseHarness({ activeRows = [], closeResult = null, currentRoo
       signOut: async () => ({ error: null }),
     },
     from,
+    rpc,
   };
   return { client, operations };
 }
@@ -425,7 +445,14 @@ test('a guest keeps the private bot owner proof across a complete browser restar
 });
 
 test('closeWaitingRoom closes only the exact waiting room owned by the caller and propagates AbortSignal', async () => {
-  const { client, operations } = createSupabaseHarness({ closeResult: { code: '2CKX-5HW7' } });
+  const { client, operations } = createSupabaseHarness({
+    closeRpcResult: {
+      ok: true,
+      removed: true,
+      closed: true,
+      code: '2CKX-5HW7',
+    },
+  });
   const rooms = loadRoomsClient(client);
   const controller = new AbortController();
 
@@ -437,20 +464,17 @@ test('closeWaitingRoom closes only the exact waiting room owned by the caller an
     closed: true,
     code: '2CKX-5HW7',
   });
-  const close = operations.find(operation => operation.table === 'rooms' && operation.update);
-  assert.ok(close, 'an exact room update must be issued');
-  assert.equal(close.update.status, 'closed');
-  assert.equal(close.update.closed_reason, 'waiting_host_exit');
-  assert.deepEqual(new Set(close.filters.map(filter => JSON.stringify(filter))), new Set([
-    ['eq', 'code', '2CKX-5HW7'],
-    ['eq', 'host_user_id', 'user-1'],
-    ['eq', 'status', 'waiting'],
-    ['is', 'guest_user_id', null],
-    ['is', 'guest_guest_id', null],
-  ].map(filter => JSON.stringify(filter))));
+  const close = operations.find(operation => operation.rpc === 'close_own_waiting_room');
+  assert.ok(close, 'the ownership-checked close RPC must be issued');
+  assert.deepEqual({ ...close.args }, { p_room_code: '2CKX-5HW7' });
   assert.equal(close.signal, controller.signal);
+  assert.equal(
+    operations.some(operation => operation.table === 'rooms' && operation.update),
+    false,
+    'the client must not use the RLS-rejected direct waiting -> closed update',
+  );
 
-  const updateCount = operations.filter(operation => operation.table === 'rooms' && operation.update).length;
+  const closeCount = operations.filter(operation => operation.rpc === 'close_own_waiting_room').length;
   const aborted = new AbortController();
   aborted.abort();
   await assert.rejects(
@@ -458,10 +482,29 @@ test('closeWaitingRoom closes only the exact waiting room owned by the caller an
     error => error?.name === 'AbortError',
   );
   assert.equal(
-    operations.filter(operation => operation.table === 'rooms' && operation.update).length,
-    updateCount,
+    operations.filter(operation => operation.rpc === 'close_own_waiting_room').length,
+    closeCount,
     'an already-aborted close must not issue a mutation',
   );
+});
+
+test('closeWaitingRoom preserves a room that was joined before the close request won the race', async () => {
+  const { client } = createSupabaseHarness({
+    closeRpcResult: {
+      ok: true,
+      removed: false,
+      closed: false,
+      code: 'RACE-JOIN',
+      room: { code: 'RACE-JOIN', status: 'joined' },
+    },
+  });
+  const rooms = loadRoomsClient(client);
+
+  const result = await rooms.closeWaitingRoom('racejoin');
+
+  assert.equal(result.removed, false);
+  assert.equal(result.closed, false);
+  assert.equal(result.room.status, 'joined');
 });
 
 test('closing a bot room invalidates the exact game version held by stale tabs', async () => {
