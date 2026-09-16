@@ -1,0 +1,78 @@
+{
+  "schema": "long-bot-v35-production-deployment-v1",
+  "date": "2026-09-16",
+  "productionHost": "201.51.7.193",
+  "site": "https://volzay.github.io/online-backgammon/",
+  "deployedCommit": "517e802fcf04b76a9803c0510837f0063bc869a9",
+  "playingPolicyImplementationId": "fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1",
+  "workerRuntimeDigest": "430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a",
+  "backup": {
+    "path": "/var/backups/online-backgammon/pre-v35-20260916T152425Z.dump.gz",
+    "sha256": "4c92fc1d3a2bc55b782dd2acb02a2059c4d81ac6abc3d1b51df51e91d43396a2",
+    "privateMode": "0600"
+  },
+  "migrations": {
+    "atomicTransaction": "COMMIT",
+    "rollbackSmoke": "PASS",
+    "strategySha256": "791dd970bde3a55e783f073c5eee5fc8e31627cd787010d2556378cbb9c6a5d3",
+    "causalSha256": "47a404ee6ac78449b7a46e276365033d3359d73e8300eff297a7aaa920fbb273",
+    "resumeSha256": "e8673f8e09a29c8e2fb958f95d9906dc4f57373ac82608ff18e82a6cd78ee0c6"
+  },
+  "githubPages": {
+    "workflowRunId": 35120312592,
+    "jobId": 104876128495,
+    "conclusion": "success",
+    "completedAt": "2026-09-16T16:28:12Z",
+    "ciNodeVersion": "24.20.0",
+    "tests": 885,
+    "passed": 883,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 2,
+    "durationMs": 949858.434827,
+    "skipCoverage": {
+      "nonLinuxAssertion": "Passed on macOS in the earlier full suite; Linux CI deliberately skips this platform-specific assertion.",
+      "rootOwnedLinuxProductionWrapper": "Passed separately on the actual VPS with Node 24.15.0 and immutable root-owned runtime files; the unprivileged CI checkout deliberately skips it."
+    },
+    "previousFailedRunId": 35118043255,
+    "previousFailure": "A v34 control fixture incorrectly used moving HEAD. Fixed by pinning the released v34 commit and making its Git history available; version and identity assertions retained."
+  },
+  "publicReadback": {
+    "checkedAt": "2026-09-16T16:30:02.324Z",
+    "engineVersion": "long-analytic-v35",
+    "exactReleaseBytes": true,
+    "assetsSha256": {
+      "long-bot-engine.js": "6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255",
+      "strong-bot.js": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+      "game.js": "769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+      "game-controller.js": "e1958bd4f5fa2619f48444f3dc1833c530a0ca7b5699973b42417d1aba0d6d9f",
+      "rooms-client.js": "27961dfbbeaa1c01435c58e36b33216dd6a70792d8495b4e5fc02e3a7100649b"
+    },
+    "indexRoomLoginBuildTag": "517e802fcf04",
+    "publicConfigContainsOnlyPublicFields": true,
+    "experienceRpcStatus": 200,
+    "experiencePatterns": 0,
+    "anonymousQueueRpcStatus": 401,
+    "anonymousQueueRpcCode": "42501"
+  },
+  "worker": {
+    "productionNodeVersion": "24.15.0",
+    "productionV8Version": "13.6.233.17-node.48",
+    "immutableClosureFiles": 17,
+    "timerEnabled": true,
+    "timerActive": true,
+    "lastResult": "success",
+    "lastExitStatus": 0,
+    "lifecycle": "long-server-resumable-slices-v1",
+    "countsCheckedAt": "2026-09-16T16:33:31.243001+00:00",
+    "jobs": 0,
+    "evidence": 0,
+    "supabaseContainersRunning": true,
+    "configuredDockerHealthchecksHealthy": true
+  },
+  "strengthCertification": {
+    "currentPolicyTerminalLeagueCompleted": false,
+    "winRate65PercentCertified": false,
+    "deploymentIsNotStrengthEvidence": true
+  }
+}

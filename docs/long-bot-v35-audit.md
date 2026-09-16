@@ -2,7 +2,7 @@
 
 Дата: 16 сентября 2026 года. Ниже сохранена хронология проверок с исходными identities; прежние результаты не перемаркируются новыми SHA.
 
-## Развёртывание и production resume — следующий этап
+## Развёртывание v35 и production resume
 
 Пользователь явно разрешил SQL, Node.js и worker через root на production `201.51.7.193`. Создана приватная резервная копия перед изменениями: `/var/backups/online-backgammon/pre-v35-20260916T152425Z.dump.gz`, SHA256 `4c92fc1d3a2bc55b782dd2acb02a2059c4d81ac6abc3d1b51df51e91d43396a2`. Official Node24.15.0 Linux-x64 archive проверен по SHA256 `472655581fb851559730c48763e0c9d3bc25975c59d518003fc0849d3e4ba0f6`; `/usr/bin/node` теперь24.15.0/V8`13.6.233.17-node.48`. Игровая CFCdc не изменена; новый actual workerD `430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a` связывает production orchestration и Linux fence.
 
@@ -19,6 +19,10 @@ Immutable server code installed root-owned/read-only; initial tar-owner501 failu
 **65% не подтверждены**; current CFCdc terminal-strength league по-прежнему не завершалась. Installer/таймер не доказывают создание полезного evidence; архивы v34 не перемаркируются v35.
 
 Первая публикация commit `1951d46b5f00f426e33457ddb99f0167e885f085`, Actions run `35118043255`, не прошла: **885 cases,882 PASS,1 FAIL,2 platform SKIP** на Linux. Единственный FAIL — fixture сравнения v35/v34 использовал `HEAD` как v34; после коммита `HEAD` уже v35. Этот предыдущий неуспех сохранён, не считается PASS. Контроль fixture закреплён на immutable released v34 commit `f92cfb71b065f2011f51587c91e8893fd77a7fdf`; версия, mismatch и запрет identical snapshots остаются строгими. CI получает историю для этого коммита и явно checkout конкретный `GITHUB_SHA`; shallow-клонирование runtime actions не меняется. Отдельный тест git resolver по-прежнему проверяет динамический `HEAD`. Для ручного запуска из shallow clone сначала требуется получить историю контрольного коммита. Эта правка tests/workflow не меняет playing CFCdc и workerD430a; исходный full885 macOS результат относится к исходным bytes тестов, не перемаркируется текущими.
+
+**v35 опубликована на production.** Commit `517e802fcf04b76a9803c0510837f0063bc869a9`, Actions run [35120312592](https://github.com/volzay/online-backgammon/actions/runs/35120312592), завершён SUCCESS в16:28:12UTC. Полный Linux CI на Node24.20.0: **885 cases,883 PASS,0 FAIL,0 cancelled,2 platform SKIP**,949,858сек. Первый skip — non-Linux assertion, ранее прошедший в полном macOS suite; второй — root-owned Linux wrapper, отдельно прошедший на настоящем VPS под Node24.15.0. Версии Node и identities этих проверок не смешиваются. Повторные локальные focused version/progress проверки21/21 PASS, build и diff check PASS.
+
+В16:30:02UTC свежий readback публичного сайта подтвердил `long-analytic-v35` и точное совпадение SHA256 `long-bot-engine.js`, `strong-bot.js`, `game.js`, `game-controller.js`, `rooms-client.js` с release source. Все versioned assets в index/room/login используют build tag `517e802fcf04`; runtime-config содержит только публичные поля. Public memory RPC HTTP200/patterns0; anonymous privileged claim RPC HTTP401/code42501 — служебная очередь недоступна браузеру. После публикации таймер enabled/active, последний worker Result=success/exit0, Docker healthchecks healthy; read-only SQL в16:33:31UTC: jobs0/evidence0. Это работающая установка, не доказательство полезного обучения или65% побед. Полная фиксация: [deployment proof](long-bot-v35-deployment.json). Последующая документальная фиксация не меняет опубликованный runtime commit/C/D.
 
 ## Предыдущие проверки до production-resume
 
