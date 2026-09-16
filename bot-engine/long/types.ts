@@ -69,10 +69,44 @@ export interface LongBotTacticalAnalysis {
   recoveryExpected?: number;
   recoveryWorst?: number;
   recoveryRolls?: number;
+  /** Recovery estimates are dice-complete only within one primary scenario. */
+  recoveryModelKind?: 'conditional-single-primary-v1' | string;
+  recoveryConditional?: boolean;
+  /** Canonical high:low dice key, including doubles expanded to four moves. */
+  recoveryPrimaryDiceKey?: string;
+  recoveryPrimaryDiceWeight?: number;
+  recoveryPrimaryFrontierCount?: number;
+  recoveryTotalPrimaryFrontierCount?: number;
+  recoveryPrimaryFrontierWeight?: number;
+  recoveryTotalPrimaryFrontierWeight?: number;
   deepAdjustment?: number;
   continuationExpected?: number;
   continuationWorst?: number;
   continuationRolls?: number;
+  /** Every next-roll outcome was expanded on each selected conditional proxy. */
+  continuationModelComplete?: boolean;
+  continuationModelKind?: 'representative-worst-proxy-v1' | string;
+  /** Some real recovery-frontier dice mass was represented only by a proxy. */
+  continuationApproximate?: boolean;
+  /** Recovery-board coverage within the chosen primary scenario, not nested proof. */
+  continuationCoverageComplete?: boolean;
+  continuationFrontierCount?: number;
+  /** Actual recovery dice mass of the unique sampled boards, not proxy mass. */
+  continuationFrontierWeight?: number;
+  continuationTotalFrontierCount?: number;
+  continuationTotalFrontierWeight?: number;
+  continuationProxyWeight?: number;
+  continuationWorstRecoveryFrontierWeight?: number;
+  /** Original recovery-roll provenance, before equal-board deduplication. */
+  continuationRepresentativeDiceKey?: string;
+  continuationRepresentativeDiceWeight?: number;
+  /** Quadrature mass used in ranking, NOT the representative roll's mass. */
+  continuationRepresentativeProxyWeight?: number;
+  continuationWorstRecoveryDiceKey?: string;
+  continuationWorstRecoveryDiceWeight?: number;
+  continuationWorstRecoveryProxyWeight?: number;
+  continuationRepresentativeFrontierIncluded?: boolean;
+  continuationWorstFrontierIncluded?: boolean;
   continuationAdjustment?: number;
   plies?: number;
 }

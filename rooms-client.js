@@ -7,6 +7,10 @@
   const LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v15";
   const LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY = "narduh-long-bot-server-experience-v14";
   const LONG_BOT_EXPERIENCE_CREDIT_VERSION = 8;
+  const LONG_BOT_SERVER_CAUSAL_CREDIT_VERSION = 9;
+  const LONG_BOT_SERVER_CAUSAL_SCHEMA = "long-server-causal-pattern-v1";
+  const LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1";
+  const LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu/server-long-bot-causal/v1";
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -27,8 +31,44 @@
   let longBotExperienceLoadGeneration = 0;
   let shortBotExperienceLoadGeneration = 0;
 
-  function validatedLongBotExperience(patterns) {
+  function longBotRequiresCausalExperience() {
+    const match = String(window.NarduLongBotEngine?.version || "")
+      .match(/^long-analytic-v(\d+)$/);
+    return Boolean(match && Number(match[1]) >= 35);
+  }
+
+  function validatedLongBotExperience(patterns, { trustedRpc = false } = {}) {
     if (!Array.isArray(patterns)) return null;
+    const causalOnly = longBotRequiresCausalExperience();
+    // The dedicated service-role worker owns v9 ingestion. Accept it only
+    // directly from the live read-only RPC; client storage and attached review
+    // reports cannot assert this provenance or become executable policy.
+    if (causalOnly) {
+      if (patterns.length === 0) return [];
+      if (!trustedRpc || patterns.length > 256) return null;
+      return patterns.every(pattern => {
+        const samples = pattern?.samples;
+        return Boolean(
+          pattern && typeof pattern === "object"
+          && pattern.creditVersion === LONG_BOT_SERVER_CAUSAL_CREDIT_VERSION
+          && pattern.evidenceSchema === LONG_BOT_SERVER_CAUSAL_SCHEMA
+          && pattern.reviewerVersion === LONG_BOT_SERVER_CAUSAL_REVIEWER
+          && pattern.trustDomain === LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN
+          && /^[0-9a-f]{64}$/.test(String(window.NarduLongBotEngine?.policyImplementationId || ""))
+          && pattern.policyImplementationId === window.NarduLongBotEngine.policyImplementationId
+          && pattern.outcomeUsed === false
+          && /^[0-9a-f]{64}$/.test(String(pattern.runtimeDigest || ""))
+          && /^[0-9a-f]{64}$/.test(String(pattern.aggregateId || ""))
+          && typeof pattern.contextKey === "string" && pattern.contextKey.length > 0
+          && typeof pattern.actionKey === "string" && pattern.actionKey.length > 0
+          && Number.isInteger(samples) && samples >= 1 && samples <= 32
+          && pattern.losses === samples && pattern.wins === 0
+          && pattern.lossWeight === samples * 1.5
+          && pattern.signalWeight === samples * 1.5
+          && pattern.severeLosses === 0 && pattern.winWeight === 0
+        );
+      }) ? patterns : null;
+    }
     return patterns.every(pattern => (
       pattern
       && typeof pattern === "object"
@@ -39,6 +79,10 @@
   function readLongBotExperienceCache(playerKey) {
     try {
       localStorage.removeItem(LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY);
+      if (longBotRequiresCausalExperience()) {
+        localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
+        return [];
+      }
       const cached = JSON.parse(localStorage.getItem(LONG_BOT_EXPERIENCE_CACHE_KEY) || "null");
       if (!cached) return [];
       if (Date.now() - Number(cached.savedAt || 0) > LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS) {
@@ -61,6 +105,10 @@
     let payload = "";
     try {
       localStorage.removeItem(LEGACY_LONG_BOT_EXPERIENCE_CACHE_KEY);
+      if (longBotRequiresCausalExperience()) {
+        localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
+        return false;
+      }
       const validated = validatedLongBotExperience(patterns);
       if (!validated) {
         localStorage.removeItem(LONG_BOT_EXPERIENCE_CACHE_KEY);
@@ -1359,7 +1407,7 @@
           p_player_name: resolvedPlayerName || null,
         });
         if (error) throw supabaseError(error, "Could not load long-bot experience.");
-        const patterns = validatedLongBotExperience(data);
+        const patterns = validatedLongBotExperience(data, { trustedRpc: true });
         if (!patterns) {
           console.warn("Ignored incompatible long-bot experience generation.");
           return { patterns: cachedPatterns, fresh: false };
@@ -1377,7 +1425,9 @@
       if (loadGeneration !== longBotExperienceLoadGeneration) {
         throw supersededLongBotExperienceError();
       }
-      const patterns = validatedLongBotExperience(result?.patterns) || [];
+      const patterns = validatedLongBotExperience(result?.patterns, {
+        trustedRpc: result?.fresh === true,
+      }) || [];
       if (result?.fresh === true) {
         engine?.setExperience?.([], "server-cache");
         engine?.setExperience?.(patterns, "server");

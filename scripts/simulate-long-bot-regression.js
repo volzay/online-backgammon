@@ -237,6 +237,7 @@ function loadIsolatedRuntimes(experienceFile, runtimeSnapshot = readRuntimeSnaps
   return {
     ...treatment,
     controlEngine: control.engine,
+    controlHardBot: control.hardBot,
     controlExperienceCount: control.experienceCount,
   };
 }
@@ -368,6 +369,13 @@ function applyPlan(game, state, plan) {
 }
 
 function playGame(pairIndex, leg, runtime, options) {
+  if (options.sidecarAnalysis !== undefined && typeof options.sidecarAnalysis !== 'boolean') {
+    throw new Error('Simulator sidecarAnalysis must be a native boolean');
+  }
+  const sidecarAnalysis = options.sidecarAnalysis === true;
+  if (sidecarAnalysis && options.productionDispatch !== true) {
+    throw new Error('Simulator sidecar analysis requires verified production dispatch');
+  }
   const { game, engine, controlEngine } = runtime;
   if (!engine?.plan || !controlEngine?.plan || engine === controlEngine) {
     throw new Error('Simulator requires isolated treatment and control engine instances');
@@ -379,6 +387,15 @@ function playGame(pairIndex, leg, runtime, options) {
     streams,
   } = createLegAssignment(options.seed, pairIndex, leg);
   const state = game.initialState('long');
+  // Opt-in production-only harness optimization, not a policy change. Native
+  // search serializes state metadata but does not use this candidate ledger to
+  // choose moves. Keep every unrelated analysis field on the working state.
+  const priorBotMemory = sidecarAnalysis ? state.analysis?.botMemory : null;
+  const sidecarBotMemory = sidecarAnalysis ? {
+    ...(priorBotMemory || { format: 2 }),
+    decisions: [...(priorBotMemory?.decisions || [])],
+  } : null;
+  if (sidecarAnalysis && state.analysis) delete state.analysis.botMemory;
   engine.beginExperienceSession?.();
   engine.freezeExperience?.();
   let whiteDie = streams.white.openingDie();
@@ -399,6 +416,8 @@ function playGame(pairIndex, leg, runtime, options) {
   let controlDoubles = 0;
   let botRolls = 0;
   let controlRolls = 0;
+  let productionPolicyWeights = null;
+  let productionPolicyWeightsKey = '';
   const decisions = [];
   while (!state.winner && plies < options.maxPlies) {
     plies += 1;
@@ -420,22 +439,46 @@ function playGame(pairIndex, leg, runtime, options) {
     const actingColor = state.turn;
     const actingProfile = actingColor === botColor ? options.botProfile : options.controlProfile;
     const actingEngine = actingColor === botColor ? engine : controlEngine;
-    const plan = actingColor === botColor
-      ? actingEngine.plan(state, {
-        maxCandidates: options.botCandidates,
-        analysisNodeBudget: options.botNodes,
-        strategyProfile: options.botProfile,
-      })
-      : actingEngine.plan(state, {
-        maxCandidates: options.controlCandidates,
-        analysisNodeBudget: options.controlNodes,
-        strategyProfile: options.controlProfile,
-      });
-    const decision = actingEngine.consumeLastDecision?.();
+    const actingOptions = actingColor === botColor
+      ? { maxCandidates: options.botCandidates, analysisNodeBudget: options.botNodes,
+        strategyProfile: options.botProfile }
+      : { maxCandidates: options.controlCandidates, analysisNodeBudget: options.controlNodes,
+        strategyProfile: options.controlProfile };
+    const actingHardBot = actingColor === botColor ? runtime.hardBot : runtime.controlHardBot;
+    if (options.productionDispatch && !actingHardBot?.plan) {
+      throw new Error('Production-dispatch simulation requires both frozen hard-bot dispatchers');
+    }
+    const legalEmptyPass = options.productionDispatch && !game.hasAnyMoves(state);
+    const plan = options.productionDispatch
+      ? (legalEmptyPass ? [] : actingHardBot.plan(state, actingOptions))
+      : actingEngine.plan(state, actingOptions);
+    const recordedDecision = actingEngine.consumeLastDecision?.();
+    const decision = legalEmptyPass ? null : recordedDecision;
+    if (options.productionDispatch && !legalEmptyPass) {
+      const fallback = actingHardBot.consumeLastFallbackDecision?.();
+      if (!decision || decision.source !== 'engine'
+        || decision.engineVersion !== actingEngine.version || fallback) {
+        throw new Error('Production dispatcher returned an unverified or fallback decision');
+      }
+      const entries = Object.entries(decision.weights || {}).sort(([left], [right]) => left.localeCompare(right));
+      if (!entries.length || entries.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value))) {
+        throw new Error('Production dispatcher omitted its finite policy weights');
+      }
+      const weightsKey = JSON.stringify(entries);
+      if (productionPolicyWeightsKey && weightsKey !== productionPolicyWeightsKey) {
+        throw new Error('Production policy weights differ within the equal-resource league');
+      }
+      productionPolicyWeightsKey = weightsKey;
+      productionPolicyWeights = Object.fromEntries(entries);
+    }
     if (actingColor === botColor && decision) {
-      state.analysis ||= {};
-      state.analysis.botMemory ||= { format: 2, decisions: [] };
-      state.analysis.botMemory.decisions.push({ ...decision, actor: 'bot' });
+      if (sidecarAnalysis) {
+        sidecarBotMemory.decisions.push({ ...decision, actor: 'bot' });
+      } else {
+        state.analysis ||= {};
+        state.analysis.botMemory ||= { format: 2, decisions: [] };
+        state.analysis.botMemory.decisions.push({ ...decision, actor: 'bot' });
+      }
     }
     if (options.trace) {
       decisions.push({
@@ -458,6 +501,12 @@ function playGame(pairIndex, leg, runtime, options) {
   }
   if (!state.winner) {
     throw new Error(`Game ${pairIndex * 2 + leg + 1} exceeded ${options.maxPlies} plies`);
+  }
+  // Restore the complete ledger ONLY after successful terminal play, before
+  // _state can be exported/reviewed/learned. Truncated games never export it.
+  if (sidecarAnalysis && (priorBotMemory || sidecarBotMemory.decisions.length)) {
+    state.analysis ||= {};
+    state.analysis.botMemory = sidecarBotMemory;
   }
   const botMemory = state.analysis?.botMemory;
   if (botMemory && Array.isArray(botMemory.decisions)) {
@@ -485,6 +534,7 @@ function playGame(pairIndex, leg, runtime, options) {
     botDoubles,
     controlDoubles,
     off: { ...state.off },
+    ...(options.productionDispatch ? { productionDispatch: true, productionPolicyWeights, sidecarAnalysis } : {}),
     ...(options.trace ? { decisions } : {}),
     _state: state,
   };

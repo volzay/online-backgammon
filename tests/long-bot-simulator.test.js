@@ -150,7 +150,7 @@ test('runtime snapshot and fingerprints describe immutable bytes actually loaded
   }
 });
 
-test('treatment experience and adaptive learning stay isolated from the control engine', () => {
+test('outcome-only adaptive learning changes neither treatment nor control experience', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'long-bot-isolation-test-'));
   const experienceFile = path.join(directory, 'experience.json');
   fs.writeFileSync(experienceFile, JSON.stringify({
@@ -204,7 +204,7 @@ test('treatment experience and adaptive learning stay isolated from the control 
       },
     }, 'white');
 
-    assert.ok(runtime.engine.experienceSize() > importedSize);
+    assert.equal(runtime.engine.experienceSize(), importedSize);
     assert.equal(runtime.controlEngine.experienceSize(), 0);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -256,6 +256,78 @@ test('simulator fails closed after applying only the first move of a real multi-
   }), /empty or incomplete plan[\s\S]*legal moves remain/);
   assert.ok(originalMultiMovePlan?.length > 1);
   assert.deepEqual(returnedPartialPlan, [originalMultiMovePlan[0]]);
+});
+
+const DISPATCH_OPTIONS = Object.freeze({
+  seed: 430419993, maxPlies: 2, botProfile: 'v25', controlProfile: 'v25',
+  botCandidates: 1, controlCandidates: 1, botNodes: 1, controlNodes: 1,
+  productionDispatch: true, trace: false,
+});
+
+test('production-dispatch games use the real stable weight overrides on both frozen engines', () => {
+  const runtime = loadIsolatedRuntimes();
+  const observed = [];
+  for (const engine of [runtime.engine, runtime.controlEngine]) {
+    const original = engine.plan.bind(engine);
+    engine.plan = (state, options) => {
+      observed.push(JSON.parse(JSON.stringify(options.weights)));
+      return original(state, options);
+    };
+  }
+  assert.throws(() => playGame(0, 0, runtime, DISPATCH_OPTIONS), /exceeded 2 plies/);
+  assert.equal(observed.length, 2);
+  const expected = {
+    opponentHeadFreedom: 48000, headLandingExposure: 62000, headRelease: 9800,
+    foothold: 4300, homeEntry: 145000, rushPenalty: 12500,
+    trapRisk: 62000, escapeGatewayRisk: 800000, distribution: 780,
+  };
+  assert.deepEqual(observed, [expected, expected]);
+});
+
+test('production-dispatch games reject missing dispatchers and unverified fallback plans', () => {
+  const missing = loadIsolatedRuntimes();
+  missing.hardBot = null;
+  assert.throws(() => playGame(0, 0, missing, DISPATCH_OPTIONS), /both frozen hard-bot dispatchers/);
+  const fallback = loadIsolatedRuntimes();
+  fallback.hardBot.plan = () => [];
+  assert.throws(() => playGame(0, 0, fallback, DISPATCH_OPTIONS), /unverified or fallback decision/);
+});
+
+test('production-dispatch league rejects weight drift between the two algorithms', () => {
+  const runtime = loadIsolatedRuntimes();
+  const original = runtime.controlEngine.plan.bind(runtime.controlEngine);
+  runtime.controlEngine.plan = (state, options) => original(state, {
+    ...options, weights: { ...options.weights, homeEntry: options.weights.homeEntry + 1 },
+  });
+  assert.throws(() => playGame(0, 0, runtime, DISPATCH_OPTIONS), /weights differ/);
+});
+
+test('production-dispatch games permit verified legal passes without inventing a decision', () => {
+  const runtime = loadIsolatedRuntimes();
+  const prior = runtime.game.initialState('long');
+  prior.turn = 'white';
+  prior.phase = 'roll';
+  runtime.game.applyRoll(prior, [1, 2]);
+  runtime.engine.plan(prior, { maxCandidates: 1, analysisNodeBudget: 1, strategyProfile: 'v25' });
+  const blocked = {
+    ...runtime.game.initialState('long'),
+    points: { 24: { color: 'white', count: 15 }, 23: { color: 'dark', count: 1 },
+      22: { color: 'dark', count: 1 }, 13: { color: 'dark', count: 13 } },
+    firstMoveDone: { white: true, dark: true },
+  };
+  const originalEndTurn = runtime.game.endTurn;
+  let passes = 0;
+  runtime.game = {
+    ...runtime.game,
+    initialState: () => blocked,
+    decideOpeningRoll(state) { state.turn = 'white'; },
+    startOpeningTurn(state) { state.phase = 'move'; state.dice = [1, 2]; state.rolled = [1, 2]; },
+    endTurn(state) { passes += 1; return originalEndTurn(state); },
+  };
+  runtime.hardBot.plan = () => { throw new Error('A verified legal pass must not invoke the planner'); };
+  assert.throws(() => playGame(0, 0, runtime, { ...DISPATCH_OPTIONS, maxPlies: 1 }), /exceeded 1 plies/);
+  assert.equal(passes, 1);
+  assert.equal(blocked.analysis?.botMemory, undefined, 'a stale earlier decision cannot be recorded as this pass');
 });
 
 test('simulator CLI rejects invalid numbers, unknown options, and unsupported profiles', () => {

@@ -1,0 +1,35 @@
+[Unit]
+Description=Trusted long-backgammon causal review worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nardy-worker
+Group=nardy-worker
+WorkingDirectory=/opt/online-backgammon-causal-worker
+EnvironmentFile=/etc/online-backgammon/long-bot-causal-worker.env
+StateDirectory=online-backgammon-causal-worker
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/flock --exclusive --nonblock --no-fork /var/lib/online-backgammon-causal-worker/worker.flock /usr/bin/node scripts/long-bot-causal-worker.js --once --limit 1 --production-journal-dir /var/lib/online-backgammon-causal-worker/terminal-journal
+TimeoutStartSec=8min
+TimeoutStopSec=30s
+KillMode=control-group
+Restart=no
+MemoryMax=768M
+CPUQuota=100%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/online-backgammon-causal-worker
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

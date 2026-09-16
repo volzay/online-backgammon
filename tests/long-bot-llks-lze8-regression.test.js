@@ -201,7 +201,16 @@ test("LLKS-RUSC turn 5 is not hindsight-overfit to the later Koks result", () =>
   assert.ok(hasSequence(selected, supportedMoves), `selected ${sequenceLabel(selected)}`);
   assert.notEqual(selected.features.contestedOpponentHeadExit, 1);
   assert.ok(selected.tactical.continuationExpected >= alternative.tactical.continuationExpected + 15000000);
-  assert.ok(selected.tactical.continuationWorst >= alternative.tactical.continuationWorst + 100000000);
+  assert.equal(selected.tactical.continuationWorstFrontierIncluded, true);
+  assert.equal(alternative.tactical.continuationWorstFrontierIncluded, true);
+  // continuationWorst now includes the continuation of the rare worst
+  // recovery branch. Compare the complete recovery+continuation envelope,
+  // rather than treating that fourth-ply sample as an independent path.
+  assert.ok(
+    selected.tactical.recoveryWorst + selected.tactical.continuationWorst
+      >= alternative.tactical.recoveryWorst + alternative.tactical.continuationWorst
+        + 100000000,
+  );
 });
 
 test("LLKS-RUSC turn 3 gives beam and telemetry slots to distinct boards", () => {

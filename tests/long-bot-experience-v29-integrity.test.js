@@ -146,7 +146,7 @@ test('v29 counts unique resulting positions for recovered and opponent decisions
   assert.equal(recovered.decisions[0].choiceCount, 1);
 });
 
-test('v29 fixtures discard the previous local generation and do not learn a forced win', () => {
+test('an outcome-only long result leaves the previous generation untouched', () => {
   const storage = memoryStorage({
     [LEGACY_EXPERIENCE_KEY]: JSON.stringify([{
       creditVersion: 5,
@@ -170,11 +170,11 @@ test('v29 fixtures discard the previous local generation and do not learn a forc
     analysis: { botMemory: { decisions: [] } },
   }, 'dark');
 
-  assert.equal(storage.values.has(LEGACY_EXPERIENCE_KEY), false);
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(LEGACY_EXPERIENCE_KEY), true);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
-test('the current learning bridge writes local evidence with credit generation 8', () => {
+test('the current learning bridge rejects a loss without causal review evidence', () => {
   const { context, storage } = loadStrongBot();
   const decision = liveV29Decision();
   context.window.NarduStrongBot.learnFromGame({
@@ -186,9 +186,7 @@ test('the current learning bridge writes local evidence with credit generation 8
     },
   }, 'dark');
 
-  const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
-  assert.equal(learned.length, 1);
-  assert.equal(learned[0].creditVersion, 8);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v29 does not import a completed game from the previous engine generation', () => {
@@ -214,7 +212,7 @@ test('v29 does not import a completed game from the previous engine generation',
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v29 rejects a decision without an explicit engine generation', () => {
@@ -240,7 +238,7 @@ test('v29 rejects a decision without an explicit engine generation', () => {
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v29 loads existing local experience before the first frozen decision', () => {
@@ -513,7 +511,7 @@ test('v29 fingerprint follows effective evidence, not its transport source', asy
   );
 });
 
-test('v29 restores the frozen evidence snapshot when an active game reloads', async () => {
+test('v35 restores only an explicit empty quarantine snapshot on active-game reload', async () => {
   const browser = await import(pathToFileURL(
     path.join(ROOT, 'bot-engine/long/browser.ts'),
   ).href);
@@ -546,6 +544,11 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   first.beginExperienceSession('GUKS-UURG:1000');
   first.setExperience(initial, 'server-cache');
   const originalFingerprint = first.freezeExperience().fingerprint;
+  const stored = JSON.parse(storage.getItem(
+    'narduh-long-bot-frozen-experience-v35:GUKS-UURG:1000',
+  ));
+  assert.equal(stored.trust, 'long-v35-quarantined-empty');
+  assert.deepEqual(stored.patterns, []);
   assert.equal(storage.getItem('narduh-long-bot-frozen-experience-v32:stale'), null);
   first.setExperience(updated, 'server');
   assert.deepEqual(first.experienceSnapshot().pendingSources, ['server']);
@@ -556,7 +559,9 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   });
   reloaded.beginExperienceSession('GUKS-UURG:1000');
   reloaded.setExperience(updated, 'server');
-  assert.equal(reloaded.freezeExperience().fingerprint, originalFingerprint);
+  const quarantinedFingerprint = reloaded.freezeExperience().fingerprint;
+  assert.notEqual(quarantinedFingerprint, originalFingerprint);
+  assert.equal(reloaded.experienceSize(), 0);
   assert.equal(
     reloaded.experienceSnapshotEntries().some(([key]) => key.includes('new-server-key')),
     false,
@@ -566,7 +571,7 @@ test('v29 restores the frozen evidence snapshot when an active game reloads', as
   assert.notEqual(first.freezeExperience().fingerprint, originalFingerprint);
 });
 
-test('v34 isolates v33 frozen evidence and duplicate begin keeps the session immutable', async () => {
+test('v35 isolates legacy frozen evidence and duplicate begin keeps the session immutable', async () => {
   const browser = await import(pathToFileURL(
     path.join(ROOT, 'bot-engine/long/browser.ts'),
   ).href);
@@ -589,7 +594,7 @@ test('v34 isolates v33 frozen evidence and duplicate begin keeps the session imm
     experienceStorage: storage,
   });
   const initial = [{
-    contextKey: 'route|v34-current',
+    contextKey: 'route|v35-current',
     actionKey: 'prime-timing:gain|self-crunch:gain|prime-run:5',
     samples: 4,
     wins: 4,
@@ -613,10 +618,13 @@ test('v34 isolates v33 frozen evidence and duplicate begin keeps the session imm
 
   const frozen = engine.freezeExperience();
   const frozenSize = engine.experienceSize();
-  const storedV34 = JSON.parse(storage.getItem(
-    `narduh-long-bot-frozen-experience-v34:${sessionKey}`,
+  const storedV35 = JSON.parse(storage.getItem(
+    `narduh-long-bot-frozen-experience-v35:${sessionKey}`,
   ));
-  assert.equal(storedV34.engineVersion, 'long-analytic-v34');
+  assert.equal(storedV35.engineVersion, 'long-analytic-v35');
+  assert.equal(storedV35.trust, 'long-v35-quarantined-empty');
+  assert.deepEqual(storedV35.patterns, []);
+  assert.equal(storage.getItem(`narduh-long-bot-frozen-experience-v34:${sessionKey}`), null);
   assert.equal(storage.getItem(`narduh-long-bot-frozen-experience-v33:${sessionKey}`), null);
 
   engine.setExperience(pending, 'server');
@@ -631,7 +639,7 @@ test('v34 isolates v33 frozen evidence and duplicate begin keeps the session imm
   assert.deepEqual(engine.experienceSnapshot(), beforeDuplicateBegin);
 });
 
-test('v29 local learning rejects unfrozen or mixed experience snapshots', () => {
+test('outcome-only long decisions never reach local memory regardless of snapshot shape', () => {
   const { context, storage } = loadStrongBot();
   const learnMemory = botMemory => context.window.NarduStrongBot.learnFromGame({
     variant: 'long',
@@ -642,13 +650,13 @@ test('v29 local learning rejects unfrozen or mixed experience snapshots', () => 
   const learn = decisions => learnMemory(completeV29Memory(decisions));
 
   learn([liveV29Decision({ experienceFrozen: false })]);
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 
   learn([
     liveV29Decision({ experienceFingerprint: 'lbe6-first' }),
     liveV29Decision({ experienceFingerprint: 'lbe6-second' }),
   ]);
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 
   [0, null, '2'].forEach(choiceCount => {
     learn([liveV29Decision({ choiceCount })]);
@@ -671,7 +679,7 @@ test('v29 local learning rejects unfrozen or mixed experience snapshots', () => 
       choiceCount: 2,
     },
   ]);
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('short learning writes the v6 policy credit generation', () => {

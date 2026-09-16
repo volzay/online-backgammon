@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { snapshotFingerprintV2 } = require('../scripts/generate-long-bot-shadow-replay');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -94,6 +95,28 @@ test('long browser engine never leaks a previous turn decision and gives repeate
   assert.ok(first);
   assert.equal(first.source, 'engine');
   assert.match(first.positionId, /^lb4-/);
+  assert.equal(first.stateSnapshotV2.schema, 'long-state-v2');
+  assert.equal(first.stateSnapshotV2.turn, 'dark');
+  assert.deepEqual(Array.from(first.stateSnapshotV2.dice), [6, 5]);
+  assert.match(first.stateFingerprintV2, /^lbs2-/);
+  assert.equal(first.stateFingerprintV2, snapshotFingerprintV2(first.stateSnapshotV2));
+  assert.ok(first.selected.after?.points);
+  assert.equal(first.replayInput.schema, 'long-shadow-replay-input-v1');
+  assert.equal(first.replayInput.engineVersion, first.engineVersion);
+  assert.equal(first.replayInput.stateFingerprintV2, first.stateFingerprintV2);
+  assert.equal(first.replayInput.runtime.maxCandidates, 64);
+  assert.equal(first.replayInput.runtime.analysisNodeBudget, 480);
+  assert.ok(first.replayInput.archivedCandidateCount <= 4);
+  assert.ok(first.replayInput.rankingCandidateCount >= first.replayInput.archivedCandidateCount);
+  assert.ok(
+    JSON.stringify(first).length < 128 * 1024,
+    'one decision record must stay bounded instead of embedding the search tree',
+  );
+  const replayExperience = engine.experienceReplaySnapshot();
+  assert.equal(replayExperience.schema, 'long-experience-replay-v1');
+  assert.equal(replayExperience.engineVersion, first.engineVersion);
+  assert.equal(replayExperience.fingerprint, first.experienceFingerprint);
+  assert.deepEqual(Array.from(replayExperience.patterns), []);
 
   assert.ok(engine.plan(state).length > 0);
   const second = engine.consumeLastDecision();
@@ -147,7 +170,7 @@ function loadControllerForDecisionTests(setup = null) {
   const source = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __decisionTest: { safeBotPlan, rememberBotDecision, recordBotMoveSubstitution, finalizeBotMemory },\n  };',
+      '    preferredMoveAction,\n    __decisionTest: { safeBotPlan, rememberBotDecision, recordBotMoveSubstitution, recordBotMoveApplied, completeBotDecisionExecution, finalizeBotMemory, botTrainingStatePayload },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
   const controller = context.window.NarduController;
@@ -219,12 +242,128 @@ test('controller keeps the full BBXR-sized decision log and audits invalid move 
 
   const recorded = state.analysis.botMemory.decisions.at(-1);
   assert.equal(recorded.execution.reason, 'invalid-planned-move');
+  assert.equal(recorded.execution.complete, false);
+  assert.equal(recorded.execution.substituted, true);
   assert.equal(recorded.execution.positionId, recorded.positionId);
   assert.deepEqual(
     JSON.parse(JSON.stringify(recorded.execution.substitutions[0].planned)),
     { from: 99, die: actual.die },
   );
   assert.equal(recorded.execution.substitutions[0].actual.from, actual.from);
+});
+
+test('controller records the exact completed long-bot sequence and resulting board', () => {
+  const { context, controller } = loadControllerForDecisionTests();
+  const game = context.window.NarduGame;
+  const state = controller.getState();
+  Object.assign(state, legalLongState(game));
+  state.analysis = { botMemory: { decisions: [] } };
+
+  const sequence = game.bestMoveSequences(state, state.turn)[0];
+  assert.ok(sequence?.length);
+  const preview = JSON.parse(JSON.stringify(state));
+  sequence.forEach(move => {
+    assert.equal(game.applyMove(preview, move.from, move.die, { autoEnd: false }), true);
+  });
+  const selectedMoves = sequence.map(move => ({
+    from: move.from,
+    to: move.bearOff ? 0 : move.to,
+    die: move.die,
+    bearOff: Boolean(move.bearOff),
+  }));
+  controller.__decisionTest.rememberBotDecision({
+    id: 'completed-execution-1',
+    positionId: 'lb4-completed-execution',
+    source: 'engine',
+    at: new Date().toISOString(),
+    engineVersion: 'long-analytic-test',
+    selected: {
+      moves: selectedMoves,
+      after: {
+        points: preview.points,
+        bar: preview.bar,
+        off: preview.off,
+      },
+      experience: {
+        contextKey: 'route|completed-execution',
+        actionKey: 'completed-execution-action',
+      },
+    },
+    experience: {
+      contextKey: 'route|completed-execution',
+      actionKey: 'completed-execution-action',
+    },
+  });
+
+  sequence.forEach((move, index) => {
+    const to = game.moveTo(state.turn, move.from, move.die, state);
+    assert.equal(game.applyMove(state, move.from, move.die, { autoEnd: false }), true);
+    controller.__decisionTest.recordBotMoveApplied(move, to, index);
+  });
+  controller.__decisionTest.completeBotDecisionExecution();
+
+  const execution = state.analysis.botMemory.decisions[0].execution;
+  assert.equal(execution.complete, true);
+  assert.equal(execution.fallback, false);
+  assert.equal(execution.substituted, false);
+  assert.equal(execution.appliedMoveCount, sequence.length);
+  assert.equal(execution.selectedActionMatches, true);
+  assert.equal(execution.selectedPositionMatches, true);
+  assert.equal(execution.selectedMatchesExecuted, true);
+  assert.equal(execution.executedActionKey, 'completed-execution-action');
+  assert.equal(execution.executed.experience.actionKey, 'completed-execution-action');
+  assert.equal(execution.executedMoves.length, sequence.length);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(execution.after.off)),
+    JSON.parse(JSON.stringify(preview.off)),
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(execution.after.points)),
+    JSON.parse(JSON.stringify(preview.points)),
+  );
+});
+
+test('training payload stores one bounded frozen experience snapshot for exact shadow replay', () => {
+  const { context, controller } = loadControllerForDecisionTests();
+  const state = controller.getState();
+  Object.assign(state, legalLongState(context.window.NarduGame));
+  state.analysis = { botMemory: { decisions: [{ id: 'decision-1' }] } };
+  context.window.NarduLongBotEngine = {
+    version: 'long-analytic-test',
+    experienceReplaySnapshot() {
+      return {
+        schema: 'long-experience-replay-v1',
+        engineVersion: 'long-analytic-test',
+        fingerprint: 'lbe8-test',
+        size: 4,
+        frozen: true,
+        patterns: [{ contextKey: 'route|test', actionKey: 'move:test', samples: 3 }],
+      };
+    },
+  };
+
+  let payload = controller.__decisionTest.botTrainingStatePayload();
+  let replay = payload.analysis.botMemory.replayExperience;
+  assert.equal(replay.complete, true);
+  assert.equal(replay.fingerprint, 'lbe8-test');
+  assert.equal(replay.patternCount, 1);
+  assert.equal(replay.patterns[0].actionKey, 'move:test');
+
+  context.window.NarduLongBotEngine.experienceReplaySnapshot = () => ({
+    engineVersion: 'long-analytic-test',
+    fingerprint: 'lbe8-too-large',
+    size: 1025,
+    frozen: true,
+    patterns: Array.from({ length: 1025 }, (_, index) => ({
+      contextKey: `route|${index}`,
+      actionKey: `move:${index}`,
+    })),
+  });
+  payload = controller.__decisionTest.botTrainingStatePayload();
+  replay = payload.analysis.botMemory.replayExperience;
+  assert.equal(replay.complete, false);
+  assert.equal(replay.reason, 'experience-snapshot-size-limit');
+  assert.equal(Object.prototype.hasOwnProperty.call(replay, 'patterns'), false);
 });
 
 test('coverage matches repeated position ids by occurrence instead of Set membership', () => {

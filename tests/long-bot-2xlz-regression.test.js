@@ -15,6 +15,7 @@ const ENGINE_SOURCES = [
   "bot-engine/long/browser.ts",
 ];
 let cachedEngine = null;
+let cachedGame = null;
 
 function loadEngine() {
   if (cachedEngine) return cachedEngine;
@@ -35,6 +36,7 @@ function loadEngine() {
   vm.runInContext(fs.readFileSync(path.join(ROOT, "game.js"), "utf8"), context);
   vm.runInContext(`(function () { 'use strict'; ${body} }());`, context);
   cachedEngine = context.window.NarduLongBotEngine;
+  cachedGame = context.window.NarduGame;
   return cachedEngine;
 }
 
@@ -62,6 +64,60 @@ function roomState(points, dice) {
     headPlayedThisTurn: { white: false, dark: false },
     firstMoveDone: { white: true, dark: true },
   };
+}
+
+function boundedTactical(metrics = {}) {
+  return {
+    plies: 4,
+    expectedImpact: 0,
+    worstImpact: 0,
+    rolls: 21,
+    distributionWeight: 36,
+    distributionComplete: true,
+    doublesExpanded: true,
+    recoveryExpected: 0,
+    recoveryWorst: 0,
+    recoveryTailRisk: 0,
+    recoveryRolls: 21,
+    recoveryWeight: 36,
+    recoveryDistributionComplete: true,
+    continuationExpected: 0,
+    continuationWorst: 0,
+    continuationTailRisk: 0,
+    continuationRolls: 21,
+    continuationWeight: 36,
+    continuationDistributionComplete: true,
+    continuationModelComplete: true,
+    continuationModelKind: "representative-worst-proxy-v1",
+    continuationApproximate: true,
+    continuationCoverageComplete: false,
+    continuationFrontierCount: 2,
+    continuationTotalFrontierCount: 10,
+    continuationFrontierWeight: 3,
+    continuationTotalFrontierWeight: 36,
+    continuationProxyWeight: 36,
+    continuationWorstRecoveryFrontierWeight: 1,
+    continuationRepresentativeFrontierIncluded: true,
+    continuationWorstFrontierIncluded: true,
+    ...metrics,
+  };
+}
+
+function playHypotheticalTurn(snapshot, color, dice, moves) {
+  loadEngine();
+  const next = JSON.parse(JSON.stringify(snapshot));
+  next.turn = color;
+  next.phase = "move";
+  next.rolled = [...dice];
+  next.dice = dice[0] === dice[1] ? Array(4).fill(dice[0]) : [...dice];
+  next.turnMoves = [];
+  next.headPlayedThisTurn = { white: false, dark: false };
+  moves.forEach(move => {
+    assert.equal(cachedGame.applyMove(next, move.from, move.die, { autoEnd: false }), true,
+      `hypothetical ${color} ${move.from}>${move.to}/${move.die} must be legal`);
+    assert.equal(next.turnMoves.at(-1).to, move.to);
+  });
+  return next;
 }
 
 function rankFixture(points, dice) {
@@ -195,39 +251,78 @@ const FIVE_F44_DECISION_20_POINTS = {
   24: { color: "white", count: 1 },
 };
 
-test("5F44-A8EA blocks the opponent's critical head exit before the fence closes", () => {
+test("5F44-A8EA keeps head-release safety instead of forcing an optimistic critical-exit block", async () => {
+  const { hasBoundedFourPlyTactical, isAnalyzedContestedOpponentHeadExit } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
   const ranked = rankFixture(FIVE_F44_DECISION_13_POINTS, [4, 2]);
   const selected = ranked[0];
-  const archivedMove = ranked.find(candidate => candidate.sequence.some(move => (
-    move.from === 12 && move.to === 8 && move.die === 4
+  const criticalBlock = ranked.find(candidate => candidate.sequence.some(move => (
+    move.from === 22 && move.to === 18 && move.die === 4
   )));
 
   assert.ok(selected.sequence.some(move => (
-    move.from === 22 && move.to === 18 && move.die === 4
+    move.from === 12 && move.to === 8 && move.die === 4
   )));
   assert.ok(selected.sequence.some(move => (
     move.from === 1 && move.to === 23 && move.die === 2
   )));
-  assert.equal(selected.features.contestedOpponentHeadExit, 1);
-  assert.ok(selected.tactical.expectedImpact >= archivedMove.tactical.expectedImpact + 10000000);
-  assert.ok(selected.tactical.worstImpact >= archivedMove.tactical.worstImpact + 30000000);
-  assert.ok(
-    selected.tactical.continuationWorst
-      >= archivedMove.tactical.continuationWorst + 15000000,
-  );
+  assert.equal(selected.features.headGain, 1);
+  assert.equal(Number(selected.features.contestedOpponentHeadExit || 0), 0);
+  assert.ok(criticalBlock, "the archived critical-exit block remains measurable");
+  assert.equal(hasBoundedFourPlyTactical(selected), true);
+  assert.equal(hasBoundedFourPlyTactical(criticalBlock), true);
+  assert.ok(criticalBlock.tactical.expectedImpact >= selected.tactical.expectedImpact + 10000000);
+  assert.ok(criticalBlock.tactical.worstImpact >= selected.tactical.worstImpact + 30000000);
+  ["recoveryExpected", "recoveryWorst", "recoveryTailRisk"].forEach(metric => {
+    assert.ok(criticalBlock.tactical[metric] < selected.tactical[metric], metric);
+  });
+  assert.ok(criticalBlock.tactical.continuationWorst < selected.tactical.continuationWorst - 15000000);
+  assert.equal(isAnalyzedContestedOpponentHeadExit(
+    roomState(FIVE_F44_DECISION_13_POINTS, [4, 2]), "dark", criticalBlock, selected,
+  ), false);
+
+  // Canonical hypothetical replies, not the archived game's future dice:
+  // the newly covered worst recovery vacates point8 and lets white close4..8.
+  let branch = playHypotheticalTurn(criticalBlock.after, "white", [2, 3], [
+    { from: 24, to: 22, die: 2 }, { from: 19, to: 16, die: 3 },
+  ]);
+  branch = playHypotheticalTurn(branch, "dark", [5, 5], [
+    { from: 6, to: 1, die: 5 }, { from: 8, to: 3, die: 5 },
+    { from: 23, to: 18, die: 5 }, { from: 8, to: 3, die: 5 },
+  ]);
+  branch = playHypotheticalTurn(branch, "white", [5, 5], [
+    { from: 11, to: 6, die: 5 }, { from: 13, to: 8, die: 5 },
+    { from: 16, to: 11, die: 5 }, { from: 24, to: 19, die: 5 },
+  ]);
+  assert.equal(branch.points[12].count, 5);
+  [4, 5, 6, 7, 8].forEach(point => assert.equal(branch.points[point].color, "white"));
+  [1, 2, 4, 5, 6].forEach(die => {
+    const attempt = JSON.parse(JSON.stringify(branch));
+    attempt.turn = "dark"; attempt.dice = [die]; attempt.rolled = [die];
+    attempt.turnMoves = []; attempt.headPlayedThisTurn = { white: false, dark: false };
+    assert.equal(cachedGame.applyMove(attempt, 12, die, { autoEnd: false }), false,
+      `the five head checkers cannot escape with die ${die}`);
+  });
+  const onlyExit = JSON.parse(JSON.stringify(branch));
+  onlyExit.turn = "dark"; onlyExit.dice = [3]; onlyExit.rolled = [3];
+  onlyExit.turnMoves = []; onlyExit.headPlayedThisTurn = { white: false, dark: false };
+  assert.equal(cachedGame.applyMove(onlyExit, 12, 3, { autoEnd: false }), true,
+    "die3 is the sole legal head landing, rather than an invented fully closed head");
 });
 
-test("5F44-A8EA critical head-exit block survives hostile learned memory", () => {
+test("5F44-A8EA head-release safety survives hostile memory favoring an optimistic exit block", () => {
   const ranked = rankFixtureAgainstHeavyMemory(
     FIVE_F44_DECISION_13_POINTS,
     [4, 2],
-    [{ from: 1, die: 2 }, { from: 22, die: 4 }],
+    [{ from: 1, die: 2 }, { from: 12, die: 4 }],
   );
 
   assert.ok(ranked[0].sequence.some(move => (
-    move.from === 22 && move.to === 18 && move.die === 4
+    move.from === 12 && move.to === 8 && move.die === 4
   )));
-  assert.equal(ranked[0].features.contestedOpponentHeadExit, 1);
+  assert.equal(ranked[0].features.headGain, 1);
+  assert.equal(Number(ranked[0].features.contestedOpponentHeadExit || 0), 0);
   assert.ok(ranked[0].experienceAdjustment < 0);
 });
 
@@ -263,7 +358,7 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       headLandingBreak: 0,
       primeRunAfter: 3,
     },
-    tactical: {
+    tactical: boundedTactical({
       plies: 4,
       expectedImpact: -20000000,
       worstImpact: -80000000,
@@ -272,7 +367,7 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       continuationExpected: -50000000,
       continuationTailRisk: -50000000,
       continuationWorst: -85000000,
-    },
+    }),
   };
   const candidate = (overrides = {}) => ({
     score: 0,
@@ -294,7 +389,7 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       headLandingBreak: 0,
       primeRunAfter: 2,
     },
-    tactical: {
+    tactical: boundedTactical({
       plies: 4,
       expectedImpact: -10000000,
       worstImpact: -50000000,
@@ -303,7 +398,7 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       continuationExpected: -40000000,
       continuationTailRisk: -40000000,
       continuationWorst: -70000000,
-    },
+    }),
     ...overrides,
   });
 
@@ -341,6 +436,13 @@ test("contested opponent-head exit promotion keeps strict structural boundaries"
       tactical: { ...candidate().tactical, continuationWorst: undefined },
     }), selected),
     false,
+  );
+  assert.equal(
+    isAnalyzedContestedOpponentHeadExit(state, "dark", candidate({
+      tactical: { ...candidate().tactical, continuationModelComplete: false },
+    }), selected),
+    false,
+    "plies and finite metrics alone are not bounded-model coverage",
   );
 });
 
@@ -525,19 +627,19 @@ test("QQRZ imminent head-fence override has strict safety boundaries", async () 
     isPlausibleImminentHeadFenceAnchor(state, "dark", anchor(-8000001), selected),
     false,
   );
-  selected.tactical = {
+  selected.tactical = boundedTactical({
     plies: 4,
     continuationExpected: -50000000,
     continuationTailRisk: -50000000,
     continuationWorst: -88000000,
-  };
+  });
   const analyzedAnchor = anchor(-8000000);
-  analyzedAnchor.tactical = {
+  analyzedAnchor.tactical = boundedTactical({
     plies: 4,
     continuationExpected: -27000000,
     continuationTailRisk: -27000000,
     continuationWorst: -58000000,
-  };
+  });
   assert.equal(
     isAnalyzedImminentHeadFenceAnchor(state, "dark", analyzedAnchor, selected),
     true,
@@ -548,6 +650,14 @@ test("QQRZ imminent head-fence override has strict safety boundaries", async () 
       tactical: { ...analyzedAnchor.tactical, plies: 3 },
     }, selected),
     false,
+  );
+  assert.equal(
+    isAnalyzedImminentHeadFenceAnchor(state, "dark", {
+      ...analyzedAnchor,
+      tactical: { ...analyzedAnchor.tactical, recoveryDistributionComplete: false },
+    }, selected),
+    false,
+    "incomplete recovery must not be presented as a bounded four-ply anchor",
   );
   assert.equal(
     isAnalyzedImminentHeadFenceAnchor(state, "dark", {
@@ -580,6 +690,30 @@ test("QQRZ imminent head-fence override has strict safety boundaries", async () 
     ),
     false,
   );
+});
+
+test("bounded tactical metadata fails closed rather than trusting plies and finite metrics alone", async () => {
+  const { hasBoundedFourPlyTactical, hasCompleteFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const completeSample = { tactical: boundedTactical() };
+  assert.equal(hasBoundedFourPlyTactical(completeSample), true);
+  assert.equal(hasCompleteFourPlyTactical(completeSample), false, "valid sampling is not exhaustive coverage");
+  [
+    { distributionComplete: false }, { distributionWeight: 35 },
+    { recoveryDistributionComplete: false }, { recoveryExpected: undefined },
+    { continuationDistributionComplete: false }, { continuationModelComplete: false },
+    { continuationModelKind: "unknown" }, { continuationWorstFrontierIncluded: false },
+    { continuationRepresentativeFrontierIncluded: false }, { continuationApproximate: false },
+  ].forEach(incomplete => {
+    assert.equal(hasBoundedFourPlyTactical({ tactical: boundedTactical(incomplete) }), false,
+      JSON.stringify(incomplete));
+  });
+  assert.equal(hasBoundedFourPlyTactical({ tactical: {
+    plies: 4, expectedImpact: 0, worstImpact: 0,
+    recoveryExpected: 0, recoveryWorst: 0, recoveryTailRisk: 0,
+    continuationExpected: 0, continuationWorst: 0, continuationTailRisk: 0,
+  } }), false);
 });
 
 test("QQRZ imminent head anchor wins a contested tactical reservation", async () => {

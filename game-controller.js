@@ -79,6 +79,8 @@ window.NarduController = (function () {
   const ROOM_PERSIST_SNAPSHOT_PRUNE_LIMIT = 32;
   const ROOM_PERSIST_QUOTA_RECOVERY_REMOVALS = 4;
   const BOT_MEMORY_MAX_DECISIONS = 180;
+  const LONG_BOT_REPLAY_EXPERIENCE_MAX_PATTERNS = 1024;
+  const LONG_BOT_REPLAY_EXPERIENCE_MAX_CHARS = 512 * 1024;
   const OPENING_RESULT_PAUSE_MS = 2600;
   const MOVE_SOUND_SETTLE_MS = 210;
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
@@ -1195,6 +1197,10 @@ window.NarduController = (function () {
 
   function botTrainingStatePayload() {
     const payload = botAnalysisPayload();
+    const replayExperience = boundedLongBotReplayExperience();
+    if (replayExperience && payload.analysis?.botMemory) {
+      payload.analysis.botMemory.replayExperience = replayExperience;
+    }
     const isGuest = window.NarduApp?.getUser?.()?.guest === true;
     if (isGuest) return payload;
     // Decisions are the durable training record. The move history stays in the
@@ -1202,6 +1208,44 @@ window.NarduController = (function () {
     payload.history = [];
     payload.turnMoves = [];
     return payload;
+  }
+
+  function boundedLongBotReplayExperience() {
+    if (variant !== 'long' || botDifficulty !== 'hard') return null;
+    const snapshot = window.NarduLongBotEngine?.experienceReplaySnapshot?.();
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    const patterns = Array.isArray(snapshot.patterns) ? snapshot.patterns : [];
+    const identity = {
+      schema: 'long-experience-replay-v1',
+      engineVersion: String(snapshot.engineVersion || window.NarduLongBotEngine?.version || ''),
+      fingerprint: String(snapshot.fingerprint || ''),
+      size: Math.max(0, Number(snapshot.size) || 0),
+      frozen: snapshot.frozen === true,
+      patternCount: patterns.length,
+    };
+    let serialized = '';
+    try {
+      serialized = JSON.stringify(patterns);
+    } catch {
+      return { ...identity, complete: false, reason: 'experience-patterns-not-serializable' };
+    }
+    if (
+      patterns.length > LONG_BOT_REPLAY_EXPERIENCE_MAX_PATTERNS
+      || serialized.length > LONG_BOT_REPLAY_EXPERIENCE_MAX_CHARS
+    ) {
+      return {
+        ...identity,
+        complete: false,
+        reason: 'experience-snapshot-size-limit',
+        serializedChars: serialized.length,
+      };
+    }
+    return {
+      ...identity,
+      complete: true,
+      serializedChars: serialized.length,
+      patterns: JSON.parse(serialized),
+    };
   }
 
   function validBotTrainingStatePayload(payload) {
@@ -1214,15 +1258,25 @@ window.NarduController = (function () {
     const expected = Number(coverage?.expectedBotDecisions);
     const recorded = Number(coverage?.recordedBotDecisions);
     const recovered = Number(coverage?.recoveredBotDecisions);
-    const requiresCompleteCoverage = /long-analytic-v(?:29|30|31|32|33|34)$/.test(
-      String(memory?.engineVersion || ''),
-    );
+    const engineVersion = String(memory?.engineVersion || '');
+    const requiresCompleteCoverage = /long-analytic-v(?:29|30|31|32|33|34|35)$/.test(engineVersion);
+    const requiresHomogeneousV35Ledger = engineVersion === 'long-analytic-v35';
+    const v35BotDecisions = requiresHomogeneousV35Ledger
+      ? decisions.filter(decision => {
+        const actor = String(decision?.actor || 'bot');
+        return actor === 'bot';
+      })
+      : [];
     return coverage?.complete === true &&
       Number.isInteger(expected) && expected >= 0 &&
       Number.isInteger(recorded) && recorded >= 0 &&
       Number.isInteger(recovered) && recovered >= 0 &&
       expected === recorded + recovered &&
-      (!requiresCompleteCoverage || expected > 0);
+      (!requiresCompleteCoverage || expected > 0) &&
+      (!requiresHomogeneousV35Ledger || (
+        v35BotDecisions.length === expected &&
+        v35BotDecisions.every(decision => String(decision?.engineVersion || '') === engineVersion)
+      ));
   }
 
   function canPublishBotAnalysis(options = {}) {
@@ -3622,6 +3676,157 @@ window.NarduController = (function () {
     return { stale: false, moves: normalizedBotMoves(result?.planned, engine) };
   }
 
+  function compactBotExecutionBoard(source = state) {
+    return {
+      points: Object.fromEntries(
+        Object.entries(source?.points || {})
+          .filter(([, stack]) => stack && Number(stack.count) > 0)
+          .sort(([left], [right]) => Number(left) - Number(right))
+          .map(([point, stack]) => [point, {
+            color: String(stack.color || ''),
+            count: Number(stack.count) || 0,
+          }]),
+      ),
+      bar: {
+        white: Number(source?.bar?.white) || 0,
+        dark: Number(source?.bar?.dark) || 0,
+      },
+      off: {
+        white: Number(source?.off?.white) || 0,
+        dark: Number(source?.off?.dark) || 0,
+      },
+    };
+  }
+
+  function botExecutionBoardKey(board) {
+    const points = Object.entries(board?.points || {})
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([point, stack]) => `${point}:${String(stack?.color || '')}:${Number(stack?.count) || 0}`)
+      .join('|');
+    return `${points}|bar:${Number(board?.bar?.white) || 0}:${Number(board?.bar?.dark) || 0}|off:${Number(board?.off?.white) || 0}:${Number(board?.off?.dark) || 0}`;
+  }
+
+  function canonicalBotExecutionMoves(moves = []) {
+    return (Array.isArray(moves) ? moves : []).map(move => ({
+      from: Number(move?.from) || 0,
+      to: move?.bearOff || Number(move?.to) === 0 ? 0 : Number(move?.to) || 0,
+      die: Number(move?.die) || 0,
+      bearOff: Boolean(move?.bearOff || Number(move?.to) === 0),
+    }));
+  }
+
+  function initialBotDecisionExecution(decision) {
+    const current = decision?.execution && typeof decision.execution === 'object'
+      ? decision.execution
+      : {};
+    const moves = canonicalBotExecutionMoves(current.executedMoves || current.moves || []);
+    return {
+      ...current,
+      complete: current.complete === true,
+      fallback: current.fallback === true || decision?.source !== 'engine',
+      substituted: current.substituted === true
+        || (Array.isArray(current.substitutions) && current.substitutions.length > 0),
+      selectedMoveCount: Array.isArray(decision?.selected?.moves)
+        ? decision.selected.moves.length
+        : 0,
+      appliedMoveCount: moves.length,
+      executedMoves: moves,
+      startedAt: current.startedAt || new Date().toISOString(),
+    };
+  }
+
+  function activeBotDecision() {
+    const memory = state?.analysis?.botMemory;
+    const decisions = Array.isArray(memory?.decisions) ? memory.decisions : [];
+    return decisions.find(item => item?.id === activeBotDecisionId) || null;
+  }
+
+  function updateActiveBotDecisionExecution(update) {
+    const decision = activeBotDecision();
+    if (!decision) return null;
+    const execution = initialBotDecisionExecution(decision);
+    decision.execution = typeof update === 'function'
+      ? update(execution, decision)
+      : { ...execution, ...(update || {}) };
+    if (state?.analysis?.botMemory) {
+      state.analysis.botMemory.updatedAt = new Date().toISOString();
+    }
+    return decision;
+  }
+
+  function recordBotMoveApplied(actual, to, moveIndex) {
+    if (mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long' || !actual) return null;
+    return updateActiveBotDecisionExecution(execution => {
+      const moves = canonicalBotExecutionMoves(execution.executedMoves);
+      const index = Math.max(0, Number(moveIndex) || 0);
+      moves[index] = {
+        from: Number(actual.from),
+        to: Number(to) || 0,
+        die: Number(actual.die),
+        bearOff: Number(to) === 0,
+      };
+      return {
+        ...execution,
+        complete: false,
+        appliedMoveCount: moves.filter(Boolean).length,
+        executedMoves: moves,
+        lastAppliedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  function recordBotExecutionFailure(reason) {
+    return updateActiveBotDecisionExecution(execution => ({
+      ...execution,
+      fallback: true,
+      reason: String(reason || 'execution-failed'),
+    }));
+  }
+
+  function completeBotDecisionExecution(reason = 'planned-sequence-complete') {
+    if (mode !== 'bot' || botDifficulty !== 'hard' || variant !== 'long') return null;
+    return updateActiveBotDecisionExecution((execution, decision) => {
+      const executedMoves = canonicalBotExecutionMoves(execution.executedMoves);
+      const selectedMoves = canonicalBotExecutionMoves(decision?.selected?.moves);
+      const after = compactBotExecutionBoard(state);
+      const selectedAfter = decision?.selected?.after;
+      const actionMatches = JSON.stringify(selectedMoves) === JSON.stringify(executedMoves);
+      const positionMatches = selectedAfter
+        ? botExecutionBoardKey(selectedAfter) === botExecutionBoardKey(after)
+        : null;
+      const selectedExperience = decision?.selected?.experience || decision?.experience;
+      const selectedActionKey = String(selectedExperience?.actionKey || '');
+      const executedActionKey = actionMatches && positionMatches === true
+        ? selectedActionKey
+        : '';
+      return {
+        ...execution,
+        complete: true,
+        reason: execution.reason || String(reason || 'planned-sequence-complete'),
+        substituted: execution.substituted === true
+          || (Array.isArray(execution.substitutions) && execution.substitutions.length > 0),
+        appliedMoveCount: executedMoves.length,
+        executedMoves,
+        after,
+        selectedActionMatches: actionMatches,
+        selectedPositionMatches: positionMatches,
+        selectedMatchesExecuted: actionMatches && positionMatches === true && Boolean(executedActionKey),
+        executedActionKey,
+        executed: {
+          moves: executedMoves,
+          after,
+          ...(executedActionKey ? {
+            experience: {
+              contextKey: String(selectedExperience?.contextKey || ''),
+              actionKey: executedActionKey,
+            },
+          } : {}),
+        },
+        completedAt: new Date().toISOString(),
+      };
+    });
+  }
+
   function rememberBotDecision(decision) {
     if (!decision || mode !== 'bot' || botDifficulty !== 'hard') return null;
     state.analysis ||= {};
@@ -3632,6 +3837,7 @@ window.NarduController = (function () {
     const existing = decisions.find(item => item?.id === decision.id);
     activeBotDecisionId = decision.id || '';
     if (existing) return existing;
+    if (variant === 'long') decision.execution = initialBotDecisionExecution(decision);
     decisions.push(decision);
     if (decisions.length > BOT_MEMORY_MAX_DECISIONS) {
       decisions.splice(0, decisions.length - BOT_MEMORY_MAX_DECISIONS);
@@ -3677,8 +3883,9 @@ window.NarduController = (function () {
       : [];
     substitutions.push(substitution);
     decision.execution = {
-      ...(decision.execution || {}),
+      ...initialBotDecisionExecution(decision),
       fallback: true,
+      substituted: true,
       reason: 'invalid-planned-move',
       positionId,
       substitutions,
@@ -3939,6 +4146,7 @@ window.NarduController = (function () {
             return;
           }
           if (i >= moves.length) {
+            completeBotDecisionExecution();
             releaseBotTurnActivity(generation);
             if (state.winner) onGameOver();
             else afterTurn();
@@ -3949,7 +4157,9 @@ window.NarduController = (function () {
             const plannedMove = { ...m };
             m = nextLegalBotMove();
             if (!m) {
+              recordBotExecutionFailure('invalid-planned-move-without-substitute');
               NarduGame.endTurn(state);
+              completeBotDecisionExecution('execution-ended-without-substitute');
               releaseBotTurnActivity(generation);
               afterTurn();
               return;
@@ -3964,16 +4174,20 @@ window.NarduController = (function () {
             }
             const applied = NarduGame.applyMove(state, m.from, m.die);
             if (!applied) {
+              recordBotExecutionFailure('apply-move-rejected');
+              completeBotDecisionExecution('execution-apply-rejected');
               releaseBotTurnActivity(generation);
               render();
               if (state.winner) onGameOver();
               else afterTurn();
               return;
             }
+            recordBotMoveApplied(m, to, i - 1);
             playMoveSound(m);
             render();
             persistRoomSnapshot();
             if (state.winner) {
+              completeBotDecisionExecution('game-ended-during-sequence');
               releaseBotTurnActivity(generation);
               onGameOver();
               return;

@@ -6,14 +6,15 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('v34 runtime advances the policy version without invalidating compatible credit', () => {
+test('v35 runtime isolates outcome-labelled credit and advances frozen sessions', () => {
   const browser = read('bot-engine/long/browser.ts');
   const strongBot = read('strong-bot.js');
   const controller = read('game-controller.js');
   const roomsClient = read('rooms-client.js');
   const supabaseClient = read('supabase-client.js');
 
-  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v34'/);
+  assert.match(browser, /ENGINE_VERSION = 'long-analytic-v35'/);
+  assert.match(browser, /frozen-experience-v35:/);
   assert.match(browser, /frozen-experience-v34:/);
   assert.match(browser, /frozen-experience-v33:/);
   assert.match(browser, /frozen-experience-v32:/);
@@ -26,7 +27,13 @@ test('v34 runtime advances the policy version without invalidating compatible cr
   assert.match(roomsClient, /LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 \* 60 \* 1000/);
   assert.match(supabaseClient, /server-experience-v15/);
   assert.match(supabaseClient, /long-bot-experience-v8/);
-  assert.match(controller, /long-analytic-v\(\?:29\|30\|31\|32\|33\|34\)\$/);
+  assert.match(controller, /long-analytic-v\(\?:29\|30\|31\|32\|33\|34\|35\)\$/);
+  assert.match(strongBot, /LONG_COUNTERFACTUAL_REVIEW_VERSION = 'long-counterfactual-review-v1'/);
+  assert.match(roomsClient, /LONG_BOT_SERVER_CAUSAL_CREDIT_VERSION = 9/);
+  assert.match(roomsClient, /LONG_BOT_SERVER_CAUSAL_SCHEMA = "long-server-causal-pattern-v1"/);
+  assert.match(roomsClient, /LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1"/);
+  assert.match(roomsClient, /LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu\/server-long-bot-causal\/v1"/);
+  assert.doesNotMatch(roomsClient, /LONG_BOT_CAUSAL_EVIDENCE_VERSION = "long-counterfactual-review-v1"/);
 });
 
 test('v34 decision records retain distribution and prospective-fence telemetry', () => {

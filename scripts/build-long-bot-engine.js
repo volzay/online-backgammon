@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { randomUUID } = require("crypto");
+const { randomUUID, createHash } = require("crypto");
 
 const ROOT = path.join(__dirname, "..");
 const OUTPUT = path.join(ROOT, "long-bot-engine.js");
@@ -35,18 +35,36 @@ function stripModuleSyntax(source) {
     .replace(/^export\s+\{[^}]+\};?\s*$/gm, "");
 }
 
-function buildLongBotEngine() {
+function readPolicySourceEntries(root = ROOT) {
+  return [...SOURCES, 'game.js', 'strong-bot.js'].map(file => [file, fs.readFileSync(path.join(root, file))]);
+}
+
+function policyImplementationId(entries = readPolicySourceEntries()) {
+  const hash = createHash('sha256');
+  hash.update('nardu/long-bot-policy-implementation/v1\0');
+  for (const [name, bytes] of entries) {
+    hash.update(name.replaceAll('\\', '/'));
+    hash.update('\0');
+    hash.update(bytes);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function renderLongBotBundle(sourceEntries = readPolicySourceEntries()) {
+  const sourceBytes = new Map(sourceEntries);
+  const implementationId = policyImplementationId(sourceEntries);
   const body = SOURCES
     .map(file => {
-      const sourcePath = path.join(ROOT, file);
-      return `\n/* ${file} */\n${stripModuleSyntax(fs.readFileSync(sourcePath, "utf8"))}`;
+      return `\n/* ${file} */\n${stripModuleSyntax(sourceBytes.get(file).toString('utf8'))}`;
     })
     .join("\n");
 
-  writeOutputAtomically(
-    OUTPUT,
-    `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n${body}\n}());\n`,
-  );
+  return `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '${implementationId}';\n${body}\n}());\n`;
+}
+
+function buildLongBotEngine() {
+  writeOutputAtomically(OUTPUT, renderLongBotBundle());
   console.log(`Long bot engine written to ${path.relative(ROOT, OUTPUT)}`);
 }
 
@@ -54,3 +72,7 @@ if (require.main === module) buildLongBotEngine();
 
 module.exports = buildLongBotEngine;
 module.exports.writeOutputAtomically = writeOutputAtomically;
+module.exports.readPolicySourceEntries = readPolicySourceEntries;
+module.exports.policyImplementationId = policyImplementationId;
+module.exports.SOURCES = Object.freeze([...SOURCES]);
+module.exports.renderLongBotBundle = renderLongBotBundle;

@@ -1,6 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 
 /* bot-engine/long/metrics.ts */
 
@@ -1548,7 +1549,12 @@ function analyzeOpponentReplies(
       accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
       accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
       accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
-      accumulator.frontiers.push({ impact, state: result.state });
+      accumulator.frontiers.push({
+        impact,
+        state: result.state,
+        diceKey: roll.dice.join(':'),
+        weight: roll.weight,
+      });
       accumulator.frontiers.sort((left, right) => left.impact - right.impact);
       accumulator.frontiers = accumulator.frontiers.slice(0, 2);
     });
@@ -1623,6 +1629,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
   const analyzedByPosition = new Map();
   const reservationsByPosition = new Map();
   const reservationKeys = [
+    'structuralIntegrityTacticalReservation',
     'homeEntryTacticalReservation',
     'routeContinuityTacticalReservation',
     'fenceEscapeTacticalReservation',
@@ -1740,7 +1747,12 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
       recoveryWeight += roll.weight;
       worstRecovery = Math.min(worstRecovery, bestRecovery);
       recoveryRolls += 1;
-      recoveryFrontiers.push({ value: bestRecovery, state: bestRecoveryState, weight: roll.weight });
+      recoveryFrontiers.push({
+        value: bestRecovery,
+        state: bestRecoveryState,
+        weight: roll.weight,
+        diceKey: roll.dice.join(':'),
+      });
     }
 
     if (!hasCompleteDiceDistribution(recoveryRolls, recoveryWeight)) continue;
@@ -1757,8 +1769,31 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
       recoveryRolls,
       recoveryWeight,
       recoveryDistributionComplete: true,
+      // Dice-complete recovery is conditional on ONE worst-immediate primary
+      // scenario, not a complete nested primary x recovery dice tree. Different
+      // candidates can select different scenarios; impacts are estimates, not
+      // an independent cross-candidate safety proof.
+      recoveryModelKind: 'conditional-single-primary-v1',
+      recoveryConditional: true,
+      recoveryPrimaryDiceKey: frontier.diceKey,
+      recoveryPrimaryDiceWeight: frontier.weight,
+      recoveryPrimaryFrontierCount: 1,
+      recoveryTotalPrimaryFrontierCount: CANONICAL_DICE_OUTCOMES.length,
+      recoveryPrimaryFrontierWeight: frontier.weight,
+      recoveryTotalPrimaryFrontierWeight: CANONICAL_DICE_WEIGHT,
       deepAdjustment,
       plies: 3,
+    });
+    // Keep the real dice mass of every distinct recovery board. The bounded
+    // continuation model samples only representative/worst boards; proxy
+    // quadrature weights used for ranking must not be reported as coverage.
+    accumulator.recoveryFrontierCoverage = new Map();
+    recoveryFrontiers.forEach((frontier) => {
+      const key = positionKey(frontier.state);
+      const current = accumulator.recoveryFrontierCoverage.get(key);
+      accumulator.recoveryFrontierCoverage.set(key, {
+        weight: Number(current?.weight || 0) + Number(frontier.weight || 0),
+      });
     });
     accumulator.recoveryFrontiers = recoveryFrontiers
       .sort((left, right) => left.value - right.value)
@@ -1789,8 +1824,13 @@ function selectDeepCandidates(rankedCandidates) {
     included.add(accumulator);
     selected.push(accumulator);
   };
-  rankedCandidates
+  [...rankedCandidates]
     .filter(accumulator => hasTacticalReservation(accumulator.candidate))
+    .sort((left, right) => (
+      tacticalReservationPriority(left.candidate)
+        - tacticalReservationPriority(right.candidate)
+      || Number(right.candidate.score) - Number(left.candidate.score)
+    ))
     .forEach(append);
   const scoreLeaders = rankedCandidates.slice(0, MAX_DEEP_CANDIDATES);
   const safest = [...rankedCandidates].sort((left, right) => (
@@ -1810,9 +1850,21 @@ function selectDeepCandidates(rankedCandidates) {
   return selected.slice(0, MAX_TACTICAL_CANDIDATES);
 }
 
+function tacticalReservationPriority(candidate) {
+  const features = candidate?.features || {};
+  if (Number(features.structuralIntegrityTacticalReservation || 0) > 0) return 0;
+  if (Number(features.homeEntryTacticalReservation || 0) > 0) return 1;
+  if (Number(features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
+  if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
+  if (Number(features.contestedHeadExitTacticalReservation || 0) > 0) return 4;
+  return 100;
+}
+
 function hasTacticalReservation(candidate) {
   const features = candidate?.features || {};
-  return Number(features.homeEntryTacticalReservation || 0) > 0
+  return Number(features.structuralIntegrityTacticalReservation || 0) > 0
+    || Number(features.homeEntryTacticalReservation || 0) > 0
     || Number(features.routeContinuityTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
@@ -1829,7 +1881,7 @@ function completeProvisionalLeaderAnalysis(
 ) {
   // Deep adjustments can demote the initial top-two and expose a candidate
   // with only primary analysis. Follow that provisional leader until the move
-  // which can actually win the ranking has the same complete four-ply model.
+  // which can actually win the ranking has the same bounded four-ply model.
   for (let pass = 0; pass < accumulators.length; pass += 1) {
     const leader = accumulators
       .filter(accumulator => accumulator.candidate.tactical)
@@ -1869,62 +1921,90 @@ function analyzeContinuationReplies(
   expandDoubles,
 ) {
   const opponent = opponentOf(color);
-  const continuationCandidates = selectDeepCandidates(deepCandidates
-    .filter(accumulator => (
-      accumulator.recoveryFrontiers?.length
-      && Number(accumulator.candidate.tactical?.plies || 0) < 4
-    ))
-    .sort((left, right) => right.candidate.score - left.candidate.score))
-    .slice(0, MAX_CONTINUATION_CANDIDATES);
+  const continuationCandidates = selectContinuationCandidates(deepCandidates);
 
   for (const accumulator of continuationCandidates) {
     if (!hasAnalysisBudget(budget)) break;
-    const frontier = accumulator.continuationFrontier;
-    if (!frontier) continue;
+    const representativeFrontier = accumulator.continuationFrontier;
+    const worstFrontier = accumulator.recoveryFrontiers?.[0];
+    if (!representativeFrontier || !worstFrontier) continue;
+    const worstRecoveryWeight = Math.max(
+      1,
+      Math.min(CANONICAL_DICE_WEIGHT, Number(worstFrontier.weight) || 1),
+    );
+    const continuationFrontiers = uniqueContinuationFrontiers([
+      {
+        ...representativeFrontier,
+        kind: 'representative',
+        proxyWeight: CANONICAL_DICE_WEIGHT - worstRecoveryWeight,
+      },
+      { ...worstFrontier, kind: 'worst', proxyWeight: worstRecoveryWeight },
+    ]);
+    const frontierWeight = continuationFrontiers.reduce((sum, frontier) => (
+      sum + Number(accumulator.recoveryFrontierCoverage?.get(positionKey(frontier.state))?.weight || 0)
+    ), 0);
+    const totalFrontierCount = Number(accumulator.recoveryFrontierCoverage?.size) || 0;
+    const approximate = frontierWeight !== CANONICAL_DICE_WEIGHT
+      || continuationFrontiers.length !== totalFrontierCount;
     let expectedImpact = 0;
     let impactWeight = 0;
     let worstImpact = 0;
     let rolls = 0;
     const impactOutcomes = [];
+    let coverageComplete = true;
 
     for (const roll of CANONICAL_DICE_OUTCOMES) {
-      if (!consumeAnalysisNode(budget)) break;
-      const replyState = prepareReplyState(
-        frontier.state,
-        opponent,
-        roll.dice,
-        expandDoubles,
-      );
-      const beforeValue = evaluateState(replyState, color, weights);
-      const legalReplies = adapter.legalSequences(replyState, opponent, {
-        limit: expandDoubles ? 4 : 0,
-      });
-      const replies = sampledSequenceResults(
-        adapter,
-        replyState,
-        opponent,
-        legalReplies,
-        MAX_CONTINUATION_SEQUENCES,
-      );
-      let worstValue = beforeValue;
-      for (const { sequence: reply, after: replyAfter } of replies) {
-        const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
-        const ownValue = evaluateState(replyAfter, color, weights);
-        worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
+      const frontierImpacts = [];
+      for (const frontier of continuationFrontiers) {
+        if (!consumeAnalysisNode(budget)) {
+          coverageComplete = false;
+          break;
+        }
+        const replyState = prepareReplyState(
+          frontier.state,
+          opponent,
+          roll.dice,
+          expandDoubles,
+        );
+        const beforeValue = evaluateState(replyState, color, weights);
+        const legalReplies = adapter.legalSequences(replyState, opponent, {
+          limit: expandDoubles ? 4 : 0,
+        });
+        const replies = sampledSequenceResults(
+          adapter,
+          replyState,
+          opponent,
+          legalReplies,
+          MAX_CONTINUATION_SEQUENCES,
+        );
+        let worstValue = beforeValue;
+        for (const { sequence: reply, after: replyAfter } of replies) {
+          const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
+          const ownValue = evaluateState(replyAfter, color, weights);
+          worstValue = Math.min(worstValue, ownValue - Math.max(0, opponentGain) * 0.1);
+        }
+        const impact = worstValue - beforeValue;
+        frontierImpacts.push(impact);
+        worstImpact = Math.min(worstImpact, impact);
       }
-      const impact = worstValue - beforeValue;
+      if (!coverageComplete || frontierImpacts.length !== continuationFrontiers.length) break;
+      const frontierProxyWeight = continuationFrontiers.reduce((sum, frontier) => (
+        sum + Number(frontier.proxyWeight || 0)
+      ), 0);
+      const impact = frontierImpacts.reduce((sum, value, index) => (
+        sum + value * Number(continuationFrontiers[index].proxyWeight || 0)
+      ), 0) / frontierProxyWeight;
       expectedImpact += impact * roll.weight;
       impactWeight += roll.weight;
-      worstImpact = Math.min(worstImpact, impact);
       rolls += 1;
       impactOutcomes.push({ value: impact, weight: roll.weight });
     }
 
-    if (!hasCompleteDiceDistribution(rolls, impactWeight)) continue;
+    if (!coverageComplete || !hasCompleteDiceDistribution(rolls, impactWeight)) continue;
     const continuationExpected = expectedImpact / impactWeight;
     const continuationTailRisk = weightedLowerTailMean(impactOutcomes);
     const continuationAdjustment = continuationExpected * 0.24
-      + continuationTailRisk * 0.1 * threatPressure(frontier.state, color);
+      + continuationTailRisk * 0.1 * threatPressure(representativeFrontier.state, color);
     accumulator.candidate.score += continuationAdjustment;
     Object.assign(accumulator.candidate.tactical, {
       continuationExpected,
@@ -1934,10 +2014,76 @@ function analyzeContinuationReplies(
       continuationRolls: rolls,
       continuationWeight: impactWeight,
       continuationDistributionComplete: true,
+      continuationModelComplete: true,
+      continuationModelKind: 'representative-worst-proxy-v1',
+      continuationApproximate: approximate,
+      continuationCoverageComplete: !approximate,
+      continuationFrontierCount: continuationFrontiers.length,
+      continuationFrontierWeight: frontierWeight,
+      continuationTotalFrontierCount: totalFrontierCount,
+      continuationTotalFrontierWeight: CANONICAL_DICE_WEIGHT,
+      continuationProxyWeight: continuationFrontiers.reduce((sum, frontier) => (
+        sum + Number(frontier.proxyWeight || 0)
+      ), 0),
+      continuationWorstRecoveryFrontierWeight: worstRecoveryWeight,
+      // Record the original role provenance before board deduplication. If
+      // representative and worst collapse to one board, their proxy weights
+      // still sum to 36; neither proxy weight is actual sampled dice mass.
+      continuationRepresentativeDiceKey: representativeFrontier.diceKey,
+      continuationRepresentativeDiceWeight: representativeFrontier.weight,
+      continuationRepresentativeProxyWeight: CANONICAL_DICE_WEIGHT - worstRecoveryWeight,
+      continuationWorstRecoveryDiceKey: worstFrontier.diceKey,
+      continuationWorstRecoveryDiceWeight: worstFrontier.weight,
+      continuationWorstRecoveryProxyWeight: worstRecoveryWeight,
+      continuationRepresentativeFrontierIncluded: continuationFrontiers.some(
+        frontier => frontier.kind === 'representative' || frontier.kind === 'representative+worst',
+      ),
+      continuationWorstFrontierIncluded: continuationFrontiers.some(
+        frontier => frontier.kind === 'worst' || frontier.kind === 'representative+worst',
+      ),
       continuationAdjustment,
       plies: 4,
     });
   }
+}
+
+function uniqueContinuationFrontiers(frontiers) {
+  const byPosition = new Map();
+  for (const frontier of frontiers) {
+    if (!frontier?.state) continue;
+    const key = positionKey(frontier.state);
+    const current = byPosition.get(key);
+    if (!current) {
+      byPosition.set(key, frontier);
+      continue;
+    }
+    current.proxyWeight = Number(current.proxyWeight || 0)
+      + Number(frontier.proxyWeight || 0);
+    if (current.kind !== frontier.kind) current.kind = 'representative+worst';
+  }
+  return [...byPosition.values()];
+}
+
+function selectContinuationCandidates(deepCandidates) {
+  const selected = selectDeepCandidates(deepCandidates
+    .filter(accumulator => (
+      accumulator.recoveryFrontiers?.length
+      && Number(accumulator.candidate.tactical?.plies || 0) < 4
+    ))
+    .sort((left, right) => right.candidate.score - left.candidate.score));
+  const reserved = selected.filter(accumulator => (
+    hasTacticalReservation(accumulator.candidate)
+  ));
+  const ordinary = selected.filter(accumulator => (
+    !hasTacticalReservation(accumulator.candidate)
+  ));
+  // Tactical reservations are explicit promises that a structurally important
+  // move will receive the same four-ply evidence as the score leaders. Apply
+  // the ordinary continuation cap only after every reserved board is kept.
+  return [
+    ...reserved,
+    ...ordinary.slice(0, MAX_CONTINUATION_CANDIDATES),
+  ];
 }
 
 function threatPressure(state, color) {
@@ -2199,6 +2345,10 @@ function normalizeExperiencePatterns(patterns = []) {
     const contribution = {
       contextKey,
       actionKey,
+      // Server causal evidence was generated for one exact descriptor. Unlike
+      // legacy observations it has no validated cross-context/action credit.
+      exactOnly: pattern?.creditVersion === 9
+        && pattern?.evidenceSchema === 'long-server-causal-pattern-v1',
       samples: Math.max(0, Number(pattern.samples) || 0),
       losses: Math.max(0, Number(pattern.losses) || 0),
       wins: Math.max(0, Number(pattern.wins) || 0),
@@ -2243,6 +2393,7 @@ function normalizeExperiencePatterns(patterns = []) {
   contributions.forEach((contribution, key) => {
     const { contextKey, actionKey } = contribution;
     mergePattern(normalized, key, contribution, contextKey, actionKey);
+    if (contribution.exactOnly) return;
 
     const phase = contextKey.split('|')[0] || 'route';
     const strategic = strategicContextKey(contextKey);
@@ -2293,6 +2444,11 @@ function experienceAdjustment(descriptor, experience) {
       const actionKey = actionKeys[index];
       const pattern = experience.get(`${level.key}::${actionKey}`);
       if (!pattern) continue;
+      // Merely omitting generalized map entries is insufficient: a different
+      // action can still carry this key as a family/behavior/legacy alias.
+      if (pattern.exactOnly === true && (
+        level.key !== descriptor.contextKey || actionKey !== descriptor.actionKey
+      )) continue;
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
       const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
       if (pattern.samples < level.minimum && !severeEvidence && !winningEvidence) continue;
@@ -2389,6 +2545,7 @@ function mergePattern(target, key, pattern, contextKey, actionKey) {
   current.severeLosses += pattern.severeLosses;
   current.signalWeight += pattern.signalWeight;
   current.winWeight += pattern.winWeight;
+  if (pattern.exactOnly === true) current.exactOnly = true;
   target.set(key, current);
 }
 
@@ -2595,6 +2752,11 @@ function createLongBotEngine(adapter, options = {}) {
         );
       }
     }
+    strategicallyRanked = reserveStructuralIntegrityForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+    );
     strategicallyRanked = reserveHomeEntryForTacticalAnalysis(
       state,
       color,
@@ -2650,7 +2812,8 @@ function createLongBotEngine(adapter, options = {}) {
     );
     if (headReleaseIsCritical) {
       strategicallyEligible = strategicallyEligible.filter(
-        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease,
+        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease
+          || Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0,
       );
     }
     if (fenceRun >= 5) {
@@ -2697,6 +2860,11 @@ function createLongBotEngine(adapter, options = {}) {
           ? (primaryCandidates) => {
             let reprioritized = [...primaryCandidates]
               .sort((left, right) => right.score - left.score);
+            reprioritized = reserveStructuralIntegrityForTacticalAnalysis(
+              state,
+              color,
+              reprioritized,
+            );
             reprioritized = reserveHomeEntryForTacticalAnalysis(
               state,
               color,
@@ -2810,6 +2978,26 @@ function createLongBotEngine(adapter, options = {}) {
       coldRanked,
     );
     coldRanked = prioritizeVerifiedDeepSafety(
+      state,
+      color,
+      coldRanked,
+    );
+    coldRanked = prioritizeTacticallyEquivalentStructure(
+      state,
+      color,
+      coldRanked,
+    );
+    coldRanked = prioritizeAvailableHomeEntry(
+      state,
+      color,
+      coldRanked,
+    );
+    coldRanked = prioritizeAvoidableHomeShuffle(
+      state,
+      color,
+      coldRanked,
+    );
+    coldRanked = prioritizeStructuralIntegrity(
       state,
       color,
       coldRanked,
@@ -2988,6 +3176,56 @@ function normalizeAnalysisNodeBudget(value, fallback) {
   return Math.max(1, Math.floor(number));
 }
 
+// A four-point lock is not a safe-race move merely because its checkers move
+// forward. Conversely, keeping it must not suppress a verified static escape
+// from our own rear exposure or a timing crunch. This grants score eligibility
+// only; the ordinary bounded reply/deep safety checks still decide the move.
+function isFourPrimeSelfEscape(features) {
+  const required = [
+    'primeRunBefore', 'primeRunAfter', 'outsidePipGain', 'homeShuffleMoves',
+    'trapDelta', 'fenceClosureDelta', 'escapeGatewayDelta',
+    'latentFenceExposureBefore', 'latentFenceExposureDelta',
+    'prospectiveFenceExtensionBefore', 'prospectiveFenceExtensionDelta',
+    'headLandingBreak', 'routeTowerDelta', 'startZoneReduction',
+    'resultSafetyBefore', 'resultSafetyAfter', 'primeSustainabilityBefore',
+    'primeSustainabilityDelta', 'primeCrunchRiskBefore', 'primeCrunchRiskDelta',
+    'laggardDebtDelta',
+  ];
+  if (!features || !required.every(key => Number.isFinite(features[key]))) return false;
+  if (
+    features.primeRunBefore !== 4
+    || !Number.isInteger(features.primeRunAfter)
+    || features.primeRunAfter < 2
+    || features.primeRunAfter > 4
+    || features.outsidePipGain <= 0
+    || features.homeShuffleMoves !== 0
+    || features.trapDelta < 0
+    || features.fenceClosureDelta < 0
+    || features.escapeGatewayDelta < 0
+    || features.latentFenceExposureDelta < 0
+    || features.prospectiveFenceExtensionDelta < 0
+    || features.headLandingBreak !== 0
+    || features.routeTowerDelta < 0
+    || features.resultSafetyAfter < features.resultSafetyBefore
+  ) return false;
+
+  const clearsExposedRear = features.primeRunAfter >= 3
+    && features.latentFenceExposureBefore >= 24
+    && features.latentFenceExposureDelta > 0
+    && features.startZoneReduction > 0
+    && features.resultSafetyAfter > features.resultSafetyBefore;
+  // These timing thresholds are shared with prime-sustainability coverage,
+  // rather than treating every lost blocker as an excuse to abandon a lock.
+  const relievesSelfCrunch = features.primeSustainabilityBefore < 0.38
+    && features.primeCrunchRiskBefore >= 0.45
+    && features.primeSustainabilityDelta >= 0.06
+    && features.primeCrunchRiskDelta >= 0.2
+    && features.prospectiveFenceExtensionBefore >= 40
+    && features.prospectiveFenceExtensionDelta >= 40
+    && features.laggardDebtDelta > 0;
+  return clearsExposedRear || relievesSelfCrunch;
+}
+
 function advancedStrategyAdjustment(state, color, features) {
   const opponent = opponentOf(color);
   const raceDebt = pipsFor(state, color) - pipsFor(state, opponent);
@@ -3027,13 +3265,14 @@ function advancedStrategyAdjustment(state, color, features) {
         && opponentFenceRun >= 2
       )
     );
-  const activeLockBreak = effectivePrimeRunBefore >= 5
+  const activeLockBreak = effectivePrimeRunBefore >= 4
     && primeScoreBefore > 0
     && (
       effectivePrimeRunAfter < effectivePrimeRunBefore
       || primeScoreAfter < primeScoreBefore
       || blockGain < 0
-    );
+    )
+    && !(effectivePrimeRunBefore === 4 && isFourPrimeSelfEscape(features));
   const safeLateRouteAdvance = lateRouteRace
     && outsidePipGain > 0
     && !activeLockBreak;
@@ -3338,7 +3577,7 @@ function prioritizeCriticalClearedHeadLaggardEscape(state, color, ranked) {
     && Number(candidate.features.maxRouteTowerAfter || 0)
       <= Number(selected.features.maxRouteTowerAfter || 0)
     && Number(candidate.features.primeRunAfter || 0) >= 3
-    && Number(candidate.score) >= Number(selected.score) - 12000000
+    && scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 12000000
     && Number(candidate.tactical.expectedImpact || 0)
       >= Number(selected.tactical.expectedImpact || 0) - 2000000
     && Number(candidate.tactical.worstImpact || 0)
@@ -3523,6 +3762,9 @@ function prioritizeAvailableHomeEntry(state, color, ranked) {
   promoted.forEach((candidate) => {
     const adjustment = Math.max(0, Number(selected.score) - Number(candidate.score) + 1);
     candidate.features.homeEntryPriorityAdjustment = adjustment;
+    candidate.features.policyPromotionAdjustment = (
+      Number(candidate.features.policyPromotionAdjustment || 0) + adjustment
+    );
     candidate.score += adjustment;
   });
   return [...promoted, ...ranked.filter(candidate => !promotedSet.has(candidate))];
@@ -3614,7 +3856,7 @@ function isSaferEarlyAlternative(candidate, selected) {
       >= Number(selected.tactical.recoveryWorst || 0)
         + Number(selected.tactical.continuationWorst || 0);
   return (
-    Number(candidate.score) >= Number(selected.score) - 25000000
+    scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 25000000
     || completeTacticalDominance
   )
     && Number(candidate.experienceAdjustment || 0) >= (
@@ -3664,7 +3906,7 @@ function prioritizePreHomeDevelopment(state, color, ranked) {
 
 function isComparablePreHomeAlternative(candidate, selected) {
   if (!candidate.tactical || !selected.tactical) return false;
-  return Number(candidate.score) >= Number(selected.score) - 12000000
+  return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 12000000
     && Number(candidate.experienceAdjustment || 0) >= (
       Number(selected.experienceAdjustment || 0) - 500000
     )
@@ -3740,7 +3982,7 @@ function prioritizeLatentTrapDistribution(state, color, ranked) {
     candidate !== selected
     && candidate.tactical
     && selected.tactical
-    && Number(candidate.score) >= Number(selected.score) - 240000000
+    && scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 240000000
     && Number(candidate.tactical.expectedImpact || 0)
       >= Number(selected.tactical.expectedImpact || 0) - 30000000
     && Number(candidate.tactical.worstImpact || 0)
@@ -3785,7 +4027,7 @@ function isSafeRouteAlternative(
   worstReplyTolerance,
 ) {
   if (!candidate.tactical || !selected.tactical) return false;
-  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+  return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - scoreTolerance
     && Number(candidate.experienceAdjustment || 0) >= (
       Number(selected.experienceAdjustment || 0) - 500000
     )
@@ -3804,6 +4046,9 @@ function promoteCandidate(ranked, promoted, adjustmentKey) {
   const selected = ranked[0];
   const adjustment = Math.max(0, Number(selected.score) - Number(promoted.score) + 1);
   promoted.features[adjustmentKey] = adjustment;
+  promoted.features.policyPromotionAdjustment = (
+    Number(promoted.features.policyPromotionAdjustment || 0) + adjustment
+  );
   promoted.score += adjustment;
   return [promoted, ...ranked.filter(candidate => candidate !== promoted)];
 }
@@ -3822,12 +4067,280 @@ function isSafeHomeEntryAlternative(state, color, candidate, selected) {
   )
     ? 8000000
     : 250000;
-  return Number(candidate.tactical.expectedImpact) >= (
+  const replyEnvelope = Number(candidate.tactical.expectedImpact) >= (
     Number(selected.tactical.expectedImpact) - replyTolerance
   )
     && Number(candidate.tactical.worstImpact) >= (
       Number(selected.tactical.worstImpact) - replyTolerance
     );
+  if (!replyEnvelope) return false;
+
+  const needsLateRaceProof = isUncontestedPreHomeStaging(state, color, selected)
+    || isUncontestedLateRaceState(state, color, selected.features);
+  if (!needsLateRaceProof) return true;
+  if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) {
+    return false;
+  }
+
+  // Entering a checker may make the immediate recovery estimate slightly
+  // worse, but a clear-race override must remain corroborated by every deep
+  // distribution.
+  return Number(candidate.tactical.recoveryExpected || 0)
+      >= Number(selected.tactical.recoveryExpected || 0) - 10000000
+    && Number(candidate.tactical.recoveryWorst || 0)
+      >= Number(selected.tactical.recoveryWorst || 0) - 8000000
+    && Number(candidate.tactical.recoveryTailRisk || 0)
+      >= Number(selected.tactical.recoveryTailRisk || 0) - 10000000
+    && Number(candidate.tactical.continuationExpected || 0)
+      >= Number(selected.tactical.continuationExpected || 0) - 2000000
+    && Number(candidate.tactical.continuationWorst || 0)
+      >= Number(selected.tactical.continuationWorst || 0) - 2000000
+    && Number(candidate.tactical.continuationTailRisk || 0)
+      >= Number(selected.tactical.continuationTailRisk || 0) - 2000000;
+}
+
+function structuralIntegrityDeltas(candidate, selected) {
+  const features = candidate?.features || {};
+  const baseline = selected?.features || {};
+  return {
+    latentRelief: Number(features.latentFenceExposureDelta || 0)
+      - Number(baseline.latentFenceExposureDelta || 0),
+    prospectiveRelief: Number(features.prospectiveFenceExtensionDelta || 0)
+      - Number(baseline.prospectiveFenceExtensionDelta || 0),
+    interruptionRelief: Number(baseline.prospectiveFenceInterruptionBreak || 0)
+      - Number(features.prospectiveFenceInterruptionBreak || 0),
+    trapRelief: Number(features.trapDelta || 0) - Number(baseline.trapDelta || 0),
+    fenceRelief: Number(features.fenceClosureDelta || 0)
+      - Number(baseline.fenceClosureDelta || 0),
+    gatewayRelief: Number(features.escapeGatewayDelta || 0)
+      - Number(baseline.escapeGatewayDelta || 0),
+    primeRunRelief: Number(features.primeRunAfter || 0)
+      - Number(baseline.primeRunAfter || 0),
+    primeScoreRelief: Number(features.primeScoreAfter || 0)
+      - Number(baseline.primeScoreAfter || 0),
+    blockRelief: Number(features.opponentMoveBlockAfter || 0)
+      - Number(baseline.opponentMoveBlockAfter || 0),
+  };
+}
+
+function structuralIntegrityProofType(candidate, selected) {
+  if (!candidate || !selected || candidate === selected) return null;
+  const features = candidate.features || {};
+  const baseline = selected.features || {};
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  const latentBefore = Number(baseline.latentFenceExposureBefore || 0);
+  const selectedLatentAfter = Number(baseline.latentFenceExposureAfter || 0);
+  const candidateLatentAfter = Number(features.latentFenceExposureAfter || 0);
+  const selectedBreak = Number(baseline.prospectiveFenceInterruptionBreak || 0);
+  const candidateBreak = Number(features.prospectiveFenceInterruptionBreak || 0);
+  const selectedProspectiveAfter = Number(baseline.prospectiveFenceExtensionAfter || 0);
+  const prospectiveBefore = Number(baseline.prospectiveFenceExtensionBefore || 0);
+  const candidateProspectiveAfter = Number(features.prospectiveFenceExtensionAfter || 0);
+  const opponentFenceRun = Number(baseline.opponentFenceRunBefore || 0);
+  const primeRunBefore = Number(baseline.primeRunBefore || 0);
+  const selectedRunAfter = Number(baseline.primeRunAfter || 0);
+  const candidateRunAfter = Number(features.primeRunAfter || 0);
+
+  const preventsNewLatentFence = opponentFenceRun >= 4
+    && latentBefore >= 24
+    && selectedLatentAfter >= latentBefore + 80
+    && candidateLatentAfter <= latentBefore + 5
+    && delta.latentRelief >= 80
+    && delta.trapRelief >= 0
+    && delta.gatewayRelief >= 0
+    && delta.blockRelief >= 40
+    && Number(features.resultSafetyAfter || 0)
+      >= Number(baseline.resultSafetyAfter || 0);
+  if (preventsNewLatentFence) return 'prevents-new-latent-fence';
+
+  const escapesLatentFence = opponentFenceRun >= 4
+    && latentBefore >= 24
+    && selectedLatentAfter >= 24
+    && candidateLatentAfter <= Math.max(5, selectedLatentAfter * 0.35)
+    && delta.latentRelief >= 20
+    && delta.trapRelief >= 0
+    && delta.gatewayRelief >= -2;
+  if (escapesLatentFence) return 'latent-fence-escape';
+
+  const preservesFenceInterruption = opponentFenceRun >= 4
+    && selectedBreak >= 60
+    && candidateBreak <= Math.max(5, selectedBreak - 60)
+    && candidateProspectiveAfter <= selectedProspectiveAfter - 40
+    && delta.gatewayRelief >= 0;
+  if (preservesFenceInterruption) return 'fence-interruption';
+
+  const preservesActivePrime = primeRunBefore >= 5
+    && selectedRunAfter <= primeRunBefore - 2
+    && candidateRunAfter >= Math.max(4, primeRunBefore - 1)
+    && prospectiveBefore >= 40
+    && delta.blockRelief >= 40;
+  if (preservesActivePrime) return 'active-prime';
+  return null;
+}
+
+function structuralIntegrityUtility(candidate, selected) {
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  return delta.latentRelief * 10
+    + delta.prospectiveRelief * 5
+    + delta.interruptionRelief * 8
+    + delta.trapRelief * 6
+    + delta.fenceRelief * 2
+    + delta.gatewayRelief * 8
+    + delta.primeRunRelief * 180
+    + delta.primeScoreRelief * 0.7
+    + delta.blockRelief * 2;
+}
+
+function structuralIntegrityReservationBaseline(state, color, ranked) {
+  const outside = outsideHomeCount(state, color);
+  const trapPressure = opponentTrapRisk(state, color);
+  const maxEntry = Math.max(...ranked.map(
+    candidate => Number(candidate.features.outsideReduction) || 0,
+  ));
+  const fenceRun = Math.max(...ranked.map(
+    candidate => Number(candidate.features.opponentFenceRunBefore) || 0,
+  ));
+  const nonSevereTowerCandidates = fenceRun >= 5
+    ? ranked.filter(candidate => Number(candidate.features.maxRouteTowerAfter) < 7)
+    : [];
+  const hasSevereTowerCandidate = ranked.some(
+    candidate => Number(candidate.features.maxRouteTowerAfter) >= 7,
+  );
+  let eligible = hasSevereTowerCandidate && nonSevereTowerCandidates.length
+    ? nonSevereTowerCandidates
+    : trapPressure > 850 && outside <= 8 && maxEntry > 0 && fenceRun < 4
+      ? ranked.filter(candidate => Number(candidate.features.outsideReduction) === maxEntry)
+      : ranked;
+
+  const maxHeadRelease = Math.max(...eligible.map(
+    candidate => Number(candidate.features.headGain) || 0,
+  ));
+  const headReleaseIsCritical = maxHeadRelease > 0 && (
+    headCheckers(state, color) <= 2
+    || headCheckers(state, color) >= 7
+    || trapPressure >= 600
+    || fenceRun >= 4
+    || offCount(state, opponentOf(color)) > 0
+  );
+  if (headReleaseIsCritical) {
+    eligible = eligible.filter(
+      candidate => Number(candidate.features.headGain || 0) === maxHeadRelease,
+    );
+  }
+  if (fenceRun >= 5) {
+    const gateways = criticalFenceGatewayPoints(state, color);
+    if (gateways.length) {
+      const preserving = eligible.filter(candidate => gateways.every(
+        point => colorAt(candidate.after, point) === color,
+      ));
+      if (preserving.length) eligible = preserving;
+    }
+    const maxSafeEntry = Math.max(...eligible.map(
+      candidate => Number(candidate.features.outsideReduction) || 0,
+    ));
+    if (maxSafeEntry > 0) {
+      eligible = eligible.filter(
+        candidate => Number(candidate.features.outsideReduction) === maxSafeEntry,
+      );
+    }
+  }
+  return eligible[0] || ranked[0];
+}
+
+function isPlausibleOrdinaryLastHeadPrimeDefense(state, color, candidate, selected) {
+  const headRemaining = headCheckers(state, color);
+  const features = candidate?.features;
+  const baseline = selected?.features;
+  if (
+    !features
+    || !baseline
+    || headRemaining < 1
+    || headRemaining > 2
+    || offCount(state, opponentOf(color)) > 0
+    || opponentTrapRisk(state, color) >= 600
+  ) {
+    return false;
+  }
+  const nativeMetrics = [
+    'trapBefore', 'opponentFenceRunBefore', 'headGain', 'primeRunBefore',
+    'primeRunAfter', 'opponentMoveBlockAfter', 'resultSafetyAfter',
+    'maxRouteTowerAfter', 'headLandingBreak', 'prospectiveFenceInterruptionBreak',
+    'trapDelta', 'fenceClosureDelta', 'escapeGatewayDelta', 'outsideReduction',
+    'homeEntryMoves', 'outsidePipGain', 'startZoneReduction', 'homeShuffleMoves',
+  ];
+  if (!nativeMetrics.every(key => (
+    Number.isFinite(features[key]) && Number.isFinite(baseline[key])
+  ))) {
+    return false;
+  }
+  // A normal final head checker is a development priority, not proof that a
+  // real five-point blockade should be discarded without analyzing a defender.
+  // These limits only buy one search slot. Emergency head/trap gates and every
+  // final promotion / dynamic safety envelope are deliberately unchanged.
+  return Math.max(features.trapBefore, baseline.trapBefore) < 600
+    && Math.max(features.opponentFenceRunBefore, baseline.opponentFenceRunBefore) < 4
+    && baseline.headGain > 0
+    && features.headGain === baseline.headGain - 1
+    && baseline.primeRunBefore >= 5
+    && baseline.primeRunAfter <= baseline.primeRunBefore - 2
+    && features.primeRunAfter >= baseline.primeRunBefore
+    && features.opponentMoveBlockAfter >= baseline.opponentMoveBlockAfter + 40
+    && features.resultSafetyAfter >= baseline.resultSafetyAfter
+    && features.maxRouteTowerAfter <= baseline.maxRouteTowerAfter
+    && features.headLandingBreak <= baseline.headLandingBreak
+    && features.prospectiveFenceInterruptionBreak <= baseline.prospectiveFenceInterruptionBreak
+    && features.trapDelta >= baseline.trapDelta
+    && features.fenceClosureDelta >= baseline.fenceClosureDelta
+    && features.escapeGatewayDelta >= baseline.escapeGatewayDelta - 1
+    && features.outsideReduction >= baseline.outsideReduction
+    && features.homeEntryMoves >= baseline.homeEntryMoves
+    && features.outsidePipGain >= baseline.outsidePipGain
+    && features.startZoneReduction >= baseline.startZoneReduction
+    && features.homeShuffleMoves <= baseline.homeShuffleMoves;
+}
+
+function reserveStructuralIntegrityForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  // This function is called both before and during tactical selection. A
+  // reservation from the first pass must not survive when the second pass has
+  // a different leader or a reduced candidate set.
+  ranked.forEach((candidate) => {
+    if (candidate?.features) {
+      delete candidate.features.structuralIntegrityTacticalReservation;
+    }
+  });
+  const selected = structuralIntegrityReservationBaseline(state, color, ranked);
+  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+  const alternatives = ranked.filter((candidate) => {
+    const proofType = structuralIntegrityProofType(candidate, selected);
+    return proofType
+      && (
+        structuralProgressIsBounded(candidate, selected, proofType)
+        || (
+          proofType === 'active-prime'
+          && isPlausibleOrdinaryLastHeadPrimeDefense(state, color, candidate, selected)
+        )
+      );
+  });
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    structuralIntegrityUtility(right, selected)
+      - structuralIntegrityUtility(left, selected)
+    || scoreWithoutExperience(right) - scoreWithoutExperience(left)
+    || (
+      candidatePositionKey(left) < candidatePositionKey(right) ? -1
+        : candidatePositionKey(left) > candidatePositionKey(right) ? 1 : 0
+    )
+  ));
+  alternatives[0].features.structuralIntegrityTacticalReservation = 1;
+  return reorderTacticalReservations(
+    ranked,
+    Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES),
+  );
 }
 
 function reserveHomeEntryForTacticalAnalysis(
@@ -3912,6 +4425,30 @@ function reserveRouteContinuityForTacticalAnalysis(
       - Number(left.features.outsidePipGain || 0)
   ));
   continuing[0].features.routeContinuityTacticalReservation = 1;
+  // A score-best partial improvement can still contain a home shuffle. Keep
+  // it as the policy reference, but also cover one distinct plausible board
+  // with minimum shuffling / maximum outside progress before ordinary beam
+  // slots. This reserves analysis only; neither score nor safety is changed.
+  const scoreBest = continuing[0];
+  const progressReference = [...continuing].sort((left, right) => (
+    Number(left.features.homeShuffleMoves || 0)
+      - Number(right.features.homeShuffleMoves || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+    || scoreWithoutExperience(right) - scoreWithoutExperience(left)
+  ))[0];
+  if (
+    progressReference
+    && candidatePositionKey(progressReference) !== candidatePositionKey(scoreBest)
+    && (
+      Number(progressReference.features.homeShuffleMoves || 0)
+        < Number(scoreBest.features.homeShuffleMoves || 0)
+      || Number(progressReference.features.outsidePipGain || 0)
+        > Number(scoreBest.features.outsidePipGain || 0)
+    )
+  ) {
+    progressReference.features.routeContinuityTacticalReservation = 1;
+  }
   return reorderTacticalReservations(ranked, slotCount);
 }
 
@@ -3974,7 +4511,7 @@ function reserveDevelopingFenceEscapeForTacticalAnalysis(
       && (
         contestedHeadExit
         || (
-          Number(candidate.score) >= Number(selected.score) - 260000000
+          scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 260000000
           && Number(candidate.features.primeRunAfter || 0)
             >= Number(selected.features.primeRunAfter || 0)
         )
@@ -4039,7 +4576,7 @@ function reservePrimeSustainabilityForTacticalAnalysis(
       >= Number(selected.features.trapDelta || 0) - 12
     && Number(candidate.features.fenceClosureDelta || 0)
       >= Number(selected.features.fenceClosureDelta || 0) - 4
-    && Number(candidate.score) >= Number(selected.score) - 180000000
+    && scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 180000000
   ));
   if (!safer.length) return ranked;
 
@@ -4064,6 +4601,7 @@ function reorderTacticalReservations(ranked, limit) {
     candidate !== selected
     && (
       Number(candidate.features.homeEntryTacticalReservation || 0) > 0
+      || Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0
       || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
       || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
       || Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0
@@ -4096,6 +4634,7 @@ function reorderTacticalReservations(ranked, limit) {
 }
 
 function tacticalReservationPriority(candidate) {
+  if (Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0) return 0;
   if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
@@ -4137,7 +4676,7 @@ function isPlausibleRouteContinuityAlternative(candidate, selected) {
   );
   const scoreTolerance = Math.min(96000000, 12000000 + progressGain * 12000000);
   const gatewayTolerance = Math.min(4, Math.max(1.25, progressGain * 0.4));
-  return Number(candidate.score) >= Number(selected.score) - scoreTolerance
+  return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - scoreTolerance
     && Number(candidate.features.trapDelta || 0)
       >= Number(selected.features.trapDelta || 0)
     && Number(candidate.features.fenceClosureDelta || 0)
@@ -4156,8 +4695,8 @@ function isPlausibleRouteContinuityAlternative(candidate, selected) {
 
 function isSafeRouteContinuityAlternative(candidate, selected) {
   if (
-    !candidate.tactical
-    || !selected.tactical
+    !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
     || !isPlausibleRouteContinuityAlternative(candidate, selected)
   ) {
     return false;
@@ -4172,7 +4711,16 @@ function isSafeRouteContinuityAlternative(candidate, selected) {
   )
     && Number(candidate.tactical.worstImpact) >= (
       Number(selected.tactical.worstImpact) - (2000000 + progressGain * 4000000)
-    );
+    )
+    // Outside progress is not proof that a real blocker may be released.
+    // Require corroboration from the same bounded recovery/continuation model
+    // instead of promoting on immediate replies while ignoring a deep tail.
+    && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 2000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 15000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 5000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationExpected', 2000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationWorst', 15000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 5000000);
 }
 
 function hasHomeEntryPriorityContext(state, color, selected) {
@@ -4184,6 +4732,10 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     && (
       Number(selected.features.homeShuffleMoves || 0) > 0
       || isUncontestedPreHomeStaging(state, color, selected)
+      || (
+        Number(selected.features.outsideReduction || 0) === 0
+        && isUncontestedLateRaceState(state, color, selected.features)
+      )
     );
 }
 
@@ -4204,7 +4756,7 @@ function isUncontestedLateRaceState(state, color, features = {}) {
     && headCheckers(state, color) === 0
     && headCheckers(state, opponentOf(color)) === 0
     && opponentTrapRisk(state, color) === 0
-    && escapeGatewayRisk(state, color) === 0
+    && escapeGatewayRisk(state, color) <= 24
     && Number(features.trapBefore || 0) === 0
     && Number(features.fenceClosureBefore || 0) === 0
     && Number(features.opponentFenceRunBefore || 0) < 3
@@ -4222,6 +4774,7 @@ function isUncontestedPreHomeStaging(state, color, selected) {
 
 function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
   const stagedReplacement = isUncontestedPreHomeStaging(state, color, selected);
+  const uncontestedRace = isUncontestedLateRaceState(state, color, selected.features);
   const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
   const directReplacement = isDirectLateHomeEntryReplacement(
     state,
@@ -4229,7 +4782,11 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     candidate,
     selected,
   );
-  const totalScoreTolerance = directReplacement ? 8000000 : 2000000;
+  const totalScoreTolerance = directReplacement
+    ? 8000000
+    : uncontestedRace
+      ? 24000000
+      : 2000000;
   const trapFloor = directReplacement
     ? Number(selected.features.trapDelta || 0) - 8
     : forcedLateEntry
@@ -4245,7 +4802,9 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     : forcedLateEntry
       ? Number(selected.features.escapeGatewayDelta || 0)
       : 0;
-  const stagingStructureIsPreserved = !stagedReplacement || (
+  // A clear race used to bypass this block whenever it was not classified as
+  // "staging". Apply the same structural proof to both late-race paths.
+  const stagingStructureIsPreserved = !(stagedReplacement || uncontestedRace) || (
     Number(candidate.features.homeShuffleMoves || 0) === 0
     && Number(candidate.features.trapDelta || 0)
       >= Number(selected.features.trapDelta || 0)
@@ -4264,7 +4823,7 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
     && Number(candidate.features.opponentMoveBlockAfter || 0)
       >= Number(selected.features.opponentMoveBlockAfter || 0)
     && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + (uncontestedRace ? 1 : 0)
     && Number(candidate.features.resultSafetyAfter || 0)
       >= Number(selected.features.resultSafetyAfter || 0)
   );
@@ -4339,6 +4898,16 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
   const rescuePressure = koksRescuePressure(state, color);
+  const latentFenceBefore = latentFenceExposure(state, color);
+  const prospectiveFenceBefore = prospectiveFenceExtensionRisk(state, color);
+  const needsStructuralEscapeCandidate = !ready && (
+    latentFenceBefore >= 24
+    || prospectiveFenceBefore >= 60
+    || (
+      blockingPrimeRun(state, color) >= 5
+      && blockingPrimeScore(state, color) >= 500
+    )
+  );
 
   const head = headPoint(color);
   const scored = sequences
@@ -4355,6 +4924,31 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
       );
       const opponentHeadControlGain = opponentHeadFreedomMoveDelta(state, color, sequence);
       const startZoneExits = startZoneExitMoveCount(sequence, color);
+      let structuralSafety = null;
+      if (needsStructuralEscapeCandidate) {
+        const after = adapter.applySequence(state, sequence, color);
+        const latentFenceAfter = latentFenceExposure(after, color);
+        const prospectiveFenceAfter = prospectiveFenceExtensionRisk(after, color);
+        const trapAfter = opponentTrapRisk(after, color);
+        const primeRunAfter = blockingPrimeRun(after, color);
+        const primeScoreAfter = blockingPrimeScore(after, color);
+        const opponentMoveBlockAfter = opponentMoveBlockScore(after, color);
+        structuralSafety = {
+          after,
+          latentFenceAfter,
+          prospectiveFenceAfter,
+          trapAfter,
+          primeRunAfter,
+          primeScoreAfter,
+          opponentMoveBlockAfter,
+          utility: (latentFenceBefore - latentFenceAfter) * 9
+            + (prospectiveFenceBefore - prospectiveFenceAfter) * 7
+            + (trapPressure - trapAfter) * 5
+            + primeRunAfter * 90
+            + primeScoreAfter * 0.12
+            + opponentMoveBlockAfter * 0.8,
+        };
+      }
       return {
         sequence,
         offMoves,
@@ -4363,6 +4957,7 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
         headMoves,
         homeShuffle: insideHomeMoves,
         startZoneExits,
+        structuralSafety,
         priority: (ready ? offMoves * 100000 - homeShuffle * 20000 : 0)
           + homeEntries * 65000 * entryPressure
           - insideHomeMoves * 26000 * Math.max(1, entryPressure) * Math.max(1, development)
@@ -4390,7 +4985,8 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
     // A legal turn can be emitted in many commuting move orders, especially
     // for doubles. They are one choice once the turn is complete and must not
     // consume separate shortlist slots ahead of genuinely different boards.
-    const after = adapter.applySequence(state, item.sequence, color);
+    const after = item.structuralSafety?.after
+      || adapter.applySequence(state, item.sequence, color);
     const key = candidatePositionKey({ after });
     if (seenPositions.has(key)) return;
     seenPositions.add(key);
@@ -4398,6 +4994,13 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
   };
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
 
+  add(bestBy(item => item.structuralSafety, (a, b) => (
+    b.structuralSafety.utility - a.structuralSafety.utility
+    || a.structuralSafety.latentFenceAfter - b.structuralSafety.latentFenceAfter
+    || a.structuralSafety.prospectiveFenceAfter - b.structuralSafety.prospectiveFenceAfter
+    || a.structuralSafety.trapAfter - b.structuralSafety.trapAfter
+    || b.priority - a.priority
+  )));
   add(bestBy(item => item.headMoves > 0, (a, b) => b.priority - a.priority));
   add(bestBy(item => item.startZoneExits > 0, (a, b) => (
     b.startZoneExits - a.startZoneExits || b.priority - a.priority
@@ -4748,8 +5351,8 @@ function isAnalyzedProbabilisticFenceDenial(state, color, candidate, selected) {
     45000000 + Math.max(0, Number(selectedFeatures.trapBefore || 0)) * 80000,
   );
   if (
-    !hasCompleteFourPlyTactical(candidate)
-    || !hasCompleteFourPlyTactical(selected)
+    !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
     || Number(selectedFeatures.opponentFenceRunBefore || 0) < 3
     || Number(selectedFeatures.trapBefore || 0) < 600
     || probabilisticFenceDenialGain(candidate, selected) < 60
@@ -4819,6 +5422,400 @@ function prioritizeVerifiedDeepSafety(state, color, ranked) {
   return promoted;
 }
 
+function tacticalMetricWithin(candidate, selected, key, tolerance, requiredGain = 0) {
+  return Number(candidate.tactical?.[key] || 0) >= (
+    Number(selected.tactical?.[key] || 0) + requiredGain - tolerance
+  );
+}
+
+function structuralProgressIsBounded(candidate, selected, proofType) {
+  const features = candidate.features || {};
+  const baseline = selected.features || {};
+  const common = Number(features.resultSafetyAfter || 0)
+      >= Number(baseline.resultSafetyAfter || 0)
+    && Number(features.maxRouteTowerAfter || 0)
+      <= Number(baseline.maxRouteTowerAfter || 0) + 1;
+  if (!common) return false;
+
+  if (proofType === 'latent-fence-escape') {
+    return Number(features.headGain || 0) >= Number(baseline.headGain || 0)
+      && Number(features.outsideReduction || 0)
+        >= Number(baseline.outsideReduction || 0) - 1
+      && Number(features.outsidePipGain || 0)
+        >= Number(baseline.outsidePipGain || 0)
+      && Number(features.startZoneReduction || 0)
+        >= Number(baseline.startZoneReduction || 0)
+      && Number(features.homeShuffleMoves || 0)
+        <= Number(baseline.homeShuffleMoves || 0);
+  }
+  if (proofType === 'active-prime') {
+    return Number(features.headGain || 0) >= Number(baseline.headGain || 0)
+      && Number(features.outsideReduction || 0)
+        > Number(baseline.outsideReduction || 0)
+      && Number(features.homeEntryMoves || 0)
+        > Number(baseline.homeEntryMoves || 0)
+      && Number(features.homeShuffleMoves || 0)
+        <= Number(baseline.homeShuffleMoves || 0);
+  }
+  if (proofType === 'prevents-new-latent-fence') {
+    return Number(features.outsideReduction || 0)
+        >= Number(baseline.outsideReduction || 0)
+      && Number(features.homeEntryMoves || 0)
+        >= Number(baseline.homeEntryMoves || 0)
+      && Number(features.outsidePipGain || 0)
+        >= Number(baseline.outsidePipGain || 0)
+      && Number(features.homeShuffleMoves || 0)
+        <= Number(baseline.homeShuffleMoves || 0);
+  }
+  return Number(features.headGain || 0) >= Number(baseline.headGain || 0)
+    && Number(features.outsideReduction || 0)
+      >= Number(baseline.outsideReduction || 0)
+    && Number(features.outsidePipGain || 0)
+      >= Number(baseline.outsidePipGain || 0)
+    && Number(features.startZoneReduction || 0)
+      >= Number(baseline.startZoneReduction || 0)
+    && Number(features.homeShuffleMoves || 0)
+      <= Number(baseline.homeShuffleMoves || 0);
+}
+
+function hasStructuralIntegrityEnvelope(candidate, selected, proofType) {
+  if (
+    !proofType
+    || !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
+    || !structuralProgressIsBounded(candidate, selected, proofType)
+  ) {
+    return false;
+  }
+
+  const scoreGap = scoreWithoutExperience(selected) - scoreWithoutExperience(candidate);
+  if (proofType === 'prevents-new-latent-fence') {
+    return scoreGap <= 180000000
+      && tacticalMetricWithin(candidate, selected, 'expectedImpact', 0)
+      && tacticalMetricWithin(candidate, selected, 'worstImpact', 0)
+      && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 10000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 10000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 10000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationExpected', 5000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationWorst', 5000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 5000000);
+  }
+  if (proofType === 'latent-fence-escape') {
+    return scoreGap <= 12000000
+      && tacticalMetricWithin(candidate, selected, 'expectedImpact', 2000000)
+      && tacticalMetricWithin(candidate, selected, 'worstImpact', 2000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 0, 5000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 12000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 2000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationExpected', 9000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationWorst', 2000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 2000000);
+  }
+  if (proofType === 'active-prime') {
+    const delta = structuralIntegrityDeltas(candidate, selected);
+    // Only the single worst continuation sample may consume the larger
+    // structural allowance. Expected and lower-tail continuation stay within
+    // their tight envelopes below, so a large prime cannot hide broad damage.
+    const continuationWorstTolerance = Math.min(
+      120000000,
+      Math.max(12000000, delta.blockRelief * 700000),
+    );
+    return scoreGap <= 180000000
+      && tacticalMetricWithin(candidate, selected, 'expectedImpact', 5000000)
+      && tacticalMetricWithin(candidate, selected, 'worstImpact', 10000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 0, 10000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 15000000)
+      && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 5000000)
+      && tacticalMetricWithin(candidate, selected, 'continuationExpected', 5000000)
+      && tacticalMetricWithin(
+        candidate,
+        selected,
+        'continuationWorst',
+        continuationWorstTolerance,
+      )
+      && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 12000000);
+  }
+  return scoreGap <= 40000000
+    && tacticalMetricWithin(candidate, selected, 'expectedImpact', 5000000)
+    && tacticalMetricWithin(candidate, selected, 'worstImpact', 8000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 10000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 15000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 15000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationExpected', 8000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationWorst', 12000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 12000000);
+}
+
+function prioritizeStructuralIntegrity(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+  const alternatives = ranked.filter(candidate => {
+    if (candidate === selected) return false;
+    const proofType = structuralIntegrityProofType(candidate, selected);
+    return hasStructuralIntegrityEnvelope(candidate, selected, proofType);
+  });
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    structuralIntegrityUtility(right, selected)
+      - structuralIntegrityUtility(left, selected)
+    || Number(right.tactical.worstImpact || 0)
+      - Number(left.tactical.worstImpact || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'structuralIntegrityAdjustment',
+  );
+  promoted[0].features.structuralIntegrityOverride = 1;
+  promoted[0].features.structuralIntegrityProofType = structuralIntegrityProofType(
+    promoted[0],
+    selected,
+  );
+  return promoted;
+}
+
+function tacticallyEquivalentStructureGain(candidate, selected) {
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  return delta.primeRunRelief * 45
+    + delta.primeScoreRelief * 0.7
+    + delta.blockRelief * 1.5
+    + delta.gatewayRelief * 5
+    + delta.fenceRelief * 2
+    + delta.latentRelief * 3
+    + delta.trapRelief * 3
+    + delta.interruptionRelief * 0.5
+    + delta.prospectiveRelief * 0.35;
+}
+
+function isTacticallyEquivalentBlockRescue(candidate, selected) {
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  return delta.blockRelief >= 100
+    && delta.gatewayRelief >= 0
+    && Number(candidate.features.prospectiveFenceInterruptionBreak || 0)
+      <= Number(selected.features.prospectiveFenceInterruptionBreak || 0) + 5;
+}
+
+function hasTacticallyEquivalentBlockRescueEnvelope(candidate, selected) {
+  if (
+    !isTacticallyEquivalentBlockRescue(candidate, selected)
+    || !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
+  ) {
+    return false;
+  }
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  const recoveryWorstTolerance = Math.min(
+    45000000,
+    Math.max(0, delta.blockRelief) * 400000,
+  );
+  // A verified block gain can offset one rare worst-frontier branch, but the
+  // cap is proportional to the gain and never relaxes expected/tail evidence.
+  const continuationWorstTolerance = Math.min(
+    90000000,
+    Math.max(10000000, delta.blockRelief * 800000),
+  );
+  return tacticalMetricWithin(candidate, selected, 'expectedImpact', 3000000)
+    && tacticalMetricWithin(candidate, selected, 'worstImpact', 3000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 5000000)
+    && tacticalMetricWithin(
+      candidate,
+      selected,
+      'recoveryWorst',
+      recoveryWorstTolerance,
+    )
+    && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 10000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationExpected', 5000000)
+    && tacticalMetricWithin(
+      candidate,
+      selected,
+      'continuationWorst',
+      continuationWorstTolerance,
+    )
+    && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 10000000);
+}
+
+function hasTacticallyEquivalentStructuralProof(candidate, selected) {
+  const blockRescue = hasTacticallyEquivalentBlockRescueEnvelope(candidate, selected);
+  const primeRetention = hasTacticallyEquivalentPrimeRetentionEnvelope(candidate, selected);
+  return blockRescue || primeRetention;
+}
+
+function hasTacticallyEquivalentPrimeRetentionEnvelope(candidate, selected) {
+  const delta = structuralIntegrityDeltas(candidate, selected);
+  return delta.primeScoreRelief >= 100
+    && hasBoundedFourPlyTactical(candidate)
+    && hasBoundedFourPlyTactical(selected)
+    && tacticalMetricWithin(candidate, selected, 'expectedImpact', 3000000)
+    && tacticalMetricWithin(candidate, selected, 'worstImpact', 3000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 0, 8000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 0, 20000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 10000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationExpected', 5000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationWorst', 10000000)
+    && tacticalMetricWithin(candidate, selected, 'continuationTailRisk', 10000000);
+}
+
+function prioritizeTacticallyEquivalentStructure(state, color, ranked) {
+  const selected = ranked[0];
+  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && hasBoundedFourPlyTactical(candidate)
+    && hasBoundedFourPlyTactical(selected)
+    && hasTacticallyEquivalentStructuralProof(candidate, selected)
+    && scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - (
+      isTacticallyEquivalentBlockRescue(candidate, selected) ? 24000000 : 22000000
+    )
+    && Number(candidate.features.resultSafetyAfter || 0)
+      >= Number(selected.features.resultSafetyAfter || 0)
+    && Number(candidate.features.headGain || 0)
+      >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.outsideReduction || 0)
+      >= Number(selected.features.outsideReduction || 0)
+    && Number(candidate.features.outsidePipGain || 0)
+      >= Number(selected.features.outsidePipGain || 0)
+    && Number(candidate.features.startZoneReduction || 0)
+      >= Number(selected.features.startZoneReduction || 0)
+    && Number(candidate.features.homeShuffleMoves || 0)
+      <= Number(selected.features.homeShuffleMoves || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && Number(candidate.features.primeRunAfter || 0)
+      >= Number(selected.features.primeRunAfter || 0)
+    && Number(candidate.tactical.expectedImpact || 0)
+      >= Number(selected.tactical.expectedImpact || 0) - 3000000
+    && Number(candidate.tactical.worstImpact || 0)
+      >= Number(selected.tactical.worstImpact || 0) - 3000000
+  ));
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    tacticallyEquivalentStructureGain(right, selected)
+      - tacticallyEquivalentStructureGain(left, selected)
+    || Number(right.tactical.recoveryExpected || 0)
+      - Number(left.tactical.recoveryExpected || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'tacticalStructureAdjustment',
+  );
+  promoted[0].features.tacticalStructureOverride = 1;
+  return promoted;
+}
+
+function isBoundedLateHomeEntryAlternative(state, color, candidate, selected) {
+  const features = candidate?.features || {};
+  const baseline = selected?.features || {};
+  const advancedMetricsAvailable = [
+    'trapBefore',
+    'fenceClosureBefore',
+    'latentFenceExposureBefore',
+    'prospectiveFenceExtensionBefore',
+    'opponentFenceRunBefore',
+  ].every(key => Object.prototype.hasOwnProperty.call(baseline, key));
+  if (
+    !advancedMetricsAvailable
+    || outsideHomeCount(state, color) < 1
+    || outsideHomeCount(state, color) > 4
+    || headCheckers(state, color) !== 0
+    || headCheckers(state, opponentOf(color)) !== 0
+    || opponentTrapRisk(state, color) > 24
+    || escapeGatewayRisk(state, color) > 12
+    || Number(baseline.trapBefore || 0) > 24
+    || Number(baseline.fenceClosureBefore || 0) > 0
+    || Number(baseline.opponentFenceRunBefore || 0) > 3
+    // This is a bounded late-route policy, not a declaration that contact has
+    // ended. Mild latent pressure is allowed only when every structural metric
+    // below is unchanged and the all-dice three-ply envelope corroborates
+    // the entry.
+    || Number(baseline.latentFenceExposureBefore || 0) > 120
+    || Number(baseline.prospectiveFenceExtensionBefore || 0) !== 0
+    || !hasCompleteThreePlyTactical(candidate)
+    || !hasCompleteThreePlyTactical(selected)
+  ) {
+    return false;
+  }
+
+  const structureIsUnchanged = Number(features.trapDelta || 0)
+      >= Number(baseline.trapDelta || 0)
+    && Number(features.fenceClosureDelta || 0)
+      >= Number(baseline.fenceClosureDelta || 0)
+    && Number(features.escapeGatewayDelta || 0)
+      >= Number(baseline.escapeGatewayDelta || 0)
+    && Number(features.latentFenceExposureDelta || 0)
+      >= Number(baseline.latentFenceExposureDelta || 0)
+    && Number(features.prospectiveFenceExtensionDelta || 0)
+      >= Number(baseline.prospectiveFenceExtensionDelta || 0)
+    && Number(features.primeRunAfter || 0)
+      >= Number(baseline.primeRunAfter || 0)
+    && Number(features.primeScoreAfter || 0)
+      >= Number(baseline.primeScoreAfter || 0)
+    && Number(features.opponentMoveBlockAfter || 0)
+      >= Number(baseline.opponentMoveBlockAfter || 0)
+    && Number(features.maxRouteTowerAfter || 0)
+      <= Number(baseline.maxRouteTowerAfter || 0)
+    && Number(features.resultSafetyAfter || 0)
+      >= Number(baseline.resultSafetyAfter || 0);
+  if (!structureIsUnchanged) return false;
+
+  const progressIsComparable = Number(features.outsideReduction || 0)
+      >= Number(baseline.outsideReduction || 0)
+    && Number(features.homeEntryMoves || 0)
+      >= Number(baseline.homeEntryMoves || 0)
+    && Number(features.headGain || 0) >= Number(baseline.headGain || 0)
+    && Number(features.startZoneReduction || 0)
+      >= Number(baseline.startZoneReduction || 0);
+  if (!progressIsComparable) return false;
+
+  // Do not use the representative continuation frontier as a hard override.
+  // Primary/recovery cover every dice outcome within their bounded reply
+  // beams; their three-ply envelope must reject a materially worse tail.
+  return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 22000000
+    && tacticalMetricWithin(candidate, selected, 'expectedImpact', 2000000)
+    && tacticalMetricWithin(candidate, selected, 'worstImpact', 2000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryExpected', 0)
+    && tacticalMetricWithin(candidate, selected, 'recoveryWorst', 12000000)
+    && tacticalMetricWithin(candidate, selected, 'recoveryTailRisk', 8000000);
+}
+
+function prioritizeAvoidableHomeShuffle(state, color, ranked) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || homeReady(state, color)
+    || Number(selected.features.avoidableHomeShuffleMoves || 0) <= 0
+  ) {
+    return ranked;
+  }
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.avoidableHomeShuffleMoves || 0)
+      < Number(selected.features.avoidableHomeShuffleMoves || 0)
+    && Number(candidate.features.homeShuffleMoves || 0)
+      < Number(selected.features.homeShuffleMoves || 0)
+    && isBoundedLateHomeEntryAlternative(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    Number(left.features.avoidableHomeShuffleMoves || 0)
+      - Number(right.features.avoidableHomeShuffleMoves || 0)
+    || Number(right.features.outsidePipGain || 0)
+      - Number(left.features.outsidePipGain || 0)
+    || Number(right.tactical.worstImpact || 0)
+      - Number(left.tactical.worstImpact || 0)
+    || Number(right.score) - Number(left.score)
+  ));
+  const promoted = promoteCandidate(
+    ranked,
+    alternatives[0],
+    'avoidableHomeShuffleAdjustment',
+  );
+  promoted[0].features.avoidableHomeShuffleOverride = 1;
+  return promoted;
+}
+
 function verifiedDeepSafetyGain(candidate, selected) {
   const candidateTactical = candidate.tactical || {};
   const selectedTactical = selected.tactical || {};
@@ -4833,7 +5830,7 @@ function verifiedDeepSafetyGain(candidate, selected) {
 }
 
 function isVerifiedDeepSafetyAlternative(state, color, candidate, selected) {
-  if (!hasCompleteFourPlyTactical(candidate) || !hasCompleteFourPlyTactical(selected)) {
+  if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) {
     return false;
   }
   const candidateFeatures = candidate.features || {};
@@ -4901,8 +5898,8 @@ function isAnalyzedProspectiveFenceAnchorSafety(candidate, selected) {
   const candidateTactical = candidate?.tactical;
   const selectedTactical = selected?.tactical;
   if (
-    !hasCompleteFourPlyTactical(candidate)
-    || !hasCompleteFourPlyTactical(selected)
+    !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
     || Number(candidateFeatures.prospectiveFenceExtensionAfter || 0)
       > Number(selectedFeatures.prospectiveFenceExtensionAfter || 0) - 40
     || scoreWithoutExperience(candidate) < scoreWithoutExperience(selected) - 18000000
@@ -4980,19 +5977,9 @@ function isAnalyzedProspectiveFenceInterruption(state, color, candidate, selecte
     return false;
   }
 
-  const completeTactical = tactical => (
-    Number(tactical.plies || 0) >= 4
-    && Number(tactical.rolls || 0) === 21
-    && Number(tactical.distributionWeight || 0) === 36
-    && tactical.distributionComplete === true
-    && Number(tactical.recoveryRolls || 0) === 21
-    && Number(tactical.recoveryWeight || 0) === 36
-    && tactical.recoveryDistributionComplete === true
-    && Number(tactical.continuationRolls || 0) === 21
-    && Number(tactical.continuationWeight || 0) === 36
-    && tactical.continuationDistributionComplete === true
-  );
-  if (!completeTactical(candidateTactical) || !completeTactical(selectedTactical)) return false;
+  if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) {
+    return false;
+  }
 
   const progressIsPreserved = Number(candidateFeatures.headGain || 0)
       >= Number(selectedFeatures.headGain || 0)
@@ -5037,7 +6024,7 @@ function isAnalyzedProspectiveFenceInterruption(state, color, candidate, selecte
     && Number(candidateTactical.continuationExpected || 0)
       >= Number(selectedTactical.continuationExpected || 0) + 5000000
     && Number(candidateTactical.continuationWorst || 0)
-      >= Number(selectedTactical.continuationWorst || 0) + 5000000
+      >= Number(selectedTactical.continuationWorst || 0) - 5000000
     && Number(candidateTactical.continuationTailRisk || 0)
       >= Number(selectedTactical.continuationTailRisk || 0) + 5000000;
 }
@@ -5133,8 +6120,8 @@ function isPlausibleContestedOpponentHeadExit(state, color, candidate, selected)
 
 function isAnalyzedContestedOpponentHeadExit(state, color, candidate, selected) {
   if (
-    !candidate?.tactical
-    || !selected?.tactical
+    !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
     || !isPlausibleContestedOpponentHeadExit(state, color, candidate, selected)
     || !hasFiniteTacticalMetrics(candidate, [
       'plies',
@@ -5217,8 +6204,8 @@ function isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected) {
 
 function isAnalyzedImminentHeadFenceAnchor(state, color, candidate, selected) {
   if (
-    !candidate.tactical
-    || !selected.tactical
+    !hasBoundedFourPlyTactical(candidate)
+    || !hasBoundedFourPlyTactical(selected)
     || !isPlausibleImminentHeadFenceAnchor(state, color, candidate, selected)
     || !hasFiniteTacticalMetrics(candidate, [
       'plies',
@@ -5233,10 +6220,7 @@ function isAnalyzedImminentHeadFenceAnchor(state, color, candidate, selected) {
   ) {
     return false;
   }
-  const completeReservation = Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
-    && candidate.tactical.distributionComplete === true
-    && candidate.tactical.recoveryDistributionComplete === true
-    && candidate.tactical.continuationDistributionComplete === true;
+  const completeReservation = Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0;
   return Number(candidate.tactical.plies || 0) === Number(selected.tactical.plies || 0)
     && Number(candidate.tactical.plies || 0) >= 4
     && (
@@ -5329,11 +6313,24 @@ function preservesLatentEscapePrime(candidate, selected) {
   const activeBlockingPrime = primeRunBefore >= 4
     && Number(candidate.features.primeScoreBefore || 0) > 0
     && Number(candidate.features.opponentMoveBlockBefore || 0) > 0;
+  // Shortening an active four by one is eligible for rear-escape analysis only
+  // when it clears the exposed start zone without worsening our static safety.
+  // This is coverage, not a final override: reply and deep vetoes still apply.
+  const clearsExposedFourPrimeRear = primeRunBefore === 4
+    && candidateRun >= 3
+    && isFourPrimeSelfEscape(candidate.features)
+    && candidate.features.latentFenceExposureBefore >= 24
+    && candidate.features.latentFenceExposureDelta > 0
+    && candidate.features.startZoneReduction > 0
+    && candidate.features.resultSafetyAfter > candidate.features.resultSafetyBefore;
+  if (activeBlockingPrime && clearsExposedFourPrimeRear) return true;
   return !activeBlockingPrime && candidateRun >= Math.max(1, selectedRun - 1);
 }
 
 function scoreWithoutExperience(candidate) {
-  return Number(candidate.score) - Number(candidate.experienceAdjustment || 0);
+  return Number(candidate.score)
+    - Number(candidate.experienceAdjustment || 0)
+    - Number(candidate.features?.policyPromotionAdjustment || 0);
 }
 
 function prioritizeExperienceWithinSafetyEnvelope(ranked, coldSelected) {
@@ -5509,7 +6506,7 @@ function annotateAvoidableProspectiveFenceAnchorMisses(state, color, ranked) {
 function isComparableFenceEscape(candidate, selected) {
   if (!candidate?.tactical || !selected?.tactical) return false;
   const experienceSafetyOverride = isExperienceOverruledFenceEscape(candidate, selected);
-  return Number(candidate.score) >= Number(selected.score) - 260000000
+  return scoreWithoutExperience(candidate) >= scoreWithoutExperience(selected) - 260000000
     && !isDeepFenceSafetyRegression(candidate, selected)
     && (
       Number(candidate.experienceAdjustment || 0) >= (
@@ -5537,22 +6534,27 @@ function isComparableFenceEscape(candidate, selected) {
 function isDeepFenceSafetyRegression(candidate, selected) {
   const closureRegression = Number(selected.features.fenceClosureDelta || 0)
     - Number(candidate.features.fenceClosureDelta || 0);
-  return hasCompleteFourPlyTactical(candidate)
-    && hasCompleteFourPlyTactical(selected)
+  // A marginal utility gain cannot buy substantial closure damage when the
+  // all-dice recovery or bounded continuation estimates also regress.
+  return hasBoundedFourPlyTactical(candidate)
+    && hasBoundedFourPlyTactical(selected)
     && closureRegression > 12
-    && fenceEscapeUtility(candidate) <= fenceEscapeUtility(selected) + 12
     && (
       Number(candidate.tactical.recoveryExpected || 0)
-        < Number(selected.tactical.recoveryExpected || 0) - 20000000
+        < Number(selected.tactical.recoveryExpected || 0) - 12000000
+      || Number(candidate.tactical.recoveryTailRisk || 0)
+        < Number(selected.tactical.recoveryTailRisk || 0) - 12000000
       || Number(candidate.tactical.continuationWorst || 0)
         < Number(selected.tactical.continuationWorst || 0) - 5000000
+      || Number(candidate.tactical.continuationTailRisk || 0)
+        < Number(selected.tactical.continuationTailRisk || 0) - 5000000
     );
 }
 
-function hasCompleteFourPlyTactical(candidate) {
+function hasCompleteThreePlyTactical(candidate) {
   const tactical = candidate?.tactical;
   return Boolean(tactical)
-    && Number(tactical.plies || 0) >= 4
+    && Number(tactical.plies || 0) >= 3
     && Number(tactical.rolls || 0) === 21
     && Number(tactical.distributionWeight || 0) === 36
     && tactical.distributionComplete === true
@@ -5560,19 +6562,60 @@ function hasCompleteFourPlyTactical(candidate) {
     && Number(tactical.recoveryRolls || 0) === 21
     && Number(tactical.recoveryWeight || 0) === 36
     && tactical.recoveryDistributionComplete === true
-    && Number(tactical.continuationRolls || 0) === 21
-    && Number(tactical.continuationWeight || 0) === 36
-    && tactical.continuationDistributionComplete === true
     && hasFiniteTacticalMetrics(candidate, [
       'expectedImpact',
       'worstImpact',
       'recoveryExpected',
       'recoveryWorst',
       'recoveryTailRisk',
+    ]);
+}
+
+function hasBoundedFourPlyTactical(candidate) {
+  const tactical = candidate?.tactical;
+  // This is a valid representative/worst proxy model, not a claim that every
+  // recovery board was expanded. Production envelopes use it conservatively.
+  return hasCompleteThreePlyTactical(candidate)
+    && Number(tactical.plies || 0) >= 4
+    && Number(tactical.continuationRolls || 0) === 21
+    && Number(tactical.continuationWeight || 0) === 36
+    && tactical.continuationDistributionComplete === true
+    && tactical.continuationModelComplete === true
+    && tactical.continuationModelKind === 'representative-worst-proxy-v1'
+    && typeof tactical.continuationApproximate === 'boolean'
+    && tactical.continuationCoverageComplete === !tactical.continuationApproximate
+    && Number(tactical.continuationFrontierCount || 0) >= 1
+    && Number(tactical.continuationFrontierCount || 0) <= 2
+    && Number(tactical.continuationTotalFrontierCount || 0)
+      >= Number(tactical.continuationFrontierCount || 0)
+    && Number(tactical.continuationTotalFrontierCount || 0) <= 21
+    && Number(tactical.continuationFrontierWeight || 0) >= 1
+    && Number(tactical.continuationFrontierWeight || 0) <= 36
+    && Number(tactical.continuationTotalFrontierWeight || 0) === 36
+    && Number(tactical.continuationProxyWeight || 0) === 36
+    && tactical.continuationApproximate === (
+      Number(tactical.continuationFrontierWeight || 0) !== 36
+      || Number(tactical.continuationFrontierCount || 0)
+        !== Number(tactical.continuationTotalFrontierCount || 0)
+    )
+    && Number(tactical.continuationWorstRecoveryFrontierWeight || 0) >= 1
+    && tactical.continuationRepresentativeFrontierIncluded === true
+    && tactical.continuationWorstFrontierIncluded === true
+    && hasFiniteTacticalMetrics(candidate, [
       'continuationExpected',
       'continuationWorst',
       'continuationTailRisk',
     ]);
+}
+
+function hasCompleteFourPlyTactical(candidate) {
+  const tactical = candidate?.tactical;
+  return hasBoundedFourPlyTactical(candidate)
+    && tactical.continuationApproximate === false
+    && tactical.continuationCoverageComplete === true
+    && Number(tactical.continuationFrontierWeight || 0) === 36
+    && Number(tactical.continuationFrontierCount || 0)
+      === Number(tactical.continuationTotalFrontierCount || 0);
 }
 
 function isExperienceOverruledFenceEscape(candidate, selected) {
@@ -5721,9 +6764,14 @@ function createNarduGameAdapter(game) {
 /* bot-engine/long/browser.ts */
 
 
-const ENGINE_VERSION = 'long-analytic-v34';
-const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v34:';
+const ENGINE_VERSION = 'long-analytic-v35';
+// The build injects a noncircular SHA of every policy TS source, game rules
+// and production dispatch/weights. Raw unbuilt modules fail closed.
+const POLICY_IMPLEMENTATION_ID = typeof NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID === 'string'
+  ? NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID : '';
+const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
+  'narduh-long-bot-frozen-experience-v34:',
   'narduh-long-bot-frozen-experience-v33:',
   'narduh-long-bot-frozen-experience-v32:',
 ];
@@ -5744,6 +6792,7 @@ function createBrowserLongBotEngine(game, options = {}) {
   let experienceFrozen = false;
   let experienceSessionKey = '';
   const pendingExperienceSources = new Map();
+  const appliedExperienceSources = new Map();
 
   const runtimeDefaults = {
     ...PRODUCTION_RUNTIME_OPTIONS,
@@ -5754,6 +6803,33 @@ function createBrowserLongBotEngine(game, options = {}) {
     ...(runtimeOptions || {}),
   });
 
+  // Native rules/evaluation never read durable analysis/botMemory. Carrying it
+  // through every JSON-cloned hypothetical board makes search cost grow with
+  // the complete game ledger. Strip ONLY that field at this native boundary;
+  // generic engines/custom adapters keep their original full-state contract.
+  const searchState = state => {
+    const projected = { ...state };
+    delete projected.analysis;
+    return projected;
+  };
+  const restoreRankMetadata = (state, ranked) => {
+    if (!ranked.length || !Object.prototype.propertyIsEnumerable.call(state, 'analysis')) {
+      return ranked;
+    }
+    // Preserve the historical JSON-clone semantics (including null, undefined,
+    // toJSON), while never sharing durable metadata with the input or another
+    // returned candidate. Serialize once, then create one independent copy per
+    // public result; no hypothetical board contains this payload.
+    const serialized = JSON.stringify({ analysis: state.analysis });
+    ranked.forEach(candidate => {
+      const metadata = JSON.parse(serialized);
+      if (Object.prototype.hasOwnProperty.call(metadata, 'analysis')) {
+        candidate.after.analysis = metadata.analysis;
+      }
+    });
+    return ranked;
+  };
+
   return {
     plan(state, runtimeOptions = {}) {
       // Never let a failed/empty ranking leak telemetry from the previous turn.
@@ -5761,7 +6837,7 @@ function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
-      const ranked = engine.rank(state, color, effectiveOptions);
+      const ranked = engine.rank(searchState(state), color, effectiveOptions);
       const recorded = decisionRecord(
         state,
         color,
@@ -5770,6 +6846,7 @@ function createBrowserLongBotEngine(game, options = {}) {
         engine.experienceSize(),
         experienceSnapshot(),
         decisionSerial + 1,
+        effectiveOptions,
       );
       if (recorded) {
         decisionSerial += 1;
@@ -5782,18 +6859,58 @@ function createBrowserLongBotEngine(game, options = {}) {
       lastDecision = null;
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
-      return engine.rank(state, color, effectiveRuntimeOptions(runtimeOptions));
+      return restoreRankMetadata(
+        state,
+        engine.rank(searchState(state), color, effectiveRuntimeOptions(runtimeOptions)),
+      );
     },
 
     describeSequence(state, sequence, runtimeOptions = {}) {
       const color = runtimeOptions.color || state?.turn;
       if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
       return engine.describeSequence(
-        state,
+        searchState(state),
         sequence,
         color,
         effectiveRuntimeOptions(runtimeOptions),
       );
+    },
+
+    reviewSequenceStatic(state, sequence, runtimeOptions = {}) {
+      const color = runtimeOptions.color || state?.turn;
+      if (!state || !color || !Array.isArray(sequence) || !sequence.length) return null;
+      const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
+      const projected = searchState(state);
+      const normalizedSequence = sequence.map(move => ({
+        from: Number(move.from),
+        die: Number(move.die),
+        to: move.bearOff ? 0 : Number(move.to),
+        bearOff: Boolean(move.bearOff || Number(move.to) === 0),
+      }));
+      const described = engine.describeSequence(
+        projected,
+        normalizedSequence,
+        color,
+        effectiveOptions,
+      );
+      if (!described) return null;
+      const after = adapter.applySequence(projected, normalizedSequence, color);
+      restoreRankMetadata(state, [{ after }]);
+      return {
+        sequence: normalizedSequence,
+        after,
+        score: engine.scoreSequence(
+          projected,
+          normalizedSequence,
+          color,
+          effectiveOptions.weights,
+        ),
+        scoreSemantics: 'long-static-evaluator-v1',
+        scoreIncludesTacticalSearch: false,
+        scoreIncludesExperience: false,
+        features: described.features || {},
+        experience: described.experience || null,
+      };
     },
 
     evaluateState(state, color = state?.turn, weights = undefined) {
@@ -5804,12 +6921,14 @@ function createBrowserLongBotEngine(game, options = {}) {
     setExperience(patterns, source = 'runtime') {
       const sourceKey = String(source || 'runtime');
       const snapshot = Array.isArray(patterns)
-        ? patterns.map(pattern => ({ ...pattern }))
+        ? patterns.filter(pattern => pattern?.creditVersion !== 9 || serverCausalPatterns([pattern]))
+          .map(pattern => ({ ...pattern }))
         : [];
       if (experienceFrozen) {
         pendingExperienceSources.set(sourceKey, snapshot);
         return engine.experienceSize();
       }
+      appliedExperienceSources.set(sourceKey, snapshot);
       return engine.setExperience(snapshot, sourceKey);
     },
 
@@ -5819,6 +6938,18 @@ function createBrowserLongBotEngine(game, options = {}) {
 
     experienceSnapshotEntries() {
       return engine.experienceSnapshotEntries();
+    },
+
+    experienceReplaySnapshot() {
+      const identity = experienceSnapshot();
+      return {
+        schema: 'long-experience-replay-v1',
+        engineVersion: ENGINE_VERSION,
+        fingerprint: identity.fingerprint,
+        size: identity.size,
+        frozen: identity.frozen,
+        patterns: engine.experienceSnapshotPatterns(),
+      };
     },
 
     beginExperienceSession(sessionKey = '') {
@@ -5836,7 +6967,11 @@ function createBrowserLongBotEngine(game, options = {}) {
       }
       experienceFrozen = false;
       engine.setExperience([], 'frozen-session');
+      // A restored policy belongs only to its original room. Clear its actual
+      // source before applying the latest queued RPC snapshot for a new game.
+      engine.setExperience([], 'frozen-session-quarantine');
       pendingExperienceSources.forEach((patterns, source) => {
+        appliedExperienceSources.set(source, patterns);
         engine.setExperience(patterns, source);
       });
       pendingExperienceSources.clear();
@@ -5862,6 +6997,7 @@ function createBrowserLongBotEngine(game, options = {}) {
 
     productionOptions: Object.freeze({ ...PRODUCTION_RUNTIME_OPTIONS }),
     version: ENGINE_VERSION,
+    policyImplementationId: POLICY_IMPLEMENTATION_ID,
   };
 
   function experienceSnapshot() {
@@ -5894,7 +7030,22 @@ function createBrowserLongBotEngine(game, options = {}) {
     try {
       const saved = JSON.parse(experienceStorage.getItem(key) || 'null');
       if (saved?.engineVersion !== ENGINE_VERSION || !Array.isArray(saved.patterns)) return false;
-      engine.setExperience(saved.patterns, 'frozen-session');
+      const emptyQuarantine = saved.trust === 'long-v35-quarantined-empty'
+        && saved.patterns.length === 0;
+      const serverSnapshot = saved.trust === 'long-v35-server-causal-session-v1'
+        && serverCausalPatterns(saved.patterns);
+      if (!emptyQuarantine && !serverSnapshot) return false;
+      // A prefetch can settle before startup discovers the resumed session.
+      // Its live sources must not merge into that game's immutable snapshot;
+      // retain their latest payloads for the next session instead.
+      appliedExperienceSources.forEach((patterns, source) => {
+        if (!pendingExperienceSources.has(source)) {
+          pendingExperienceSources.set(source, patterns);
+        }
+        engine.setExperience([], source);
+      });
+      appliedExperienceSources.clear();
+      engine.setExperience(saved.patterns, 'frozen-session-quarantine');
       return true;
     } catch {
       return false;
@@ -5917,15 +7068,42 @@ function createBrowserLongBotEngine(game, options = {}) {
           experienceStorage.removeItem?.(storedKey);
         }
       }
+      const patterns = engine.experienceSnapshotPatterns();
+      const trustedPatterns = serverCausalPatterns(patterns) ? patterns : [];
       experienceStorage.setItem(key, JSON.stringify({
         engineVersion: ENGINE_VERSION,
-        patterns: engine.experienceSnapshotPatterns(),
+        // Resume the same immutable server-fed policy, not a newer network
+        // snapshot. This session cache is not evidence of server provenance:
+        // the causal worker still rejects nonempty unsigned recursive memory.
+        trust: trustedPatterns.length
+          ? 'long-v35-server-causal-session-v1'
+          : 'long-v35-quarantined-empty',
+        patterns: trustedPatterns,
       }));
       return true;
     } catch {
       return false;
     }
   }
+}
+
+function serverCausalPatterns(patterns) {
+  return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
+    && Array.isArray(patterns) && patterns.length <= 256 && patterns.every(pattern => (
+    pattern?.creditVersion === 9
+    && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
+    && pattern?.reviewerVersion === 'long-server-causal-review-v1'
+    && pattern?.trustDomain === 'nardu/server-long-bot-causal/v1'
+    && pattern?.policyImplementationId === POLICY_IMPLEMENTATION_ID
+    && pattern?.outcomeUsed === false
+    && /^[0-9a-f]{64}$/.test(String(pattern.runtimeDigest || ''))
+    && /^[0-9a-f]{64}$/.test(String(pattern.aggregateId || ''))
+    && Number.isInteger(pattern.samples) && pattern.samples >= 1 && pattern.samples <= 32
+    && pattern.losses === pattern.samples && pattern.wins === 0
+    && pattern.lossWeight === pattern.samples * 1.5
+    && pattern.signalWeight === pattern.samples * 1.5
+    && pattern.severeLosses === 0 && pattern.winWeight === 0
+  ));
 }
 
 function safeSessionStorage() {
@@ -5944,6 +7122,7 @@ function decisionRecord(
   experienceSize = 0,
   experienceSnapshot = null,
   serial = 1,
+  runtimeOptions = {},
 ) {
   const choiceCount = Math.max(
     1,
@@ -5964,6 +7143,7 @@ function decisionRecord(
       to: move.bearOff ? 0 : move.to,
       die: move.die,
     })),
+    after: compactCandidateState(candidate.after),
     features: { ...(candidate.features || {}) },
     tactical: candidate.tactical ? {
       expectedImpact: Math.round(candidate.tactical.expectedImpact),
@@ -5979,6 +7159,14 @@ function decisionRecord(
       recoveryTailWeight: Number(candidate.tactical.recoveryTailWeight) || 0,
       recoveryWeight: Number(candidate.tactical.recoveryWeight) || 0,
       recoveryDistributionComplete: Boolean(candidate.tactical.recoveryDistributionComplete),
+      recoveryModelKind: String(candidate.tactical.recoveryModelKind || ''),
+      recoveryConditional: Boolean(candidate.tactical.recoveryConditional),
+      recoveryPrimaryDiceKey: String(candidate.tactical.recoveryPrimaryDiceKey || ''),
+      recoveryPrimaryDiceWeight: Number(candidate.tactical.recoveryPrimaryDiceWeight) || 0,
+      recoveryPrimaryFrontierCount: Number(candidate.tactical.recoveryPrimaryFrontierCount) || 0,
+      recoveryTotalPrimaryFrontierCount: Number(candidate.tactical.recoveryTotalPrimaryFrontierCount) || 0,
+      recoveryPrimaryFrontierWeight: Number(candidate.tactical.recoveryPrimaryFrontierWeight) || 0,
+      recoveryTotalPrimaryFrontierWeight: Number(candidate.tactical.recoveryTotalPrimaryFrontierWeight) || 0,
       deepAdjustment: Math.round(Number(candidate.tactical.deepAdjustment) || 0),
       continuationExpected: Math.round(Number(candidate.tactical.continuationExpected) || 0),
       continuationWorst: Math.round(Number(candidate.tactical.continuationWorst) || 0),
@@ -5987,6 +7175,30 @@ function decisionRecord(
       continuationTailWeight: Number(candidate.tactical.continuationTailWeight) || 0,
       continuationWeight: Number(candidate.tactical.continuationWeight) || 0,
       continuationDistributionComplete: Boolean(candidate.tactical.continuationDistributionComplete),
+      continuationModelComplete: Boolean(candidate.tactical.continuationModelComplete),
+      continuationModelKind: String(candidate.tactical.continuationModelKind || ''),
+      continuationApproximate: candidate.tactical.continuationApproximate !== false,
+      continuationCoverageComplete: Boolean(candidate.tactical.continuationCoverageComplete),
+      continuationFrontierCount: Number(candidate.tactical.continuationFrontierCount) || 0,
+      continuationFrontierWeight: Number(candidate.tactical.continuationFrontierWeight) || 0,
+      continuationTotalFrontierCount: Number(candidate.tactical.continuationTotalFrontierCount) || 0,
+      continuationTotalFrontierWeight: Number(candidate.tactical.continuationTotalFrontierWeight) || 0,
+      continuationProxyWeight: Number(candidate.tactical.continuationProxyWeight) || 0,
+      continuationWorstRecoveryFrontierWeight: Number(
+        candidate.tactical.continuationWorstRecoveryFrontierWeight
+      ) || 0,
+      continuationRepresentativeDiceKey: String(candidate.tactical.continuationRepresentativeDiceKey || ''),
+      continuationRepresentativeDiceWeight: Number(candidate.tactical.continuationRepresentativeDiceWeight) || 0,
+      continuationRepresentativeProxyWeight: Number(candidate.tactical.continuationRepresentativeProxyWeight) || 0,
+      continuationWorstRecoveryDiceKey: String(candidate.tactical.continuationWorstRecoveryDiceKey || ''),
+      continuationWorstRecoveryDiceWeight: Number(candidate.tactical.continuationWorstRecoveryDiceWeight) || 0,
+      continuationWorstRecoveryProxyWeight: Number(candidate.tactical.continuationWorstRecoveryProxyWeight) || 0,
+      continuationRepresentativeFrontierIncluded: Boolean(
+        candidate.tactical.continuationRepresentativeFrontierIncluded
+      ),
+      continuationWorstFrontierIncluded: Boolean(
+        candidate.tactical.continuationWorstFrontierIncluded
+      ),
       continuationAdjustment: Math.round(Number(candidate.tactical.continuationAdjustment) || 0),
       blockedProbability: Number(candidate.tactical.blockedProbability) || 0,
       expectedReplySequences: Number(candidate.tactical.expectedReplySequences) || 0,
@@ -6003,6 +7215,9 @@ function decisionRecord(
   if (!candidates.length) return null;
 
   const positionId = positionFingerprint(state, color);
+  const stateSnapshotV2 = longStateSnapshotV2(state, color);
+  const stateFingerprintV2 = snapshotFingerprintV2(stateSnapshotV2);
+  const rankingCandidateCount = uniqueRanked.length;
   return {
     id: `${positionId}-${Date.now().toString(36)}-${String(Math.max(1, Number(serial) || 1)).padStart(4, '0')}`,
     positionId,
@@ -6013,6 +7228,23 @@ function decisionRecord(
     experienceSize: Math.max(0, Number(experienceSize) || 0),
     experienceFingerprint: String(experienceSnapshot?.fingerprint || ''),
     experienceFrozen: Boolean(experienceSnapshot?.frozen),
+    stateSnapshotV2,
+    stateFingerprintV2,
+    replayInput: {
+      schema: 'long-shadow-replay-input-v1',
+      stateFingerprintV2,
+      engineVersion: ENGINE_VERSION,
+      experienceFingerprint: String(experienceSnapshot?.fingerprint || ''),
+      experienceSize: Math.max(0, Number(experienceSize) || 0),
+      experienceFrozen: Boolean(experienceSnapshot?.frozen),
+      runtime: compactRuntimeOptions(runtimeOptions),
+      // Only the displayed top candidates are archived here. A reviewer must
+      // rebuild the complete candidate cohort from stateSnapshotV2 and must
+      // not mistake this bounded preview for complete counterfactual proof.
+      archivedCandidateCount: candidates.length,
+      rankingCandidateCount,
+      archivedCandidatesComplete: candidates.length === rankingCandidateCount,
+    },
     weights: weights && typeof weights === 'object'
       ? Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, Math.round(Number(value) || 0)]))
       : {},
@@ -6028,12 +7260,107 @@ function decisionRecord(
   };
 }
 
+function compactRuntimeOptions(runtimeOptions = {}) {
+  const compact = {
+    strategyProfile: String(runtimeOptions.strategyProfile || ''),
+    maxCandidates: Math.max(0, Number(runtimeOptions.maxCandidates) || 0),
+    analysisNodeBudget: Math.max(0, Number(runtimeOptions.analysisNodeBudget) || 0),
+  };
+  if (runtimeOptions.weights && typeof runtimeOptions.weights === 'object') {
+    compact.weights = Object.fromEntries(
+      Object.entries(runtimeOptions.weights)
+        .map(([key, value]) => [key, Number(value)])
+        .filter(([, value]) => Number.isFinite(value)),
+    );
+  }
+  return compact;
+}
+
+function compactPoints(points = {}) {
+  return Object.fromEntries(
+    Object.entries(points)
+      .filter(([, stack]) => stack && Number(stack.count) > 0)
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([point, stack]) => [point, {
+        color: String(stack.color || ''),
+        count: Number(stack.count) || 0,
+      }]),
+  );
+}
+
+function compactCandidateState(state = {}) {
+  return {
+    points: compactPoints(state.points),
+    bar: {
+      white: Number(state.bar?.white) || 0,
+      dark: Number(state.bar?.dark) || 0,
+    },
+    off: {
+      white: Number(state.off?.white) || 0,
+      dark: Number(state.off?.dark) || 0,
+    },
+  };
+}
+
+function longStateSnapshotV2(state = {}, color = state.turn) {
+  return {
+    schema: 'long-state-v2',
+    variant: 'long',
+    phase: String(state.phase || 'move'),
+    turn: String(color || state.turn || ''),
+    points: compactPoints(state.points),
+    bar: {
+      white: Number(state.bar?.white) || 0,
+      dark: Number(state.bar?.dark) || 0,
+    },
+    off: {
+      white: Number(state.off?.white) || 0,
+      dark: Number(state.off?.dark) || 0,
+    },
+    dice: (state.dice || []).map(value => Number(value) || 0),
+    rolled: (state.rolled || []).map(value => Number(value) || 0),
+    firstMoveDone: {
+      white: Boolean(state.firstMoveDone?.white),
+      dark: Boolean(state.firstMoveDone?.dark),
+    },
+    headPlayedThisTurn: {
+      white: Boolean(state.headPlayedThisTurn?.white),
+      dark: Boolean(state.headPlayedThisTurn?.dark),
+    },
+    turnMoves: (state.turnMoves || []).map(move => ({
+      color: String(move.color || ''),
+      from: Number(move.from) || 0,
+      to: move.bearOff || Number(move.to) === 0 ? 0 : Number(move.to) || 0,
+      die: Number(move.die) || 0,
+      bearOff: Boolean(move.bearOff || Number(move.to) === 0),
+    })),
+  };
+}
+
+function snapshotFingerprintV2(snapshot) {
+  const input = stableStringify(snapshot || {});
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `lbs2-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  return `{${Object.keys(value).sort().map(key => (
+    `${JSON.stringify(key)}:${stableStringify(value[key])}`
+  )).join(',')}}`;
+}
+
 function decisionCandidatePositionKey(candidate) {
   const points = Object.entries(candidate?.after?.points || {})
     .sort((left, right) => Number(left[0]) - Number(right[0]))
     .map(([point, stack]) => `${point}:${stack.color}:${stack.count}`)
     .join('|');
-  return `${points}|${Number(candidate?.after?.off?.white) || 0}:${Number(candidate?.after?.off?.dark) || 0}`;
+  return `${points}|bar:${Number(candidate?.after?.bar?.white) || 0}:${Number(candidate?.after?.bar?.dark) || 0}|off:${Number(candidate?.after?.off?.white) || 0}:${Number(candidate?.after?.off?.dark) || 0}`;
 }
 
 function positionFingerprint(state, color) {

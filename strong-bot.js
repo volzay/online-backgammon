@@ -31,6 +31,9 @@ window.NarduStrongBot = (function () {
   ];
   const LONG_EXPERIENCE_CREDIT_VERSION = 8;
   const SHORT_EXPERIENCE_CREDIT_VERSION = 6;
+  const LONG_COUNTERFACTUAL_REVIEW_VERSION = 'long-counterfactual-review-v1';
+  const LONG_COUNTERFACTUAL_REPORT_SCHEMA = 'long-bot-loss-review-report-v1';
+  const LONG_CAUSAL_EVIDENCE_HISTORY_LIMIT = 64;
   const LONG_OPPONENT_CAPTURE_VERSION = 2;
   const LONG_HARM_SIGNAL_THRESHOLD = 1.1;
   const LONG_LOCAL_EXPERIENCE_LIMIT = 360;
@@ -63,6 +66,22 @@ window.NarduStrongBot = (function () {
     } catch (error) {
       return null;
     }
+  }
+
+  function longEngineRequiresCausalExperience() {
+    const match = String(window.NarduLongBotEngine?.version || '')
+      .match(/^long-analytic-v(\d+)$/);
+    return Boolean(match && Number(match[1]) >= 35);
+  }
+
+  function isCausalLongExperiencePattern(pattern) {
+    return Boolean(
+      pattern
+      && typeof pattern === 'object'
+      && Number(pattern.creditVersion) === LONG_EXPERIENCE_CREDIT_VERSION
+      && pattern.evidenceVersion === LONG_COUNTERFACTUAL_REVIEW_VERSION
+      && pattern.outcomeUsed === false,
+    );
   }
 
   function learningProfile() {
@@ -126,7 +145,8 @@ window.NarduStrongBot = (function () {
       const limit = variant === 'short'
         ? SHORT_LOCAL_EXPERIENCE_LIMIT
         : LONG_LOCAL_EXPERIENCE_LIMIT;
-      const patterns = Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+      const parsedPatterns = Array.isArray(parsed) ? parsed : [];
+      const patterns = parsedPatterns.slice(0, limit);
       if (variant === 'short') {
         const migrated = patterns.map(pattern => ({
           ...pattern,
@@ -143,6 +163,13 @@ window.NarduStrongBot = (function () {
         }
         LEGACY_SHORT_EXPERIENCE_KEYS.forEach(key => store.removeItem?.(key));
         return migrated;
+      }
+      if (longEngineRequiresCausalExperience()) {
+        // Browser storage and attached reports are client-controlled. v35
+        // keeps them as diagnostics only until a server-verifiable trust
+        // envelope exists; no claimed causal pattern is executable policy.
+        store.removeItem?.(EXPERIENCE_KEY);
+        return [];
       }
       if (!patterns.every(pattern => (
         pattern
@@ -162,9 +189,12 @@ window.NarduStrongBot = (function () {
     const store = storage();
     if (!store) return;
     try {
+      const savedPatterns = variant === 'long' && longEngineRequiresCausalExperience()
+        ? []
+        : patterns;
       store.setItem(
         variant === 'short' ? SHORT_EXPERIENCE_KEY : EXPERIENCE_KEY,
-        JSON.stringify(patterns.slice(
+        JSON.stringify(savedPatterns.slice(
           0,
           variant === 'short' ? SHORT_LOCAL_EXPERIENCE_LIMIT : LONG_LOCAL_EXPERIENCE_LIMIT,
         )),
@@ -1700,6 +1730,438 @@ window.NarduStrongBot = (function () {
     });
   }
 
+  function finitePositive(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : null;
+  }
+
+  function finiteTrustedNumber(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  function closeEnough(left, right) {
+    const leftNumber = finiteTrustedNumber(left);
+    const rightNumber = finiteTrustedNumber(right);
+    if (leftNumber === null || rightNumber === null) return false;
+    const scale = Math.max(1, Math.abs(leftNumber), Math.abs(rightNumber));
+    return Math.abs(leftNumber - rightNumber) <= scale * 1e-9;
+  }
+
+  function sameStringList(left, right) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    return JSON.stringify(left.map(String)) === JSON.stringify(right.map(String));
+  }
+
+  function longCounterfactualReviewAttachment(state) {
+    const memory = state?.analysis?.botMemory;
+    const report = memory?.counterfactualReview || state?.analysis?.counterfactualReview;
+    if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
+    if (
+      report.schema !== LONG_COUNTERFACTUAL_REPORT_SCHEMA
+      || report.reviewerVersion !== LONG_COUNTERFACTUAL_REVIEW_VERSION
+      || report.outcomeUsed !== false
+      || !Array.isArray(report.records)
+      || !Array.isArray(report.reviews)
+    ) {
+      return null;
+    }
+    return report;
+  }
+
+  function matchingCounterfactualReview(report, record) {
+    const decisionId = String(record?.decisionId || '');
+    if (!decisionId) return null;
+    const matches = report.reviews.filter(review => (
+      String(review?.decisionId || '') === decisionId
+      && review?.status === 'confirmed-regret'
+      && review?.outcomeUsed === false
+      && review?.execution?.status === 'matched'
+      && review?.counterfactual?.reviewerVersion === LONG_COUNTERFACTUAL_REVIEW_VERSION
+      && Number.isInteger(finiteTrustedNumber(review?.counterfactual?.candidateCount))
+      && review.counterfactual.candidateCount > 0
+      && Number.isInteger(finiteTrustedNumber(review?.counterfactual?.uniquePositionCount))
+      && review.counterfactual.uniquePositionCount > 0
+      && review.counterfactual.uniquePositionCount
+        <= review.counterfactual.candidateCount
+    ));
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  function counterfactualPositionKey(candidate) {
+    const after = candidate?.after || candidate;
+    if (!after?.points || typeof after.points !== 'object') return '';
+    const points = Object.entries(after.points)
+      .filter(([, stack]) => stack && Number(stack.count) > 0)
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([point, stack]) => (
+        `${point}:${String(stack.color || '')}:${Number(stack.count) || 0}`
+      ))
+      .join('|');
+    return `${points}|bar:${Number(after.bar?.white) || 0}:${Number(after.bar?.dark) || 0}|off:${Number(after.off?.white) || 0}:${Number(after.off?.dark) || 0}`;
+  }
+
+  function canonicalCounterfactualMoves(moves) {
+    if (!Array.isArray(moves) || moves.length < 1) return '';
+    const result = [];
+    for (const move of moves) {
+      const from = finiteTrustedNumber(move?.from);
+      const die = finiteTrustedNumber(move?.die);
+      const to = move?.bearOff || move?.to === 0 ? 0 : finiteTrustedNumber(move?.to);
+      if (
+        from === null
+        || die === null
+        || to === null
+        || !Number.isInteger(from)
+        || !Number.isInteger(die)
+        || !Number.isInteger(to)
+      ) return '';
+      result.push(`${from}>${to}@${die}`);
+    }
+    return result.join(';');
+  }
+
+  function archivedCounterfactualDecision(memory, record) {
+    const decisionId = String(record?.decisionId || '');
+    const decisions = Array.isArray(memory?.decisions) ? memory.decisions : [];
+    const matches = decisions.filter(decision => String(decision?.id || '') === decisionId);
+    if (!decisionId || matches.length !== 1) return null;
+    const decision = matches[0];
+    const selectedExperience = decision?.selected?.experience;
+    const decisionExperience = decision?.experience;
+    const execution = decision?.execution;
+    const selectedPositionKey = counterfactualPositionKey(decision?.selected);
+    const executed = execution?.executed
+      || (execution?.after ? { after: execution.after, moves: execution.executedMoves } : null);
+    const executedPositionKey = counterfactualPositionKey(executed);
+    const selectedMoves = canonicalCounterfactualMoves(decision?.selected?.moves);
+    const executedMoves = canonicalCounterfactualMoves(
+      execution?.executedMoves || execution?.actualMoves || execution?.moves || execution?.executed?.moves,
+    );
+    const executedActionKey = String(
+      execution?.executedActionKey
+      || execution?.executed?.experience?.actionKey
+      || execution?.executed?.actionKey
+      || '',
+    );
+    if (
+      decision?.actor === 'opponent'
+      || decision?.source !== 'engine'
+      || String(decision?.positionId || '') !== String(record?.positionId || '')
+      || String(decision?.engineVersion || '') !== String(record?.engineVersion || '')
+      || String(decision?.experienceFingerprint || '') !== String(record?.experienceFingerprint || '')
+      || String(decision?.stateFingerprintV2 || '') !== String(record?.stateFingerprintV2 || '')
+      || !String(decision?.stateFingerprintV2 || '')
+      || !selectedExperience
+      || String(selectedExperience.contextKey || '') !== String(record?.contextKey || '')
+      || String(selectedExperience.actionKey || '') !== String(record?.selectedActionKey || '')
+      || !decisionExperience
+      || String(decisionExperience.contextKey || '') !== String(selectedExperience.contextKey || '')
+      || String(decisionExperience.actionKey || '') !== String(selectedExperience.actionKey || '')
+      || selectedPositionKey !== String(record?.selectedPositionKey || '')
+      || !execution
+      || execution.complete !== true
+      || execution.fallback === true
+      || execution.substituted === true
+      || (Array.isArray(execution.substitutions) && execution.substitutions.length > 0)
+      || execution.selectedMatchesExecuted !== true
+      || !selectedPositionKey
+      || !executedPositionKey
+      || executedPositionKey !== selectedPositionKey
+      || !selectedMoves
+      || !executedMoves
+      || selectedMoves !== executedMoves
+      || !executedActionKey
+      || executedActionKey !== String(selectedExperience.actionKey || '')
+    ) {
+      return null;
+    }
+    return decision;
+  }
+
+  function validatedLongCounterfactualRecord(
+    memory,
+    report,
+    record,
+    currentEngineVersion,
+  ) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+    if (
+      record.evidenceVersion !== LONG_COUNTERFACTUAL_REVIEW_VERSION
+      || record.evidenceType !== 'negative-selected-penalty'
+      || record.direction !== 'negative'
+      || record.outcomeUsed !== false
+      || record.reviewComplete !== true
+      || record.candidateCoverageComplete !== true
+      || record.executionStatus !== 'matched'
+      || record.evidenceNature !== 'decision-local-counterfactual-regret'
+      || record.learningEligible !== true
+    ) {
+      return null;
+    }
+
+    const review = matchingCounterfactualReview(report, record);
+    if (!review) return null;
+    const counterfactual = review.counterfactual;
+    const nestedRecord = Array.isArray(review.records)
+      ? review.records.find(candidate => (
+        String(candidate?.decisionId || '') === String(record.decisionId || '')
+        && candidate?.evidenceVersion === LONG_COUNTERFACTUAL_REVIEW_VERSION
+        && candidate?.evidenceType === 'negative-selected-penalty'
+      ))
+      : null;
+    if (!nestedRecord) return null;
+    const contextKey = String(record.contextKey || '');
+    const actionKey = String(record.selectedActionKey || '');
+    const actionIdentity = String(record.actionIdentity || '');
+    const positionId = String(record.positionId || '');
+    const engineVersion = String(record.engineVersion || '');
+    const experienceFingerprint = String(record.experienceFingerprint || '');
+    const stateFingerprintV2 = String(record.stateFingerprintV2 || '');
+    const selectedPositionKey = String(record.selectedPositionKey || '');
+    const recommendedPositionKey = String(record.recommendedPositionKey || '');
+    const executedPositionKey = String(record.executedPositionKey || '');
+    const regret = finitePositive(record.regret);
+    const regretLcb = finitePositive(record.regretLcb);
+    const selectedScore = finiteTrustedNumber(record.selectedScore);
+    const recommendedScore = finiteTrustedNumber(record.recommendedScore);
+    const scoreField = String(record.scoreField || '');
+    const scoreSemantics = String(record.scoreSemantics || '');
+    const candidateCount = finiteTrustedNumber(record.candidateCount);
+    const uniquePositionCount = finiteTrustedNumber(record.uniquePositionCount);
+    const categories = Array.isArray(record.categories)
+      ? record.categories.map(String).filter(Boolean)
+      : [];
+
+    if (
+      !contextKey
+      || !actionKey
+      || actionIdentity !== `${contextKey}::${actionKey}`
+      || !positionId
+      || !engineVersion
+      || engineVersion !== currentEngineVersion
+      || !experienceFingerprint
+      || !stateFingerprintV2
+      || !selectedPositionKey
+      || !recommendedPositionKey
+      || selectedPositionKey === recommendedPositionKey
+      || executedPositionKey !== selectedPositionKey
+      || regret === null
+      || regretLcb === null
+      || regretLcb > regret
+      || selectedScore === null
+      || recommendedScore === null
+      || recommendedScore <= selectedScore
+      || !closeEnough(recommendedScore - selectedScore, regret)
+      || !scoreField
+      || !scoreSemantics
+      || scoreField !== 'policyScore'
+      || scoreSemantics !== 'long-policy-evaluator-v1'
+      || !Number.isInteger(candidateCount)
+      || candidateCount < 1
+      || !Number.isInteger(uniquePositionCount)
+      || uniquePositionCount < 1
+      || uniquePositionCount > candidateCount
+      || categories.length < 1
+    ) {
+      return null;
+    }
+
+    if (
+      counterfactual.engineVersion !== engineVersion
+      || counterfactual.experienceFingerprint !== experienceFingerprint
+      || counterfactual.stateFingerprintV2 !== stateFingerprintV2
+      || counterfactual.selectedPositionKey !== selectedPositionKey
+      || counterfactual.recommendedPositionKey !== recommendedPositionKey
+      || !closeEnough(counterfactual.regret, regret)
+      || !closeEnough(counterfactual.regretLcb, regretLcb)
+      || counterfactual.scoreField !== scoreField
+      || counterfactual.scoreSemantics !== scoreSemantics
+      || finiteTrustedNumber(counterfactual.candidateCount) !== candidateCount
+      || finiteTrustedNumber(counterfactual.uniquePositionCount) !== uniquePositionCount
+      || !sameStringList(counterfactual.categories, categories)
+      || counterfactual.learningEligible !== true
+      || counterfactual.diagnosticOnly === true
+      || String(review.positionId || '') !== positionId
+      || String(review.stateFingerprintV2 || '') !== stateFingerprintV2
+      || review.execution.selectedPositionKey !== selectedPositionKey
+      || review.execution.executedPositionKey !== executedPositionKey
+      || review.execution.selectedActionKey !== actionKey
+      || nestedRecord.engineVersion !== engineVersion
+      || nestedRecord.experienceFingerprint !== experienceFingerprint
+      || nestedRecord.stateFingerprintV2 !== stateFingerprintV2
+      || nestedRecord.contextKey !== contextKey
+      || nestedRecord.selectedActionKey !== actionKey
+      || nestedRecord.actionIdentity !== actionIdentity
+      || nestedRecord.selectedPositionKey !== selectedPositionKey
+      || nestedRecord.recommendedPositionKey !== recommendedPositionKey
+      || nestedRecord.executedPositionKey !== executedPositionKey
+      || !closeEnough(nestedRecord.regret, regret)
+      || !closeEnough(nestedRecord.regretLcb, regretLcb)
+      || !closeEnough(nestedRecord.selectedScore, selectedScore)
+      || !closeEnough(nestedRecord.recommendedScore, recommendedScore)
+      || nestedRecord.scoreField !== scoreField
+      || nestedRecord.scoreSemantics !== scoreSemantics
+      || finiteTrustedNumber(nestedRecord.candidateCount) !== candidateCount
+      || finiteTrustedNumber(nestedRecord.uniquePositionCount) !== uniquePositionCount
+      || !sameStringList(nestedRecord.categories, categories)
+      || nestedRecord.reviewComplete !== true
+      || nestedRecord.candidateCoverageComplete !== true
+      || nestedRecord.executionStatus !== 'matched'
+      || nestedRecord.outcomeUsed !== false
+      || nestedRecord.learningEligible !== true
+    ) {
+      return null;
+    }
+
+    if (!archivedCounterfactualDecision(memory, record)) return null;
+
+    return {
+      ...record,
+      contextKey,
+      selectedActionKey: actionKey,
+      actionIdentity,
+      positionId,
+      engineVersion,
+      experienceFingerprint,
+      stateFingerprintV2,
+      selectedPositionKey,
+      recommendedPositionKey,
+      executedPositionKey,
+      regret,
+      regretLcb,
+      scoreField,
+      scoreSemantics,
+      candidateCount,
+      uniquePositionCount,
+      categories,
+    };
+  }
+
+  function longCounterfactualEvidenceId(record) {
+    const identity = [
+      record.evidenceVersion,
+      record.engineVersion,
+      record.experienceFingerprint,
+      record.decisionId,
+      record.positionId,
+      record.selectedPositionKey,
+      record.recommendedPositionKey,
+      record.actionIdentity,
+    ].map(value => String(value || '')).join('|');
+    let first = 2166136261;
+    let second = 2246822519;
+    for (let index = 0; index < identity.length; index += 1) {
+      const code = identity.charCodeAt(index);
+      first = Math.imul(first ^ code, 16777619);
+      second = Math.imul(second ^ code, 3266489917);
+    }
+    const firstHex = (first >>> 0).toString(16).padStart(8, '0');
+    const secondHex = (second >>> 0).toString(16).padStart(8, '0');
+    return `lcr1-${firstHex}${secondHex}`;
+  }
+
+  function causalPenaltyWeights(record) {
+    // Scores from different evaluator generations are not on a common scale.
+    // Only the conservative share of independently established regret is used
+    // as confidence; the game result and result type never enter this weight.
+    const confidence = clamp(record.regretLcb / record.regret, 0, 1);
+    const categoryCount = new Set(
+      (Array.isArray(record.categories) ? record.categories : []).map(String).filter(Boolean),
+    ).size;
+    return {
+      lossWeight: Math.min(3.75, 0.85 + confidence * 2.1 + Math.min(0.6, categoryCount * 0.12)),
+      signalWeight: Math.min(4, 1.1 + confidence * 2.2 + Math.min(0.7, categoryCount * 0.14)),
+    };
+  }
+
+  function learnLongFromCounterfactualReviews(state) {
+    const memory = state?.analysis?.botMemory;
+    const report = longCounterfactualReviewAttachment(state);
+    if (!memory || !Array.isArray(memory.decisions) || !report) return false;
+    const currentEngineVersion = String(window.NarduLongBotEngine?.version || '');
+    if (!currentEngineVersion) return false;
+
+    const accepted = [];
+    const seenEvidence = new Set();
+    report.records.forEach((record) => {
+      const validated = validatedLongCounterfactualRecord(
+        memory,
+        report,
+        record,
+        currentEngineVersion,
+      );
+      if (!validated) return;
+      const evidenceId = longCounterfactualEvidenceId(validated);
+      if (!evidenceId || seenEvidence.has(evidenceId)) return;
+      seenEvidence.add(evidenceId);
+      accepted.push({ ...validated, evidenceId });
+    });
+    if (!accepted.length) return false;
+
+    // The linkage above is retained as the acceptance contract for a future
+    // signed server envelope. A browser-attached report is still forgeable,
+    // so v35 never turns it into executable local policy.
+    if (longEngineRequiresCausalExperience()) return false;
+
+    const patterns = localExperience('long');
+    const byKey = new Map(patterns.map(pattern => [
+      `${pattern.contextKey}::${pattern.actionKey}`,
+      { ...pattern },
+    ]));
+    let changed = false;
+    accepted.forEach((record) => {
+      const key = `${record.contextKey}::${record.selectedActionKey}`;
+      const existingPattern = byKey.get(key);
+      // Never merge a causal penalty into an older outcome-labelled aggregate.
+      // Keep the numeric v8 wire format, but reset this one selected key unless
+      // its provenance already names the counterfactual reviewer generation.
+      const pattern = existingPattern?.evidenceVersion === LONG_COUNTERFACTUAL_REVIEW_VERSION
+        ? existingPattern
+        : {
+          creditVersion: LONG_EXPERIENCE_CREDIT_VERSION,
+          contextKey: record.contextKey,
+          actionKey: record.selectedActionKey,
+          samples: 0,
+          losses: 0,
+          wins: 0,
+          lossWeight: 0,
+          severeLosses: 0,
+          signalWeight: 0,
+          winWeight: 0,
+        };
+      const evidenceIds = Array.isArray(pattern.causalEvidenceIds)
+        ? pattern.causalEvidenceIds.map(String).filter(Boolean)
+        : [];
+      if (evidenceIds.includes(record.evidenceId)) return;
+      const weights = causalPenaltyWeights(record);
+      pattern.creditVersion = LONG_EXPERIENCE_CREDIT_VERSION;
+      pattern.evidenceVersion = LONG_COUNTERFACTUAL_REVIEW_VERSION;
+      pattern.outcomeUsed = false;
+      pattern.samples = Math.max(0, Number(pattern.samples) || 0) + 1;
+      pattern.losses = Math.max(0, Number(pattern.losses) || 0) + 1;
+      pattern.lossWeight = Math.max(0, Number(pattern.lossWeight) || 0) + weights.lossWeight;
+      pattern.severeLosses = Math.max(0, Number(pattern.severeLosses) || 0);
+      pattern.signalWeight = Math.max(0, Number(pattern.signalWeight) || 0) + weights.signalWeight;
+      pattern.wins = Math.max(0, Number(pattern.wins) || 0);
+      pattern.winWeight = Math.max(0, Number(pattern.winWeight) || 0);
+      pattern.causalEvidenceIds = [...evidenceIds, record.evidenceId]
+        .slice(-LONG_CAUSAL_EVIDENCE_HISTORY_LIMIT);
+      pattern.updatedAt = new Date().toISOString();
+      byKey.set(key, pattern);
+      changed = true;
+    });
+    if (!changed) return false;
+
+    const learnedPatterns = retainBalancedLocalExperience(
+      Array.from(byKey.values()).filter(pattern => Number(pattern.losses || 0) > 0),
+      LONG_LOCAL_EXPERIENCE_LIMIT,
+    );
+    saveLocalExperience(learnedPatterns, 'long');
+    window.NarduLongBotEngine?.setExperience?.(learnedPatterns, 'local');
+    return true;
+  }
+
   function learnFromGame(state, botColor) {
     if (!state?.winner || !botColor) return null;
     const botWon = state.winner === botColor;
@@ -1710,6 +2172,17 @@ window.NarduStrongBot = (function () {
     saveLearningProfile(profile);
 
     const variant = state.variant === 'short' ? 'short' : 'long';
+    if (variant === 'long') {
+      // A final result is correlation, not per-move causation. Long games may
+      // update memory only from an explicitly attached, complete, matched
+      // counterfactual review report. Short-bot learning remains unchanged.
+      if (longEngineRequiresCausalExperience()) {
+        localExperience('long');
+        window.NarduLongBotEngine?.setExperience?.([], 'local-quarantine');
+      }
+      learnLongFromCounterfactualReviews(state);
+      return profile;
+    }
     const patterns = localExperience(variant);
     const byKey = new Map(patterns.map(pattern => [
       `${pattern.contextKey}::${pattern.actionKey}`,

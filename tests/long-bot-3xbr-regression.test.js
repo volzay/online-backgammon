@@ -196,7 +196,7 @@ test('3XBR-A8W8 keeps the archived point-8 break available for measured comparis
   assert.ok(archived.tactical, 'the rejected move must retain tactical measurements');
 });
 
-test('3XBR-A8W8 selected correction has complete four-ply fair-dice telemetry', () => {
+test('3XBR-A8W8 selected correction has bounded four-ply fair-dice telemetry', () => {
   const target = engine();
   target.setExperience([], '3xbr-telemetry');
   target.plan(state(TURN_7_POINTS), {

@@ -1,0 +1,13 @@
+[Unit]
+Description=Resume bounded trusted hard long-backgammon terminal cohorts
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+# Oneshot service plus the inherited kernel FLOCK prevents overlapping runs.
+RandomizedDelaySec=10
+Unit=long-bot-causal-worker.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

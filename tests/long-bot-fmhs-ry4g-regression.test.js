@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
 const ENGINE_SOURCES = [
@@ -209,7 +210,10 @@ test('FMHS-H7GU turn 8 keeps point 9 closed against the later 14-to-9 move', () 
   assert.ok(hasSequence(ranked[0], safeMoves), `selected ${sequenceLabel(ranked[0])}`);
 });
 
-test('FMHS-H7GU turn 10 rejects a move dominated in every four-ply safety metric', () => {
+test('FMHS-H7GU turn 10 rejects a move dominated in every four-ply safety metric', async () => {
+  const { hasBoundedFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/engine.ts'),
+  ).href);
   const safeMoves = [
     { from: 12, to: 7, die: 5 },
     { from: 8, to: 7, die: 1 },
@@ -224,22 +228,28 @@ test('FMHS-H7GU turn 10 rejects a move dominated in every four-ply safety metric
 
   assert.ok(safe, 'the point-3 preserving candidate must be legal');
   assert.ok(unsafe, 'the archived point-3 break must remain measurable');
+  assert.equal(hasBoundedFourPlyTactical(safe), true);
+  assert.equal(hasBoundedFourPlyTactical(unsafe), true);
   [
     'expectedImpact',
     'worstImpact',
     'recoveryExpected',
     'recoveryWorst',
+    'recoveryTailRisk',
     'continuationExpected',
     'continuationWorst',
+    'continuationTailRisk',
   ].forEach(metric => {
     assert.ok(
       safe.tactical[metric] > unsafe.tactical[metric],
       `${metric}: safe=${safe.tactical[metric]} unsafe=${unsafe.tactical[metric]}`,
     );
   });
-  assert.ok(
-    safe.tactical.continuationWorst - unsafe.tactical.continuationWorst > 2_000_000_000,
-  );
+  // The representative+worst model exposes a rare catastrophic recovery board
+  // for BOTH moves. Its worst gap is no longer the optimistic single-frontier
+  // 2B value; preserve strict dominance in all eight metrics, including tails.
+  assert.ok(safe.tactical.continuationTailRisk - unsafe.tactical.continuationTailRisk > 1_500_000_000);
+  assert.equal(safe.after.points[3]?.color, 'dark');
   assert.ok(hasSequence(ranked[0], safeMoves), `selected ${sequenceLabel(ranked[0])}`);
 });
 

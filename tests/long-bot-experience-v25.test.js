@@ -269,7 +269,7 @@ test('v25 learns a worsening latent fence before the visible fence closes', asyn
   ));
 });
 
-test('v25 local learning persists exact, strategic, family, behavior and legacy evidence', () => {
+test('long outcome-only learning persists neither losing nor winning aliases', () => {
   const { context, storage, applied } = loadStrongBot();
   const losingDescriptor = {
     contextKey: 'late-entry|loss',
@@ -315,40 +315,11 @@ test('v25 local learning persists exact, strategic, family, behavior and legacy 
     },
   }, 'dark');
 
-  const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
-  const byKey = new Map(learned.map(pattern => [
-    `${pattern.contextKey}::${pattern.actionKey}`,
-    pattern,
-  ]));
-  [
-    losingDescriptor.actionKey,
-    losingDescriptor.strategicActionKey,
-    losingDescriptor.familyActionKey,
-    ...losingDescriptor.behaviorActionKeys,
-    losingDescriptor.legacyActionKey,
-  ].forEach((actionKey) => {
-    const pattern = byKey.get(`${losingDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 8);
-    assert.equal(pattern.losses, 1);
-    assert.equal(pattern.wins, 0);
-  });
-  [
-    winningDescriptor.actionKey,
-    winningDescriptor.strategicActionKey,
-    winningDescriptor.familyActionKey,
-    ...winningDescriptor.behaviorActionKeys,
-    winningDescriptor.legacyActionKey,
-  ].forEach((actionKey) => {
-    const pattern = byKey.get(`${winningDescriptor.contextKey}::${actionKey}`);
-    assert.equal(pattern.creditVersion, 8);
-    assert.equal(pattern.losses, 0);
-    assert.equal(pattern.wins, 1);
-    assert.equal(pattern.winWeight, 2.5);
-  });
-  assert.equal(applied.at(-1).source, 'local');
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
+  assert.equal(applied.length, 0);
 });
 
-test('v27 discards outcome-poisoned local memory before engine sync', () => {
+test('a result without causal review does not mutate legacy long memory', () => {
   const storage = memoryStorage({
     'narduh-long-bot-experience-v7': JSON.stringify([{
       contextKey: 'route|previous-credit-generation',
@@ -392,15 +363,15 @@ test('v27 discards outcome-poisoned local memory before engine sync', () => {
     analysis: { botMemory: { decisions: [] } },
   }, 'dark');
 
-  assert.equal(applied.at(-1)?.patterns?.length || 0, 0);
-  assert.equal(storage.values.has('narduh-long-bot-experience-v7'), false);
-  assert.equal(storage.values.has('narduh-long-bot-experience-v4'), false);
-  assert.equal(storage.values.has('narduh-long-bot-experience-v3'), false);
-  assert.equal(storage.values.has('narduh-long-bot-experience-v2'), false);
-  assert.equal(storage.values.has('narduh-long-bot-experience-v1'), false);
+  assert.equal(applied.length, 0);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v7'), true);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v4'), true);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v3'), true);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v2'), true);
+  assert.equal(storage.values.has('narduh-long-bot-experience-v1'), true);
 });
 
-test('v25 local learning discards zero-signal wins instead of teaching lucky mistakes', () => {
+test('a naked win leaves existing long memory byte-for-byte unchanged', () => {
   const storage = memoryStorage({
     [EXPERIENCE_KEY]: JSON.stringify([{
       contextKey: 'old|zero',
@@ -434,7 +405,13 @@ test('v25 local learning discards zero-signal wins instead of teaching lucky mis
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), [{
+    contextKey: 'old|zero',
+    actionKey: 'old:zero',
+    samples: 10,
+    losses: 0,
+    wins: 0,
+  }]);
 });
 
 test('v26 local learning uses the same 1.1 harmful threshold as the server', () => {
@@ -462,7 +439,7 @@ test('v26 local learning uses the same 1.1 harmful threshold as the server', () 
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v27 local learning ignores a forced single-choice move in a lost game', () => {
@@ -490,7 +467,7 @@ test('v27 local learning ignores a forced single-choice move in a lost game', ()
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v25 does not learn a risky move merely because the opponent won', () => {
@@ -519,10 +496,10 @@ test('v25 does not learn a risky move merely because the opponent won', () => {
     },
   }, 'dark');
 
-  assert.deepEqual(JSON.parse(storage.values.get(EXPERIENCE_KEY)), []);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
-test('v25 local retention reserves equal space for losses and winner demonstrations', () => {
+test('outcome-only bulk decisions cannot fill long local retention', () => {
   const { context, storage } = loadStrongBot();
   const phases = ['head-development', 'route', 'late-entry', 'koks-rescue', 'bearoff'];
   const decisions = [];
@@ -568,14 +545,7 @@ test('v25 local retention reserves equal space for losses and winner demonstrati
     analysis: { botMemory: completeV29Memory(decisions) },
   }, 'dark');
 
-  const learned = JSON.parse(storage.values.get(EXPERIENCE_KEY));
-  const harmful = learned.filter(pattern => Number(pattern.losses || 0) > 0);
-  const successful = learned.filter(pattern => Number(pattern.wins || 0) > 0);
-  assert.equal(learned.length, 360);
-  assert.equal(harmful.length, 180);
-  assert.equal(successful.length, 180);
-  assert.ok(successful.some(pattern => pattern.actionKey.startsWith('exact:win-')));
-  assert.equal(new Set(successful.map(pattern => pattern.contextKey.split('|')[0])).size, phases.length);
+  assert.equal(storage.values.has(EXPERIENCE_KEY), false);
 });
 
 test('v34 RPC excludes forced choices, preserves v29-v33 evidence and matches the schema', () => {

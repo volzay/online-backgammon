@@ -1138,6 +1138,373 @@ test("v19 reserves a fifth-place home entry for reply analysis", async () => {
   );
 });
 
+test("structural tactical reservation is cleared when a repeated pass loses its proof", async () => {
+  const { reserveStructuralIntegrityForTacticalAnalysis } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = longState({
+    1: { color: "dark", count: 1 },
+    24: { color: "white", count: 1 },
+  });
+  const selected = {
+    score: 100,
+    features: {
+      opponentFenceRunBefore: 4,
+      latentFenceExposureBefore: 30,
+      latentFenceExposureAfter: 30,
+      latentFenceExposureDelta: 0,
+      trapDelta: 0,
+      escapeGatewayDelta: 0,
+      resultSafetyAfter: 0,
+    },
+  };
+  const escape = {
+    score: 90,
+    features: {
+      ...selected.features,
+      latentFenceExposureAfter: 0,
+      latentFenceExposureDelta: 30,
+    },
+  };
+
+  reserveStructuralIntegrityForTacticalAnalysis(state, "dark", [selected, escape]);
+  assert.equal(escape.features.structuralIntegrityTacticalReservation, 1);
+
+  escape.features.latentFenceExposureAfter = 30;
+  escape.features.latentFenceExposureDelta = 0;
+  reserveStructuralIntegrityForTacticalAnalysis(state, "dark", [selected, escape]);
+  assert.equal(escape.features.structuralIntegrityTacticalReservation, undefined);
+});
+
+test("structural tactical reservation survives competing reservations and the continuation cap", async () => {
+  const { selectContinuationCandidates } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/analysis.ts"),
+  ).href);
+  const accumulator = (id, reservation = {}) => ({
+    candidate: {
+      id,
+      score: 100,
+      features: { ...reservation },
+      tactical: { plies: 3 },
+    },
+    recoveryFrontiers: [{ value: 0, state: {} }],
+  });
+  const structural = accumulator("structural", {
+    structuralIntegrityTacticalReservation: 1,
+  });
+  const selected = selectContinuationCandidates([
+    accumulator("score-leader"),
+    accumulator("home-entry", { homeEntryTacticalReservation: 1 }),
+    accumulator("route", { routeContinuityTacticalReservation: 1 }),
+    structural,
+  ]);
+
+  assert.equal(selected.length, 4);
+  assert.ok(selected.includes(structural));
+});
+
+test("tactically equivalent block rescue rejects catastrophic deep replies but accepts a bounded one", async () => {
+  const { prioritizeTacticallyEquivalentStructure } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const state = longState({
+    1: { color: "dark", count: 15 },
+    24: { color: "white", count: 15 },
+  });
+  const completeTactical = overrides => ({
+    plies: 4,
+    rolls: 21,
+    distributionWeight: 36,
+    distributionComplete: true,
+    doublesExpanded: true,
+    recoveryRolls: 21,
+    recoveryWeight: 36,
+    recoveryDistributionComplete: true,
+    continuationRolls: 21,
+    continuationWeight: 36,
+    continuationDistributionComplete: true,
+    continuationModelComplete: true,
+    continuationModelKind: "representative-worst-proxy-v1",
+    continuationApproximate: false,
+    continuationTotalFrontierCount: 2,
+    continuationTotalFrontierWeight: 36,
+    continuationProxyWeight: 36,
+    continuationCoverageComplete: true,
+    continuationFrontierCount: 2,
+    continuationFrontierWeight: 36,
+    continuationWorstRecoveryFrontierWeight: 1,
+    continuationRepresentativeFrontierIncluded: true,
+    continuationWorstFrontierIncluded: true,
+    expectedImpact: 0,
+    worstImpact: 0,
+    recoveryExpected: 0,
+    recoveryWorst: 0,
+    recoveryTailRisk: 0,
+    continuationExpected: 0,
+    continuationWorst: 0,
+    continuationTailRisk: 0,
+    ...overrides,
+  });
+  const features = overrides => ({
+    resultSafetyAfter: 0,
+    headGain: 0,
+    outsideReduction: 0,
+    outsidePipGain: 0,
+    startZoneReduction: 0,
+    homeShuffleMoves: 0,
+    maxRouteTowerAfter: 1,
+    primeRunAfter: 1,
+    primeScoreAfter: 0,
+    opponentMoveBlockAfter: 0,
+    prospectiveFenceInterruptionBreak: 0,
+    escapeGatewayDelta: 0,
+    fenceClosureDelta: 0,
+    latentFenceExposureDelta: 0,
+    trapDelta: 0,
+    prospectiveFenceExtensionDelta: 0,
+    ...overrides,
+  });
+  const pair = tacticalOverrides => {
+    const selected = {
+      id: "selected",
+      score: 0,
+      features: features({}),
+      tactical: completeTactical({}),
+    };
+    const rescue = {
+      id: "rescue",
+      score: -1000000,
+      features: features({ opponentMoveBlockAfter: 112 }),
+      tactical: completeTactical(tacticalOverrides),
+    };
+    return { selected, rescue };
+  };
+
+  const catastrophic = pair({
+    recoveryWorst: -900000000,
+    continuationWorst: -900000000,
+  });
+  assert.equal(
+    prioritizeTacticallyEquivalentStructure(
+      state,
+      "dark",
+      [catastrophic.selected, catastrophic.rescue],
+    )[0],
+    catastrophic.selected,
+  );
+
+  const weak = pair({});
+  weak.rescue.features.opponentMoveBlockAfter = 60;
+  assert.equal(
+    prioritizeTacticallyEquivalentStructure(
+      state,
+      "dark",
+      [weak.selected, weak.rescue],
+    )[0],
+    weak.selected,
+    "a weak block gain cannot purchase a structural override",
+  );
+
+  const catastrophicPrime = pair({
+    recoveryExpected: 8000000,
+    recoveryWorst: 20000000,
+    recoveryTailRisk: -900000000,
+    continuationExpected: -900000000,
+    continuationWorst: -900000000,
+    continuationTailRisk: -900000000,
+  });
+  catastrophicPrime.rescue.features.opponentMoveBlockAfter = 0;
+  catastrophicPrime.rescue.features.primeScoreAfter = 100;
+  assert.equal(
+    prioritizeTacticallyEquivalentStructure(
+      state,
+      "dark",
+      [catastrophicPrime.selected, catastrophicPrime.rescue],
+    )[0],
+    catastrophicPrime.selected,
+    "prime retention cannot hide catastrophic recovery-tail or continuation evidence",
+  );
+
+  const boundedPrime = pair({
+    recoveryExpected: 8000000,
+    recoveryWorst: 20000000,
+    recoveryTailRisk: -10000000,
+    continuationExpected: -5000000,
+    continuationWorst: -10000000,
+    continuationTailRisk: -10000000,
+  });
+  boundedPrime.rescue.features.opponentMoveBlockAfter = 0;
+  boundedPrime.rescue.features.primeScoreAfter = 100;
+  assert.equal(
+    prioritizeTacticallyEquivalentStructure(
+      state,
+      "dark",
+      [boundedPrime.selected, boundedPrime.rescue],
+    )[0],
+    boundedPrime.rescue,
+    "prime retention remains available at every bounded deep-envelope limit",
+  );
+
+  const bounded = pair({
+    recoveryExpected: -2000000,
+    recoveryWorst: -4000000,
+    recoveryTailRisk: -3000000,
+    continuationExpected: -2000000,
+    continuationWorst: -4000000,
+    continuationTailRisk: -3000000,
+  });
+  assert.equal(
+    prioritizeTacticallyEquivalentStructure(
+      state,
+      "dark",
+      [bounded.selected, bounded.rescue],
+    )[0],
+    bounded.rescue,
+  );
+});
+
+test("four-ply model validity is distinct from exhaustive recovery-frontier coverage", async () => {
+  const { hasBoundedFourPlyTactical, hasCompleteFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const tactical = {
+    plies: 4,
+    rolls: 21,
+    distributionWeight: 36,
+    distributionComplete: true,
+    doublesExpanded: true,
+    recoveryRolls: 21,
+    recoveryWeight: 36,
+    recoveryDistributionComplete: true,
+    continuationRolls: 21,
+    continuationWeight: 36,
+    continuationDistributionComplete: true,
+    continuationModelComplete: true,
+    continuationModelKind: "representative-worst-proxy-v1",
+    continuationApproximate: false,
+    continuationTotalFrontierCount: 2,
+    continuationTotalFrontierWeight: 36,
+    continuationProxyWeight: 36,
+    continuationCoverageComplete: true,
+    continuationFrontierCount: 2,
+    continuationFrontierWeight: 36,
+    continuationWorstRecoveryFrontierWeight: 1,
+    continuationRepresentativeFrontierIncluded: true,
+    continuationWorstFrontierIncluded: false,
+    expectedImpact: 0,
+    worstImpact: 0,
+    recoveryExpected: 0,
+    recoveryWorst: 0,
+    recoveryTailRisk: 0,
+    continuationExpected: 0,
+    continuationWorst: 0,
+    continuationTailRisk: 0,
+  };
+
+  assert.equal(hasBoundedFourPlyTactical({ tactical }), false);
+  assert.equal(hasCompleteFourPlyTactical({ tactical }), false);
+  tactical.continuationWorstFrontierIncluded = true;
+  assert.equal(hasBoundedFourPlyTactical({ tactical }), true);
+  assert.equal(hasCompleteFourPlyTactical({ tactical }), true);
+
+  tactical.continuationApproximate = true;
+  tactical.continuationCoverageComplete = false;
+  tactical.continuationFrontierWeight = 3;
+  tactical.continuationTotalFrontierCount = 21;
+  assert.equal(hasBoundedFourPlyTactical({ tactical }), true);
+  assert.equal(hasCompleteFourPlyTactical({ tactical }), false);
+  delete tactical.continuationModelKind;
+  assert.equal(hasBoundedFourPlyTactical({ tactical }), false);
+  tactical.continuationModelKind = "representative-worst-proxy-v1";
+  delete tactical.continuationApproximate;
+  assert.equal(hasBoundedFourPlyTactical({ tactical }), false);
+  tactical.continuationApproximate = false;
+  tactical.continuationCoverageComplete = true;
+  assert.equal(
+    hasBoundedFourPlyTactical({ tactical }),
+    false,
+    "contradictory coverage flags cannot certify even a bounded model",
+  );
+});
+
+test("deep fence regression rejects large closure damage at the recovery boundary regardless of utility", async () => {
+  const { isDeepFenceSafetyRegression } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
+  const tactical = overrides => ({
+    plies: 4,
+    rolls: 21,
+    distributionWeight: 36,
+    distributionComplete: true,
+    doublesExpanded: true,
+    recoveryRolls: 21,
+    recoveryWeight: 36,
+    recoveryDistributionComplete: true,
+    continuationRolls: 21,
+    continuationWeight: 36,
+    continuationDistributionComplete: true,
+    continuationModelComplete: true,
+    continuationModelKind: "representative-worst-proxy-v1",
+    continuationApproximate: false,
+    continuationTotalFrontierCount: 2,
+    continuationTotalFrontierWeight: 36,
+    continuationProxyWeight: 36,
+    continuationCoverageComplete: true,
+    continuationFrontierCount: 2,
+    continuationFrontierWeight: 36,
+    continuationWorstRecoveryFrontierWeight: 1,
+    continuationRepresentativeFrontierIncluded: true,
+    continuationWorstFrontierIncluded: true,
+    expectedImpact: 0,
+    worstImpact: 0,
+    recoveryExpected: 0,
+    recoveryWorst: 0,
+    recoveryTailRisk: 0,
+    continuationExpected: 0,
+    continuationWorst: 0,
+    continuationTailRisk: 0,
+    ...overrides,
+  });
+  const selected = {
+    features: {
+      trapDelta: 0,
+      fenceClosureDelta: 0,
+      escapeGatewayDelta: 0,
+      latentFenceExposureDelta: 0,
+    },
+    tactical: tactical({}),
+  };
+  const candidate = tacticalOverrides => ({
+    features: {
+      trapDelta: 0,
+      fenceClosureDelta: -12.000001,
+      escapeGatewayDelta: 0,
+      // This deliberately clears the former utility cliff while leaving the
+      // defensive closure damage and recovery regression unchanged.
+      latentFenceExposureDelta: 10,
+    },
+    tactical: tactical(tacticalOverrides),
+  });
+
+  for (const [metric, tolerance] of [
+    ["recoveryExpected", 12000000],
+    ["recoveryTailRisk", 12000000],
+    ["continuationWorst", 5000000],
+    ["continuationTailRisk", 5000000],
+  ]) {
+    assert.equal(
+      isDeepFenceSafetyRegression(candidate({ [metric]: -tolerance - 1 }), selected),
+      true,
+      `${metric} fails closed immediately beyond its bound`,
+    );
+    assert.equal(
+      isDeepFenceSafetyRegression(candidate({ [metric]: -tolerance }), selected),
+      false,
+      `${metric} remains allowed exactly at its bound`,
+    );
+  }
+});
+
 test("developing-fence escape promotion is bounded by score and experience", async () => {
   const { isComparableFenceEscape } = await import(pathToFileURL(
     path.join(ROOT, "bot-engine/long/engine.ts"),
@@ -1155,7 +1522,9 @@ test("developing-fence escape promotion is bounded by score and experience", asy
     tactical: { plies: 4, expectedImpact: 0, worstImpact: 0 },
   };
   const escape = overrides => ({
-    score: -260000000,
+    // score includes the learned -500k adjustment; the policy-neutral score
+    // is exactly the -260M safety boundary.
+    score: -260500000,
     experienceAdjustment: -500000,
     features: { ...features },
     tactical: { plies: 4, expectedImpact: -3000000, worstImpact: -30000000 },
@@ -1164,7 +1533,16 @@ test("developing-fence escape promotion is bounded by score and experience", asy
 
   assert.equal(isComparableFenceEscape(escape({}), selected), true);
   assert.equal(
-    isComparableFenceEscape(escape({ score: -260000001 }), selected),
+    isComparableFenceEscape(escape({}), {
+      ...selected,
+      score: 300000000,
+      features: { ...selected.features, policyPromotionAdjustment: 300000000 },
+    }),
+    true,
+    "an earlier policy promotion must not change a downstream safety gate",
+  );
+  assert.equal(
+    isComparableFenceEscape(escape({ score: -260500001 }), selected),
     false,
   );
   assert.equal(
@@ -1219,13 +1597,37 @@ test("trap risk makes the bot escape before improving home points", () => {
   assert.equal(JSON.stringify(plan), JSON.stringify([{ from: 10, die: 1 }, { from: 9, die: 4 }]));
 });
 
-test("head landing anchors are preserved when the opponent can immediately occupy them", () => {
-  const { engine } = loadBrowserEngine();
+test("head landing anchors are preserved without overriding stronger bounded deep safety", async () => {
+  const { engine, game } = loadBrowserEngine();
+  const { isDeepFenceSafetyRegression } = await import(pathToFileURL(
+    path.join(ROOT, "bot-engine/long/engine.ts"),
+  ).href);
   const state = tacticalThreatState();
-
-  const plan = engine.plan(state);
+  const ranked = engine.rank(state);
+  const selected = ranked[0];
+  const plan = selected.sequence;
+  const archivedExact = ranked.find(candidate => (
+    candidate.sequence.some(move => move.from === 7 && move.die === 5)
+    && candidate.sequence.some(move => move.from === 12 && move.die === 6)
+  ));
+  assert.ok(archivedExact, "the previously expected exact move remains available");
   assert.ok(!plan.some(move => move.from === 11));
-  assert.ok(plan.some(move => move.from === 7 && move.die === 5));
+  const after = JSON.parse(JSON.stringify(state));
+  plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
+  assert.equal(after.points[11].color, "dark");
+  assert.equal(after.points[11].count, state.points[11].count);
+  assert.equal(selected.features.headLandingBreak, 0);
+  assert.ok(selected.features.headGain >= archivedExact.features.headGain);
+  assert.ok(selected.features.outsidePipGain >= archivedExact.features.outsidePipGain);
+  // Both moves preserve point 11, so exact die order is not the invariant.
+  // The archived move instead damages closure by 27.44 and its bounded
+  // continuation E/W/tail are worse by roughly 129.77/358.56/491.31M.
+  assert.ok(selected.tactical.recoveryExpected >= archivedExact.tactical.recoveryExpected + 20000000);
+  assert.ok(selected.tactical.continuationExpected >= archivedExact.tactical.continuationExpected + 120000000);
+  assert.ok(selected.tactical.continuationWorst >= archivedExact.tactical.continuationWorst + 350000000);
+  assert.ok(selected.tactical.continuationTailRisk >= archivedExact.tactical.continuationTailRisk + 480000000);
+  assert.equal(isDeepFenceSafetyRegression(archivedExact, selected), true);
+  assert.equal(isDeepFenceSafetyRegression(selected, archivedExact), false);
 });
 
 test("v14 learned local mistakes materially change tactical ranking", () => {
@@ -1366,6 +1768,18 @@ test("v14 searches four plies through two opponent turns", async () => {
   assert.ok(deepCandidate);
   assert.ok(deepCandidate.tactical.recoveryRolls > 0);
   assert.ok(deepCandidate.tactical.continuationRolls > 0);
+  assert.equal(deepCandidate.tactical.continuationModelComplete, true);
+  assert.equal(deepCandidate.tactical.continuationModelKind, "representative-worst-proxy-v1");
+  assert.ok(deepCandidate.tactical.continuationFrontierWeight >= 1);
+  assert.ok(deepCandidate.tactical.continuationFrontierWeight <= 36);
+  assert.equal(deepCandidate.tactical.continuationTotalFrontierWeight, 36);
+  assert.equal(deepCandidate.tactical.continuationProxyWeight, 36);
+  assert.equal(
+    deepCandidate.tactical.continuationCoverageComplete,
+    deepCandidate.tactical.continuationFrontierWeight === 36,
+  );
+  assert.equal(deepCandidate.tactical.continuationRepresentativeFrontierIncluded, true);
+  assert.equal(deepCandidate.tactical.continuationWorstFrontierIncluded, true);
 });
 
 test("SNUQ-8DQC saves the route instead of entering home and enabling a six-point fence", () => {
@@ -1512,7 +1926,7 @@ test("XP7E-F64Y move 62 blocks another opponent head exit instead of opening one
 
   const decision = engine.consumeLastDecision();
   assert.match(decision.id, /^lb4-/);
-  assert.equal(decision.engineVersion, "long-analytic-v34");
+  assert.equal(decision.engineVersion, "long-analytic-v35");
   assert.ok(decision.choiceCount > 1);
   assert.equal(typeof decision.experienceSize, "number");
   assert.equal(decision.selected.moves.length, 4);
@@ -1752,6 +2166,21 @@ test("v25 preserves an active six-prime while its laggard is not critically trap
 
   assert.ok(!plan.some(move => move.from === 21));
   assert.equal(decision.selected.tactical.plies, 4);
+  assert.equal(decision.selected.tactical.recoveryModelKind, "conditional-single-primary-v1");
+  assert.equal(decision.selected.tactical.recoveryConditional, true);
+  assert.match(decision.selected.tactical.recoveryPrimaryDiceKey, /^[1-6]:[1-6]$/);
+  assert.equal(decision.selected.tactical.recoveryPrimaryFrontierCount, 1);
+  assert.equal(decision.selected.tactical.recoveryTotalPrimaryFrontierCount, 21);
+  assert.equal(decision.selected.tactical.recoveryPrimaryFrontierWeight,
+    decision.selected.tactical.recoveryPrimaryDiceWeight);
+  assert.equal(decision.selected.tactical.recoveryTotalPrimaryFrontierWeight, 36);
+  assert.match(decision.selected.tactical.continuationRepresentativeDiceKey, /^[1-6]:[1-6]$/);
+  assert.match(decision.selected.tactical.continuationWorstRecoveryDiceKey, /^[1-6]:[1-6]$/);
+  assert.equal(decision.selected.tactical.continuationRepresentativeProxyWeight
+    + decision.selected.tactical.continuationWorstRecoveryProxyWeight, 36);
+  ["continuationRepresentativeDiceWeight", "continuationWorstRecoveryDiceWeight"].forEach(key => {
+    assert.ok([1, 2].includes(decision.selected.tactical[key]), key);
+  });
   assert.equal(decision.selected.features.primeRunBefore, 6);
   assert.equal(decision.selected.features.primeRunAfter, 6);
   assert.ok(

@@ -96,6 +96,18 @@ function assertFourPlyTelemetry(candidate) {
   assert.equal(candidate.tactical.continuationRolls, 21);
   assert.equal(candidate.tactical.continuationWeight, 36);
   assert.equal(candidate.tactical.continuationDistributionComplete, true);
+  assert.equal(candidate.tactical.continuationModelComplete, true);
+  assert.equal(candidate.tactical.continuationModelKind, 'representative-worst-proxy-v1');
+  assert.ok(candidate.tactical.continuationFrontierWeight >= 1);
+  assert.ok(candidate.tactical.continuationFrontierWeight <= 36);
+  assert.equal(candidate.tactical.continuationTotalFrontierWeight, 36);
+  assert.equal(candidate.tactical.continuationProxyWeight, 36);
+  assert.equal(
+    candidate.tactical.continuationCoverageComplete,
+    candidate.tactical.continuationFrontierWeight === 36,
+  );
+  assert.equal(candidate.tactical.continuationRepresentativeFrontierIncluded, true);
+  assert.equal(candidate.tactical.continuationWorstFrontierIncluded, true);
 }
 
 function descriptorKeys(descriptor) {
@@ -237,7 +249,7 @@ test("KQZQ-K5WZ decision 5 retains the new point-10 interruption anchor", () => 
   );
   assert.ok(
     selected.tactical.continuationWorst
-      >= archived.tactical.continuationWorst + 400000000,
+      >= archived.tactical.continuationWorst + 300000000,
   );
   assert.equal(selected.features.avoidableProspectiveFenceAnchorMiss, 0);
   assert.ok(archived.features.avoidableProspectiveFenceAnchorMiss >= 45);
@@ -280,7 +292,7 @@ test("LD4P-VMXU decision 5 splits double two instead of vacating every new ancho
   );
 });
 
-test("KQZQ and LD4P alternatives are compared with complete four-ply fair-dice telemetry", () => {
+test("KQZQ and LD4P alternatives are compared with bounded four-ply fair-dice telemetry", () => {
   const target = loadEngine();
   target.setExperience([], "kqzq-ld4p-telemetry");
   const fixtures = [

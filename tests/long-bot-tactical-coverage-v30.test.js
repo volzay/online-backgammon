@@ -155,7 +155,7 @@ const FIXTURES = [
   },
 ];
 
-test('today\'s five multi-choice regressions receive complete four-ply dice coverage', () => {
+test('today\'s five multi-choice regressions receive bounded four-ply models covering every next roll', () => {
   const engine = loadEngine();
   engine.setExperience([], 'today-v30-regression');
 

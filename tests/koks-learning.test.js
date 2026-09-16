@@ -64,24 +64,20 @@ function learnSingleLoss(resultType) {
     },
   }, "dark");
 
-  return JSON.parse(values.get(EXPERIENCE_KEY))[0];
+  return values.get(EXPERIENCE_KEY) ?? null;
 }
 
-test("local hard-bot learning prices Koks above Mars", () => {
+test("long-bot outcome labels never create per-move penalties", () => {
   const normal = learnSingleLoss("normal");
   const mars = learnSingleLoss("mars");
   const koks = learnSingleLoss("koks");
 
-  assert.equal(normal.losses, 1);
-  assert.equal(mars.severeLosses, 1);
-  assert.equal(koks.severeLosses, 1);
-  assert.ok(normal.lossWeight > 0);
-  assert.ok(mars.lossWeight > normal.lossWeight);
-  assert.ok(koks.lossWeight > mars.lossWeight);
-  assert.ok(Math.abs((koks.lossWeight - mars.lossWeight) - 0.75) < 1e-9);
+  assert.equal(normal, null);
+  assert.equal(mars, null);
+  assert.equal(koks, null);
 });
 
-test("winning opponent tactics are stored as positive experience", () => {
+test("a winning opponent turn is not converted into long-bot credit from the result", () => {
   const values = new Map();
   const context = {
     window: {
@@ -140,11 +136,7 @@ test("winning opponent tactics are stored as positive experience", () => {
     },
   }, "dark");
 
-  const learned = JSON.parse(values.get(EXPERIENCE_KEY))[0];
-  assert.equal(learned.samples, 1);
-  assert.equal(learned.losses, 0);
-  assert.equal(learned.wins, 1);
-  assert.equal(learned.winWeight, 2.5);
+  assert.equal(values.get(EXPERIENCE_KEY), undefined);
 });
 
 test("the winner's real turn is reconstructed from game history", () => {
@@ -308,7 +300,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const register = fs.readFileSync(path.join(ROOT, "register.html"), "utf8");
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
-  const version = "20260915-long-bot-v34-v36";
+  const version = "20260916-long-bot-v35-v37";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));

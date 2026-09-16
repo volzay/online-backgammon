@@ -127,6 +127,9 @@ test('a distinct 6:5 reply is exactly twice as likely as the 6:6 double', async 
 
 test('complete tactical and deep analysis use all 21 rolls with total weight 36', async () => {
   const { analysis, evaluator } = await modules();
+  const { hasCompleteFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/engine.ts'),
+  ).href);
   const ranked = analysis.analyzeOpponentReplies(
     blockedAdapter,
     'dark',
@@ -143,6 +146,14 @@ test('complete tactical and deep analysis use all 21 rolls with total weight 36'
     assert.equal(candidate.tactical.recoveryRolls, 21);
     assert.equal(candidate.tactical.recoveryWeight, 36);
     assert.equal(candidate.tactical.recoveryDistributionComplete, true);
+    assert.equal(candidate.tactical.recoveryModelKind, 'conditional-single-primary-v1');
+    assert.equal(candidate.tactical.recoveryConditional, true);
+    assert.equal(candidate.tactical.recoveryPrimaryDiceKey, '6:6');
+    assert.equal(candidate.tactical.recoveryPrimaryDiceWeight, 1);
+    assert.equal(candidate.tactical.recoveryPrimaryFrontierCount, 1);
+    assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierCount, 21);
+    assert.equal(candidate.tactical.recoveryPrimaryFrontierWeight, 1);
+    assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierWeight, 36);
     assert.equal(candidate.tactical.recoveryTailWeight, 6);
     assert.ok(Number.isFinite(candidate.tactical.recoveryTailRisk));
     assert.ok(candidate.tactical.recoveryWorst <= candidate.tactical.recoveryTailRisk);
@@ -150,12 +161,145 @@ test('complete tactical and deep analysis use all 21 rolls with total weight 36'
     assert.equal(candidate.tactical.continuationRolls, 21);
     assert.equal(candidate.tactical.continuationWeight, 36);
     assert.equal(candidate.tactical.continuationDistributionComplete, true);
+    assert.equal(candidate.tactical.continuationModelComplete, true);
+    assert.equal(candidate.tactical.continuationModelKind, 'representative-worst-proxy-v1');
+    assert.equal(candidate.tactical.continuationApproximate, false);
+    assert.equal(candidate.tactical.continuationCoverageComplete, true);
+    assert.equal(candidate.tactical.continuationFrontierCount, 1);
+    assert.equal(candidate.tactical.continuationTotalFrontierCount, 1);
+    assert.equal(candidate.tactical.continuationFrontierWeight, 36);
+    assert.equal(candidate.tactical.continuationTotalFrontierWeight, 36);
+    assert.equal(candidate.tactical.continuationProxyWeight, 36);
+    assert.equal(candidate.tactical.continuationRepresentativeDiceKey, '6:6');
+    assert.equal(candidate.tactical.continuationRepresentativeDiceWeight, 1);
+    assert.equal(candidate.tactical.continuationRepresentativeProxyWeight, 35);
+    assert.equal(candidate.tactical.continuationWorstRecoveryDiceKey, '6:6');
+    assert.equal(candidate.tactical.continuationWorstRecoveryDiceWeight, 1);
+    assert.equal(candidate.tactical.continuationWorstRecoveryProxyWeight, 1);
+    // Complete coverage here is conditional on one primary scenario. Even
+    // collapsed recovery boards do not certify the full nested 21x21 tree.
+    assert.equal(hasCompleteFourPlyTactical(candidate), true);
     assert.equal(candidate.tactical.continuationTailWeight, 6);
     assert.ok(Number.isFinite(candidate.tactical.continuationTailRisk));
     assert.ok(candidate.tactical.continuationWorst <= candidate.tactical.continuationTailRisk);
     assert.ok(candidate.tactical.continuationTailRisk <= candidate.tactical.continuationExpected);
     assert.equal(candidate.tactical.plies, 4);
   });
+});
+
+test('a hidden losing recovery frontier cannot be labelled exhaustive by a two-frontier proxy', async () => {
+  const { analysis, evaluator } = await modules();
+  const { LONG_PATHS } = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/metrics.ts'),
+  ).href);
+  const { hasBoundedFourPlyTactical, hasCompleteFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/engine.ts'),
+  ).href);
+  const root = {
+    ...state({ 12: { color: 'dark', count: 1 }, 13: { color: 'white', count: 1 } }),
+    stage: 'root',
+  };
+  const indexByDice = new Map(analysis.CANONICAL_DICE_OUTCOMES.map(
+    (outcome, index) => [outcome.dice.join(':'), index],
+  ));
+  const seenRecoveryFrontiers = new Set();
+  const adapter = {
+    legalSequences(source, color) {
+      if (source.stage === 'root' && color === 'dark') {
+        const index = indexByDice.get(source.dice.slice(0, 2).join(':'));
+        return [[{ from: 12, to: LONG_PATHS.dark[index], die: 1, index }]];
+      }
+      if (source.stage === 'recovery' && color === 'white') {
+        seenRecoveryFrontiers.add(source.index);
+        return source.index === 1 ? [[{ from: 13, to: 12, die: 1 }]] : [];
+      }
+      return [];
+    },
+    applySequence(source, sequence) {
+      if (source.stage === 'root') {
+        const index = sequence[0].index;
+        return {
+          ...source,
+          stage: 'recovery',
+          index,
+          points: {
+            [LONG_PATHS.dark[index]]: { color: 'dark', count: 1 },
+            13: { color: 'white', count: 1 },
+          },
+        };
+      }
+      return { ...source, stage: 'terminal', winner: 'white', resultType: 'normal' };
+    },
+  };
+  const weights = Object.fromEntries(Object.keys(evaluator.DEFAULT_LONG_BOT_WEIGHTS).map(
+    key => [key, 0],
+  ));
+  weights.progress = 1;
+  const [candidate] = analysis.analyzeOpponentReplies(
+    adapter,
+    'dark',
+    [{
+      after: root,
+      score: 0,
+      sequence: [{ from: 12, to: 11, die: 1 }],
+      features: { structuralIntegrityTacticalReservation: 1 },
+    }],
+    weights,
+    analysis.createAnalysisBudget(480),
+    { expandDoubles: true },
+  );
+
+  assert.deepEqual([...seenRecoveryFrontiers].sort((a, b) => a - b), [0, 10]);
+  assert.equal(analysis.CANONICAL_DICE_OUTCOMES[1].weight, 2);
+  assert.equal(candidate.tactical.continuationWorst, 0, 'proxy has not observed the hidden loss');
+  assert.equal(candidate.tactical.continuationFrontierWeight, 3);
+  assert.equal(candidate.tactical.continuationTotalFrontierWeight, 36);
+  assert.equal(candidate.tactical.continuationFrontierCount, 2);
+  assert.equal(candidate.tactical.continuationTotalFrontierCount, 21);
+  assert.equal(candidate.tactical.continuationProxyWeight, 36);
+  assert.equal(candidate.tactical.recoveryPrimaryDiceKey, '6:6');
+  assert.equal(candidate.tactical.recoveryPrimaryFrontierWeight, 1);
+  assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierWeight, 36);
+  assert.equal(candidate.tactical.continuationRepresentativeDiceKey, '5:1');
+  assert.equal(candidate.tactical.continuationRepresentativeDiceWeight, 2);
+  assert.equal(candidate.tactical.continuationRepresentativeProxyWeight, 35);
+  assert.equal(candidate.tactical.continuationWorstRecoveryDiceKey, '6:6');
+  assert.equal(candidate.tactical.continuationWorstRecoveryDiceWeight, 1);
+  assert.equal(candidate.tactical.continuationWorstRecoveryProxyWeight, 1);
+  assert.equal(candidate.tactical.continuationApproximate, true);
+  assert.equal(candidate.tactical.continuationCoverageComplete, false);
+  assert.equal(hasBoundedFourPlyTactical(candidate), true);
+  assert.equal(hasCompleteFourPlyTactical(candidate), false);
+});
+
+test('a conditional non-double primary scenario exposes its actual 2/36 dice mass', async () => {
+  const { analysis, evaluator } = await modules();
+  const [source] = candidates(1);
+  source.after.stage = 'primary';
+  const adapter = {
+    legalSequences(snapshot, color) {
+      return snapshot.stage === 'primary' && color === 'white'
+        && snapshot.rolled.slice(0, 2).join(':') === '6:5'
+        ? [[{ from: 24, to: 23, die: 1 }]] : [];
+    },
+    applySequence(snapshot) {
+      return { ...snapshot, stage: 'terminal', winner: 'white', resultType: 'normal' };
+    },
+  };
+  const [candidate] = analysis.analyzeOpponentReplies(
+    adapter, 'dark', [source], evaluator.mergeWeights(),
+    analysis.createAnalysisBudget(480), { expandDoubles: true },
+  );
+  assert.equal(candidate.tactical.plies, 4);
+  assert.equal(candidate.tactical.recoveryConditional, true);
+  assert.equal(candidate.tactical.recoveryPrimaryDiceKey, '6:5');
+  assert.equal(candidate.tactical.recoveryPrimaryDiceWeight, 2);
+  assert.equal(candidate.tactical.recoveryPrimaryFrontierCount, 1);
+  assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierCount, 21);
+  assert.equal(candidate.tactical.recoveryPrimaryFrontierWeight, 2);
+  assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierWeight, 36);
+  assert.equal(candidate.tactical.continuationRepresentativeDiceKey, '6:6');
+  assert.equal(candidate.tactical.continuationWorstRecoveryDiceKey, '6:6');
 });
 
 test('primary evaluates four candidates while deep analysis stays on the same top two', async () => {
@@ -267,6 +411,8 @@ test('partial recovery and continuation distributions fail closed', async () => 
     assert.equal(Object.hasOwn(candidate.tactical, 'recoveryExpected'), false);
     assert.equal(Object.hasOwn(candidate.tactical, 'recoveryTailRisk'), false);
     assert.equal(Object.hasOwn(candidate.tactical, 'recoveryDistributionComplete'), false);
+    assert.equal(Object.hasOwn(candidate.tactical, 'recoveryModelKind'), false);
+    assert.equal(Object.hasOwn(candidate.tactical, 'recoveryPrimaryDiceKey'), false);
   });
 
   const continuationPartial = analysis.analyzeOpponentReplies(
@@ -281,8 +427,11 @@ test('partial recovery and continuation distributions fail closed', async () => 
   continuationPartial.forEach((candidate) => {
     assert.equal(candidate.tactical.plies, 3);
     assert.equal(candidate.tactical.recoveryDistributionComplete, true);
+    assert.equal(candidate.tactical.recoveryConditional, true);
     assert.equal(Object.hasOwn(candidate.tactical, 'continuationExpected'), false);
     assert.equal(Object.hasOwn(candidate.tactical, 'continuationTailRisk'), false);
     assert.equal(Object.hasOwn(candidate.tactical, 'continuationDistributionComplete'), false);
+    assert.equal(Object.hasOwn(candidate.tactical, 'continuationRepresentativeDiceKey'), false);
+    assert.equal(Object.hasOwn(candidate.tactical, 'continuationWorstRecoveryDiceKey'), false);
   });
 });

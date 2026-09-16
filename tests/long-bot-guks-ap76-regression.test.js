@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { pathToFileURL } = require('node:url');
 
 const ROOT = path.join(__dirname, '..');
 const ENGINE_SOURCES = [
@@ -14,6 +15,7 @@ const ENGINE_SOURCES = [
   'bot-engine/long/browser.ts',
 ];
 let cachedEngine;
+let cachedGame;
 
 function stripModuleSyntax(source) {
   return source
@@ -35,6 +37,7 @@ function engine() {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'game.js'), 'utf8'), context);
   vm.runInContext(`(function () { 'use strict'; ${body} }());`, context);
   cachedEngine = context.window.NarduLongBotEngine;
+  cachedGame = context.window.NarduGame;
   return cachedEngine;
 }
 
@@ -68,6 +71,23 @@ function hasMove(candidate, from, to, die) {
   return candidate.sequence.some(move => (
     move.from === from && move.to === to && move.die === die
   ));
+}
+
+function playHypotheticalTurn(snapshot, color, dice, moves) {
+  engine();
+  const next = JSON.parse(JSON.stringify(snapshot));
+  next.turn = color;
+  next.phase = 'move';
+  next.rolled = [...dice];
+  next.dice = dice[0] === dice[1] ? Array(4).fill(dice[0]) : [...dice];
+  next.turnMoves = [];
+  next.headPlayedThisTurn = { white: false, dark: false };
+  moves.forEach(move => {
+    assert.equal(cachedGame.applyMove(next, move.from, move.die, { autoEnd: false }), true,
+      `hypothetical ${color} ${move.from}>${move.to}/${move.die} must be legal`);
+    assert.equal(next.turnMoves.at(-1).to, move.to);
+  });
+  return next;
 }
 
 function hostileMemory(gameState, safeSequence, unsafeSequence) {
@@ -192,14 +212,75 @@ test('GUKS-UURG turn 13 keeps the only gateway that stops a seven-point fence', 
   assert.ok(selected.features.fenceClosureDelta >= -4);
 });
 
-test('AP76-V8UN turn 30 advances the outside checker when every reply metric improves', () => {
+test('AP76-V8UN turn 30 characterizes conditional estimates without claiming the selected shuffle is proven safe', async () => {
+  const { hasBoundedFourPlyTactical } = await import(pathToFileURL(
+    path.join(ROOT, 'bot-engine/long/engine.ts'),
+  ).href);
   engine().setExperience([], 'ap76-t30');
-  const selected = rank(state(AP76_TURN_30, [2, 4]))[0];
+  const ranked = rank(state(AP76_TURN_30, [2, 4]));
+  const selected = ranked[0];
+  const entering = ranked.find(candidate => hasMove(candidate, 23, 21, 2) && hasMove(candidate, 21, 17, 4));
+  assert.ok(entering, 'the archived home-entry alternative remains measurable');
+  assert.equal(hasBoundedFourPlyTactical(selected), true);
+  assert.equal(hasBoundedFourPlyTactical(entering), true);
+  assert.equal(entering.features.outsideReduction, 1);
+  assert.equal(entering.features.homeShuffleMoves, 0);
+  assert.ok(entering.features.outsidePipGain >= 5);
+  assert.ok(entering.tactical.expectedImpact > selected.tactical.expectedImpact);
+  assert.ok(entering.tactical.worstImpact > selected.tactical.worstImpact);
+  // These are different CONDITIONAL scenarios, not matched all-ply proof:
+  // the entry expands white4:4; the shuffle expands white6:6. The larger
+  // sampled continuation penalty alone cannot prove the shuffle safer.
+  assert.equal(entering.tactical.recoveryModelKind, 'conditional-single-primary-v1');
+  assert.equal(selected.tactical.recoveryModelKind, 'conditional-single-primary-v1');
+  assert.equal(entering.tactical.recoveryPrimaryDiceKey, '4:4');
+  assert.equal(selected.tactical.recoveryPrimaryDiceKey, '6:6');
+  [entering, selected].forEach(candidate => {
+    assert.equal(candidate.tactical.recoveryConditional, true);
+    assert.equal(candidate.tactical.recoveryPrimaryFrontierCount, 1);
+    assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierCount, 21);
+    assert.equal(candidate.tactical.recoveryPrimaryFrontierWeight, 1);
+    assert.equal(candidate.tactical.recoveryTotalPrimaryFrontierWeight, 36);
+  });
+  assert.equal(entering.tactical.continuationWorstRecoveryDiceKey, '6:6');
+  assert.equal(selected.tactical.continuationWorstRecoveryDiceKey, '1:1');
+  ['recoveryWorst', 'recoveryTailRisk', 'continuationExpected', 'continuationWorst'].forEach(metric => {
+    assert.ok(entering.tactical[metric] < selected.tactical[metric], metric);
+  });
+  assert.ok(entering.features.trapBefore > 0);
+  assert.ok(entering.features.opponentFenceRunBefore >= 4);
+  assert.equal(selected.features.outsideReduction, 0);
+  assert.ok(hasMove(selected, 16, 14, 2) && hasMove(selected, 18, 14, 4));
+  assert.equal(selected.after.points[8]?.color, 'dark');
+  assert.equal(Number(entering.features.tacticalHomeProgressAdjustment || 0), 0);
 
-  assert.ok(hasMove(selected, 23, 21, 2) || hasMove(selected, 23, 19, 4));
-  assert.equal(selected.features.outsideReduction, 1);
-  assert.equal(selected.features.homeShuffleMoves, 0);
-  assert.ok(selected.features.outsidePipGain >= 5);
+  // The SAME exact legal canonical branch traps the laggard after BOTH
+  // actions. It was not expanded deeply for the shuffle. This counterproof
+  // rejects "no threat" and "shuffle proven safe", not either action's
+  // optimality. These are hypothetical throws, never archived future dice.
+  [entering, selected].forEach(candidate => {
+    let branch = playHypotheticalTurn(candidate.after, 'white', [4, 4], [
+      { from: 13, to: 9, die: 4 }, { from: 10, to: 6, die: 4 },
+      { from: 10, to: 6, die: 4 }, { from: 10, to: 6, die: 4 },
+    ]);
+    branch = playHypotheticalTurn(branch, 'dark', [6, 6], [
+      { from: 5, to: 23, die: 6 }, { from: 5, to: 23, die: 6 },
+      { from: 23, to: 17, die: 6 }, { from: 23, to: 17, die: 6 },
+    ]);
+    branch = playHypotheticalTurn(branch, 'white', [4, 6], [
+      { from: 9, to: 5, die: 4 }, { from: 10, to: 4, die: 6 },
+    ]);
+    [1, 2, 3, 4, 5, 6, 7].forEach(point => assert.equal(branch.points[point].color, 'white'));
+    assert.equal(branch.points[8].count, 1);
+    assert.equal(branch.points[17].count, candidate === entering ? 6 : 5);
+    [1, 2, 3, 4, 5, 6].forEach(die => {
+      const attempt = JSON.parse(JSON.stringify(branch));
+      attempt.turn = 'dark'; attempt.dice = [die]; attempt.rolled = [die];
+      attempt.turnMoves = []; attempt.headPlayedThisTurn = { white: false, dark: false };
+      assert.equal(cachedGame.applyMove(attempt, 8, die, { autoEnd: false }), false,
+        `the isolated laggard cannot escape with die ${die} after either action`);
+    });
+  });
 });
 
 test('AP76-V8UN turn 36 enters the last checker and bears one off in the same turn', () => {
