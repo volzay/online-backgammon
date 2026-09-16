@@ -25,7 +25,10 @@ jobs:
       - name: Clone repository
         env:
           GH_TOKEN: ${{ github.token }}
-        run: git clone --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" source
+        # The frozen-runtime tests need the immutable released v34 control commit.
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" source
+          git -C source checkout --detach "${GITHUB_SHA}"
 
       - name: Download Node.js runtime action
         run: git clone --depth=1 --branch v4 https://github.com/actions/setup-node.git .local-actions/setup-node

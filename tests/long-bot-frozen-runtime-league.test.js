@@ -21,6 +21,8 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'scripts', 'league-long-bot-frozen-runtime.js');
+// A released control must not silently become the candidate when HEAD advances.
+const V34_CONTROL_COMMIT = 'f92cfb71b065f2011f51587c91e8893fd77a7fdf';
 
 function leagueResults({ pairs, seed, candidatePairWins = pairs, splits = 0 }) {
   return Array.from({ length: pairs }, (_, pairIndex) => {
@@ -172,7 +174,8 @@ test('git control snapshots resolve HEAD to immutable commit bytes', () => {
 
 test('league binds both engine versions and rejects identical runtime snapshots', () => {
   const candidate = readRuntimeDirectory(ROOT);
-  const control = readGitRuntimeSnapshot(ROOT, 'HEAD');
+  const control = readGitRuntimeSnapshot(ROOT, V34_CONTROL_COMMIT);
+  assert.equal(control.source.commit, V34_CONTROL_COMMIT);
   const runtime = buildRuntimeLeague(
     candidate,
     control,
