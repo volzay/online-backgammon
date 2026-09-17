@@ -1,0 +1,23 @@
+.fair-hash, .history-proof { flex-wrap: wrap; }
+.roll-verify-controls { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; }
+.roll-verify-controls button, .roll-verify-controls a {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px;
+  background: var(--panel); color: var(--ink-2); font: inherit; font-size: 11px;
+  text-decoration: none; cursor: pointer; min-height: 32px;
+}
+.roll-verify-controls button:disabled { cursor: wait; opacity: .6; }
+.roll-verify-controls button:focus-visible, .roll-verify-controls a:focus-visible,
+.roll-verify-actions a:focus-visible { outline: 2px solid var(--gold, #e2a74a); outline-offset: 3px; }
+.roll-verify-status, .fair-hash .roll-verify-status {
+  display: block; flex: 1 1 100%; margin-top: 8px; padding: 10px;
+  border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2);
+  font-size: 12px; line-height: 1.6; overflow-wrap: anywhere;
+  text-transform: none; letter-spacing: normal;
+}
+.roll-verify-status[hidden] { display: none; }
+.roll-verify-status[data-status="verified"] { border-color: #478759; }
+.roll-verify-status[data-status="mismatch"] { border-color: #c55b57; }
+.roll-verify-status[data-status="incomplete"] { border-color: #a77c36; }
+.roll-verify-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.roll-verify-actions a { color: var(--ink-2); font-size: 12px; }
+.roll-verify-note { color: var(--ink-3); font-size: 12px; line-height: 1.6; }

@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "scope": "Local dice-roll data verification; not checker-move legality, prior commitment, RNG fairness, or bot strength certification.",
+  "sourceBaseCommit": "e67a37ec5b26bdbe5f127ab9da683fb84e10cb1c",
+  "uncommittedPatch": true,
+  "publicationAtVerification": "local-only; not deployed",
+  "focusedTests": {
+    "tests": 93,
+    "pass": 93,
+    "fail": 0,
+    "skipped": 0,
+    "command": "node --test tests/game-verifier.test.js tests/game-verifier-integration.test.js tests/roll-verification-ui.test.js"
+  },
+  "existingFocusedTests": {
+    "tests": 35,
+    "pass": 35,
+    "fail": 0
+  },
+  "fullSuiteCommand": "node --test --test-reporter=spec --test-concurrency=1 tests/*.test.js",
+  "fullSuite": {
+    "phase": "complete",
+    "startedAt": "2026-09-17T18:00:58.536Z",
+    "completedAt": "2026-09-17T18:10:14.621Z",
+    "code": 0,
+    "signal": null,
+    "counts": {
+      "tests": 978,
+      "pass": 967,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 11,
+      "todo": 0,
+      "duration_ms": 556043.507583
+    },
+    "node": "24.15.0",
+    "v8": "13.6.233.17-node.48",
+    "playingPolicyImplementationId": "fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1",
+    "workerRuntimeDigest": "430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a",
+    "testFiles": 89,
+    "manifestFiles": 117,
+    "unchanged": true,
+    "drift": [],
+    "manifest": {
+      "bot-engine/long/analysis.ts": "24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932",
+      "bot-engine/long/browser.ts": "3f89a8b013b1be10b237173a0d69b7a1d487a94dad6c82a1f08fdcb87f066ab5",
+      "bot-engine/long/engine.ts": "2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b",
+      "bot-engine/long/evaluator.ts": "60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6",
+      "bot-engine/long/metrics.ts": "8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31",
+      "bot-engine/long/nardu-game-adapter.ts": "f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08",
+      "bot-engine/long/reviewer.ts": "14b95efb19d606394515897954431b18efe70b5fc8f2714957167f709a9b690a",
+      "game-controller.js": "620b401e2e5287984ae136f86793d20a81cfce54e8302d2b0b78e8f0cdbae38b",
+      "game-verifier.js": "dd6178ea8427a7f8174b76a3871df49d031dde4efeea01a002e54697cd8e92d7",
+      "game.js": "769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+      "homegate.html": "4b83b74ad007340aef128cc99807665e3bec9215c78637694afbbcfaf43831bd",
+      "homegate.js": "d9dd9fc4d9f33cdccad72cede08c1ee4c51a2226d8c55af6337fa9ec02044344",
+      "long-bot-engine.js": "6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255",
+      "roll-verification-ui.js": "ead963589a6b01c2190d96693ab4402483ed3500a298cc8598f1900eb105e942",
+      "roll-verification.css": "310bef8b4a9602dbe1be6a78c788ac22135d22f185ced27825795d9a5117c7d7",
+      "room.html": "bdcb1a35a144f90105a793f9de8c8b7cbc9306d35dafbaea14311ad3a3f5e0d6",
+      "scripts/build-github-pages.js": "5ebd48e9d62c78f9544279b0acd89bb3d6d985b07e9644a39decbd713131f205",
+      "scripts/build-long-bot-engine.js": "8079beb53d1e6d4edb94f491d86c51e4ec2c0cfc7c44de478a588fc944045187",
+      "scripts/generate-long-bot-shadow-replay.js": "4c14eacbdfa6c83160b3583a897401597366a87bbb80cd86f5096b4ffd2c5b36",
+      "scripts/long-bot-causal-worker.js": "55d6427f8e831a7a3db81e3420d383dbd82d01dc26e7aa22b9f6c1b972ed19db",
+      "scripts/long-bot-paired-rollout.js": "e4d454e4d1b04dad6e6a5b7f275c3db9df4fc5886ed2065971dd9f7b106e0ea0",
+      "scripts/long-bot-production-fence.js": "f2bfa6724abc75ee4ac85dcf75e04250c81d1faa570c247aa2248e3b3c2964a8",
+      "scripts/long-bot-terminal-journal.js": "49aaec00235a5f12b5708ec662a90cf8d13a3f181459c8a68d4a037f1dbb516c",
+      "scripts/simulate-long-bot-regression.js": "831093d0b3d53e737b2efd9fb724947b5c8b730101f3278aac05d05b97990508",
+      "strong-bot.js": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+      "tests/account-message-read-api.test.js": "4cb9f37ca6aa4414d2f6404dc135ade9470e4fe0f2fb624d01c0e89e0f174d80",
+      "tests/admin-messaging.test.js": "a0a4bc3b048d1f91d3ea461de91cc388b64a15e312d2df8f7c99955e77c60588",
+      "tests/admin-room-archive.test.js": "df345d55f756dcf567032a12b239d7f892bfca581c5d177ccf3b5a34a8a2353a",
+      "tests/app-user-storage.test.js": "bd929c25520b9ec3649d77be8af48c32c5229587087a0e27439edbf0cdfe1f4b",
+      "tests/auth-usability.test.js": "65b7c7b54dec5de86baf555f33cc1a1327f0c84af3d8b269775220cd48d858bc",
+      "tests/bot-difficulty.test.js": "768b4cdaae794241f08fecefbca6884d317b9962c76aac860f2fdcf4385ca685",
+      "tests/bot-engine-builder-atomic.test.js": "c860ce053730898a27c62fc874fa1de48d43e62b1c71c8cfb40bb5420fe058c2",
+      "tests/bot-restore-safety.test.js": "6ac50e917ea5f4ba7de2c3c45b822557b99ad28825656aa08cf9bdd3ccf358fb",
+      "tests/bot-room-exit-v35.test.js": "4c51e87b8ba056d6c29be6041867af7be554f8af72e749c4c4674b1669e57c79",
+      "tests/dice-engine.test.js": "d9bf17772dfbc3f0b0596e3d6699c5e6db5e114c49918b2bf301c1846f3d894c",
+      "tests/dice-rendering.test.js": "6b2bb4e8173e15810c0806ac608e8f202b82192463a1d45a9f4efe3a45c7df02",
+      "tests/entry-auth-gate.test.js": "34e66cd22ad089c440a8b4ed36de690ead16d8827fc7573f4d92965a6673fd30",
+      "tests/game-verifier-integration.test.js": "47d5b85e4523f87d98ba540f4aea187815e38d4e9729d8ecf03b8357789e4122",
+      "tests/game-verifier.test.js": "83c10c98967c65e3e294c4b3ac5dc9d560320485d87896023d82b16a0243cc5c",
+      "tests/koks-learning.test.js": "c18781399890913c954f588d03bc01a1559b7fa34173e26863c1af0ab21a0562",
+      "tests/lobby-create-race.test.js": "6faa2caf120bd9c425d4663c832b7fbc480f6c28ddc8fe319a7f1729a0f344b7",
+      "tests/lobby-message-indicator.test.js": "bbc5ce279840b53ddf04a9387938f72df13f61528f8263c25698242b90056464",
+      "tests/lobby-usability.test.js": "23c4d6d45b751f15bffde03d63420a7e8d6f50370277827b0fe549fcb60c561f",
+      "tests/long-bot-2xlz-regression.test.js": "cb3ad48f796423e1302286bc2b7787c5a6c73a3e3cf2471764aae24eda5364b8",
+      "tests/long-bot-3xbr-regression.test.js": "45ba9bdbca80c037f18c29367e6253700a44f49763427234c3d989aeca5ca702",
+      "tests/long-bot-8rms-regression.test.js": "d9481b739f6ff8ffcd4c07b8a542f89b3b7f8dc14270550a47cef8e3519329f7",
+      "tests/long-bot-active-four-prime-policy.test.js": "de712ec6a263e478a0b4525c99a45134623e6a52e1e9131565d94fbdaac619d1",
+      "tests/long-bot-active-prime-defense-coverage.test.js": "95a3cabf0a76b321fcbcdfa2a9fe5a4ff275b138b2de48a3072ecafa77d3ff95",
+      "tests/long-bot-army-league.test.js": "38708950633a991a1a5c297813ae3f676aba1b91fa5d5da1e7a9d013d5376152",
+      "tests/long-bot-bbxr-regression.test.js": "0d9119b12fdbd2068a30218bd17c159ec17261c11aa4268eb9d5bf64cdc1dc38",
+      "tests/long-bot-causal-army-training.test.js": "4da269e4d12bbc6a0697fa5509ca8dfaae39b389c7d7ba4a25a6793720549af4",
+      "tests/long-bot-causal-exact-scope.test.js": "eac94ce3c302e0d839cbe2030f8fe8f68bcef89327cbb0faa2dd7bbc4745aa53",
+      "tests/long-bot-causal-memory-bridge.test.js": "0c994551da09229fcfc0ae6348a4728f525c9ce889a144fe8465d865076d5a64",
+      "tests/long-bot-causal-release-v35.test.js": "38a751d0f5a67183769d28a1a1fe8ea9b2187da3507d2b4e63fd49060fd3ee24",
+      "tests/long-bot-counterfactual-review.test.js": "fe279fd4ffcb799b5daaf092a0f0f9e7212478134284ada6afec617195a731aa",
+      "tests/long-bot-decision-durability.test.js": "9c945e76bd5f1a6613891c2a57750ed32a1cea4e4d2f6c24c591441899321fe4",
+      "tests/long-bot-dice-probability-v30.test.js": "acf292af94f0de78481c2e721abcfb1d26c8df50e43fd30f284f9b1fc3f31548",
+      "tests/long-bot-egxa-regression.test.js": "782388813a4a4a5183ed89ccbee90fe328936b4990ef87825a275ca88bb5fb17",
+      "tests/long-bot-engine.test.js": "11df1d712f853162408da5d38716bc5de38c195e68a8ea8e0d8ca8d30521857b",
+      "tests/long-bot-experience-load-v34.test.js": "ff7e6446a2b4f240b22a8f5333087cba261ef3421ab67bfe13ba80e9cee91bb1",
+      "tests/long-bot-experience-v25.test.js": "5810f3e5783abfbf28a84233f019a13bce188d167c61655267cad152800079e2",
+      "tests/long-bot-experience-v29-integrity.test.js": "fdd1ed7fe2078fca300d69b95e49507401deeca8b8cf1c3b32c65ea96dd9798f",
+      "tests/long-bot-experience-v33-arbitration.test.js": "91b08c23dc18401295b363765f70d256676ae2c9180c395560025f66ef8c90a8",
+      "tests/long-bot-five-losses-regression.test.js": "0fe776372c02d21f3feb54794fd4a5b89ac93cfc50d9106d1933f78c004984c1",
+      "tests/long-bot-fmhs-ry4g-regression.test.js": "ca686a478edcdc5b48a2b11863517f74642ea2cade50a084a66771eccf3743b7",
+      "tests/long-bot-four-prime-self-escape.test.js": "c22350bc30ae2a88c5efde71742bd1ac469064f315ab58a14c809dcf9dd39ddc",
+      "tests/long-bot-frozen-runtime-league.test.js": "673778f56535669fdbcfe1b2f63021ba6c19990e688556b1f4c9fddaf9d539e4",
+      "tests/long-bot-guks-ap76-regression.test.js": "1b649feee034ee535930181d9c6819d35f237e68791595826204055fe6adf884",
+      "tests/long-bot-kqzq-ld4p-regression.test.js": "0ce9a99e2e189a629b144d048887a076b91887133b7bd7e4b35c9dee7e9ae442",
+      "tests/long-bot-league-sidecar-analysis.test.js": "cc3ac74ce2a2a05af4ca714b7e147b1e7604160594d6ec62e01ed03c9c378493",
+      "tests/long-bot-llks-lze8-regression.test.js": "af54038568bd3c3fd51034621b3e39b4a67541af361c1f0ea128112f41fef70b",
+      "tests/long-bot-loss-review-pipeline.test.js": "2312d335423a4e4cf3a21655cfa65f062123d373da78e2657aa4f4cd6befca77",
+      "tests/long-bot-native-cohort-cache.test.js": "98ba0df64428c6566d432fb82a25db0e9fdcee660a75204428055f668bf8c70d",
+      "tests/long-bot-native-search-metadata.test.js": "f37f8ac13eb3121985a8bdc2abfe812a0b1dcae4301511656cab762957300459",
+      "tests/long-bot-paired-rollout-learning.test.js": "d3380356cad48f5dce059dc717503c4801bfe9b7554f535e2bf5d5878196682d",
+      "tests/long-bot-production-fence.test.js": "2ade0c8541a945d1462a86a2538c03ff0bd75f7a3116cd561e85813a0c1fc194",
+      "tests/long-bot-production-progress.test.js": "30697ccbd5fcb53617e5188633d8df7a18fec41c593786eb9248183f8088a644",
+      "tests/long-bot-production-worker-native.test.js": "1ad03a991ba6cfa0be0bf3125ea31e08d925798184b4a4cba9272fbe4770adbb",
+      "tests/long-bot-release-v34.test.js": "948b00ba5e66d6cde8602afc57e11d85dd31374a728fc5905c21324a58f0c46c",
+      "tests/long-bot-route-continuity-coverage.test.js": "fffb8ba7d1752450ce9aeeae74f99a79062345b082195b1b98f5d15dcefda2c8",
+      "tests/long-bot-shadow-replay.test.js": "21606f3014f37d31a41b0cb18d82e0d7fb30bc691118a26682d8b37ba86bee8b",
+      "tests/long-bot-simulator.test.js": "5738356e044f73080595bedbc42807a83f60f8bf226438db7cb5410234c9588d",
+      "tests/long-bot-tactical-coverage-v30.test.js": "5399c473c9e9c1addf128902fae4fcd0478a743a3ba8bf6b9055976c0ee7ef6c",
+      "tests/long-bot-terminal-journal-integration.test.js": "90b7d3e844b7f1f1a9f1f2cd29479343c544642cdb6be0c786ce446cd7323792",
+      "tests/long-bot-terminal-journal.test.js": "fc963195779666f80cbe17952a21243168aaa72b9719efcce1d96c2b0be1b31c",
+      "tests/long-bot-v34-harness.test.js": "87cf2ffc1a0e2fde260631e49dc457f139cc978e1ed9987113fdf2c7fbf27e9a",
+      "tests/long-bot-v35-server-integrity.test.js": "990db4e115b20f615c37b97a15d7fcb72d97ac5c363b389b83f7e34597a806f1",
+      "tests/message-read-receipts.test.js": "271c8971c5117ea52a548b26f8cf35016004e377d97e2f616afd8f17a1532e12",
+      "tests/mobile-session-recovery.test.js": "1b5fc380384bfa69310af0aca98de14f61bd02e01e5f56e57fb54684cc3243b6",
+      "tests/rating-finalization.test.js": "58837df53be5b787967bf51148572fea42555982be5d112a27ce0d09ba8141dc",
+      "tests/rematch-lifecycle.test.js": "fb9ac0e03316c99cd3f506e0e583b37ff2a9f5f5ec5b263226b3d6d203a3574a",
+      "tests/roll-verification-ui.test.js": "a3358655c51b4e84a6b18052200a9ad7babd988fb1878251cf741e2f268bb050",
+      "tests/room-lifecycle-v34-regression.test.js": "6d1cd5fab5cf0f32319215b5454fd8f06f6545bdc1c4819e47ffec45aa514904",
+      "tests/room-presence-cas.test.js": "93067508a1465f26245c70e8288eb66cf142f0337732c961cf5d4de0f05cf73a",
+      "tests/room-snapshot-resilience.test.js": "7a4ce49a6e3fabbd236a121dd0cfd261f09b3e475820768e4e5043ffd52f9842",
+      "tests/room-usability.test.js": "6568da3f2bb4cbc4031953c1970440bcbb044f5faf563ad9df11bdce0da281a5",
+      "tests/rooms-client-abort.test.js": "c39bb4fa402d6a37e196fb26326a63547f7846bbf2f4a0e27ab2f26cd3d77d0c",
+      "tests/rules-engine.test.js": "5030e4ac9319363e413213af3f8d28e50e84ce321e65051242231e0e787e90f3",
+      "tests/server-anti-cheat.test.js": "c64c3379c424fc7425cc99563b5b3425e7a5d659408ada17083edfd2ce1a0ad7",
+      "tests/server-single-active-room.test.js": "4040553b2262d8de31b659c1e834247b77c9d95a7295c338deaebed9b4ad43c4",
+      "tests/settings-usability.test.js": "c4f0c2a3496273ac65a22de741b9734ad12f833f2bf58161cac5c608ada87708",
+      "tests/short-bear-off.test.js": "c8cacaf7da05789876ea368ffdcde62732c25412c0e7c02c1165e41873d501ee",
+      "tests/short-bot-certifier.test.js": "5cca446d6ef3949b3f32227ec8ea29a0b9f669087a7d68821f72fb4d4b84336f",
+      "tests/short-bot-engine.test.js": "b2633085f6e0167708d2591034cf8966b4bb0151410c5b9bc95ae359a50ef4c4",
+      "tests/short-bot-simulator.test.js": "e563f292c9c289728c59e54b9979c0fb37b59de4047f737f61b6cb57a3e4b6db",
+      "tests/short-bot-wildbg-client.test.js": "bf28d3cbd5eb66af7351e1fa95b05b069fb3e97398b4f58cfa7f18dbadf75ebc",
+      "tests/short-bot-xuc3-regression.test.js": "2772a2ed1fcb9a19b38aaa7020bbde0a71cabb03b13562adada5dc8af54e167d",
+      "tests/short-bot-zuzw-regression.test.js": "49fae4e8d253a54177f4e2dbc368040da905b0278ab33cad122d4375f6e55db2",
+      "tests/single-active-room-schema.test.js": "f032fa08930ed522adfbfc2abb8cec025cc769e8bbac347731b4cb59b585689f",
+      "tests/spectator-bfcache.test.js": "32005b0c15384e13f712e46d6e886169b0a315f5430b85a01304efd34099d263",
+      "tests/supabase-auth-storage.test.js": "d40132dd6258fa3d4120de3e8cd12005e9068fc4f6046ef759e52eefdc97fce0",
+      "tests/voice-message-integrity.test.js": "b1a3009f1977f1b9f176390dede2442c605eee3af693a1b120de656ef1bf32f6",
+      "tests/waiting-room-fresh-browser-recovery.test.js": "b75e84b1a19f2b95af5c7f6fd64a5ba295175a96af8f63c5c5db9aa7c445a15a",
+      "tests/waiting-room-lifecycle.test.js": "77a09da82f9ce3ed26c8fe839f0f1cc81943949b51c8b30c53722cdfeda96fea",
+      "verify-game-ui.js": "5cfe3f1464745ee3fc64b57bd81370bdb7a8d25e30f95d374a6327223ece62fd",
+      "verify-game.css": "398cc47ffc5ea7725d4effb696e4f8ccdad7f121afd0fc700f1d94f111098bed",
+      "verify-game.html": "b6476437f3097936327aecc695300e143bb9477e9055c5ba856a851fe1ba8c16"
+    },
+    "skippedTests": [
+      "﹣ actual Linux inherited exclusive flock is proved by proc locks and fdinfo before creating journal state (0.060959ms) # SKIP",
+      "﹣ actual Linux no flock cannot authorize recovery (0.044334ms) # SKIP",
+      "﹣ actual Linux shared flock cannot authorize recovery (0.035833ms) # SKIP",
+      "﹣ actual Linux forking wrapper owns another PID cannot authorize recovery (0.044458ms) # SKIP",
+      "﹣ Linux crash-recovery quarantines only stale writer lock and preserves manifest/key/authenticated mock endpoint bytes (0.043917ms) # SKIP",
+      "﹣ Linux factory has no injected kernel/fs authority and rejects a current-process live journal owner (0.124541ms) # SKIP",
+      "﹣ Linux job-partitioned recovery is independent of over4096 unrelated historical job directories (0.514542ms) # SKIP",
+      "﹣ Linux held descriptor/path inode and permissions are rechecked before any recovery (0.076625ms) # SKIP",
+      "﹣ Linux releasing the inherited flock descriptor invalidates recovery authority immediately (0.046166ms) # SKIP",
+      "﹣ Linux recovery rejects malformed lock, wrong manifest and symlink targets without a partial rename (0.028625ms) # SKIP",
+      "﹣ real Linux production wrapper resumes the exact native fixed cohort then completes the original ledger (0.314916ms) # SKIP"
+    ],
+    "failureTail": null,
+    "stderr": null
+  },
+  "browserChecks": {
+    "standalone": {
+      "viewports": [
+        "375x812",
+        "390x844"
+      ],
+      "languages": [
+        "ru",
+        "en"
+      ],
+      "themes": [
+        "day",
+        "night"
+      ],
+      "checks": [
+        "SHA-256 full match",
+        "legacy partial proof",
+        "dice mismatch",
+        "UTF-8 HMAC oracle",
+        "untrusted text remains text",
+        "nonce validation",
+        "seed SHA-256 match"
+      ]
+    },
+    "embedded": {
+      "source": "Local non-account fixture loading the exact project verifier JS and CSS",
+      "viewport": "375x812",
+      "scrollWidth": 375,
+      "checks": [
+        "full individual roll match",
+        "legacy individual partial proof",
+        "two-roll whole-game partial proof",
+        "three-roll archive mismatch with entry number"
+      ],
+      "accountsOrLiveRoomsUsed": false
+    },
+    "temporaryViewportReset": true
+  },
+  "build": {
+    "status": "pass",
+    "command": "npm run build",
+    "manifestFiles": 117,
+    "sourceUnchanged": true,
+    "drift": [],
+    "assets": [
+      "game-verifier.js",
+      "roll-verification-ui.js",
+      "roll-verification.css",
+      "verify-game.html",
+      "verify-game.css",
+      "verify-game-ui.js"
+    ],
+    "pageAssets": {
+      "room.html": [
+        {
+          "file": "roll-verification.css",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "game-verifier.js",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "roll-verification-ui.js",
+          "version": "mu5uhogs"
+        }
+      ],
+      "homegate.html": [
+        {
+          "file": "roll-verification.css",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "game-verifier.js",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "roll-verification-ui.js",
+          "version": "mu5uhogs"
+        }
+      ],
+      "verify-game.html": [
+        {
+          "file": "verify-game.css",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "game-verifier.js",
+          "version": "mu5uhogs"
+        },
+        {
+          "file": "verify-game-ui.js",
+          "version": "mu5uhogs"
+        }
+      ]
+    },
+    "playingPolicyImplementationId": "fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1",
+    "workerRuntimeDigest": "430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a"
+  }
+}

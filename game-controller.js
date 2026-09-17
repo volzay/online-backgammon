@@ -2316,6 +2316,7 @@ window.NarduController = (function () {
   function renderHistory() {
     const list = document.getElementById('history-list') || document.querySelector('.history');
     if (!list) return;
+    window.NarduVerifyUI?.setGameContext(list.parentElement, state);
     const items = state.history || [];
     if (!items.length) {
       list.innerHTML = `
@@ -2335,13 +2336,13 @@ window.NarduController = (function () {
       }
       if (item.opening) {
         const rerollText = item.rerolls ? tr('history_rerolls', { count: item.rerolls }) : '';
-        return historyMarkup(number, 'dark', tr('history_opening_roll'), `${item.hostName || sideName('white')} ${item.host} : ${item.guestName || sideName('dark')} ${item.guest} — ${tr('history_first_turn')}: ${turnName(item.winnerColor)}${rerollText}`, item.sha256);
+        return historyMarkup(number, 'dark', tr('history_opening_roll'), `${item.hostName || sideName('white')} ${item.host} : ${item.guestName || sideName('dark')} ${item.guest} — ${tr('history_first_turn')}: ${turnName(item.winnerColor)}${rerollText}`, item.sha256, item);
       }
       if (item.openingMove) {
-        return historyMarkup(number, item.color, tr('history_first_move'), tr('history_starting_dice', { roll: item.roll }), item.sha256);
+        return historyMarkup(number, item.color, tr('history_first_move'), tr('history_starting_dice', { roll: item.roll }), item.sha256, item);
       }
       if (item.roll) {
-        return historyMarkup(number, item.color, tr('history_rolls', { name: turnName(item.color) }), item.roll, item.sha256);
+        return historyMarkup(number, item.color, tr('history_rolls', { name: turnName(item.color) }), item.roll, item.sha256, item);
       }
       if (item.networkLoss) {
         return historyMarkup(number, item.color, localizedMessage(item.message) || tr('history_connection_lost'), tr('history_victory', { winner: turnName(item.winnerColor) }));
@@ -2357,7 +2358,7 @@ window.NarduController = (function () {
     }).join('');
   }
 
-  function historyMarkup(number, color, title, sub, sha256 = '') {
+  function historyMarkup(number, color, title, sub, sha256 = '', rollItem) {
     const safeTitle = String(title).replace(/[&<>"']/g, escapeHtml);
     const safeSub = String(sub).replace(/[&<>"']/g, escapeHtml);
     const safeHash = String(sha256 || '').replace(/[&<>"']/g, escapeHtml);
@@ -2366,6 +2367,7 @@ window.NarduController = (function () {
             <span>SHA-256</span>
             <code>${safeHash}</code>
             <button type="button" data-copy-hash="${safeHash}" title="${tr('copy_sha')}">${tr('copy')}</button>
+            ${rollItem ? window.NarduVerifyUI?.rollControls(rollItem, { lang: lang() }) || '' : ''}
           </div>` : '';
     return `
       <div class="hist-item">
@@ -2616,6 +2618,9 @@ window.NarduController = (function () {
       if (!noTie || values[0] !== values[1]) {
         return {
           hash,
+          // A one-use preimage is disclosed only after its dice are known.
+          // It does not expose a seed for subsequent rolls or prove commitment.
+          input: seed,
           values,
           roll: expandRollValues(values),
           rerolls,
@@ -2736,10 +2741,12 @@ window.NarduController = (function () {
       };
       const opening = NarduGame.decideOpeningRoll(state, whitePlayer, darkPlayer);
       opening.sha256 = fair.hash;
+      opening.sha256Input = fair.input;
       opening.rerolls = fair.rerolls;
       const openingHistory = state.history?.find(item => item.opening);
       if (openingHistory) {
         openingHistory.sha256 = fair.hash;
+        openingHistory.sha256Input = fair.input;
         openingHistory.rerolls = fair.rerolls;
       }
       state.rollToken = `opening:${fair.hash.slice(0, 16)}:${opening.host.die}:${opening.guest.die}`;
@@ -2797,6 +2804,7 @@ window.NarduController = (function () {
         roll: compactRollText(r),
         openingMove,
         sha256: fair.hash,
+        sha256Input: fair.input,
         at: new Date().toISOString(),
       });
       state.rollToken = `roll:${fair.hash.slice(0, 16)}:${compactRollText(r)}`;

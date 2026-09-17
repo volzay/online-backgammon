@@ -891,6 +891,7 @@ function historyAdminItem(item, index) {
       <span>SHA-256</span>
       <code title="${escapeHtml(hash)}">${escapeHtml(shortHash(hash))}</code>
       <button class="mini-copy hash-copy" type="button" data-copy-hash="${escapeHtml(hash)}" title="${t("copy_full_hash")}">${t("copy_hash")}</button>
+      ${window.NarduVerifyUI?.rollControls(item, { lang: state.lang }) || ''}
     </div>` : "";
   return `
     <li class="history-row">
@@ -1019,7 +1020,9 @@ function detailHtml() {
         <div class="detail-section-head">
           <h3>${t("match_log")}</h3>
           <button class="btn ghost small" type="button" data-action="copy-game">${t("copy_game")}</button>
+          <button class="btn ghost small" type="button" data-verify-game>${state.lang === 'en' ? 'Check all rolls' : 'Проверить броски'}</button>
         </div>
+        <div class="roll-verify-status" data-game-result role="status" aria-live="polite" hidden></div>
         <ul class="history-admin">${historyListHtml(game.history)}</ul>
       </div>
       ${session.liveGame ? `
@@ -1312,6 +1315,7 @@ function dashboardView() {
 
 function render() {
   app.innerHTML = state.admin ? dashboardView() : loginView();
+  window.NarduVerifyUI?.setGameContext(app.querySelector?.('.detail-room'), state.detail?.session?.game);
 }
 
 function renderPreservingScroll() {

@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="roll-verification.css" />
 <style>html.auth-pending body { visibility: hidden; }</style>
 <script>
   /* A direct room link follows the same explicit sign-in or guest-entry rule as the lobby. */
@@ -371,16 +372,14 @@
 
         </div>
         <details style="margin-top: 12px;">
-          <summary style="cursor:pointer; font-size:11px; color: var(--ink-3); letter-spacing:0.08em; text-transform: uppercase; list-style: none;" data-i18n="verify_title">Проверка честности</summary>
+          <summary style="cursor:pointer; font-size:11px; color: var(--ink-3); letter-spacing:0.08em; text-transform: uppercase; list-style: none;" data-i18n="verify_title">Проверка бросков</summary>
           <div style="margin-top: 10px; display:flex; flex-direction:column; gap:8px;">
-            <div class="verify">
-              <span data-i18n="verify_start">Старт</span>
-              <span class="hash">0bc1c5099f…c2d3df</span>
+            <p class="roll-verify-note" data-i18n="verify_explanation">Проверяет SHA-256 и кости из истории. Для старых бросков без исходной строки доступна только сверка костей с хешем. Совпадение не доказывает случайность генерации.</p>
+            <div class="roll-verify-actions">
+              <button class="ghostbtn" type="button" data-verify-game data-i18n="verify_all_rolls">Проверить все броски</button>
+              <a href="verify-game.html" target="_blank" rel="noopener noreferrer" data-i18n="verify_manual">Открыть ручную проверку</a>
             </div>
-            <div class="verify">
-              <span data-i18n="verify_roll_2">Бросок #2</span>
-              <span class="hash">a1f7…91d2</span>
-            </div>
+            <div class="roll-verify-status" data-game-result role="status" aria-live="polite" hidden></div>
           </div>
         </details>
       </div>
@@ -449,6 +448,8 @@
 
 <!-- engine + bot + sound + rating + shared app -->
 <script src="game.js"></script>
+<script src="game-verifier.js"></script>
+<script src="roll-verification-ui.js"></script>
 <script src="long-bot-engine.js?v=20260916-long-bot-v35-v37"></script>
 <script src="short-bot-engine.js?v=20260911-short-analytic-v6"></script>
 <script src="short-bot-wildbg-client.js?v=20260911-short-analytic-v6-wildbg"></script>
@@ -2006,7 +2007,10 @@ const I18N = {
     opening_dice: "Стартовые кубики 6 : 1",
     opening_roll: "Стартовый бросок",
     opening_sub: "хост 6, гость 1 — первыми ходят Белые",
-    verify_title: "Проверка честности",
+    verify_title: "Проверка бросков",
+    verify_explanation: "Проверяет SHA-256 и кости из истории. Для старых бросков без исходной строки доступна только сверка костей с хешем. Совпадение не доказывает случайность генерации.",
+    verify_all_rolls: "Проверить все броски",
+    verify_manual: "Открыть ручную проверку",
     verify_start: "Старт",
     verify_roll_2: "Бросок #2",
     chat_title: "Чат",
@@ -2117,7 +2121,10 @@ const I18N = {
     opening_dice: "Opening dice 6 : 1",
     opening_roll: "Opening roll",
     opening_sub: "host 6, guest 1 — White moves first",
-    verify_title: "Fairness check",
+    verify_title: "Roll verification",
+    verify_explanation: "Checks SHA-256 and dice from the history. Old rolls without saved inputs only allow dice-to-hash comparison. A match does not prove random generation.",
+    verify_all_rolls: "Check all rolls",
+    verify_manual: "Open manual verifier",
     verify_start: "Start",
     verify_roll_2: "Roll #2",
     chat_title: "Chat",

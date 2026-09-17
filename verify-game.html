@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru" data-theme="night">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Нарды — Проверка броска</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="verify-game.css" />
+  <script src="game-verifier.js" defer></script>
+  <script src="verify-game-ui.js" defer></script>
+</head>
+<body class="verify-page">
+  <div class="verify-wrap">
+    <header class="verify-topbar">
+      <a class="verify-back" href="index.html"><span aria-hidden="true">←</span> <span data-verify-i18n="back">В лобби</span></a>
+      <div class="verify-switches">
+        <div class="verify-switch" role="group" aria-label="Тема" data-verify-i18n-aria="theme">
+          <button type="button" data-verify-theme="day" aria-pressed="false" data-verify-i18n="day">День</button>
+          <button type="button" data-verify-theme="night" aria-pressed="true" data-verify-i18n="night">Ночь</button>
+        </div>
+        <div class="verify-switch" role="group" aria-label="Язык" data-verify-i18n-aria="language">
+          <button type="button" data-verify-lang="ru" aria-pressed="true">RU</button>
+          <button type="button" data-verify-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="verify-head">
+        <span class="verify-kicker" data-verify-i18n="kicker">Нарды Онлайн · проверка данных</span>
+        <h1 data-verify-i18n="heading">Проверка броска</h1>
+        <p class="verify-lead" data-verify-i18n="lead">Сверьте кости с SHA-256 из истории партии. Вычисления выполняются только в этом браузере; введённые значения не отправляются и не сохраняются.</p>
+      </div>
+
+      <noscript><p class="verify-notice" role="alert">Для локальной проверки требуется JavaScript. Данные формы не отправляются.</p></noscript>
+      <p id="verify-page-notice" class="verify-notice" role="status" aria-live="polite" hidden></p>
+
+      <section class="verify-card" aria-labelledby="portal-title">
+        <div class="verify-card-head">
+          <span class="verify-protocol">SHA-256</span>
+          <h2 id="portal-title" data-verify-i18n="portalTitle">Бросок на этом портале</h2>
+        </div>
+        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить» или скопируйте SHA-256 и обе кости. Одного хеша достаточно для проверки соответствия костей, но не для подтверждения происхождения хеша.</p>
+        <form id="verify-portal-form" autocomplete="off" novalidate>
+          <div class="verify-field">
+            <label for="portal-hash" data-verify-i18n="portalHash">SHA-256 из истории броска</label>
+            <input id="portal-hash" class="verify-mono" type="text" maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-hash-hint" required />
+            <span id="portal-hash-hint" class="verify-hint" data-verify-i18n="hashHint">Ровно 64 шестнадцатеричных символа: 0–9, a–f.</span>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-field">
+              <label for="portal-die-one" data-verify-i18n="dieOne">Кость 1 из истории</label>
+              <input id="portal-die-one" type="number" min="1" max="6" step="1" inputmode="numeric" autocomplete="off" />
+            </div>
+            <div class="verify-field">
+              <label for="portal-die-two" data-verify-i18n="dieTwo">Кость 2 из истории</label>
+              <input id="portal-die-two" type="number" min="1" max="6" step="1" inputmode="numeric" autocomplete="off" />
+            </div>
+          </div>
+          <details class="verify-preimage">
+            <summary data-verify-i18n="preimageSummary">Есть раскрытое исходное значение для этого броска?</summary>
+            <div class="verify-field">
+              <label for="portal-preimage" data-verify-i18n="preimageLabel">Исходное значение SHA-256 (необязательно)</label>
+              <textarea id="portal-preimage" class="verify-mono" maxlength="4096" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-preimage-hint"></textarea>
+              <span id="portal-preimage-hint" class="verify-hint" data-verify-i18n="preimageHint">Вставьте раскрытое значение именно этого завершённого броска. Пробелы и переводы строк значимы. Не вводите пароль от аккаунта.</span>
+            </div>
+          </details>
+          <button id="verify-portal-submit" class="verify-submit" type="submit" disabled data-verify-i18n="checkPortal">Проверить бросок</button>
+          <div id="verify-portal-result" class="verify-result" role="status" aria-live="polite" aria-atomic="true"></div>
+        </form>
+      </section>
+
+      <section class="verify-card verify-explanation" aria-labelledby="explanation-title">
+        <h2 id="explanation-title" data-verify-i18n="explanationTitle">Что именно проверяется</h2>
+        <p data-verify-i18n="explanationPortal">Для бросков портала байты SHA-256 читаются слева направо. Значения 252–255 пропускаются; первые два подходящих байта дают кости по формуле (байт % 6) + 1. Пропуск исключает смещение при таком преобразовании байтов.</p>
+        <p data-verify-i18n="explanationLimits">Совпадение костей и хеша не доказывает случайность или невозможность подбора хеша сервером. Раскрытое исходное значение позволяет дополнительно сверить SHA-256, но эта страница не подтверждает, когда хеш был опубликован. Проверка законности перемещения шашек здесь не выполняется.</p>
+      </section>
+
+      <details class="verify-card verify-manual" id="verify-hmac-details">
+        <summary>
+          <span class="verify-protocol">HMAC-SHA256</span>
+          <span data-verify-i18n="manualTitle">Дополнительная ручная проверка по образцу</span>
+        </summary>
+        <p class="verify-notice" data-verify-i18n="manualNotice">Это отдельный протокол из образца, а не алгоритм бросков этого портала. Server Seed, Client Seed, Game ID и Nonce в старых записях портала отсутствуют; их нельзя восстановить по SHA-256 броска.</p>
+
+        <section class="verify-manual-section" aria-labelledby="seed-title">
+          <h2 id="seed-title" data-verify-i18n="seedTitle">1. Сверить раскрытый Server Seed</h2>
+          <form id="verify-seed-form" autocomplete="off" novalidate>
+            <div class="verify-grid">
+              <div class="verify-field">
+                <label for="verify-seed">Server Seed</label>
+                <textarea id="verify-seed" class="verify-mono" maxlength="4096" spellcheck="false" autocapitalize="off" autocomplete="off" required></textarea>
+              </div>
+              <div class="verify-field">
+                <label for="verify-seed-hash" data-verify-i18n="seedHashLabel">Опубликованный SHA-256 (необязательно)</label>
+                <input id="verify-seed-hash" class="verify-mono" type="text" maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="verify-seed-hash-hint" />
+                <span id="verify-seed-hash-hint" class="verify-hint" data-verify-i18n="seedHashHint">Хеш, опубликованный до игры в системе с этим протоколом. Без него можно только рассчитать SHA-256.</span>
+              </div>
+            </div>
+            <button id="verify-seed-submit" class="verify-submit" type="submit" disabled data-verify-i18n="checkSeed">Проверить SHA-256</button>
+            <div id="verify-seed-result" class="verify-result" role="status" aria-live="polite" aria-atomic="true"></div>
+          </form>
+        </section>
+
+        <section class="verify-manual-section" aria-labelledby="hmac-title">
+          <h2 id="hmac-title" data-verify-i18n="hmacTitle">2. Рассчитать бросок HMAC-SHA256</h2>
+          <p class="verify-muted" data-verify-i18n="hmacIntro">Ключ — UTF-8(Server Seed). Формат сообщения фиксирован: {gameId}:{clientSeed}:{nonce}. Кости извлекаются из байтов HMAC с тем же пропуском 252–255.</p>
+          <form id="verify-hmac-form" autocomplete="off" novalidate>
+            <div class="verify-grid">
+              <div class="verify-field">
+                <label for="hmac-server-seed">Server Seed</label>
+                <textarea id="hmac-server-seed" class="verify-mono" maxlength="4096" spellcheck="false" autocapitalize="off" autocomplete="off" required></textarea>
+              </div>
+              <div class="verify-field">
+                <label for="hmac-expected-hash" data-verify-i18n="hmacHashLabel">Ожидаемый HMAC-SHA256 (необязательно)</label>
+                <input id="hmac-expected-hash" class="verify-mono" type="text" maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="hmac-hash-hint" />
+                <span id="hmac-hash-hint" class="verify-hint" data-verify-i18n="hmacHashHint">HMAC именно этого броска по ручному протоколу, не SHA-256 Server Seed и не хеш броска портала.</span>
+              </div>
+              <div class="verify-field">
+                <label for="hmac-game-id">Game ID</label>
+                <input id="hmac-game-id" type="text" maxlength="256" spellcheck="false" autocapitalize="off" autocomplete="off" required />
+              </div>
+              <div class="verify-field">
+                <label for="hmac-client-seed">Client Seed</label>
+                <input id="hmac-client-seed" type="text" maxlength="256" spellcheck="false" autocapitalize="off" autocomplete="off" required />
+              </div>
+              <div class="verify-field">
+                <label for="hmac-nonce">Nonce</label>
+                <input id="hmac-nonce" type="text" inputmode="numeric" maxlength="16" pattern="[0-9]+" value="0" autocomplete="off" aria-describedby="hmac-nonce-hint" required />
+                <span id="hmac-nonce-hint" class="verify-hint" data-verify-i18n="nonceHint">Целое число от 0 до 9007199254740991. Протокол определяет нумерацию бросков.</span>
+              </div>
+              <div class="verify-field">
+                <label for="hmac-format" data-verify-i18n="messageFormat">Формат сообщения</label>
+                <input id="hmac-format" class="verify-mono" type="text" value="{gameId}:{clientSeed}:{nonce}" readonly />
+              </div>
+              <div class="verify-field">
+                <label for="hmac-die-one" data-verify-i18n="expectedOne">Ожидаемая кость 1</label>
+                <input id="hmac-die-one" type="number" min="1" max="6" step="1" inputmode="numeric" autocomplete="off" />
+              </div>
+              <div class="verify-field">
+                <label for="hmac-die-two" data-verify-i18n="expectedTwo">Ожидаемая кость 2</label>
+                <input id="hmac-die-two" type="number" min="1" max="6" step="1" inputmode="numeric" autocomplete="off" />
+              </div>
+            </div>
+            <button id="verify-hmac-submit" class="verify-submit" type="submit" disabled data-verify-i18n="checkHmac">Рассчитать и сверить HMAC</button>
+            <div id="verify-hmac-result" class="verify-result" role="status" aria-live="polite" aria-atomic="true"></div>
+          </form>
+        </section>
+      </details>
+    </main>
+    <footer class="verify-footer" data-verify-i18n="footer">Проверка доступна без входа в аккаунт. Не вводите пароли, токены или значения для будущих бросков.</footer>
+  </div>
+</body>
+</html>
