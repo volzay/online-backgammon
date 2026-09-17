@@ -60,12 +60,6 @@ html[data-theme="day"] .verify-result-card[data-status="incomplete"] .verify-res
 .verify-notice { padding: 13px 16px; background: var(--accent-soft); color: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r-md); line-height: 1.6; overflow-wrap: anywhere; }
 .verify-explanation p { color: var(--ink-2); font-size: 13px; }
 .verify-explanation p:last-child { margin-bottom: 0; }
-.verify-manual > summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-weight: 600; cursor: pointer; line-height: 1.55; list-style: none; }
-.verify-manual > summary::after { content: "+"; margin-left: auto; color: var(--ink-2); font-size: 22px; }
-.verify-manual[open] > summary::after { content: "−"; }
-.verify-manual > summary::-webkit-details-marker { display: none; }
-.verify-manual[open] > summary { margin-bottom: 20px; }
-.verify-manual-section + .verify-manual-section { border-top: 1px solid var(--line); padding-top: 24px; margin-top: 26px; }
 .verify-footer { margin: 28px 0 0; color: var(--ink-2); font-size: 12px; line-height: 1.65; }
 @media (max-width: 640px) {
   .verify-wrap { padding-top: max(18px, env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }

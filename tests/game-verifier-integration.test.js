@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { createHash, createHmac } = require('node:crypto');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -131,14 +131,12 @@ test('the standalone verifier loads its local scripts without auth, external res
   assert.doesNotMatch(html, /<script[^>]*src="(?:app|auth-client|rooms-client|supabase-client)\.js/);
   assert.doesNotMatch(html, /<(?:input|textarea)[^>]*\bname=/);
   assert.doesNotMatch(html, /<form[^>]*\baction=/);
-  for (const kind of ['portal', 'seed', 'hmac']) {
-    assert.match(html, new RegExp(`id="verify-${kind}-submit"[^>]*disabled`));
-  }
+  assert.match(html, /id="verify-portal-submit"[^>]*disabled/);
 });
 
-test('an unavailable core leaves all submission buttons disabled and explains the missing verifier', () => {
+test('an unavailable core leaves the SHA-256 submission button disabled and explains the missing verifier', () => {
   const ui = createLocalUI({ api: null });
-  for (const kind of ['portal', 'seed', 'hmac']) assert.equal(ui.nodes.get(`verify-${kind}-submit`).disabled, true);
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, true);
   assert.equal(ui.nodes.get('verify-page-notice').hidden, false);
   assert.match(ui.nodes.get('verify-page-notice').textContent, /недоступен/);
   ui.assertLocal();
@@ -186,7 +184,7 @@ test('invalid, duplicate, oversized, or secret fragment fields are not imported 
 test('query-string secrets are ignored and never enter any verification field', async () => {
   const ui = createLocalUI({ search: `?hash=${'a'.repeat(64)}&seed=secret&preimage=secret&dice=2:4` });
   await ui.flush();
-  for (const id of ['portal-hash', 'portal-preimage', 'verify-seed', 'hmac-server-seed']) assert.equal(ui.nodes.get(id).value, '');
+  for (const id of ['portal-hash', 'portal-preimage', 'portal-die-one', 'portal-die-two']) assert.equal(ui.nodes.get(id).value, '');
   assert.match(ui.nodes.get('verify-page-notice').textContent, /не импортируются/);
   ui.assertLocal();
 });
@@ -222,49 +220,61 @@ test('one populated die is rejected before invoking the core and focuses the inv
   ui.assertLocal();
 });
 
-test('noncanonical UI nonce is rejected without converting it into a different signed message', async () => {
-  let calls = 0;
-  const ui = createLocalUI({ api: { ...verifier, verifyHmacRoll: async () => { calls += 1; } } });
-  setFields(ui, { 'hmac-server-seed': 'seed', 'hmac-game-id': 'game', 'hmac-client-seed': 'client', 'hmac-nonce': '01' });
-  await ui.nodes.get('verify-hmac-form').trigger('submit');
-  assert.equal(calls, 0);
-  assert.equal(ui.nodes.get('hmac-nonce').getAttribute('aria-invalid'), 'true');
-  assert.match(ui.nodes.get('verify-hmac-result').textContent, /Nonce/);
+test('the removed HMAC and Server Seed section has no fields, translated content, or UI handlers left behind', () => {
+  const html = read('verify-game.html');
+  const script = read('verify-game-ui.js');
+  assert.doesNotMatch(html, /HMAC|Server Seed|Client Seed|Game ID|Nonce/i);
+  assert.doesNotMatch(html, /(?:verify-(?:seed|hmac)|hmac-)[\w-]*/);
+  assert.deepEqual([...html.matchAll(/<form\b[^>]*\bid="([^"]+)"/g)].map(match => match[1]), ['verify-portal-form']);
+  assert.doesNotMatch(script, /\b(?:verifySeed|verifyHmacRoll|readNonce|serverSeed|clientSeed|nonce)\b/i);
+  assert.doesNotMatch(script, /(?:verify-(?:seed|hmac)|hmac-)[\w-]*/);
+});
+
+test('a portal-only API initializes without the deleted forms and still supports language, theme and exact SHA-256 submission', async () => {
+  const calls = [];
+  const api = { verifyPortalRoll: input => { calls.push(input); return verifier.verifyPortalRoll(input); } };
+  const ui = createLocalUI({ api });
+  assert.equal(ui.nodes.has('verify-seed-form'), false);
+  assert.equal(ui.nodes.has('verify-hmac-form'), false);
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
+  const input = '  room|ВащеППЦ|🎲|<img src=x>\n';
+  const hash = sha256(input);
+  const dice = verifier.diceFromHash(hash).dice;
+  setFields(ui, { 'portal-hash': hash, 'portal-die-one': String(dice[0]), 'portal-die-two': String(dice[1]), 'portal-preimage': input });
+  await ui.languageButtons[1].trigger('click');
+  await ui.themeButtons[0].trigger('click');
+  assert.equal(ui.document.documentElement.lang, 'en');
+  assert.equal(ui.document.documentElement.dataset.theme, 'day');
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].preimage, input);
+  assert.equal(calls[0].hash, hash);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].expectedDice)), dice);
+  assert.equal(firstStatus(portalResult(ui)), 'verified');
+  assert.match(portalResult(ui).textContent, /Hash and dice match/);
+  assert.match(portalResult(ui).textContent, /does not prove a random roll/);
+  await ui.languageButtons[0].trigger('click');
+  assert.equal(firstStatus(portalResult(ui)), 'verified');
+  assert.match(portalResult(ui).textContent, /Хеш и бросок совпадают/);
+  assert.equal(ui.document.documentElement.dataset.theme, 'day');
   ui.assertLocal();
 });
 
-test('the HMAC UI compares the expected HMAC digest rather than silently using a seed commitment', async () => {
-  const digest = createHmac('sha256', 'seed').update('game:client:0', 'utf8').digest('hex');
-  const dice = verifier.diceFromHash(digest).dice;
-  const ui = createLocalUI();
-  setFields(ui, {
-    'hmac-server-seed': 'seed', 'hmac-game-id': 'game', 'hmac-client-seed': 'client', 'hmac-nonce': '0',
-    'hmac-expected-hash': digest, 'hmac-die-one': String(dice[0]), 'hmac-die-two': String(dice[1]),
-  });
-  await ui.nodes.get('verify-hmac-form').trigger('submit');
-  assert.equal(firstStatus(ui.nodes.get('verify-hmac-result')), 'verified');
-  assert.match(ui.nodes.get('verify-hmac-result').textContent, /не подтверждает алгоритм этого портала/);
-  ui.nodes.get('hmac-expected-hash').value = sha256('seed');
-  await ui.nodes.get('verify-hmac-form').trigger('input');
-  await ui.nodes.get('verify-hmac-form').trigger('submit');
-  assert.equal(firstStatus(ui.nodes.get('verify-hmac-result')), 'mismatch');
-  ui.assertLocal();
-});
-
-test('verification results and errors insert hostile text only as text nodes, never HTML', async () => {
+test('portal verification results and errors insert hostile text only as text nodes, never HTML', async () => {
   const hostile = '<img src=x onerror="throw 1">';
   const result = {
-    status: 'incomplete', message: hostile, hmac: hostile, dice: [2, 4], sourceBytes: [],
+    status: 'incomplete', hash: hostile, hashStatus: 'unavailable', diceStatus: 'verified', dice: [2, 4], sourceBytes: [],
   };
-  const ui = createLocalUI({ api: { ...verifier, verifyHmacRoll: async () => result } });
-  setFields(ui, { 'hmac-server-seed': 'seed', 'hmac-game-id': 'game', 'hmac-client-seed': 'client', 'hmac-nonce': '0' });
-  await ui.nodes.get('verify-hmac-form').trigger('submit');
-  assert.ok(ui.nodes.get('verify-hmac-result').textContent.includes(hostile));
+  const fields = { 'portal-hash': `0103${'ff'.repeat(30)}`, 'portal-die-one': '2', 'portal-die-two': '4' };
+  const ui = createLocalUI({ api: { verifyPortalRoll: async () => result } });
+  setFields(ui, fields);
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.ok(portalResult(ui).textContent.includes(hostile));
   ui.assertLocal();
-  const errorUI = createLocalUI({ api: { ...verifier, verifySeed: async () => { throw new Error(hostile); } } });
-  setFields(errorUI, { 'verify-seed': 'seed' });
-  await errorUI.nodes.get('verify-seed-form').trigger('submit');
-  assert.ok(errorUI.nodes.get('verify-seed-result').textContent.includes(hostile));
+  const errorUI = createLocalUI({ api: { verifyPortalRoll: async () => { throw new Error(hostile); } } });
+  setFields(errorUI, fields);
+  await errorUI.nodes.get('verify-portal-form').trigger('submit');
+  assert.ok(portalResult(errorUI).textContent.includes(hostile));
   errorUI.assertLocal();
 });
 
