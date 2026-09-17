@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "c64328c041d02d1537d28aa76ae75d108405aaa7",
+  "publishedUrl": "https://volzay.github.io/online-backgammon/verify-game.html",
+  "workflow": {
+    "id": 35258748453,
+    "url": "https://github.com/volzay/online-backgammon/actions/runs/35258748453",
+    "createdAt": "2026-09-17T18:25:39Z",
+    "completedAt": "2026-09-17T18:42:33Z",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "ci": {
+    "platform": "Ubuntu GitHub Actions",
+    "node": "24.20.0",
+    "counts": {
+      "tests": 978,
+      "pass": 976,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 2,
+      "todo": 0,
+      "duration_ms": 969603.357983
+    },
+    "skippedTests": [
+      "2026-09-17T18:40:45.0684287Z ﹣ non-Linux production assertion cannot be authorized by options or forged provenance (0.108133ms) # SKIP",
+      "2026-09-17T18:40:45.2227837Z ﹣ real Linux production wrapper resumes the exact native fixed cohort then completes the original ledger (0.708729ms) # SKIP"
+    ]
+  },
+  "publicFiles": {
+    "checkedAt": "2026-09-17T18:43:56.569Z",
+    "base": "https://volzay.github.io/online-backgammon",
+    "sourceCommit": "c64328c041d02d1537d28aa76ae75d108405aaa7",
+    "status": "pass",
+    "files": [
+      {
+        "file": "verify-game.html",
+        "url": "https://volzay.github.io/online-backgammon/verify-game.html?v=c64328c041d0",
+        "bytes": 13195,
+        "expectedSha256": "66d57e1bb74f722503f721858bd763959393bf96209ff0726fffe3f95766f91c",
+        "actualSha256": "66d57e1bb74f722503f721858bd763959393bf96209ff0726fffe3f95766f91c",
+        "match": true
+      },
+      {
+        "file": "verify-game.css",
+        "url": "https://volzay.github.io/online-backgammon/verify-game.css?v=c64328c041d0",
+        "bytes": 7588,
+        "expectedSha256": "398cc47ffc5ea7725d4effb696e4f8ccdad7f121afd0fc700f1d94f111098bed",
+        "actualSha256": "398cc47ffc5ea7725d4effb696e4f8ccdad7f121afd0fc700f1d94f111098bed",
+        "match": true
+      },
+      {
+        "file": "verify-game-ui.js",
+        "url": "https://volzay.github.io/online-backgammon/verify-game-ui.js?v=c64328c041d0",
+        "bytes": 26950,
+        "expectedSha256": "5cfe3f1464745ee3fc64b57bd81370bdb7a8d25e30f95d374a6327223ece62fd",
+        "actualSha256": "5cfe3f1464745ee3fc64b57bd81370bdb7a8d25e30f95d374a6327223ece62fd",
+        "match": true
+      },
+      {
+        "file": "game-verifier.js",
+        "url": "https://volzay.github.io/online-backgammon/game-verifier.js?v=c64328c041d0",
+        "bytes": 13122,
+        "expectedSha256": "dd6178ea8427a7f8174b76a3871df49d031dde4efeea01a002e54697cd8e92d7",
+        "actualSha256": "dd6178ea8427a7f8174b76a3871df49d031dde4efeea01a002e54697cd8e92d7",
+        "match": true
+      },
+      {
+        "file": "roll-verification-ui.js",
+        "url": "https://volzay.github.io/online-backgammon/roll-verification-ui.js?v=c64328c041d0",
+        "bytes": 7268,
+        "expectedSha256": "ead963589a6b01c2190d96693ab4402483ed3500a298cc8598f1900eb105e942",
+        "actualSha256": "ead963589a6b01c2190d96693ab4402483ed3500a298cc8598f1900eb105e942",
+        "match": true
+      },
+      {
+        "file": "roll-verification.css",
+        "url": "https://volzay.github.io/online-backgammon/roll-verification.css?v=c64328c041d0",
+        "bytes": 1515,
+        "expectedSha256": "310bef8b4a9602dbe1be6a78c788ac22135d22f185ced27825795d9a5117c7d7",
+        "actualSha256": "310bef8b4a9602dbe1be6a78c788ac22135d22f185ced27825795d9a5117c7d7",
+        "match": true
+      },
+      {
+        "file": "room.html",
+        "url": "https://volzay.github.io/online-backgammon/room.html?v=c64328c041d0",
+        "bytes": 92391,
+        "expectedSha256": "313f432c09e4cbf47972e912821ef684c3b7e2d55f6320d80c1d29fbfcae8be5",
+        "actualSha256": "313f432c09e4cbf47972e912821ef684c3b7e2d55f6320d80c1d29fbfcae8be5",
+        "match": true
+      },
+      {
+        "file": "homegate.html",
+        "url": "https://volzay.github.io/online-backgammon/homegate.html?v=c64328c041d0",
+        "bytes": 1179,
+        "expectedSha256": "64bbe90b560349ea5c27d94bde224db3cee2ef475c34b7094b53de809226ec0a",
+        "actualSha256": "64bbe90b560349ea5c27d94bde224db3cee2ef475c34b7094b53de809226ec0a",
+        "match": true
+      },
+      {
+        "file": "game-controller.js",
+        "url": "https://volzay.github.io/online-backgammon/game-controller.js?v=c64328c041d0",
+        "bytes": 170633,
+        "expectedSha256": "620b401e2e5287984ae136f86793d20a81cfce54e8302d2b0b78e8f0cdbae38b",
+        "actualSha256": "620b401e2e5287984ae136f86793d20a81cfce54e8302d2b0b78e8f0cdbae38b",
+        "match": true
+      },
+      {
+        "file": "homegate.js",
+        "url": "https://volzay.github.io/online-backgammon/homegate.js?v=c64328c041d0",
+        "bytes": 85366,
+        "expectedSha256": "d9dd9fc4d9f33cdccad72cede08c1ee4c51a2226d8c55af6337fa9ec02044344",
+        "actualSha256": "d9dd9fc4d9f33cdccad72cede08c1ee4c51a2226d8c55af6337fa9ec02044344",
+        "match": true
+      },
+      {
+        "file": "runtime-config.js",
+        "url": "https://volzay.github.io/online-backgammon/runtime-config.js?v=c64328c041d0",
+        "bytes": 307,
+        "expectedSha256": "5e619c499e487789f0bfafbea4ec153852b767ffa8b58bcb70010e1a5a10c8b7",
+        "actualSha256": "5e619c499e487789f0bfafbea4ec153852b767ffa8b58bcb70010e1a5a10c8b7",
+        "match": true
+      },
+      {
+        "file": "game.js",
+        "url": "https://volzay.github.io/online-backgammon/game.js?v=c64328c041d0",
+        "bytes": 72603,
+        "expectedSha256": "769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+        "actualSha256": "769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+        "match": true
+      },
+      {
+        "file": "long-bot-engine.js",
+        "url": "https://volzay.github.io/online-backgammon/long-bot-engine.js?v=c64328c041d0",
+        "bytes": 301411,
+        "expectedSha256": "6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255",
+        "actualSha256": "6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255",
+        "match": true
+      },
+      {
+        "file": "strong-bot.js",
+        "url": "https://volzay.github.io/online-backgammon/strong-bot.js?v=c64328c041d0",
+        "bytes": 104599,
+        "expectedSha256": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+        "actualSha256": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+        "match": true
+      }
+    ],
+    "drift": []
+  },
+  "ordinaryUrls": {
+    "checkedBy": "independent read-only reviewer",
+    "queryParameters": false,
+    "pages": [
+      "verify-game.html",
+      "room.html",
+      "homegate.html"
+    ],
+    "httpStatus": 200,
+    "verifierAssetVersion": "c64328c041d0"
+  },
+  "browser": {
+    "url": "https://volzay.github.io/online-backgammon/verify-game.html",
+    "secureContext": true,
+    "syntheticInput": "abc",
+    "syntheticHash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "dice": [
+      1,
+      1
+    ],
+    "observedHeading": "Хеш и бросок совпадают",
+    "afterCheck": "Reloaded without test values; retained as user-facing preview",
+    "accountsOrLiveGamesChanged": false
+  },
+  "backendMigrationsApplied": false,
+  "workerReinstalled": false,
+  "playingPolicyChanged": false,
+  "localVerificationReport": "game-verifier-verification-2026-09-17.json"
+}
