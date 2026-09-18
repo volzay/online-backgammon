@@ -66,7 +66,7 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
   async function finishTurn() {
     await flush();
     for (let index = 0; index < 8; index += 1) {
-      const next = [...pending].find(([, item]) => item.ms === 380); if (!next) break;
+      const next = [...pending].find(([, item]) => item.ms === 120); if (!next) break;
       pending.delete(next[0]); next[1].callback(); await flush();
     }
     await flush();

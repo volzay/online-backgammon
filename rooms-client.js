@@ -29,6 +29,8 @@
     modelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
     inferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
     rulesFingerprint: "sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+    runtimeRulesFingerprint: "sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    rulesCompatibility: "history-free-rule-search-v1",
     trainingGames: 448, trainingSteps: 35147, inputSize: 127, hiddenSize: 32, maxCandidates: 16, epsilon: 0,
   });
   const roomIdCache = new Map();
@@ -1309,7 +1311,7 @@
   }
 
   async function getGameState(code, options = {}) {
-    const { signal } = options;
+    const { signal, contextOnly = false } = options;
     throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
@@ -1320,9 +1322,12 @@
       });
     }
     const client = await supabase({ signal });
+    // Dice preparation needs fresh policy/epoch/variant, not the growing
+    // proof and analysis archive. Keep ordinary recovery reads complete.
+    const stateColumns = contextOnly ? 'variant' : 'game_state';
     let query = client
       .from("rooms")
-      .select("id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol")
+      .select(`id,${stateColumns},game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol`)
       .eq("code", normalizedCode)
       .neq("status", "closed");
     query = withAbortSignal(query, signal);
@@ -1332,7 +1337,7 @@
     if (error && ['42703', 'PGRST204'].includes(error.code)
       && /fair_dice_protocol/.test(error.message || '')
       && !/fair_dice_(?:required|game_id)/.test(error.message || '')) {
-      let previous = client.from('rooms').select('id,game_state,game_version,status,fair_dice_required,fair_dice_game_id')
+      let previous = client.from('rooms').select(`id,${stateColumns},game_version,status,fair_dice_required,fair_dice_game_id`)
         .eq('code', normalizedCode).neq('status', 'closed');
       previous = withAbortSignal(previous, signal);
       ({ data, error } = await awaitWithAbort(previous.maybeSingle(), signal));
@@ -1342,7 +1347,7 @@
     // network, service-key or signature failure for a protected room.
     if (error && ['42703', 'PGRST204'].includes(error.code)
       && /fair_dice_(?:required|game_id)/.test(error.message || '')) {
-      let legacy = client.from('rooms').select('id,game_state,game_version,status')
+      let legacy = client.from('rooms').select(`id,${stateColumns},game_version,status`)
         .eq('code', normalizedCode).neq('status', 'closed');
       legacy = withAbortSignal(legacy, signal);
       ({ data, error } = await awaitWithAbort(legacy.maybeSingle(), signal));
@@ -1355,7 +1360,8 @@
       required: data.fair_dice_required === true, gameId: data.fair_dice_game_id,
       ...(typeof data.fair_dice_protocol === 'string' ? { protocol: data.fair_dice_protocol } : {}),
     });
-    return { state: data.game_state || null, version: Number(data.game_version || 0),
+    return { state: contextOnly ? null : data.game_state || null, version: Number(data.game_version || 0),
+      ...(contextOnly ? { variant: data.variant } : {}),
       fairDice: fairDicePolicies.get(normalizedCode) || { required: false } };
   }
 
@@ -1367,7 +1373,7 @@
   async function fairDicePolicy(code, { refresh = false } = {}) {
     if (!configured()) return { required: false };
     const normalizedCode = normalizeCode(code);
-    if (refresh || !fairDicePolicies.has(normalizedCode)) await getGameState(normalizedCode);
+    if (refresh || !fairDicePolicies.has(normalizedCode)) await getGameState(normalizedCode, { contextOnly: true });
     return fairDicePolicies.get(normalizedCode);
   }
 
@@ -1422,10 +1428,11 @@
     const normalizedCode = normalizeCode(code);
     // Refresh the protected epoch after a rematch; it never comes from storage,
     // URL parameters, a bot or the proof's self-declared public key.
-    const current = await getGameState(normalizedCode);
+    const current = await getGameState(normalizedCode, { contextOnly: true });
     const policy = current.fairDice;
     if (!policy?.required) throw roomError("Эта партия использует прежний протокол бросков.", 422);
-    const context = { roomCode: normalizedCode, gameId: policy.gameId, label, color, variant: current.state?.variant };
+    if (!['long', 'short'].includes(current.variant)) throw roomError("Не удалось подтвердить вид нард этой комнаты.", 422);
+    const context = { roomCode: normalizedCode, gameId: policy.gameId, label, color, variant: current.variant };
     const reserved = await fairDiceJson('reserve', { code: normalizedCode, label, color });
     const receipt = reserved.receipt || reserved;
     if (!window.NarduFairDice?.verifyReservation(receipt, window.NARDU_ENV.fairDicePublicKey, context)) {

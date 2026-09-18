@@ -141,6 +141,105 @@ function applyAlreadyCommitted(rigged, method) {
   }
 }
 
+test('known protected policy is not refreshed twice, while its checkpoint remains awaited before reservation', async () => {
+  const r = rig('autoRoll');
+  const policies = [];
+  const saved = deferred();
+  r.context.window.NarduRooms.fairDicePolicy = async (code, options) => { policies.push({ code, options }); return { required: true }; };
+  r.context.publishRemoteState = () => saved.promise;
+  const running = r.context.shaDiceRoll({ label: 'turn', color: 'white' });
+  await flush();
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0].options, undefined);
+  assert.equal(count(r.calls, 'request'), 0);
+  saved.resolve(true);
+  await flush();
+  assert.equal(count(r.calls, 'request'), 1);
+  r.requested.resolve(clone(proof));
+  await running;
+  assertNoLegacy(r.calls);
+});
+
+test('a cached legacy policy is refreshed before dice generation and activation cannot select local RNG', async () => {
+  const r = rig('autoRoll');
+  const policies = [];
+  r.context.window.NarduRooms.fairDicePolicy = async (code, options) => {
+    policies.push({ code, options });
+    return { required: options?.refresh === true };
+  };
+  const running = r.context.shaDiceRoll({ label: 'turn', color: 'white' });
+  await flush();
+  assert.equal(policies.length, 2);
+  assert.equal(policies[1].options.refresh, true);
+  assert.equal(count(r.calls, 'request'), 1);
+  r.requested.resolve(clone(proof));
+  await running;
+  assertNoLegacy(r.calls);
+});
+
+test('a failed policy refresh never downgrades into legacy dice generation', async () => {
+  const r = rig('autoRoll');
+  r.context.window.NarduRooms.fairDicePolicy = async (code, options) => {
+    if (options?.refresh) throw new Error('metadata unavailable');
+    return { required: false };
+  };
+  await assert.rejects(r.context.shaDiceRoll({ label: 'turn', color: 'white' }), /metadata unavailable/);
+  assert.equal(count(r.calls, 'request'), 0);
+  assertNoLegacy(r.calls);
+});
+
+test('healthy roll and bot scheduling use short fixed pauses independent of archived game length', () => {
+  const source = ['function scheduleAutoRoll(', 'function scheduleOpeningRoll(',
+    'function ensureAutoProgress(', 'function finishTurnRollAnimation('].map(extractFunction).join('\n');
+  for (const historyLength of [0, 1200]) {
+    const scheduled = [];
+    const context = { state: { phase: 'roll', turn: 'dark', history: Array(historyLength).fill({}) },
+      mode: 'bot', botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '',
+      isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
+      isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
+      autoRoll() {}, openingRoll() {}, playBotTurn() {}, maybeScheduleAutoEndTurn() {},
+      scheduleOpeningTurnRoll() {}, console,
+      schedule(callback, ms) { scheduled.push({ callback, ms }); return scheduled.length; } };
+    vm.createContext(context);
+    vm.runInContext(source, context);
+    context.ensureAutoProgress();
+    assert.equal(scheduled.at(-1).ms, 200);
+    context.autoRollTimer = null;
+    context.state.phase = 'opening';
+    context.scheduleOpeningRoll();
+    assert.equal(scheduled.at(-1).ms, 200);
+    context.autoRollTimer = null;
+    context.state.phase = 'move';
+    context.ensureAutoProgress();
+    assert.equal(scheduled.at(-1).ms, 200);
+    context.ensureAutoProgress(0);
+    assert.equal(scheduled.at(-1).ms, 120, 'explicit urgent resume still has a safe minimum');
+    context.finishTurnRollAnimation('dark');
+    assert.equal(scheduled.at(-1).ms, 180, 'bot starts only after completed dice animation');
+    const before = scheduled.length;
+    for (const blocked of ['isRolling', 'isAnimating', 'isChainingMove', 'botAnalysisRestorePending']) {
+      context[blocked] = true;
+      context.ensureAutoProgress();
+      context[blocked] = false;
+    }
+    context.fairDiceError = 'paused protected proof';
+    context.ensureAutoProgress();
+    assert.equal(scheduled.length, before);
+  }
+});
+
+test('latency changes preserve the existing player auto-end undo opportunity', () => {
+  const scheduled = [];
+  const context = { state: { phase: 'move', dice: [] }, autoEndTimer: null,
+    mode: 'bot', isMyTurn: () => true, clearTimeout() {},
+    NarduGame: { hasAnyMoves: () => false },
+    schedule(callback, ms) { scheduled.push(ms); return scheduled.length; }, endTurnUser() {} };
+  vm.createContext(context);
+  vm.runInContext(extractFunction('function maybeScheduleAutoEndTurn('), context);
+  context.maybeScheduleAutoEndTurn();
+  assert.equal(scheduled.at(-1), 1200);
+});
+
 for (const method of ['openingRoll', 'autoRoll']) {
   const application = method === 'openingRoll' ? 'apply-opening' : 'apply-roll';
   const animation = method === 'openingRoll' ? 'animate-opening' : 'animate-roll';

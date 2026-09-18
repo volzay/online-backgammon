@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const evaluator = require('../scripts/evaluate-long-bot-neural');
 const trainer = require('../scripts/train-long-bot-neural');
+const { fingerprintNamedBuffers } = require('../scripts/simulate-long-bot-regression');
 const neural = require('../lib/long-bot-neural');
 
 function protocol() {
@@ -129,6 +130,24 @@ test('native hard factory preserves captured v35 source/policy and selected open
   const corrupted = { ...snapshot, sourceFingerprints: { ...snapshot.sourceFingerprints, 'game.js': `sha256:${'0'.repeat(64)}` } };
   assert.throws(() => evaluator.createCurrentHard(corrupted), /fingerprint mismatch/);
   assert.throws(() => evaluator.createCurrentHard(snapshot, { loader: 'fallback' }), /loader/);
+});
+
+test('current-hard approval pins two whole runtime tuples and rejects genuinely changed source bytes', () => {
+  const snapshot = evaluator.readCurrentHardSnapshot();
+  const hard = evaluator.createCurrentHard(snapshot);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 2);
+  assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
+  const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES[1];
+  assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
+  assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
+  assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
+  for (const changedName of ['game.js', 'long-bot-engine.js', 'strong-bot.js']) {
+    const entries = snapshot.entries.map(([name, bytes]) => [name,
+      name === changedName ? Buffer.concat([bytes, Buffer.from('\n// unaudited runtime bytes\n')]) : Buffer.from(bytes)]);
+    const changed = { entries, fingerprint: fingerprintNamedBuffers(entries),
+      sourceFingerprints: Object.fromEntries(entries.map(([name, bytes]) => [name, trainer.fingerprint(bytes)])) };
+    assert.throws(() => evaluator.createCurrentHard(changed), /exact frozen v35 dispatcher/);
+  }
 });
 
 test('native hard factory preserves two complete terminal race-fixture VM traces', { timeout: 60000 }, () => {

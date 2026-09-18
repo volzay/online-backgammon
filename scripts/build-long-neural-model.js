@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const neural = require('../lib/long-bot-neural');
-const { canonical, fingerprint } = require('../lib/long-neural-artifact');
+const { canonical, fingerprint, validateTrainingArtifact } = require('../lib/long-neural-artifact');
 const ROOT = path.join(__dirname, '..');
 const PUBLIC_PATH = path.join(ROOT, 'vendor/long-neural/model.json');
 const ASSET_PATH = path.join(ROOT, 'vendor/long-neural/model.js');
@@ -17,23 +17,36 @@ const PIN = Object.freeze({
   modelFingerprint: 'sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155',
   inferenceCodeFingerprint: 'sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e',
   rulesFingerprint: 'sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b',
+  // The above is the actual evaluated/training source, not a new benchmark.
+  runtimeRulesFingerprint: 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  rulesCompatibility: 'history-free-rule-search-v1',
   trainingGames: 448, trainingSteps: 35147, inputSize: 127, hiddenSize: 32,
   maxCandidates: 16, epsilon: 0,
 });
+const COMPATIBLE_RULES_FINGERPRINTS = Object.freeze([PIN.rulesFingerprint, PIN.runtimeRulesFingerprint]);
+
+function assertCompatibleRulesFingerprint(value) {
+  if (!COMPATIBLE_RULES_FINGERPRINTS.includes(value)) {
+    throw new Error('Unknown neural runtime rules: retrain or explicitly verify compatibility');
+  }
+  return value;
+}
 
 function sourceHash(file) {
   return `sha256:${crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')}`;
 }
 function checkSources() {
-  if (sourceHash(path.join(ROOT, 'lib/long-bot-neural.js')) !== PIN.inferenceCodeFingerprint
-    || sourceHash(path.join(ROOT, 'game.js')) !== PIN.rulesFingerprint) {
+  if (sourceHash(path.join(ROOT, 'lib/long-bot-neural.js')) !== PIN.inferenceCodeFingerprint) {
     throw new Error('Neural model inference/rules pins differ from the evaluated candidate');
   }
+  return assertCompatibleRulesFingerprint(sourceHash(path.join(ROOT, 'game.js')));
 }
 function validatePublicModel(payload) {
+  const metadata = payload?.metadata;
   if (!payload || Object.keys(payload).sort().join(',') !== 'metadata,model,schema'
     || payload.schema !== 'nardu-public-long-neural-v1'
-    || canonical(payload.metadata) !== canonical(PIN)) {
+    || !metadata || !COMPATIBLE_RULES_FINGERPRINTS.includes(metadata.runtimeRulesFingerprint)
+    || canonical(metadata) !== canonical({ ...PIN, runtimeRulesFingerprint: metadata.runtimeRulesFingerprint })) {
     throw new Error('Invalid or unpinned public neural model metadata');
   }
   neural.validateModel(payload.model);
@@ -53,14 +66,20 @@ function assetSource(payload) {
     + `})(window);\n`;
 }
 function buildLongNeuralModel(options = {}) {
-  checkSources();
+  const runtimeRulesFingerprint = checkSources();
   const publicPath = options.publicPath || PUBLIC_PATH;
   const assetPath = options.assetPath || ASSET_PATH;
   let payload;
   if (options.sourcePath) {
     const trainer = require('./train-long-bot-neural');
     const artifact = JSON.parse(fs.readFileSync(options.sourcePath, 'utf8'));
-    const manifest = trainer.validateTrainingProvenance(artifact);
+    // Check historical artifact commitments against the source actually used
+    // for training/evaluation. This validates provenance, not a re-evaluation
+    // of the compatible optimized runtime or new playing-strength evidence.
+    const manifest = validateTrainingArtifact(artifact, { api: neural,
+      runtimeFingerprint: PIN.rulesFingerprint, inferenceCodeFingerprint: PIN.inferenceCodeFingerprint,
+      seedStreamHelperFingerprint: trainer.SEED_HELPER_FINGERPRINT,
+      streamSeeds: trainer.streamSeeds, trainingDomain: trainer.TRAIN_DOMAIN });
     if (manifest.games !== PIN.trainingGames || manifest.samples !== PIN.trainingSteps
       || artifact.modelFingerprint !== PIN.modelFingerprint) throw new Error('Training provenance differs from the approved candidate');
     if (options.frozenModelPath) {
@@ -68,16 +87,19 @@ function buildLongNeuralModel(options = {}) {
       neural.validateModel(frozen);
       if (canonical(frozen) !== canonical(artifact.model)) throw new Error('Frozen upload model differs from its training artifact');
     }
-    payload = validatePublicModel({ schema: 'nardu-public-long-neural-v1', metadata: { ...PIN }, model: artifact.model });
+    payload = validatePublicModel({ schema: 'nardu-public-long-neural-v1', metadata: { ...PIN, runtimeRulesFingerprint }, model: artifact.model });
     fs.mkdirSync(path.dirname(publicPath), { recursive: true });
     fs.writeFileSync(publicPath, `${JSON.stringify(payload, null, 2)}\n`);
   } else {
     payload = validatePublicModel(JSON.parse(fs.readFileSync(publicPath, 'utf8')));
   }
+  if (payload.metadata.runtimeRulesFingerprint !== runtimeRulesFingerprint) {
+    throw new Error('Public neural asset runtime fingerprint does not match the checked game.js source');
+  }
   const source = assetSource(payload);
   fs.mkdirSync(path.dirname(assetPath), { recursive: true });
   if (!fs.existsSync(assetPath) || fs.readFileSync(assetPath, 'utf8') !== source) fs.writeFileSync(assetPath, source);
-  return { publicPath, assetPath, metadata: { ...PIN } };
+  return { publicPath, assetPath, metadata: { ...payload.metadata } };
 }
 if (require.main === module) {
   const options = {};
@@ -95,3 +117,5 @@ module.exports = buildLongNeuralModel;
 module.exports.PIN = PIN;
 module.exports.validatePublicModel = validatePublicModel;
 module.exports.assetSource = assetSource;
+module.exports.COMPATIBLE_RULES_FINGERPRINTS = COMPATIBLE_RULES_FINGERPRINTS;
+module.exports.assertCompatibleRulesFingerprint = assertCompatibleRulesFingerprint;

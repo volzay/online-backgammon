@@ -157,6 +157,30 @@ test('every ordinary room persist writes the same recovery snapshot to both stor
   assert.equal(harness.controller.getState().analysis.roomSnapshotPersistence.status, 'ready');
 });
 
+test('a growing archive is serialized once and both saved copies remain detached from subsequent mutations', () => {
+  const harness = controllerHarness();
+  const state = harness.controller.getState();
+  let evidenceSerializations = 0;
+  state.history = Array.from({ length: 1200 }, (_, index) => ({ index, sha256: 'a'.repeat(64) }));
+  state.history[0].evidence = { toJSON() { evidenceSerializations += 1; return { disclosed: 'original' }; } };
+  state.selected = 24;
+  state.hints = [20];
+  assert.equal(harness.controller.__snapshotTest.persistRoomSnapshot(), true);
+  assert.equal(evidenceSerializations, 1, 'no preliminary full JSON clone');
+  const localText = harness.localStorage.getItem(ROOM_KEY);
+  assert.equal(localText, harness.sessionStorage.getItem('narduh-room-reload-snapshot'));
+  const saved = JSON.parse(localText);
+  assert.equal(saved.state.history.length, 1200);
+  assert.equal(saved.state.history[0].evidence.disclosed, 'original');
+  assert.equal(saved.state.selected, null);
+  assert.deepEqual(saved.state.hints, []);
+  state.history[0].sha256 = 'b'.repeat(64);
+  state.history.pop();
+  assert.equal(harness.localStorage.getItem(ROOM_KEY), localText);
+  assert.equal(harness.sessionStorage.getItem('narduh-room-reload-snapshot'), localText);
+  assert.equal(state.selected, 24, 'UI selections are not mutated by persistence');
+});
+
 test('snapshot pruning is bounded to app-owned records and keeps only the newest room history', () => {
   const harness = controllerHarness();
   const now = Date.now();

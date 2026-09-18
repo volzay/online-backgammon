@@ -343,12 +343,15 @@ window.NarduController = (function () {
         mode,
         playerColor,
         roomCode: remoteCode || state.roomCode || '',
-        state: cloneStateForRestore({
+        // writeRoomSnapshot serializes synchronously before returning. Avoid
+        // serializing/parsing the entire archive just to serialize it again;
+        // both storage tiers still receive one identical detached JSON text.
+        state: {
           ...state,
           selected: null,
           hints: [],
           fullHints: [],
-        }),
+        },
       };
     } catch {
       return null;
@@ -2376,11 +2379,46 @@ window.NarduController = (function () {
   }
 
   /* ── history ──────────────────────────────── */
+  // Keep the complete journal, but do not recreate its proof/details DOM for
+  // every checker selection or animation frame. Signatures are snapshots, not
+  // object identities: an in-place mutation of an old proof must invalidate it.
+  let historyRenderCache = null;
   function renderHistory() {
     const list = document.getElementById('history-list') || document.querySelector('.history');
     if (!list) return;
     window.NarduVerifyUI?.setGameContext(list.parentElement, state);
     const items = state.history || [];
+    const contextKey = JSON.stringify([lang(), sideName('white'), sideName('dark'), turnName('white'), turnName('dark'),
+      remoteCode || state.roomCode, state.variant, state.startedAt, state.gameId, state.fairDiceGameId,
+      state.fairDice, state.fairDicePolicy, state.mode, state.analysis?.playerColor, mode, spectatorMode, playerColor]);
+    const controls = window.NarduVerifyUI?.rollControls;
+    let signatures;
+    try {
+      if (items.length <= 20000) {
+        let size = 0;
+        signatures = items.map(item => {
+          const signature = JSON.stringify(item, (key, value) => {
+            // Non-JSON numbers/types can stringify as the same null/omission
+            // as a different record. Never reuse old proof DOM in that case.
+            if (typeof value === 'number' && !Number.isFinite(value)
+              || ['function', 'symbol', 'bigint'].includes(typeof value)) throw new Error('Uncacheable history record');
+            return value;
+          });
+          size += signature?.length || 0;
+          if (size > 8 * 1024 * 1024) throw new Error('History signature cache limit');
+          return signature;
+        });
+      }
+    } catch (_) { signatures = undefined; }
+    const cached = historyRenderCache;
+    const sameContext = signatures && cached && cached.list === list && cached.source === state
+      && cached.contextKey === contextKey && cached.controls === controls;
+    const delta = sameContext ? items.length - cached.signatures.length : -1;
+    const unchangedSuffix = delta >= 0 && cached.signatures.every((signature, index) => signature === signatures[index + delta]);
+    if (unchangedSuffix && delta === 0) return;
+    const remember = () => {
+      historyRenderCache = signatures ? { list, source: state, contextKey, controls, signatures } : null;
+    };
     if (!items.length) {
       list.innerHTML = `
         <div class="hist-item">
@@ -2390,9 +2428,10 @@ window.NarduController = (function () {
             <div class="sub">${tr('history_wait_opening_sub')}</div>
           </div>
         </div>`;
+      remember();
       return;
     }
-    list.innerHTML = items.map((item, index) => {
+    const rowMarkup = (item, index) => {
       const number = String(items.length - index).padStart(2, '0');
       if (item.waiting) {
         return historyMarkup(number, 'white', tr('history_room_created'), tr('history_code_wait', { code: item.roomCode || '—' }));
@@ -2418,7 +2457,11 @@ window.NarduController = (function () {
       }
       const to = item.to === 'снято' ? tr('borne_off') : item.to;
       return historyMarkup(number, item.color, tr('history_moves', { name: turnName(item.color) }), `${item.from} → ${to}, ${tr('history_die', { die: item.die })}`);
-    }).join('');
+    };
+    if (unchangedSuffix && delta > 0 && cached.signatures.length > 0 && typeof list.insertAdjacentHTML === 'function') {
+      list.insertAdjacentHTML('afterbegin', items.slice(0, delta).map(rowMarkup).join(''));
+    } else list.innerHTML = items.map(rowMarkup).join('');
+    remember();
   }
 
   function historyMarkup(number, color, title, sub, sha256 = '', rollItem) {
@@ -2663,7 +2706,11 @@ window.NarduController = (function () {
 
   async function shaDiceRoll({ label, color, noTie = false } = {}) {
     if (remoteCode && mode !== 'hotseat' && window.NarduRooms?.fairDicePolicy) {
-      const policy = await window.NarduRooms.fairDicePolicy(remoteCode, { refresh: true });
+      let policy = await window.NarduRooms.fairDicePolicy(remoteCode);
+      // A protected request refreshes its epoch/variant inside requestFairDice.
+      // Do not download the archive twice. Recheck a legacy result so an
+      // explicitly enabled policy can never fall through to local dice.
+      if (policy.required !== true) policy = await window.NarduRooms.fairDicePolicy(remoteCode, { refresh: true });
       if (policy.required) {
         fairDiceInFlight = true;
         render();
@@ -2723,7 +2770,7 @@ window.NarduController = (function () {
   }
 
   /* ── user actions ─────────────────────────── */
-  function scheduleAutoRoll(ms = 600) {
+  function scheduleAutoRoll(ms = 200) {
     if (botAnalysisRestorePending || state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isMyTurn()) return;
     autoRollTimer = schedule(() => {
@@ -2732,7 +2779,7 @@ window.NarduController = (function () {
     }, ms);
   }
 
-  function scheduleOpeningRoll(ms = 600) {
+  function scheduleOpeningRoll(ms = 200) {
     if (botAnalysisRestorePending || state.phase !== 'opening' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     autoRollTimer = schedule(() => {
@@ -2763,17 +2810,17 @@ window.NarduController = (function () {
     render();
     if (state.winner) { onGameOver(); return; }
     if (state.phase === 'roll') {
-      scheduleAutoRoll(650);
+      scheduleAutoRoll(200);
       return;
     }
     if (state.turn === rollingTurn && mode === 'bot' && !isMyTurn()) {
-      schedule(playBotTurn, 700);
+      schedule(playBotTurn, 180);
     } else {
       maybeScheduleAutoEndTurn();
     }
   }
 
-  function ensureAutoProgress(ms = 650) {
+  function ensureAutoProgress(ms = 200) {
     if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (fairDiceError) return;
     if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
@@ -2792,7 +2839,7 @@ window.NarduController = (function () {
     }
     if (state.phase === 'move') {
       if (mode === 'bot' && !isMyTurn()) {
-        schedule(playBotTurn, Math.max(450, ms));
+        schedule(playBotTurn, Math.max(120, ms));
         return;
       }
       maybeScheduleAutoEndTurn();
@@ -2882,7 +2929,7 @@ window.NarduController = (function () {
     undoStack = [];
     publishRemoteState();
     render();
-    ensureAutoProgress(650);
+    ensureAutoProgress(200);
   }
 
   async function autoRoll() {
@@ -2964,7 +3011,7 @@ window.NarduController = (function () {
     persistRoomSnapshot();
     if (state.winner) { onGameOver(); return; }
     if (mode === 'bot') queueBotAnalysisPublish(120);
-    ensureAutoProgress(700);
+    ensureAutoProgress(200);
   }
 
   /* ── point click — select source or apply move ── */
@@ -4562,7 +4609,7 @@ window.NarduController = (function () {
               onGameOver();
               return;
             }
-            schedule(step, 380);
+            schedule(step, 120);
           });
         }
         step();

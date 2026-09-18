@@ -8,6 +8,8 @@
     "modelFingerprint": "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
     "inferenceCodeFingerprint": "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
     "rulesFingerprint": "sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+    "runtimeRulesFingerprint": "sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    "rulesCompatibility": "history-free-rule-search-v1",
     "trainingGames": 448,
     "trainingSteps": 35147,
     "inputSize": 127,

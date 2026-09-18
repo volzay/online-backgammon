@@ -51,7 +51,7 @@ function loadRooms({ guest = false, variant = 'long', required = true, env = {},
   let markStarted;
   const started = new Promise(resolve => { markStarted = resolve; });
   const state = { roomCode: CODE, variant, phase: 'opening', history: [] };
-  const row = { id: 'room-1', status: 'joined', game_state: state, game_version: 7,
+  const row = { id: 'room-1', variant, status: 'joined', game_state: state, game_version: 7,
     fair_dice_required: required, fair_dice_game_id: GAME_ID };
   const client = {
     auth: {
@@ -141,6 +141,40 @@ test('protected room policy is read independently of the service URL and receipt
   }
 });
 
+test('dice policy and reservation refresh only bounded metadata; recovery still returns the complete archive', async () => {
+  const proof = proofFixture();
+  const client = loadRooms({ fetchImpl: request => request.url.endsWith('/reserve')
+    ? response({ receipt: receiptOf(proof) }, 202) : response({ proof }) });
+  client.state.history = Array.from({ length: 1200 }, (_, index) => ({ index, retainedEvidence: 'x'.repeat(300) }));
+  await client.rooms.fairDicePolicy(CODE);
+  await client.rooms.fairDicePolicy(CODE);
+  assert.equal(client.operations.filter(item => item.kind === 'read').length, 1, 'known policy is reused');
+  await client.rooms.requestFairDice(CODE, { label: 'opening', color: 'none' });
+  const metadataReads = client.operations.filter(item => item.kind === 'read');
+  assert.equal(metadataReads.length, 2, 'reservation independently refreshes its epoch');
+  for (const read of metadataReads) {
+    assert.equal(read.columns.includes('game_state'), false);
+    assert.match(read.columns, /^id,variant,game_version,status,fair_dice_required,fair_dice_game_id/);
+    assert.ok(read.filters.some(filter => filter[1] === 'code' && filter[2] === CODE));
+    assert.ok(read.filters.some(filter => filter[1] === 'status' && filter[2] === 'closed'));
+  }
+  const recovered = await client.rooms.getGameState(CODE);
+  assert.equal(recovered.state.history.length, 1200);
+  assert.equal(recovered.state.history[1199].retainedEvidence, 'x'.repeat(300));
+  assert.match(client.operations.filter(item => item.kind === 'read').at(-1).columns, /^id,game_state,/);
+  client.assertProtected();
+});
+
+test('metadata variant cannot be missing or taken from a stale archived state before reservation', async () => {
+  for (const variant of [undefined, null, 'unknown']) {
+    const client = loadRooms({ readImpl: () => ({ data: { id: 'room-1', variant,
+      game_state: { variant: 'long' }, game_version: 7, fair_dice_required: true, fair_dice_game_id: GAME_ID }, error: null }) });
+    await assert.rejects(client.rooms.requestFairDice(CODE, { label: 'opening', color: 'none' }), error => error.status === 422);
+    assert.equal(client.requests.length, 0);
+    client.assertProtected();
+  }
+});
+
 test('missing protected configuration rejects state, roll, presence, leave and bot close without raw writes or local fallback', async () => {
   for (const method of ['state', 'roll', 'presence', 'leave', 'botClose']) {
     const client = loadRooms({ env: { fairDiceUrl: '', fairDicePublicKey: '' } });
@@ -162,7 +196,7 @@ for (const code of ['42703', 'PGRST204']) {
     assert.equal((await client.rooms.fairDicePolicy(CODE)).required, false);
     const reads = client.operations.filter(item => item.kind === 'read');
     assert.equal(reads.length, 2);
-    assert.equal(reads[1].columns, 'id,game_state,game_version,status');
+    assert.equal(reads[1].columns, 'id,variant,game_version,status');
     client.assertProtected();
   });
 }
@@ -268,7 +302,7 @@ test('wrong epochs, server pins or missing verifier modules reject the receipt b
   const proof = proofFixture();
   for (const options of [
     { env: { fairDicePublicKey: FairDice.receiptPublicKey('22'.repeat(32)) } },
-    { readImpl: () => ({ data: { id: 'room-1', game_version: 7, game_state: { variant: 'long' }, fair_dice_required: true,
+    { readImpl: () => ({ data: { id: 'room-1', variant: 'long', game_version: 7, game_state: { variant: 'long' }, fair_dice_required: true,
       fair_dice_game_id: '99999999-1111-4111-8111-111111111111' }, error: null }) },
     { fairApi: null },
   ]) {

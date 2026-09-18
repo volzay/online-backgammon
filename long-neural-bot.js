@@ -4,6 +4,10 @@ window.NarduNeuralBot = (function () {
   const MODEL_ID = 'hard-neuro-448-v1';
   const MODEL_FINGERPRINT = 'sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155';
   const MAX_CANDIDATES = 16;
+  const COMPATIBLE_RULES = Object.freeze([
+    'sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b',
+    'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  ]);
   let planner = null;
   let loadedPayload = null;
   let loadedGame = null;
@@ -19,6 +23,8 @@ window.NarduNeuralBot = (function () {
       || metadata?.id !== MODEL_ID || metadata.modelFingerprint !== MODEL_FINGERPRINT
       || metadata.inferenceCodeFingerprint !== 'sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e'
       || metadata.rulesFingerprint !== 'sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b'
+      || metadata.rulesCompatibility !== 'history-free-rule-search-v1'
+      || !COMPATIBLE_RULES.includes(metadata.runtimeRulesFingerprint)
       || metadata.variant !== 'long' || metadata.trainingGames !== 448 || metadata.trainingSteps !== 35147
       || metadata.inputSize !== 127 || metadata.hiddenSize !== 32
       || metadata.maxCandidates !== MAX_CANDIDATES || metadata.epsilon !== 0
@@ -44,6 +50,9 @@ window.NarduNeuralBot = (function () {
     lastDecision = Object.freeze({ ...bot.getLastDecision(),
       policy: 'hard-neuro', difficulty: 'hard-neuro', modelId: MODEL_ID, modelVersion: MODEL_ID,
       modelFingerprint: MODEL_FINGERPRINT, trainingGames: 448, trainingSteps: 35147,
+      evaluatedRulesFingerprint: loadedPayload.metadata.rulesFingerprint,
+      runtimeRulesFingerprint: loadedPayload.metadata.runtimeRulesFingerprint,
+      rulesCompatibility: loadedPayload.metadata.rulesCompatibility,
       maxCandidates: MAX_CANDIDATES, exploration: 0, onlineLearning: false,
       value: selected ? selected.value : null, selectedValue: selected ? selected.value : null,
       plannedMoves: selected ? selected.moves.length : 0,

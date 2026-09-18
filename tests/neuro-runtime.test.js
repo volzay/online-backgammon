@@ -41,6 +41,8 @@ test('shipped public weights have the actual evaluated model hash, counters and 
   assert.equal(payload.model.trainingSteps, 35147);
   assert.equal(payload.model.inputWeights.length, 127 * 32);
   assert.equal(payload.metadata.trainingGames, 448);
+  assert.equal(payload.metadata.rulesFingerprint, 'sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b');
+  assert.equal(payload.metadata.runtimeRulesFingerprint, 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623');
   assert.deepEqual(Object.keys(payload).sort(), ['metadata', 'model', 'schema']);
   assert.equal(read('vendor/long-neural/model.js'), buildModel.assetSource(payload));
   const { payload: browserPayload, neuro } = environment();
@@ -68,6 +70,36 @@ test('public model builder rejects a reset network, changed weight, extra proven
     const payload = plain(baseline); mutate(payload);
     assert.throws(() => buildModel.validatePublicModel(payload));
   }
+});
+
+test('neural rules compatibility is an exact two-source allowlist, not fresh evaluation evidence', () => {
+  assert.deepEqual(buildModel.COMPATIBLE_RULES_FINGERPRINTS, [
+    'sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b',
+    'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  ]);
+  const actual = `sha256:${crypto.createHash('sha256').update(read('game.js')).digest('hex')}`;
+  assert.equal(buildModel.assertCompatibleRulesFingerprint(actual), buildModel.PIN.runtimeRulesFingerprint);
+  for (const hash of ['', 'sha256:' + '0'.repeat(64), 'sha256:' + 'f'.repeat(64)]) assert.throws(() => buildModel.assertCompatibleRulesFingerprint(hash));
+  const payload = JSON.parse(read('vendor/long-neural/model.json'));
+  payload.metadata.runtimeRulesFingerprint = 'sha256:' + '0'.repeat(64);
+  assert.throws(() => buildModel.validatePublicModel(payload));
+  payload.metadata.runtimeRulesFingerprint = buildModel.PIN.runtimeRulesFingerprint;
+  payload.metadata.rulesFingerprint = buildModel.PIN.runtimeRulesFingerprint;
+  assert.throws(() => buildModel.validatePublicModel(payload), 'Historical evaluated source must never be relabeled as the optimization');
+});
+
+test('the real builder rejects unknown game.js bytes before emitting a compatible model asset', () => {
+  const originalRead = fs.readFileSync;
+  const gamePath = path.join(ROOT, 'game.js');
+  const changed = Buffer.concat([originalRead(gamePath), Buffer.from('\n/* unreviewed source change */\n')]);
+  let inspected = false;
+  fs.readFileSync = function (file, ...args) {
+    if (String(file) === gamePath) { inspected = true; return changed; }
+    return originalRead.call(fs, file, ...args);
+  };
+  try { assert.throws(() => buildModel(), /Unknown neural runtime rules/); }
+  finally { fs.readFileSync = originalRead; }
+  assert.equal(inspected, true);
 });
 
 test('hard-neuro normalization preserves its identity before the old hard/name/rating hints', () => {
@@ -101,6 +133,8 @@ test('hard-neuro uses only saved network, obeys the full first-double turn and n
   assert.equal(decision.trainingSteps, 35147);
   assert.equal(decision.onlineLearning, false);
   assert.equal(decision.exploration, 0);
+  assert.equal(decision.evaluatedRulesFingerprint, buildModel.PIN.rulesFingerprint);
+  assert.equal(decision.runtimeRulesFingerprint, buildModel.PIN.runtimeRulesFingerprint);
   assert(decision.selectedValue >= 0 && decision.selectedValue <= 1);
 });
 
@@ -145,6 +179,8 @@ test('wrong or mutable public model metadata cannot masquerade as the trained ne
   const baseline = JSON.parse(read('vendor/long-neural/model.json'));
   for (const mutate of [p => { p.metadata.modelFingerprint = 'sha256:' + '0'.repeat(64); },
     p => { p.metadata.trainingSteps = 0; }, p => { p.metadata.rulesFingerprint = 'sha256:' + '0'.repeat(64); },
+    p => { p.metadata.runtimeRulesFingerprint = 'sha256:' + '0'.repeat(64); },
+    p => { p.metadata.rulesCompatibility = 'all-future-rules'; },
     p => { p.metadata.maxCandidates = 64; }, p => { p.model.trainingSteps = 0; }]) {
     const payload = plain(baseline); mutate(payload);
     for (const key of ['inputWeights', 'hiddenBias', 'outputWeights']) Object.freeze(payload.model[key]);

@@ -8,6 +8,8 @@ const test = require('node:test');
 const vm = require('node:vm');
 const {
   AUDITED_NATIVE_CACHE_POLICY,
+  OPTIMIZED_NATIVE_CACHE_POLICY,
+  AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
   canonicalNativeState,
@@ -68,12 +70,37 @@ function runtime() {
   return value;
 }
 
-test('real native loadRuntime identity enables cache without calling its planner', () => {
+test('real optimized native identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.gameBytesDigest, AUDITED_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, AUDITED_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [AUDITED_NATIVE_CACHE_POLICY, OPTIMIZED_NATIVE_CACHE_POLICY]);
+  assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
+});
+
+test('historical tuple is preserved; optimized, historical and mixed tuples never share a cache namespace', () => {
+  assert.equal(AUDITED_NATIVE_CACHE_POLICY.gameBytesDigest, '769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b');
+  assert.equal(AUDITED_NATIVE_CACHE_POLICY.policyImplementationId, 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1');
+  assert.equal(AUDITED_NATIVE_CACHE_POLICY.runtimeBytesDigest, '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255');
+  const oldRuntime = runtime(), optimizedRuntime = runtime();
+  Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
+  optimizedRuntime.engine.policyImplementationId = OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId;
+  const oldCache = createNativeColdCohortCache(oldRuntime, limits(), attestation());
+  const optimizedAttestation = { ...OPTIMIZED_NATIVE_CACHE_POLICY, runtimeDigest: 'a'.repeat(64) };
+  const newCache = createNativeColdCohortCache(optimizedRuntime, limits(), optimizedAttestation);
+  assert.equal(oldCache.observation().enabled, true);
+  assert.equal(newCache.observation().enabled, true);
+  assert.notEqual(oldCache.observation().namespaceFingerprint, newCache.observation().namespaceFingerprint);
+  assert.equal(createNativeColdCohortCache(optimizedRuntime, limits(), attestation()).observation().bypassReason, 'native-attestation-mismatch');
+  for (const field of ['policyImplementationId', 'gameBytesDigest', 'runtimeBytesDigest']) {
+    const hybrid = runtime();
+    if (field === 'policyImplementationId') hybrid.engine[field] = OPTIMIZED_NATIVE_CACHE_POLICY[field];
+    else hybrid[field] = OPTIMIZED_NATIVE_CACHE_POLICY[field];
+    assert.equal(createNativeColdCohortCache(hybrid, limits()).observation().bypassReason, 'native-implementation-not-audited');
+  }
 });
 
 test('normalized mode/caps are explicit, native, bounded and default to audited native cold', () => {

@@ -26,6 +26,16 @@ const AUDITED_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b',
   runtimeBytesDigest: '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255',
 });
+// Performance-only re-audit: legal search omits archived history in scratch
+// clones. Exact ordered rules/plans are checked in the history-search suite.
+// Keep the original tuple and its namespaces unchanged; never mix its hashes
+// with this regenerated bundle or relabel historical rollout evidence.
+const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: 'a8c837e3fad80f226c042d6db9aeb469efc5f67055ac2b0365c4eddfd5fb4589',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: '088d71898679dcd0a1e4c9d38c10b0ba568742aca0052996304ceee9cc0cec65',
+});
+const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([AUDITED_NATIVE_CACHE_POLICY, OPTIMIZED_NATIVE_CACHE_POLICY]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
   minSamples: 32,
@@ -138,18 +148,20 @@ function createNativeColdCohortCache(runtime, limits, attestation = {}, hashKey 
   let initialExperience;
   try { initialExperience = experience(); } catch { /* Bypass uninspectable experience. */ }
   const canonicalCold = value => nativeData(value) && value?.size === 0 && Array.isArray(value.patterns) && value.patterns.length === 0;
+  const auditedPolicy = AUDITED_NATIVE_CACHE_POLICIES.find(policy => Object.entries(policy)
+    .every(([key, value]) => (key === 'policyImplementationId' ? runtime.engine[key] : runtime[key]) === value));
   if (limits.cacheMode !== NATIVE_CACHE_VERSION) stats.bypassReason = 'cache-off';
   else if (!nativeData(limits.policy) || !nativeData(attestation) || !attestation || Array.isArray(attestation)) stats.bypassReason = 'native-namespace-invalid';
   else if (!Number.isSafeInteger(limits.cacheMaxEntries) || limits.cacheMaxEntries < 1 || limits.cacheMaxEntries > 4096
     || !Number.isSafeInteger(limits.cacheMaxBytes) || limits.cacheMaxBytes < 1 || limits.cacheMaxBytes > 33554432) stats.bypassReason = 'cache-caps-invalid';
-  else if (Object.entries(AUDITED_NATIVE_CACHE_POLICY).some(([key, value]) => (key === 'policyImplementationId' ? runtime.engine[key] : runtime[key]) !== value)) stats.bypassReason = 'native-implementation-not-audited';
+  else if (!auditedPolicy) stats.bypassReason = 'native-implementation-not-audited';
   else if (Object.keys(attestation).length && (attestation.policyImplementationId !== runtime.engine.policyImplementationId
     || attestation.gameBytesDigest !== runtime.gameBytesDigest || attestation.runtimeBytesDigest !== runtime.runtimeBytesDigest
     || typeof attestation.runtimeDigest !== 'string' || !/^[0-9a-f]{64}$/.test(attestation.runtimeDigest))) stats.bypassReason = 'native-attestation-mismatch';
   else if (!canonicalCold(initialExperience)) stats.bypassReason = 'experience-not-cold';
   else {
     stats.enabled = true;
-    stats.namespaceFingerprint = digest(stableStringify({ version: NATIVE_CACHE_VERSION, ...AUDITED_NATIVE_CACHE_POLICY,
+    stats.namespaceFingerprint = digest(stableStringify({ version: NATIVE_CACHE_VERSION, ...auditedPolicy,
       workerRuntimeDigest: attestation.runtimeDigest || null, policy: limits.policy, experience: initialExperience,
       node: process.versions.node, v8: process.versions.v8 }));
   }
@@ -610,6 +622,8 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
 
 module.exports = {
   AUDITED_NATIVE_CACHE_POLICY,
+  OPTIMIZED_NATIVE_CACHE_POLICY,
+  AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
   SCORE_SEMANTICS,

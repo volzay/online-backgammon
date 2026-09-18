@@ -505,7 +505,7 @@ window.NarduGame = (function () {
 
     const sequences = [];
     for (const move of moves) {
-      const next = cloneState(state);
+      const next = cloneSimulationState(state);
       commitMove(next, color, move);
       for (const tail of rawMoveSequences(next, color, memo)) {
         sequences.push([move, ...tail]);
@@ -531,7 +531,7 @@ window.NarduGame = (function () {
 
   function sampledMoveSequences(state, color = state.turn, limit = 32) {
     const beamLimit = Math.max(4, Math.floor(Number(limit) || 32));
-    let frontier = [{ state: cloneState(state), sequence: [] }];
+    let frontier = [{ state: cloneSimulationState(state), sequence: [] }];
     const terminal = [];
     const maximumDepth = Math.max(1, state.dice?.length || 0);
 
@@ -544,7 +544,7 @@ window.NarduGame = (function () {
           return;
         }
         moves.forEach((move) => {
-          const next = cloneState(node.state);
+          const next = cloneSimulationState(node.state);
           commitMove(next, color, move);
           expanded.push({ state: next, sequence: [...node.sequence, move] });
         });
@@ -1773,6 +1773,13 @@ window.NarduGame = (function () {
       headPlayedThisTurn: { ...state.headPlayedThisTurn },
       history: (state.history || []).map(item => ({ ...item })),
     };
+  }
+
+  function cloneSimulationState(state) {
+    // Rule search consumes the board and current-turn context, never the
+    // previous moves or signed dice evidence. Keep the public/full clone
+    // unchanged, but do not copy the growing archive at every search node.
+    return cloneState({ ...state, history: [] });
   }
 
   function normalizeState(state) {

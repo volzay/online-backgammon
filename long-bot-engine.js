@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'a8c837e3fad80f226c042d6db9aeb469efc5f67055ac2b0365c4eddfd5fb4589';
 
 /* bot-engine/long/metrics.ts */
 

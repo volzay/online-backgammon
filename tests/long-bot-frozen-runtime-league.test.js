@@ -23,6 +23,9 @@ const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'scripts', 'league-long-bot-frozen-runtime.js');
 // A released control must not silently become the candidate when HEAD advances.
 const V34_CONTROL_COMMIT = 'f92cfb71b065f2011f51587c91e8893fd77a7fdf';
+// The original same-rules v35-v34 identity fixture is historical, not a new
+// benchmark of whatever rules bytes happen to be in the current working tree.
+const V35_ORIGINAL_COMMIT = '06a9b106944e8fb5e76f772b23b703ec067e2e8b';
 
 function leagueResults({ pairs, seed, candidatePairWins = pairs, splits = 0 }) {
   return Array.from({ length: pairs }, (_, pairIndex) => {
@@ -172,9 +175,10 @@ test('git control snapshots resolve HEAD to immutable commit bytes', () => {
   ]);
 });
 
-test('league binds both engine versions and rejects identical runtime snapshots', () => {
-  const candidate = readRuntimeDirectory(ROOT);
+test('historical same-rules league binds both engine versions and rejects identical runtime snapshots', () => {
+  const candidate = readGitRuntimeSnapshot(ROOT, V35_ORIGINAL_COMMIT);
   const control = readGitRuntimeSnapshot(ROOT, V34_CONTROL_COMMIT);
+  assert.equal(candidate.source.commit, V35_ORIGINAL_COMMIT);
   assert.equal(control.source.commit, V34_CONTROL_COMMIT);
   const runtime = buildRuntimeLeague(
     candidate,
@@ -197,6 +201,16 @@ test('league binds both engine versions and rejects identical runtime snapshots'
     'long-analytic-v35',
     'long-analytic-v35',
   ), /runtime snapshots are identical/);
+});
+
+test('optimized live rules cannot be silently benchmarked against a historical control with different bytes', () => {
+  const candidate = readRuntimeDirectory(ROOT);
+  const control = readGitRuntimeSnapshot(ROOT, V34_CONTROL_COMMIT);
+  const liveRules = candidate.entries.find(([name]) => name === 'game.js')[1];
+  const historicalRules = control.entries.find(([name]) => name === 'game.js')[1];
+  assert.notEqual(liveRules.toString('utf8'), historicalRules.toString('utf8'));
+  assert.throws(() => buildRuntimeLeague(candidate, control, 'long-analytic-v34', 'long-analytic-v35'),
+    /game\.js differ; strategy league would be confounded/);
 });
 
 test('runtime fingerprints cover names, order and bytes', () => {

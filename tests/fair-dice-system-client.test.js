@@ -26,7 +26,7 @@ function load({ variant = 'long', guest = false, storage = new Map(), storageErr
   mutateProof, challengeError, readImpl, protocol = 'system-csprng-v1' } = {}) {
   const operations = [], requests = [], entropy = [], order = [];
   const state = { variant, roomCode: CODE, phase: receipt.request.label === 'opening' ? 'opening' : 'roll', history: [] };
-  const row = { id: 'room-1', status: 'joined', game_state: state, game_version: 7,
+  const row = { id: 'room-1', variant, status: 'joined', game_state: state, game_version: 7,
     fair_dice_required: true, fair_dice_game_id: GAME_ID, fair_dice_protocol: protocol };
   const proof = async seed => {
     const value = await FairDice.createSystemProof(receipt, SEED, seed);

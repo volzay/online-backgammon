@@ -9,12 +9,18 @@ const vm = require('node:vm');
 const { performance } = require('node:perf_hooks');
 const { parseCliTokens, readRuntimeSnapshot, loadRuntime, fingerprintNamedBuffers } = require('./simulate-long-bot-regression');
 const trainer = require('./train-long-bot-neural');
+const { AUDITED_NATIVE_CACHE_POLICIES } = require('./long-bot-paired-rollout');
 const SCHEMA = 'long-neural-evaluation-v1';
 const OPPONENTS = Object.freeze(['random', 'pip', 'greedy', 'current-hard']);
 const DEFAULT_OPPONENTS = Object.freeze(['random', 'pip', 'greedy']);
 const HARNESS_FINGERPRINT = trainer.fingerprint(fs.readFileSync(__filename));
 const ARTIFACT_VALIDATOR_CODE_FINGERPRINT = trainer.fingerprint(fs.readFileSync(require.resolve('../lib/long-neural-artifact')));
-const APPROVED_V35_POLICY_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
+// These exact source tuples include the historical dispatcher and the
+// history-free scratch-clone optimization. Candidate artifact validation below
+// still requires its original training rules bytes; this does NOT migrate an
+// old candidate or its confirmation statistics to the optimized runtime.
+const APPROVED_V35_RUNTIME_TUPLES = AUDITED_NATIVE_CACHE_POLICIES;
+const APPROVED_V35_STRONG_BOT_FINGERPRINT = 'sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573';
 const APPROVED_V35_RESOURCES = Object.freeze({ strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480 });
 const APPROVED_V35_DISPATCH_WEIGHTS_FINGERPRINT = 'sha256:f9f0c7b0c51f92362c965793c28114c98dd5a7cfb81c7ccf9bbff25711800cc0';
 const PURPOSES = Object.freeze(['development-validation', 'held-out-confirmation']);
@@ -67,8 +73,11 @@ function createCurrentHard(snapshot, { loader = 'native' } = {}) {
   // builder, modify policy files, access production, or load shared experience.
   if (!['native', 'vm'].includes(loader)) throw new Error('Unsupported current-hard loader');
   const frozen = loader === 'native' ? loadNativeCurrentHard(snapshot) : loadRuntime(undefined, snapshot);
+  const approvedRuntime = APPROVED_V35_RUNTIME_TUPLES.find(tuple => frozen.engine.policyImplementationId === tuple.policyImplementationId
+    && snapshot.sourceFingerprints['game.js'] === `sha256:${tuple.gameBytesDigest}`
+    && snapshot.sourceFingerprints['long-bot-engine.js'] === `sha256:${tuple.runtimeBytesDigest}`);
   if (frozen.engine.version !== 'long-analytic-v35' || frozen.experienceCount !== 0
-    || frozen.engine.policyImplementationId !== APPROVED_V35_POLICY_ID
+    || !approvedRuntime || snapshot.sourceFingerprints['strong-bot.js'] !== APPROVED_V35_STRONG_BOT_FINGERPRINT
     || trainer.canonical(frozen.engine.productionOptions) !== trainer.canonical(APPROVED_V35_RESOURCES)) {
     throw new Error('current-hard requires the exact frozen v35 dispatcher with empty experience');
   }
@@ -500,5 +509,6 @@ if (require.main === module) {
   try { main(); } catch (error) { console.error(error.stack || String(error)); process.exitCode = 2; }
 }
 module.exports = { SCHEMA, OPPONENTS, PURPOSES, DEVELOPMENT_DOMAIN, readCurrentHardSnapshot,
+  APPROVED_V35_RUNTIME_TUPLES,
   loadNativeCurrentHard, createCurrentHard, evaluationOptions, validateTrainingArtifact, wilson, pairedConfidence,
   validateBenchmarkProtocol, protocolOptions, summarizeResults, runEvaluation, cliOptions, main };
