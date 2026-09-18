@@ -4,6 +4,7 @@ const buildLongBotEngine = require("./build-long-bot-engine");
 const buildShortBotEngine = require("./build-short-bot-engine");
 const buildFairDiceCrypto = require("./build-fair-dice-crypto");
 const buildLongNeuralModel = require("./build-long-neural-model");
+const { verifyLongBotLearningCompatibility } = require("./verify-long-bot-learning-compatibility");
 const fairDiceBuildConfig = require("./fair-dice-build-config");
 // Validate pins before replacing dist or regenerating any assets.
 const FAIR_DICE_CONFIG = fairDiceBuildConfig();
@@ -102,6 +103,9 @@ function writeRuntimeConfig() {
 }
 
 buildLongBotEngine();
+// Never publish a performance-only rules change that drops existing lessons.
+// This preserves actual source identity and checks the explicit learning alias.
+verifyLongBotLearningCompatibility();
 buildShortBotEngine();
 buildFairDiceCrypto();
 buildLongNeuralModel();
