@@ -22,7 +22,7 @@ function legacyRoomQuery(mutationBuilder, policyReads, code = "TEST-RM1") {
   return {
     update(value) { return mutationBuilder.update(value); },
     select(columns) {
-      assert.equal(columns, "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id");
+      assert.equal(columns, "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol");
       const filters = [];
       const policyBuilder = {
         eq(column, value) { filters.push([column, value]); return this; },
