@@ -114,10 +114,10 @@ test('waiting for an independent beacon has an explicit waiting status in both l
   const state = { phase: 'roll', turn: 'white', winner: null };
   const ru = evaluateTurnStatus(state, { fairDiceInFlight: true, isRolling: true });
   assert.equal(ru.status.tone, 'waiting');
-  assert.equal(ru.status.text, 'Ожидаем независимый подписанный источник броска…');
+  assert.equal(ru.status.text, 'Подготавливаем и проверяем бросок…');
   const en = evaluateTurnStatus(state, { fairDiceInFlight: true, isRolling: true }, 'en');
   assert.equal(en.status.tone, 'waiting');
-  assert.equal(en.status.text, 'Waiting for the independent signed dice source…');
+  assert.equal(en.status.text, 'Preparing and verifying the dice roll…');
   const ordinary = evaluateTurnStatus(state);
   assert.equal(ordinary.status.text, 'turn_your_roll');
   assert.equal(ordinary.status.tone, 'active');
