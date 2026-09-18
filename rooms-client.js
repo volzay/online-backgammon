@@ -23,6 +23,14 @@
   const ACTIVE_ROOM_STORAGE_KEY = "narduh-active-room";
   const BOT_ANALYSIS_OWNER_STORAGE_VERSION = 1;
   const BOT_ANALYSIS_OWNER_STORAGE_PREFIX = "narduh-bot-analysis-owner-v2:";
+  const NEURAL_BOT_DIFFICULTY = "hard-neuro";
+  const NEURAL_BOT_METADATA = Object.freeze({
+    id: "hard-neuro-448-v1", name: "Сложный бот-нейро", variant: "long", mode: "experimental-frozen",
+    modelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
+    inferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
+    rulesFingerprint: "sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+    trainingGames: 448, trainingSteps: 35147, inputSize: 127, hiddenSize: 32, maxCandidates: 16, epsilon: 0,
+  });
   const roomIdCache = new Map();
   const fairDicePolicies = new Map();
   const profileHeartbeatAt = new Map();
@@ -908,9 +916,15 @@
     fairDicePolicies.delete(normalizedCode);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
+    const neuralBot = payload.difficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(payload.state);
+    if (neuralBot && ((payload.variant != null && payload.variant !== "long")
+      || (payload.state?.variant != null && payload.state.variant !== "long"))) {
+      throw roomError("Сложный бот-нейро доступен только для длинных нард.", 422);
+    }
     const variant = payload.variant === "short" ? "short" : "long";
-    const botName = String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
-    const botRating = normalizeRating(payload.botRating);
+    const botName = neuralBot ? NEURAL_BOT_METADATA.name
+      : String(payload.botName || payload.guestName || "Bot").trim().slice(0, 32) || "Bot";
+    const botRating = neuralBot ? 1500 : normalizeRating(payload.botRating);
     const state = payload.state && typeof payload.state === "object"
       ? JSON.parse(JSON.stringify(payload.state))
       : {};
@@ -926,6 +940,7 @@
       playerColor: payload.playerColor === "dark" ? "dark" : "white",
       updatedAt: new Date().toISOString(),
     };
+    if (neuralBot) canonicalNeuralBotState(state);
 
     if (!configured()) {
       const localUser = window.NarduApp?.getUser?.() || {};
@@ -938,7 +953,7 @@
           variant,
           botName,
           botRating,
-          difficulty: String(payload.difficulty || state.botDifficulty || "").slice(0, 20),
+          difficulty: neuralBot ? NEURAL_BOT_DIFFICULTY : String(payload.difficulty || state.botDifficulty || "").slice(0, 20),
           playerColor: payload.playerColor === "dark" ? "dark" : "white",
           state,
           hostName: roomProfile.name,
@@ -967,6 +982,9 @@
         : existing.host_guest_id === identity.guestId;
       if (!ownsExisting) {
         throw roomError("Код партии уже занят другой комнатой.", 409);
+      }
+      if (neuralBot !== isNeuralBotState(existing.game_state)) {
+        throw roomError("Нельзя менять тип уже созданной бот-партии.", 409);
       }
       roomIdCache.set(normalizedCode, existing.id);
       if (!isBotAnalysisRow(existing)) throw roomError("Код партии уже занят онлайн-комнатой.", 409);
@@ -1261,6 +1279,35 @@
     return Boolean(state && (state.phase === "over" || state.winner));
   }
 
+  function isNeuralBotState(state) {
+    return state?.botDifficulty === NEURAL_BOT_DIFFICULTY
+      || state?.analysis?.difficulty === NEURAL_BOT_DIFFICULTY;
+  }
+
+  function canonicalNeuralBotState(state) {
+    state.mode = "bot";
+    state.opponent = "bot";
+    state.variant = "long";
+    state.botDifficulty = NEURAL_BOT_DIFFICULTY;
+    state.analysis = {
+      ...(state.analysis || {}), mode: "bot", opponent: "bot", difficulty: NEURAL_BOT_DIFFICULTY,
+      botName: NEURAL_BOT_METADATA.name, neuralModel: {
+        ...(state.analysis?.neuralModel && typeof state.analysis.neuralModel === "object"
+          && !Array.isArray(state.analysis.neuralModel) ? state.analysis.neuralModel : {}), ...NEURAL_BOT_METADATA,
+      },
+    };
+    return state;
+  }
+
+  function publishedBotState(state) {
+    if (!isNeuralBotState(state)) return state;
+    if (state.variant !== "long" || state.botDifficulty !== NEURAL_BOT_DIFFICULTY
+      || (state.analysis?.difficulty && state.analysis.difficulty !== NEURAL_BOT_DIFFICULTY)) {
+      throw roomError("Нельзя менять тип или вид нард нейро-партии.", 422);
+    }
+    return canonicalNeuralBotState(JSON.parse(JSON.stringify(state)));
+  }
+
   async function getGameState(code, options = {}) {
     const { signal } = options;
     throwIfAborted(signal);
@@ -1465,6 +1512,7 @@
   }
 
   async function putGameState(code, state, version = 0) {
+    state = publishedBotState(state);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
@@ -1509,6 +1557,7 @@
   }
 
   async function finishRoomGame(code, finalState, version = 0, trainingState = null) {
+    finalState = publishedBotState(finalState);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
@@ -1531,7 +1580,7 @@
       p_room_code: normalizedCode,
       p_final_state: payload,
     };
-    if (trainingState && typeof trainingState === "object") {
+    if (!isNeuralBotState(payload) && trainingState && typeof trainingState === "object") {
       args.p_training_state = JSON.parse(JSON.stringify(trainingState));
     }
     let { data, error } = await client.rpc("finish_room_game", args);
@@ -1554,11 +1603,14 @@
     return {
       ...(data || { ok: true }),
       ...(fairSaved ? { version: fairSaved.version } : {}),
-      trainingArchived: usedLegacyFinalizer ? false : data?.trainingArchived === true,
+      trainingArchived: isNeuralBotState(payload) || usedLegacyFinalizer ? false : data?.trainingArchived === true,
     };
   }
 
   async function archiveBotTrainingGame(code, finalState = null) {
+    // Neural decisions are archived in the normal completed-room final_state,
+    // never in the legacy hard-only XP / causal-learning ingestion queue.
+    if (isNeuralBotState(finalState)) return { skipped: true, reason: "neural-analysis-separate" };
     if (!configured()) return { skipped: true };
     const client = await supabase();
     const args = {

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Нейросеть длинных нард — офлайн-лаборатория</title>
+  <link rel="stylesheet" href="demo.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Эксперимент · Только длинные нарды</p>
+    <h1>Лаборатория нейронного бота</h1>
+    <p class="notice">Это локальный учебный стенд, не игра на портале. У него нет доступа к комнатам,
+      аккаунтам или защищённому генератору бросков. Значения учебных кубиков задаёте вы.</p>
+    <section aria-labelledby="model-title">
+      <h2 id="model-title">1. Загрузите JSON-модель</h2>
+      <label for="model-file">Файл весов нейросети (до 2 МиБ)</label>
+      <input id="model-file" type="file" accept=".json,application/json">
+      <p id="model-status" role="status">Модель не загружена. Выбор хода отключён.</p>
+      <p class="hint">Загрузка подтверждает только формат весов, не силу игры. Случайная инициализация —
+        необученная сеть. Даже обученная модель требует независимых матчей против разных соперников;
+        оценка сети пока не является доказанной вероятностью победы. Манифест учебного файла —
+        данные его автора, не подтверждённое происхождение модели.</p>
+    </section>
+    <section aria-labelledby="turn-title">
+      <h2 id="turn-title">2. Задайте учебный бросок</h2>
+      <form id="turn-form">
+        <label>Первый кубик <select id="die-one" name="dieOne">
+          <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option>
+        </select></label>
+        <label>Второй кубик <select id="die-two" name="dieTwo">
+          <option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option>
+        </select></label>
+        <button id="choose" type="submit" disabled>Выбрать законный ход</button>
+        <button id="apply" type="button" disabled>Применить в учебной партии</button>
+        <button id="reset" type="button">Начать заново</button>
+      </form>
+      <p id="turn-status" role="status">Первыми ходят белые. Броски здесь не случайные.</p>
+      <div id="board" class="board" aria-label="Учебная доска длинных нард"></div>
+      <p id="board-summary"></p>
+      <pre id="plan-output" aria-label="Выбранный учебный ход">Загрузите модель, затем выберите ход.</pre>
+    </section>
+    <p class="hint">Модель видит текущую позицию; движок правил проверяет все действия.
+      После применения хода можно указать следующий учебный бросок для другой стороны.
+      Поиск ограничен: поле «покрытие поиска» показывает число рассмотренных вариантов и усечение.
+      Никакие сведения не отправляются по сети.</p>
+  </main>
+  <script src="../../game.js"></script>
+  <script src="../../lib/long-bot-neural.js"></script>
+  <script src="demo.js"></script>
+</body>
+</html>

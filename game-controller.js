@@ -21,6 +21,9 @@ window.NarduController = (function () {
   let isAnimating = false;
   let isRolling = false;
   let fairDiceError = '';
+  let botPlannerError = '';
+  let activeNeuralDecisionId = '';
+  let neuralDecisionSerial = 0;
   let fairDiceInFlight = false;
   let autoRollTimer = null;
   let autoEndTimer = null;
@@ -109,6 +112,7 @@ window.NarduController = (function () {
       bot_easy: 'Бот лёгкий',
       bot_medium: 'Бот средний',
       bot_hard: 'Бот сложный',
+      bot_hard_neuro: 'Сложный бот-нейро',
       waiting_opponent: 'Ожидание соперника',
       opponent: 'Соперник',
       guest: 'Гость',
@@ -188,6 +192,7 @@ window.NarduController = (function () {
       bot_easy: 'Easy bot',
       bot_medium: 'Medium bot',
       bot_hard: 'Hard bot',
+      bot_hard_neuro: 'Hard neural bot',
       waiting_opponent: 'Waiting for opponent',
       opponent: 'Opponent',
       guest: 'Guest',
@@ -271,6 +276,8 @@ window.NarduController = (function () {
     'Medium bot': 'bot_medium',
     'Бот сложный': 'bot_hard',
     'Hard bot': 'bot_hard',
+    'Сложный бот-нейро': 'bot_hard_neuro',
+    'Hard neural bot': 'bot_hard_neuro',
     'Ожидание соперника': 'waiting_opponent',
     'Waiting for opponent': 'waiting_opponent',
     'Соперник': 'opponent',
@@ -668,6 +675,9 @@ window.NarduController = (function () {
     }
     remoteVersion = 0;
     fairDiceError = '';
+    botPlannerError = '';
+    activeNeuralDecisionId = '';
+    validateNeuralBotAvailability();
     fairDiceInFlight = false;
     botAnalysisReady = false;
     botAnalysisDisabled = false;
@@ -711,7 +721,7 @@ window.NarduController = (function () {
         at: new Date().toISOString(),
       }];
     }
-    const shouldRestoreBotAnalysis = mode === 'bot' && !freshGame && canPublishBotAnalysis();
+    const shouldRestoreBotAnalysis = mode === 'bot' && !botPlannerError && !freshGame && canPublishBotAnalysis();
     botAnalysisRestorePending = shouldRestoreBotAnalysis;
     undoStack = [];
 
@@ -725,7 +735,7 @@ window.NarduController = (function () {
       render();
       return;
     }
-    if (waitingForOpponent) return;
+    if (waitingForOpponent || botPlannerError) return;
     if (!opts.skipRemoteSync) startRemoteSync();
     // Local storage makes reloads fast, but the server snapshot remains
     // authoritative. Always verify it before resuming writes under this code.
@@ -798,8 +808,9 @@ window.NarduController = (function () {
       }
       if (restored) {
         state = restored;
-        adoptBotIdentity(state);
+        adoptBotIdentity(state, true);
         attachRuntimeStateFields(roomCode);
+        validateNeuralBotAvailability();
         if (variant === 'long' && botDifficulty === 'hard') {
           window.NarduLongBotEngine?.beginExperienceSession?.(
             longBotExperienceSessionKey(roomCode),
@@ -1005,13 +1016,14 @@ window.NarduController = (function () {
   }
 
   function resolveBotDifficulty(...hints) {
-    const levels = { easy: 1, medium: 2, hard: 3 };
+    const levels = { easy: 1, medium: 2, hard: 3, 'hard-neuro': 4 };
     let resolved = null;
     hints.flat().forEach(value => {
       const raw = String(value ?? '').trim().toLowerCase();
       let candidate = null;
       const numeric = Number(raw);
       if (levels[raw]) candidate = raw;
+      else if (/нейро|neuro|neural/.test(raw)) candidate = 'hard-neuro';
       else if (/hard|слож|трудн/.test(raw) || numeric >= 1450) candidate = 'hard';
       else if (/medium|средн/.test(raw) || numeric >= 1100) candidate = 'medium';
       else if (/easy|л[её]гк/.test(raw) || (numeric > 0 && numeric < 1100)) candidate = 'easy';
@@ -1032,7 +1044,7 @@ window.NarduController = (function () {
     }
   }
 
-  function adoptBotIdentity(source = {}) {
+  function adoptBotIdentity(source = {}, authoritative = false) {
     botDifficulty = resolveBotDifficulty(
       botDifficulty,
       source.botDifficulty,
@@ -1041,12 +1053,20 @@ window.NarduController = (function () {
       opponentName,
       opponentRating,
     );
+    // A verified server room owns its policy. Stale URL/name/config hints may
+    // restore a neural room, but must not upgrade an existing ordinary room.
+    if (authoritative) {
+      const stored = [source.botDifficulty, source.analysis?.difficulty]
+        .find(value => ['easy', 'medium', 'hard', 'hard-neuro'].includes(value));
+      if (stored) botDifficulty = stored;
+    }
     const botNames = {
       easy: tr('bot_easy'),
       medium: tr('bot_medium'),
       hard: tr('bot_hard'),
+      'hard-neuro': tr('bot_hard_neuro'),
     };
-    const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+    const botRatings = { easy: 900, medium: 1200, hard: 1500, 'hard-neuro': 1500 };
     opponentName = botNames[botDifficulty];
     opponentRating = botRatings[botDifficulty];
   }
@@ -1183,6 +1203,9 @@ window.NarduController = (function () {
       playerColor,
       updatedAt: new Date().toISOString(),
     };
+    if (botDifficulty === 'hard-neuro' && !botPlannerError) {
+      payload.analysis.neuralModel = { ...window.NarduNeuralBot.getModelMetadata() };
+    }
     return payload;
   }
 
@@ -1206,7 +1229,7 @@ window.NarduController = (function () {
       payload.analysis.botMemory.replayExperience = replayExperience;
     }
     const isGuest = window.NarduApp?.getUser?.()?.guest === true;
-    if (isGuest) return payload;
+    if (isGuest || botDifficulty === 'hard-neuro') return payload;
     // Decisions are the durable training record. The move history stays in the
     // compact room snapshot and would only duplicate bytes in the training half.
     payload.history = [];
@@ -2178,6 +2201,7 @@ window.NarduController = (function () {
 
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
+    if (botPlannerError && !state.winner) return { text: botPlannerError, tone: 'waiting' };
     if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
     if (fairDiceInFlight) return { text: lang() === 'en' ? 'Preparing and verifying the dice roll…' : 'Подготавливаем и проверяем бросок…', tone: 'waiting' };
     if (botAnalysisRestorePending) return { text: tr('preparing'), tone: 'waiting' };
@@ -2464,7 +2488,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
-    if (spectatorMode || botAnalysisRestorePending || fairDiceError) return false;
+    if (spectatorMode || botAnalysisRestorePending || fairDiceError || botPlannerError) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }
@@ -2749,6 +2773,7 @@ window.NarduController = (function () {
   }
 
   function ensureAutoProgress(ms = 650) {
+    if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (fairDiceError) return;
     if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isRolling || isAnimating || isChainingMove) return;
@@ -2774,6 +2799,7 @@ window.NarduController = (function () {
   }
 
   async function openingRoll() {
+    if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (botAnalysisRestorePending || state.phase !== 'opening' || isRolling) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     const user = window.NarduApp?.getUser?.();
@@ -2846,6 +2872,7 @@ window.NarduController = (function () {
   }
 
   function startOpeningTurnRoll() {
+    if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (botAnalysisRestorePending || state.phase !== 'opening-result' || isRolling) return;
     const started = NarduGame.startOpeningTurn(state);
     if (!started) return;
@@ -2858,6 +2885,7 @@ window.NarduController = (function () {
   }
 
   async function autoRoll() {
+    if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (botAnalysisRestorePending || state.phase !== 'roll' || isRolling) return;
     const rollingTurn = state.turn;
     const startedAt = state.startedAt;
@@ -3591,6 +3619,78 @@ window.NarduController = (function () {
   }
 
   /* ── bot ─────────────────────────────────── */
+  function pauseNeuralBot(error) {
+    botPlannerError = lang() === 'en'
+      ? 'Neural bot unavailable. Refresh the page. The game is paused without replacing the bot.'
+      : 'Нейробот недоступен. Обновите страницу. Игра приостановлена без замены бота.';
+    if (variant !== 'long' || state?.variant !== 'long') {
+      botPlannerError = lang() === 'en'
+        ? 'Hard neural bot supports long narde only. Return to the lobby.'
+        : 'Сложный бот-нейро доступен только в длинных нардах. Вернитесь в лобби.';
+    }
+    console.warn('Neural bot paused', error?.message || error);
+    const decision = activeNeuralDecision();
+    if (decision) decision.execution.error = String(error?.message || error || 'planner-failed').slice(0, 240);
+    if (autoRollTimer) clearTimeout(autoRollTimer);
+    if (autoEndTimer) clearTimeout(autoEndTimer);
+    autoRollTimer = null;
+    autoEndTimer = null;
+  }
+
+  function validateNeuralBotAvailability() {
+    if (mode !== 'bot' || botDifficulty !== 'hard-neuro') return true;
+    try {
+      if (variant !== 'long' || state?.variant !== 'long') throw new Error('Unsupported short-neuro room');
+      if (!window.NarduNeuralBot?.getModelMetadata) throw new Error('Neural model assets missing');
+      state.analysis ||= {};
+      state.analysis.neuralModel = { ...window.NarduNeuralBot.getModelMetadata() };
+      botPlannerError = '';
+      return true;
+    } catch (error) {
+      pauseNeuralBot(error);
+      return false;
+    }
+  }
+
+  function activeNeuralDecision() {
+    if (botDifficulty !== 'hard-neuro') return null;
+    return state?.analysis?.neuralDecisions?.find(item => item.id === activeNeuralDecisionId) || null;
+  }
+
+  function rememberNeuralDecision(planned, diagnostics) {
+    state.analysis ||= {};
+    const before = JSON.parse(JSON.stringify({
+      variant: state.variant, points: state.points, bar: state.bar, off: state.off,
+      phase: state.phase, turn: state.turn, winner: state.winner, dice: state.dice,
+      rolled: state.rolled, firstMoveDone: state.firstMoveDone,
+      headPlayedThisTurn: state.headPlayedThisTurn,
+      turnMoves: state.turnMoves,
+    }));
+    const rows = Array.isArray(state.analysis.neuralDecisions) ? state.analysis.neuralDecisions : [];
+    activeNeuralDecisionId = `nn-${state.startedAt}-${++neuralDecisionSerial}-${Date.now()}`;
+    rows.push({ schema: 'nardu-neural-decision-v1', id: activeNeuralDecisionId,
+      at: new Date().toISOString(), diagnostics: { ...diagnostics }, before,
+      selected: planned.map(move => ({ from: move.from, die: move.die })),
+      execution: { complete: false, executedMoves: [] },
+    });
+    state.analysis.neuralDecisions = rows.slice(-BOT_MEMORY_MAX_DECISIONS);
+    state.analysis.neuralModel = { ...window.NarduNeuralBot.getModelMetadata() };
+  }
+
+  function recordNeuralExecution(move, to) {
+    const decision = activeNeuralDecision();
+    if (!decision) return;
+    if (move) decision.execution.executedMoves.push({ from: move.from, die: move.die, to, bearOff: to === 0 });
+    else {
+      decision.execution.complete = true;
+      decision.execution.completedAt = new Date().toISOString();
+      decision.execution.after = JSON.parse(JSON.stringify({ points: state.points, bar: state.bar,
+        off: state.off, turn: state.turn, phase: state.phase, winner: state.winner,
+        dice: state.dice, rolled: state.rolled, firstMoveDone: state.firstMoveDone,
+        headPlayedThisTurn: state.headPlayedThisTurn, turnMoves: state.turnMoves }));
+    }
+  }
+
   function botDecisionPositionId(source = state) {
     const color = source?.turn || '';
     const points = Object.entries(source?.points || {})
@@ -3662,6 +3762,7 @@ window.NarduController = (function () {
   }
 
   function fallbackBotPlan(reason = 'controller-fallback') {
+    if (botDifficulty === 'hard-neuro') throw new Error('Neural bot fallback is forbidden');
     try {
       const planned = (NarduGame.chooseBotSequence?.(state, state.turn, { difficulty: botDifficulty }) || [])
         .map(move => ({ from: move.from, die: move.die }));
@@ -3674,6 +3775,19 @@ window.NarduController = (function () {
   }
 
   function safeBotPlan() {
+    if (botDifficulty === 'hard-neuro') {
+      if (!validateNeuralBotAvailability()) throw new Error(botPlannerError);
+      const planned = NarduBot.plan(state, { difficulty: botDifficulty });
+      if (!Array.isArray(planned)) throw new Error('Invalid neural plan');
+      // Validate the complete maximum-use legal turn, including genuine passes.
+      const legal = NarduGame.bestMoveSequences(state, state.turn);
+      const key = moves => JSON.stringify(moves.map(({ from, die }) => ({ from, die })));
+      if (!legal.some(moves => key(moves) === key(planned))) throw new Error('Illegal or incomplete neural plan');
+      const decision = window.NarduNeuralBot.consumeLastDecision();
+      if (!decision || decision.difficulty !== 'hard-neuro') throw new Error('Neural diagnostics missing');
+      rememberNeuralDecision(planned, decision);
+      return planned.map(({ from, die }) => ({ from, die }));
+    }
     const engine = variant === 'short' ? window.NarduShortBotEngine : window.NarduLongBotEngine;
     if (variant === 'long' && botDifficulty === 'hard') {
       engine?.consumeLastDecision?.();
@@ -3726,6 +3840,7 @@ window.NarduController = (function () {
     botTurnActive = false;
     botTurnPlanPromise = null;
     activeBotDecisionId = '';
+    activeNeuralDecisionId = '';
   }
 
   function releaseBotTurnActivity(generation) {
@@ -4206,6 +4321,7 @@ window.NarduController = (function () {
   function playBotTurn() {
     if (
       fairDiceError ||
+      (typeof botPlannerError !== 'undefined' && botPlannerError) ||
       botAnalysisRestorePending ||
       !state ||
       state.phase !== 'move' ||
@@ -4219,6 +4335,7 @@ window.NarduController = (function () {
     undoStack = [];
     botTurnActive = true;
     activeBotDecisionId = '';
+    activeNeuralDecisionId = '';
     const generation = ++botTurnGeneration;
     const sourceState = state;
     const stateKey = botTurnStateKey(sourceState);
@@ -4231,6 +4348,7 @@ window.NarduController = (function () {
         }
         if (moves.length === 0) {
           NarduGame.endTurn(state);
+          if (botDifficulty === 'hard-neuro') recordNeuralExecution();
           releaseBotTurnActivity(generation);
           afterTurn();
           return;
@@ -4242,6 +4360,7 @@ window.NarduController = (function () {
             return;
           }
           if (i >= moves.length) {
+            if (botDifficulty === 'hard-neuro') recordNeuralExecution();
             completeBotDecisionExecution();
             releaseBotTurnActivity(generation);
             if (state.winner) onGameOver();
@@ -4250,6 +4369,12 @@ window.NarduController = (function () {
           }
           let m = moves[i++];
           if (!NarduGame.isValidMove(state, m.from, m.die)) {
+            if (botDifficulty === 'hard-neuro') {
+              pauseNeuralBot(new Error('Neural planned move rejected; substitution forbidden'));
+              releaseBotTurnActivity(generation);
+              render();
+              return;
+            }
             const plannedMove = { ...m };
             m = nextLegalBotMove();
             if (!m) {
@@ -4270,6 +4395,12 @@ window.NarduController = (function () {
             }
             const applied = NarduGame.applyMove(state, m.from, m.die);
             if (!applied) {
+              if (botDifficulty === 'hard-neuro') {
+                pauseNeuralBot(new Error('Neural move application rejected'));
+                releaseBotTurnActivity(generation);
+                render();
+                return;
+              }
               recordBotExecutionFailure('apply-move-rejected');
               completeBotDecisionExecution('execution-apply-rejected');
               releaseBotTurnActivity(generation);
@@ -4279,10 +4410,12 @@ window.NarduController = (function () {
               return;
             }
             recordBotMoveApplied(m, to, i - 1);
+            if (botDifficulty === 'hard-neuro') recordNeuralExecution(m, to);
             playMoveSound(m);
             render();
             persistRoomSnapshot();
             if (state.winner) {
+              if (botDifficulty === 'hard-neuro') recordNeuralExecution();
               completeBotDecisionExecution('game-ended-during-sequence');
               releaseBotTurnActivity(generation);
               onGameOver();
@@ -4295,6 +4428,13 @@ window.NarduController = (function () {
       })
       .catch(error => {
         console.warn('Bot planning failed', error?.message || error);
+        if (botDifficulty === 'hard-neuro') {
+          if (generation !== botTurnGeneration || state !== sourceState) return;
+          pauseNeuralBot(error);
+          releaseBotTurnActivity(generation);
+          render();
+          return;
+        }
         if (releaseBotTurnActivity(generation)) ensureAutoProgress(350);
       });
   }

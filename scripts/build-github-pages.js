@@ -3,6 +3,7 @@ const path = require("path");
 const buildLongBotEngine = require("./build-long-bot-engine");
 const buildShortBotEngine = require("./build-short-bot-engine");
 const buildFairDiceCrypto = require("./build-fair-dice-crypto");
+const buildLongNeuralModel = require("./build-long-neural-model");
 const fairDiceBuildConfig = require("./fair-dice-build-config");
 // Validate pins before replacing dist or regenerating any assets.
 const FAIR_DICE_CONFIG = fairDiceBuildConfig();
@@ -45,6 +46,9 @@ const STATIC_FILES = [
   "short-bot-wildbg-client.js",
   "short-bot-wildbg-worker.js",
   "strong-bot.js",
+  "lib/long-bot-neural.js",
+  "vendor/long-neural/model.js",
+  "long-neural-bot.js",
   "bot.js",
   "board-engine.js",
   "dice-engine.js",
@@ -99,6 +103,7 @@ function writeRuntimeConfig() {
 buildLongBotEngine();
 buildShortBotEngine();
 buildFairDiceCrypto();
+buildLongNeuralModel();
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 STATIC_FILES.forEach(copyFile);

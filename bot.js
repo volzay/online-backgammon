@@ -3,10 +3,10 @@
    Exposes: window.NarduBot
    --------------------------------------------------------------- */
 window.NarduBot = (function () {
-  const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
+  const DIFFICULTIES = new Set(['easy', 'medium', 'hard', 'hard-neuro']);
 
   function normalizeDifficulty(value, state = {}) {
-    const levels = { easy: 1, medium: 2, hard: 3 };
+    const levels = { easy: 1, medium: 2, hard: 3, 'hard-neuro': 4 };
     const hints = [
       value,
       state.botDifficulty,
@@ -18,6 +18,7 @@ window.NarduBot = (function () {
       const raw = String(hint || '').trim().toLowerCase();
       let candidate = null;
       if (DIFFICULTIES.has(raw)) candidate = raw;
+      else if (/hard[-_ ]?neuro|слож[^\n]*нейро/.test(raw)) candidate = 'hard-neuro';
       else if (/hard|слож|трудн|1500/.test(raw)) candidate = 'hard';
       else if (/medium|сред|1200/.test(raw)) candidate = 'medium';
       else if (/easy|л[её]гк|900/.test(raw)) candidate = 'easy';
@@ -82,6 +83,14 @@ window.NarduBot = (function () {
   }
 
   function chooseSequence(state, difficulty = 'easy') {
+    // A separate experimental policy must never turn into a heuristic bot
+    // after an asset error, or masquerade as the existing hard difficulty.
+    if (difficulty === 'hard-neuro') {
+      window.NarduNeuralBot?.clearLastDecision?.();
+      if (state.variant !== 'long') throw new Error('Neural bot supports only long narde');
+      if (!window.NarduNeuralBot?.plan) throw new Error('Neural bot trained assets are unavailable');
+      return window.NarduNeuralBot.plan(state);
+    }
     if (difficulty === 'easy') return chooseEasySequence(state);
     if (difficulty === 'hard' && window.NarduStrongBot?.plan) {
       try {
@@ -103,9 +112,11 @@ window.NarduBot = (function () {
   /* Play out the bot's turn, returning the list of moves it made.
      Each move is { from, die } so the UI can animate them sequentially. */
   function plan(state, options = {}) {
+    const requestedDifficulty = normalizeDifficulty(options.difficulty, state);
+    if (requestedDifficulty === 'hard-neuro') return chooseSequence(state, requestedDifficulty)
+      .map(move => ({ from: move.from, die: move.die }));
     const preview = cloneState(state);
-    const difficulty = normalizeDifficulty(options.difficulty, preview);
-    return chooseSequence(preview, difficulty)
+    return chooseSequence(preview, requestedDifficulty)
       .map(move => ({ from: move.from, die: move.die }));
   }
 

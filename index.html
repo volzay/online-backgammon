@@ -217,7 +217,10 @@
           <button class="choice-btn active" type="button" data-create-option="difficulty" data-value="easy" aria-pressed="true" data-i18n="difficulty_easy">Лёгкий</button>
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="medium" aria-pressed="false" data-i18n="difficulty_medium">Средний</button>
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard" aria-pressed="false" data-i18n="difficulty_hard">Сложный</button>
+          <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard-neuro" aria-pressed="false" data-i18n="difficulty_hard_neuro" style="grid-column: 1 / -1;">Сложный бот-нейро</button>
         </div>
+        <p data-neuro-note data-i18n="bot_neuro_experimental" hidden>Экспериментальная нейросеть для длинных нард. Обучение продолжается; сила игры против игроков ещё не подтверждена.</p>
+        <p data-neuro-long-only data-i18n="bot_neuro_long_only" hidden>Сложный бот-нейро доступен только в длинных нардах.</p>
       </div>
 
       <div class="create-field">
@@ -327,7 +330,7 @@
 
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
-<script src="app.js?v=20260916-long-bot-v35-v37"></script>
+<script src="app.js?v=20260918-neuro-448-v1"></script>
 <script src="rooms-client.js?v=20260916-long-bot-v35-v37"></script>
 <script>
   NarduApp.requireAuth();
@@ -395,10 +398,14 @@
   const LOBBY_JOIN_RECONCILE_TIMEOUT_MS = 3000;
   const LOBBY_JOIN_RECONCILE_POLL_MS = 150;
   const opponentLabelKeys = { player: 'opponent_player', bot: 'opponent_bot' };
-  const difficultyLabelKeys = { easy: 'difficulty_easy', medium: 'difficulty_medium', hard: 'difficulty_hard' };
+  const difficultyLabelKeys = { easy: 'difficulty_easy', medium: 'difficulty_medium', hard: 'difficulty_hard', 'hard-neuro': 'difficulty_hard_neuro' };
   const variantLabelKeys = { long: 'long_backgammon', short: 'short_backgammon' };
   const accessLabelKeys = { open: 'access_open', closed: 'access_closed' };
-  const botNameKeys = { easy: 'bot_easy', medium: 'bot_medium', hard: 'bot_hard' };
+  const botNameKeys = { easy: 'bot_easy', medium: 'bot_medium', hard: 'bot_hard', 'hard-neuro': 'bot_hard_neuro' };
+  const botDifficulties = ['easy', 'medium', 'hard', 'hard-neuro'];
+  function isSupportedBotVariant(difficulty, variant) {
+    return difficulty !== 'hard-neuro' || variant === 'long';
+  }
   function createLocalGameCode() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const bytes = new Uint8Array(8);
@@ -742,9 +749,13 @@
 
   function goToExistingBotRoom(room) {
     if (!room?.code || room.opponent !== 'bot') return false;
-    const difficulty = ['easy', 'medium', 'hard'].includes(room.botDifficulty)
+    const difficulty = botDifficulties.includes(room.botDifficulty)
       ? room.botDifficulty
       : 'easy';
+    if (!isSupportedBotVariant(difficulty, room.variant || 'long')) {
+      createError.textContent = tt('bot_neuro_long_only');
+      return false;
+    }
     const playerColor = room.playerColor === 'dark' ? 'dark' : 'white';
     const settings = {
       game: room.code,
@@ -1119,7 +1130,7 @@
     access: 'open',
     allowSpectators: 'no',
   };
-  const botRatings = { easy: 900, medium: 1200, hard: 1500 };
+  const botRatings = { easy: 900, medium: 1200, hard: 1500, 'hard-neuro': 1500 };
   let createRequestPending = false;
 
   function beginLobbyAction() {
@@ -1148,6 +1159,10 @@
       const active = createState[key] === btn.dataset.value;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', String(active));
+      if (key === 'difficulty' && btn.dataset.value === 'hard-neuro') {
+        btn.disabled = !isSupportedBotVariant('hard-neuro', createState.variant);
+        btn.setAttribute('aria-disabled', String(btn.disabled));
+      }
     });
 
     const botSettings = document.querySelector('[data-bot-settings]');
@@ -1164,6 +1179,8 @@
     spectatorSettings.hidden = !showAccessSettings;
     createPassword.disabled = !showPassword;
     createPassword.required = showPassword;
+    document.querySelector('[data-neuro-note]').hidden = !showBotSettings || createState.difficulty !== 'hard-neuro';
+    document.querySelector('[data-neuro-long-only]').hidden = !showBotSettings || createState.variant === 'long';
 
     const parts = [
       labelFor(opponentLabelKeys, createState.opponent),
@@ -1216,7 +1233,11 @@
 
   document.querySelectorAll('[data-create-option]').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       createState[btn.dataset.createOption] = btn.dataset.value;
+      if (btn.dataset.createOption === 'variant' && !isSupportedBotVariant(createState.difficulty, createState.variant)) {
+        createState.difficulty = 'hard';
+      }
       createError.textContent = '';
       syncCreatePanel();
       if (btn.dataset.createOption === 'access' && btn.dataset.value === 'closed') {
@@ -1227,6 +1248,10 @@
 
   createGameForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (createState.opponent === 'bot' && !isSupportedBotVariant(createState.difficulty, createState.variant)) {
+      createError.textContent = tt('bot_neuro_long_only');
+      return;
+    }
     const password = createPassword.value.trim();
     if (createState.opponent !== 'bot' && createState.access === 'closed' && password.length < 4) {
       createError.textContent = tt('err_closed_password_min');
@@ -1266,8 +1291,15 @@
         return;
       }
       const selectedDifficulty = document.querySelector('[data-create-option="difficulty"].active')?.dataset.value;
-      if (['easy', 'medium', 'hard'].includes(selectedDifficulty)) {
+      if (botDifficulties.includes(selectedDifficulty)) {
         createState.difficulty = selectedDifficulty;
+      }
+      if (!isSupportedBotVariant(createState.difficulty, createState.variant)) {
+        createError.textContent = tt('bot_neuro_long_only');
+        createRequestPending = false;
+        createSubmit.disabled = false;
+        createGameForm.removeAttribute('aria-busy');
+        return;
       }
       const gameCode = createLocalGameCode();
       const settings = {

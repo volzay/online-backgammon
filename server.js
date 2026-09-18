@@ -26,6 +26,23 @@ const ADMIN_ARCHIVE_TTL_MS = ADMIN_ARCHIVE_HOURS * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_RATING = 1000;
 const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
+const NEURAL_BOT_DIFFICULTY = "hard-neuro";
+const NEURAL_BOT_RATING = 1500;
+const NEURAL_BOT_METADATA = Object.freeze({
+  id: "hard-neuro-448-v1",
+  name: "Сложный бот-нейро",
+  variant: "long",
+  mode: "experimental-frozen",
+  modelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
+  inferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
+  rulesFingerprint: "sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+  trainingGames: 448,
+  trainingSteps: 35147,
+  inputSize: 127,
+  hiddenSize: 32,
+  maxCandidates: 16,
+  epsilon: 0,
+});
 const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
 const GUEST_PROOF_DOMAIN = "nardu/guest/v1";
 const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
@@ -1130,6 +1147,28 @@ function isBotAnalysisRoom(room) {
     || room.gameState?.analysis?.mode === "bot"
     || room.gameState?.analysis?.opponent === "bot"
   ));
+}
+
+function isNeuralBotState(state) {
+  return state?.botDifficulty === NEURAL_BOT_DIFFICULTY
+    || state?.analysis?.difficulty === NEURAL_BOT_DIFFICULTY;
+}
+
+function canonicalNeuralBotState(state) {
+  state.mode = "bot";
+  state.opponent = "bot";
+  state.variant = "long";
+  state.botDifficulty = NEURAL_BOT_DIFFICULTY;
+  state.analysis = {
+    ...(state.analysis || {}),
+    mode: "bot",
+    opponent: "bot",
+    difficulty: NEURAL_BOT_DIFFICULTY,
+    botName: NEURAL_BOT_METADATA.name,
+    neuralModel: { ...(state.analysis?.neuralModel && typeof state.analysis.neuralModel === "object"
+      && !Array.isArray(state.analysis.neuralModel) ? state.analysis.neuralModel : {}), ...NEURAL_BOT_METADATA },
+  };
+  return state;
 }
 
 function isRoomActiveForPlayer(room, playerName, playerUserId = "") {
@@ -2395,6 +2434,12 @@ async function handleApi(req, res, url) {
 
     if (method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "rooms" && parts[2] === "bot-analysis") {
       const body = await readJsonBody(req);
+      const neuralBot = body.difficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(body.state);
+      if (neuralBot && ((body.variant != null && body.variant !== "long")
+        || (body.state?.variant != null && body.state.variant !== "long"))) {
+        sendJson(res, 422, { error: "Сложный бот-нейро доступен только для длинных нард." });
+        return;
+      }
       const code = String(body.code || "").trim().toUpperCase();
       if (!/^[A-HJ-NP-Z2-9]{4}(?:-[A-HJ-NP-Z2-9]{4})?$/.test(code)) {
         sendJson(res, 400, { error: "Некорректный код бот-партии." });
@@ -2416,6 +2461,11 @@ async function handleApi(req, res, url) {
       const hostName = actor.name;
       const existing = rooms.find(item => item.code === code);
       if (existing) {
+        const existingNeuralBot = existing.botDifficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(existing.gameState);
+        if (neuralBot !== existingNeuralBot) {
+          sendJson(res, 409, { error: "Нельзя менять тип уже созданной бот-партии." });
+          return;
+        }
         if (
           !isBotAnalysisRoom(existing)
           || String(existing.hostUserId || "") !== actor.id
@@ -2456,6 +2506,7 @@ async function handleApi(req, res, url) {
         playerColor: body.playerColor === "dark" ? "dark" : "white",
         updatedAt: now(),
       };
+      if (neuralBot) canonicalNeuralBotState(state);
       const stateError = validatePublishedGameState(state);
       if (stateError) {
         sendJson(res, 422, { error: stateError });
@@ -2480,7 +2531,7 @@ async function handleApi(req, res, url) {
         hostRegistered,
         hostRatingEligible: hostRegistered,
         guestName: botName,
-        guestRating: normalizeRating(body.botRating),
+        guestRating: neuralBot ? NEURAL_BOT_RATING : normalizeRating(body.botRating),
         guestTier: "",
         guestRegistered: false,
         guestRatingEligible: false,
@@ -2636,6 +2687,17 @@ async function handleApi(req, res, url) {
       if (stateError) {
         sendJson(res, 422, { error: stateError, version: currentVersion });
         return;
+      }
+      const neuralRoom = room.botDifficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(room.gameState);
+      if (neuralRoom || isNeuralBotState(body.state)) {
+        if (!neuralRoom || body.state.variant !== "long"
+          || body.state.botDifficulty !== NEURAL_BOT_DIFFICULTY
+          || (body.state.analysis?.difficulty && body.state.analysis.difficulty !== NEURAL_BOT_DIFFICULTY)) {
+          sendJson(res, 422, { error: "Нельзя менять тип или вид нард нейро-партии.", version: currentVersion });
+          return;
+        }
+        canonicalNeuralBotState(body.state);
+        body.state.roomCode = room.code;
       }
       room.gameState = body.state;
       room.gameVersion = currentVersion + 1;
