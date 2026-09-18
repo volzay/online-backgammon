@@ -53,7 +53,7 @@ function harness({ cleanup } = {}) {
     ids.set(id, element());
   }
   const selectors = new Map();
-  for (const selector of ['[data-bot-settings]', '[data-access-settings]', '[data-password-settings]', '[data-spectator-settings]', '[data-neuro-note]', '[data-neuro-long-only]', '[data-create-close]', '[data-code-close]']) {
+  for (const selector of ['[data-bot-settings]', '[data-access-settings]', '[data-password-settings]', '[data-spectator-settings]', '[data-neuro-note]', '[data-create-close]', '[data-code-close]']) {
     selectors.set(selector, element());
   }
   const submit = element();
@@ -126,29 +126,50 @@ test('selecting the neural bot shows an experimental note and preserves the sepa
   h.click('difficulty', 'hard-neuro');
   assert.equal(h.context.state.difficulty, 'hard-neuro');
   assert.equal(h.selectors.get('[data-neuro-note]').hidden, false);
-  assert.equal(h.selectors.get('[data-neuro-long-only]').hidden, true);
   assert.match(h.ids.get('create-game-summary').textContent, /Сложный бот-нейро/);
   const button = h.options.find(btn => btn.dataset.value === 'hard-neuro');
   assert.equal(button.disabled, false);
+  assert.equal(button.hidden, false);
   assert.equal(button.getAttribute('aria-pressed'), 'true');
 });
 
-test('switching to short resets the neural selection to hard, disables it and explains long-only support', () => {
+test('switching to short hides the neural option and note, resets to hard and restores the option for long', () => {
   const h = harness();
   h.click('opponent', 'bot');
   h.click('difficulty', 'hard-neuro');
   h.click('variant', 'short');
   assert.equal(h.context.state.difficulty, 'hard');
   assert.equal(h.selectors.get('[data-neuro-note]').hidden, true);
-  assert.equal(h.selectors.get('[data-neuro-long-only]').hidden, false);
   const button = h.options.find(btn => btn.dataset.value === 'hard-neuro');
   assert.equal(button.disabled, true);
+  assert.equal(button.hidden, true);
   assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
+  assert.doesNotMatch(h.ids.get('create-game-summary').textContent, /Сложный бот-нейро/);
+  assert.doesNotMatch(lobby, /data-neuro-long-only/);
+  for (const difficulty of ['easy', 'medium', 'hard']) {
+    assert.equal(h.options.find(btn => btn.dataset.value === difficulty).hidden, false);
+  }
   h.click('difficulty', 'hard-neuro');
   assert.equal(h.context.state.difficulty, 'hard', 'even a synthetic disabled click cannot select an unsupported bot');
   h.click('variant', 'long');
   assert.equal(button.disabled, false);
-  assert.equal(h.selectors.get('[data-neuro-long-only]').hidden, true);
+  assert.equal(button.hidden, false);
+  assert.equal(h.context.state.difficulty, 'hard', 'returning to long does not silently change the selected difficulty');
+  h.click('difficulty', 'hard-neuro');
+  assert.equal(h.selectors.get('[data-neuro-note]').hidden, false);
+  h.click('variant', 'short');
+  assert.equal(button.hidden, true, 'repeated switches keep the unsupported option hidden');
+});
+
+test('short selection hides the neural option before choosing a bot and when reopening the panel', () => {
+  const h = harness();
+  h.click('variant', 'short');
+  h.click('opponent', 'bot');
+  h.context.showCreatePanel();
+  assert.equal(h.options.find(btn => btn.dataset.value === 'hard-neuro').hidden, true);
+  assert.equal(h.selectors.get('[data-neuro-note]').hidden, true);
+  assert.equal(h.context.state.difficulty, 'easy');
 });
 
 test('direct short neural creation is rejected before cleanup, room writes or navigation', async () => {

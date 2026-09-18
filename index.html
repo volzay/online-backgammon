@@ -220,7 +220,6 @@
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard-neuro" aria-pressed="false" data-i18n="difficulty_hard_neuro" style="grid-column: 1 / -1;">Сложный бот-нейро</button>
         </div>
         <p data-neuro-note data-i18n="bot_neuro_experimental" hidden>Экспериментальная нейросеть для длинных нард. Обучение продолжается; сила игры против игроков ещё не подтверждена.</p>
-        <p data-neuro-long-only data-i18n="bot_neuro_long_only" hidden>Сложный бот-нейро доступен только в длинных нардах.</p>
       </div>
 
       <div class="create-field">
@@ -1161,6 +1160,7 @@
       btn.setAttribute('aria-pressed', String(active));
       if (key === 'difficulty' && btn.dataset.value === 'hard-neuro') {
         btn.disabled = !isSupportedBotVariant('hard-neuro', createState.variant);
+        btn.hidden = btn.disabled;
         btn.setAttribute('aria-disabled', String(btn.disabled));
       }
     });
@@ -1179,8 +1179,7 @@
     spectatorSettings.hidden = !showAccessSettings;
     createPassword.disabled = !showPassword;
     createPassword.required = showPassword;
-    document.querySelector('[data-neuro-note]').hidden = !showBotSettings || createState.difficulty !== 'hard-neuro';
-    document.querySelector('[data-neuro-long-only]').hidden = !showBotSettings || createState.variant === 'long';
+    document.querySelector('[data-neuro-note]').hidden = !showBotSettings || createState.variant !== 'long' || createState.difficulty !== 'hard-neuro';
 
     const parts = [
       labelFor(opponentLabelKeys, createState.opponent),
