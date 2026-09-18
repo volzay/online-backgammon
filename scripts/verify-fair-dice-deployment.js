@@ -198,7 +198,11 @@ async function verifyDeployment({ distDir = path.join(__dirname, '..', 'dist'), 
   requireThat(metadata && metadata.ok === true && metadata.protocol === PROTOCOL && metadata.chainHash === CHAIN_HASH
     && metadata.publicKey === expected.publicKey && Number.isSafeInteger(metadata.pendingJobs) && metadata.pendingJobs >= 0,
   'HEALTH_PIN_OR_PROTOCOL_MISMATCH', 'health');
-  requireThat(Object.keys(metadata).every(key => ['ok', 'protocol', 'chainHash', 'publicKey', 'pendingJobs'].includes(key)), 'HEALTH_INVALID', 'health');
+  requireThat(Object.keys(metadata).every(key => ['ok', 'protocol', 'supportedProtocols', 'chainHash', 'publicKey', 'pendingJobs'].includes(key))
+    && (metadata.supportedProtocols === undefined || (Array.isArray(metadata.supportedProtocols)
+      && metadata.supportedProtocols.length === 2
+      && metadata.supportedProtocols[0] === PROTOCOL && metadata.supportedProtocols[1] === 'system-csprng-v1')),
+  'HEALTH_INVALID', 'health');
   requireThat(health.headers.get('access-control-allow-origin') === origin
     && (health.headers.get('access-control-allow-methods') || '').split(',').map(value => value.trim()).includes('POST')
     && ['authorization', 'content-type', 'x-guest-id', 'x-guest-proof'].every(header =>

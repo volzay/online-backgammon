@@ -102,6 +102,18 @@ test('chain and protocol match the actual common proof implementation', () => {
   assert.equal(verifier.CHAIN_HASH, common.CHAIN.hash);
 });
 
+test('dual coordinator health accepts only the exact supported protocol allowlist', async t => {
+  for (const supportedProtocols of [[verifier.PROTOCOL, 'system-csprng-v1'],
+    ['system-csprng-v1'], [verifier.PROTOCOL, 'unknown'], [verifier.PROTOCOL, 'system-csprng-v1', 'unknown'], 'system-csprng-v1']) {
+    const f = fixture(t, { override: ({ asset }) => asset === 'health'
+      ? new Response(JSON.stringify({ ...HEALTH, supportedProtocols }), { headers: { 'content-type': 'application/json', ...CORS } })
+      : undefined });
+    if (Array.isArray(supportedProtocols) && supportedProtocols.length === 2 && supportedProtocols[1] === 'system-csprng-v1') {
+      assert.equal((await verifier.verifyDeployment(f.options)).ok, true);
+    } else await assert.rejects(verifier.verifyDeployment(f.options), rejected('HEALTH_INVALID', 'health'));
+  }
+});
+
 test('mismatched public asset fails without treating reachable deployment as verified', async t => {
   const f = fixture(t, { override: ({ asset }) => asset === 'game-controller.js'
     ? new Response('// old version', { headers: { 'content-type': 'text/javascript' } }) : undefined });
