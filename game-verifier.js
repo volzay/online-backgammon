@@ -220,8 +220,9 @@
     const expectedDice = normalizeDice(item.opening ? [item.host, item.guest] : item.roll);
     if (!expectedDice) throw invalid('INVALID_DICE', 'В записи нет результата броска.');
     const preimage = typeof item.sha256Input === 'string' ? text(item.sha256Input, 'Исходная строка') : undefined;
+    const protocol = item.fairDiceProof?.protocol;
     return { hash, expectedDice, ...(preimage !== undefined ? { preimage } : {}),
-      ...(item.fairDiceProof?.protocol === 'system-csprng-v1' ? { protocol: 'system-csprng-v1' } : {}) };
+      ...(['system-csprng-v1', 'drand', 'drand-quicknet-v1'].includes(protocol) ? { protocol } : {}) };
   }
   function verificationUrl(item) {
     try {

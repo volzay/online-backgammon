@@ -41,15 +41,18 @@
       const encodedContext = signed ? JSON.stringify(expectedContext) : '';
       if (encodedContext.length > root.NarduVerify.MAX_TEXT) return '';
       const fairContext = signed ? ` data-verify-fair-context="${escape(encodedContext)}"` : '';
-      const copy = (value, kind) => `<button type="button" data-copy-roll-${kind} data-copy-value="${escape(value)}">${lang === 'en' ? 'Copy' : 'Скопировать'}</button>`;
+      const copy = (value, kind, label = lang === 'en' ? 'Copy' : 'Скопировать') => `<button type="button" data-copy-roll-${kind} data-copy-value="${escape(value)}">${label}</button>`;
       const system = item.fairDiceProof?.protocol === 'system-csprng-v1';
       const drand = ['drand', 'drand-quicknet-v1'].includes(item.fairDiceProof?.protocol);
       const source = signed && item.fairDiceProof && typeof item.fairDiceProof === 'object'
         ? system ? `<p>${lang === 'en' ? 'Recorded protocol' : 'Сохранённый протокол'}: server CSPRNG · commit/reveal · HMAC-SHA256</p><p>${lang === 'en' ? 'Signed commitment' : 'Подписанное обязательство'}:</p><pre>${escape(item.fairDiceProof.request?.commitment || '')}</pre><p>Server seed:</p><pre>${escape(item.fairDiceProof.commitReveal?.serverSeed || '')}</pre><p>Client seed:</p><pre>${escape(item.fairDiceProof.commitReveal?.clientSeed || '')}</pre>`
           : drand ? `<p>${lang === 'en' ? 'Recorded source' : 'Сохранённый источник'}: drand quicknet · ${lang === 'en' ? 'round' : 'раунд'} ${escape(item.fairDiceProof.beacon?.round ?? '')}</p><p>${lang === 'en' ? 'Chain' : 'Цепочка'}: <code>${escape(item.fairDiceProof.chainHash || '')}</code></p><p>${lang === 'en' ? 'Source signature' : 'Подпись источника'}:</p><pre>${escape(item.fairDiceProof.beacon?.signature || '')}</pre>`
             : `<p>${lang === 'en' ? 'Recorded protocol (unverified)' : 'Сохранённый протокол (не проверен)'}: ${escape(item.fairDiceProof.protocol || '')}</p>` : '';
-      const details = input.preimage !== undefined || signed ? `<details class="roll-proof-details"><summary>${lang === 'en' ? 'Source and complete data' : 'Источник и полные данные'}</summary>${source}${input.preimage === undefined ? '' : `<p>${lang === 'en' ? 'Complete SHA-256 input' : 'Исходная строка SHA-256 (целиком)'}</p><pre>${escape(input.preimage)}</pre>${copy(input.preimage, 'input')}`}${signed ? `<details><summary>${lang === 'en' ? 'Roll JSON proof' : 'JSON-доказательство броска'}</summary><pre>${escape(encodedProof)}</pre>${copy(encodedProof, 'proof')}<p>${lang === 'en' ? 'You can paste this JSON into the standalone verifier. It is not passed in the page URL.' : 'Этот JSON можно вставить в отдельную страницу проверки. В адресе страницы он не передаётся.'}</p></details>` : ''}<p class="roll-proof-limits">${lang === 'en' ? 'Verification checks recorded data and signatures, not externally observed reservation timing, intentions or checker-move legality.' : 'Проверяются записанные данные и подписи, но не внешнее время резервирования, намерения участников или законность перемещения шашек.'}</p></details>` : '';
-      return `<span class="roll-verify-controls"><button type="button" data-verify-roll data-verify-hash="${input.hash}" data-verify-dice="${input.expectedDice.join(',')}"${preimage}${fair}${fairContext}>${lang === 'en' ? 'Check roll' : 'Проверить'}</button><a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${lang === 'en' ? 'Details' : 'Подробнее'}</a></span><span class="roll-verify-status" data-roll-result role="status" aria-live="polite" hidden></span>${details}`;
+      const details = input.preimage !== undefined || signed ? `<details class="roll-proof-details"><summary>${lang === 'en' ? 'Source and complete data' : 'Источник и полные данные'}</summary>${source}${input.preimage === undefined ? '' : `<p>${lang === 'en' ? 'Complete SHA-256 input' : 'Исходная строка SHA-256 (целиком)'}</p><pre>${escape(input.preimage)}</pre>${copy(input.preimage, 'input')}`}${signed ? `<details><summary>${lang === 'en' ? 'Roll JSON proof' : 'JSON-доказательство броска'}</summary><pre>${escape(encodedProof)}</pre><p>${lang === 'en' ? 'Full verification receives this JSON automatically. Use Copy JSON next to the roll to keep your own copy.' : 'Полная проверка получает этот JSON автоматически. Для своей копии нажмите «Скопировать JSON» рядом с броском.'}</p></details>` : ''}<p class="roll-proof-limits">${lang === 'en' ? 'Verification checks recorded data and signatures, not externally observed reservation timing, intentions or checker-move legality.' : 'Проверяются записанные данные и подписи, но не внешнее время резервирования, намерения участников или законность перемещения шашек.'}</p></details>` : '';
+      const fullCheck = signed || input.preimage !== undefined
+        ? `<button type="button" data-open-roll-verifier data-verifier-url="${escape(url)}">${lang === 'en' ? 'Full verification' : 'Полная проверка'}</button>`
+        : `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${lang === 'en' ? 'Details' : 'Подробнее'}</a>`;
+      return `<span class="roll-verify-controls"><button type="button" data-verify-roll data-verify-hash="${input.hash}" data-verify-dice="${input.expectedDice.join(',')}"${preimage}${fair}${fairContext}>${lang === 'en' ? 'Check roll' : 'Проверить'}</button>${fullCheck}${signed ? copy(encodedProof, 'proof', lang === 'en' ? 'Copy JSON' : 'Скопировать JSON') : ''}</span><span class="roll-verify-status" data-roll-result role="status" aria-live="polite" hidden></span>${details}`;
     } catch { return ''; }
   }
   function setGameContext(element, game) {
@@ -153,11 +156,7 @@
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
     try {
-      const options = wholeGame ? null : {
-        hash: button.dataset.verifyHash, expectedDice: button.dataset.verifyDice, preimage: button.dataset.verifyInput,
-        ...(button.hasAttribute('data-verify-fair-proof') ? { proof: button.dataset.verifyFairProof } : {}),
-        ...(button.hasAttribute('data-verify-fair-context') ? { context: root.NarduVerify.parseFairProof(button.dataset.verifyFairContext) } : {}),
-      };
+      const options = wholeGame ? null : rollOptions(button);
       const result = wholeGame ? await root.NarduVerify.verifyGameRolls(context?.game)
         : await root.NarduVerify[Object.prototype.hasOwnProperty.call(options, 'proof') ? 'verifyFairRoll' : 'verifyPortalRoll'](options);
       if (output.isConnected === false) return;
@@ -199,8 +198,44 @@
       button.removeAttribute('aria-busy');
     }
   }
+  function rollOptions(button) {
+    return {
+      hash: button.dataset.verifyHash, expectedDice: button.dataset.verifyDice, preimage: button.dataset.verifyInput,
+      ...(button.hasAttribute('data-verify-fair-proof') ? { proof: button.dataset.verifyFairProof } : {}),
+      ...(button.hasAttribute('data-verify-fair-context') ? { context: root.NarduVerify.parseFairProof(button.dataset.verifyFairContext) } : {}),
+    };
+  }
+  function openFullVerification(button) {
+    const control = button.closest('.fair-hash, .history-proof')?.querySelector('[data-verify-roll]');
+    if (!control || control.disabled || button.isConnected === false) return;
+    let transfer;
+    let tab;
+    try {
+      const url = new root.URL(button.dataset.verifierUrl, root.location.href);
+      if (url.origin !== root.location.origin || !url.pathname.endsWith('/verify-game.html') || url.search) throw new Error('Invalid verifier destination');
+      transfer = root.NarduRollProofTransfer.publish(rollOptions(control));
+      // Open synchronously in the user gesture. about:blank executes no page
+      // scripts; sever its opener before loading any verifier resources.
+      tab = root.open('about:blank', '_blank');
+      if (!tab) throw new Error('Verifier tab unavailable');
+      tab.opener = null;
+      url.hash += '&transfer=' + transfer.token;
+      tab.location.replace(url.href);
+    } catch {
+      transfer?.close();
+      try { tab?.close(); } catch { /* The original roll is still locally verifiable. */ }
+      // Popup/channel restrictions never send the player to a proof-less page.
+      void run(control, false);
+    }
+  }
   root.NarduVerifyUI = Object.freeze({ rollControls, setGameContext });
   root.document.addEventListener('click', event => {
+    const full = event.target.closest?.('[data-open-roll-verifier]');
+    if (full) {
+      event.preventDefault();
+      openFullVerification(full);
+      return;
+    }
     const copy = event.target.closest?.('[data-copy-roll-input], [data-copy-roll-proof]');
     if (copy) {
       event.preventDefault();

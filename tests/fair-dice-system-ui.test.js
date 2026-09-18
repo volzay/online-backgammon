@@ -52,13 +52,14 @@ class Element {
   addEventListener(name, handler) { this.listeners.set(name, [...(this.listeners.get(name) || []), handler]); }
   async trigger(name) { await Promise.all((this.listeners.get(name) || []).map(handler => handler({ preventDefault() {} }))); }
   closest(selector) {
+    if (selector === '[data-open-roll-verifier]') return null;
     if (selector.includes('data-copy-roll-')) return null;
     if (selector === '[data-verify-roll], [data-verify-game]') return this;
     return this.parent;
   }
 }
 
-function coreContext({ lang = 'ru', key = publicKey, hash = '' } = {}) {
+function coreContext({ lang = 'ru', key = publicKey, hash = '', transfer } = {}) {
   const handlers = new Map();
   const nodes = new Map();
   for (const match of read('verify-game.html').matchAll(/\bid="([^"]+)"/g)) nodes.set(match[1], new Element(match[1]));
@@ -68,7 +69,8 @@ function coreContext({ lang = 'ru', key = publicKey, hash = '' } = {}) {
     addEventListener(name, handler) { handlers.set(name, handler); } };
   const context = vm.createContext({ TextEncoder, Uint8Array, DataView, URLSearchParams,
     document, crypto: webcrypto, console, NarduFairDiceCrypto: cryptoEntry, NARDU_ENV: { fairDicePublicKey: key },
-    location: { hash, search: '' }, Event: class {}, addEventListener() {},
+    location: { hash, search: '' }, Event: class {}, addEventListener() {}, AbortController,
+    NarduRollProofTransfer: transfer,
     fetch() { throw new Error('No network calls allowed during verification.'); },
     localStorage: new Proxy({}, { get() { throw new Error('No account storage access allowed.'); } }) });
   context.window = context;
@@ -79,6 +81,13 @@ function coreContext({ lang = 'ru', key = publicKey, hash = '' } = {}) {
 
 function standalone(options = {}) {
   const ui = coreContext(options);
+  ui.nodes.get('verify-portal-form').requestSubmit = () => {
+    ui.submission = ui.nodes.get('verify-portal-form').trigger('submit');
+  };
+  ui.flush = async () => {
+    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    await ui.submission;
+  };
   vm.runInContext(read('verify-game-ui.js'), ui.context);
   return ui;
 }
@@ -150,12 +159,56 @@ test('standalone system link never interprets its integrity hash using the incom
   const ui = standalone({ hash: `#hash=${proof.sha256}&dice=${proof.dice.join(',')}&protocol=system-csprng-v1` });
   assert.equal(ui.nodes.get('verify-portal-result').childNodes.length, 0);
   assert.match(ui.nodes.get('verify-page-notice').textContent, /вставьте JSON/);
+  assert.equal(ui.nodes.get('portal-proof-manual').open, true);
+  assert.equal(ui.nodes.get('portal-proof').focused, true);
   await ui.nodes.get('verify-portal-form').trigger('submit');
   assert.equal(ui.nodes.get('verify-portal-result').childNodes[0].dataset.status, 'incomplete');
   assert.match(ui.nodes.get('verify-portal-result').textContent, /вставьте JSON/);
   ui.nodes.get('portal-proof').value = JSON.stringify(proof);
   await ui.nodes.get('verify-portal-form').trigger('submit');
   assert.equal(ui.nodes.get('verify-portal-result').childNodes[0].dataset.status, 'verified');
+});
+
+test('full system link receives completed JSON and automatically verifies the signature, disclosed seeds and HMAC', async () => {
+  const proof = proofFor(2);
+  let receives = 0;
+  const ui = standalone({ hash: `#hash=${proof.sha256}&dice=${proof.dice.join(',')}&protocol=system-csprng-v1&transfer=${'ab'.repeat(24)}`,
+    transfer: { receive: async () => { receives += 1; return { hash: proof.sha256, expectedDice: proof.dice,
+      proof, preimage: proof.sha256Input, context: proof.request }; } } });
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, true);
+  assert.match(ui.nodes.get('verify-page-notice').textContent, /Получаем данные броска/);
+  await ui.flush();
+  assert.equal(receives, 1);
+  assert.equal(ui.nodes.get('verify-portal-result').childNodes[0].dataset.status, 'verified');
+  assert.match(ui.nodes.get('verify-portal-result').textContent, /Подпись и расчёт броска подтверждены/);
+  assert.equal(ui.nodes.get('portal-preimage').value, proof.sha256Input);
+  assert.equal(ui.nodes.get('portal-proof').value, JSON.stringify(proof));
+  assert.doesNotMatch(ui.nodes.get('verify-portal-result').textContent, /независимый drand|Кости соответствуют хешу/);
+});
+
+test('system transfer without JSON never uses legacy hash bytes and points back to actual history controls', async () => {
+  const proof = proofFor(2);
+  const ui = standalone({ hash: `#hash=${proof.sha256}&dice=${proof.dice.join(',')}&protocol=system-csprng-v1&transfer=${'ab'.repeat(24)}`,
+    transfer: { receive: async () => ({ hash: proof.sha256, expectedDice: proof.dice, preimage: proof.sha256Input }) } });
+  await ui.flush();
+  assert.equal(ui.nodes.get('portal-proof').value, '');
+  assert.equal(ui.nodes.get('verify-portal-result').childNodes.length, 0);
+  assert.equal(ui.nodes.get('portal-proof-manual').open, true);
+  assert.match(ui.nodes.get('verify-page-notice').textContent, /Вернитесь к броску.*Полная проверка.*Проверить/);
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.doesNotMatch(ui.nodes.get('verify-portal-result').textContent, /Кости соответствуют хешу/);
+  assert.equal(ui.nodes.get('verify-portal-result').childNodes[0].dataset.status, 'incomplete');
+});
+
+test('transferred expected game context is checked rather than trusting the proof context itself', async () => {
+  const proof = proofFor(2);
+  const ui = standalone({ hash: `#hash=${proof.sha256}&dice=${proof.dice.join(',')}&protocol=system-csprng-v1&transfer=${'ab'.repeat(24)}`,
+    transfer: { receive: async () => ({ hash: proof.sha256, expectedDice: proof.dice, proof,
+      context: { ...proof.request, roomCode: 'OTHER-ROOM' } }) } });
+  await ui.flush();
+  assert.equal(ui.nodes.get('verify-portal-result').childNodes[0].dataset.status, 'incomplete');
+  assert.match(ui.nodes.get('verify-portal-result').textContent, /другому броску или партии/);
+  assert.doesNotMatch(ui.nodes.get('verify-portal-result').textContent, /Подпись и расчёт броска подтверждены/);
 });
 
 test('system detail controls disclose the actual protocol and seeds rather than empty drand metadata', () => {
@@ -167,7 +220,9 @@ test('system detail controls disclose the actual protocol and seeds rather than 
   assert.equal(markup.includes(proof.request.commitment), true);
   assert.equal(markup.includes(serverSeed), true);
   assert.doesNotMatch(markup, /drand quicknet|Цепочка/);
-  const href = markup.match(/href="([^"]+)"/)[1];
+  assert.match(markup, /data-open-roll-verifier/);
+  assert.match(markup, /Скопировать JSON/);
+  const href = markup.match(/data-verifier-url="([^"]+)"/)[1];
   assert.match(href, /protocol=system-csprng-v1/);
   assert.equal(href.includes(serverSeed) || href.includes(clientSeed), false);
 });

@@ -8,12 +8,12 @@
       kicker: 'Нарды Онлайн · проверка данных', heading: 'Проверка броска',
       lead: 'Проверьте подписанный расчёт броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.',
       portalTitle: 'Бросок на этом портале',
-      portalIntro: 'В истории броска откройте «Проверить». На этой странице для серверного протокола CSPRNG + HMAC вставьте JSON завершённого броска из его подробностей. Прежние записи drand проверяются по их JSON, старые SHA-записи — по хешу и обеим костям.',
-      proofSummary: 'Есть JSON-доказательство броска?', proofLabel: 'JSON-доказательство (необязательно)',
+      portalIntro: 'В истории броска нажмите «Полная проверка»: данные завершённого броска передаются сюда автоматически между вкладками этого портала, без помещения JSON в адрес страницы. Для сохранённого файла или старой ссылки используйте ручной ввод ниже.',
+      proofSummary: 'Ручной ввод JSON (для файла или старой ссылки)', proofLabel: 'JSON-доказательство (необязательно при автоматическом открытии)',
       proofHint: 'Вставьте запись завершённого броска из его подробностей. Программа проверит подпись сервера и расчёт по протоколу записи: серверный CSPRNG + HMAC либо drand. Ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.',
       portalHash: 'SHA-256 из истории броска', hashHint: 'Ровно 64 шестнадцатеричных символа: 0–9, a–f.',
       dieOne: 'Кость 1 из истории', dieTwo: 'Кость 2 из истории',
-      preimageSummary: 'Есть раскрытое исходное значение для этого броска?', preimageLabel: 'Исходное значение SHA-256 (необязательно)',
+      preimageSummary: 'Ручной ввод исходной строки (старые SHA-записи)', preimageLabel: 'Исходное значение SHA-256 (необязательно)',
       preimageHint: 'Вставьте раскрытое значение именно этого завершённого броска. Пробелы и переводы строк значимы. Не вводите пароль от аккаунта.',
       checkPortal: 'Проверить бросок', explanationTitle: 'Что именно проверяется',
       explanationPortal: 'Байты потока читаются слева направо: значения 252–255 пропускаются, первые два подходящих байта дают кости по формуле (байт % 6) + 1. В серверной схеме поток создаётся HMAC-SHA256 из раскрытых server seed, client seed и контекста партии; SHA-256 записи подтверждает её целостность. Для неё необходим JSON броска, а не только хеш.',
@@ -37,7 +37,11 @@
       systemCalculationOnly: 'Расчёт HMAC-SHA256 совпал', systemDiceVerified: 'Кости соответствуют расчёту HMAC-SHA256.',
       systemShared: 'Игроки и боты используют один серверный криптографический протокол. Игровая стратегия не участвует в расчёте костей.',
       systemLimits: 'Случайность создаётся на сервере CSPRNG операционной системы. Проверка подтверждает подпись, обязательство и расчёт; она не является независимым доказательством источника энтропии или времени публикации обязательства.',
-      systemProofRequired: 'Для этой серверной схемы вставьте JSON завершённого броска из его подробностей. Один SHA-256 не содержит HMAC-поток для расчёта костей.',
+      systemProofRequired: 'Старая ссылка содержит только хеш и кости. Вернитесь к броску в «Ход партии» и нажмите «Полная проверка» либо «Проверить». Для независимой ручной проверки вставьте JSON из кнопки «Скопировать JSON» в открытое поле ниже: один SHA-256 не содержит расчёт этого протокола.',
+      receiving: 'Получаем данные броска…', transferReady: 'Полные данные броска получены. Выполняем проверку подписи и расчёта.',
+      transferUnavailable: 'Данные броска не получены: вкладка игры могла закрыться или время передачи истекло. Вернитесь к броску в «Ход партии» и нажмите «Полная проверка» либо «Проверить». Можно также нажать «Скопировать JSON» и вставить запись в открытое поле ручной проверки ниже.',
+      transferMismatch: 'Полученные данные не соответствуют хешу и костям в ссылке. Вернитесь к нужному броску и нажмите «Полная проверка» либо «Проверить».',
+      signedProofRequired: 'Для подписанного броска нужен полный JSON. Вернитесь к броску и нажмите «Полная проверка» либо «Проверить», или вставьте запись из «Скопировать JSON» в открытое поле ниже.',
       systemCommitment: 'Подписанное обязательство SHA-256', systemServerSeed: 'Раскрытый server seed', systemClientSeed: 'Client seed', systemStream: 'Поток HMAC-SHA256',
       sourceOnly: 'Подпись drand подтверждена', sourceUnknown: 'Подпись источника не подтверждена',
       receiptUnknown: 'Резервирование броска не подтверждено настроенным ключом сервера.',
@@ -63,12 +67,12 @@
       kicker: 'Backgammon Online · data verification', heading: 'Verify a roll',
       lead: 'Verify the signed roll calculation and compare the dice with the game history. Calculations run in this browser; entered values are neither sent nor saved.',
       portalTitle: 'A roll on this portal',
-      portalIntro: 'Select “Verify” in the roll history. On this page, paste the completed roll JSON from its details for the server CSPRNG + HMAC protocol. Earlier drand records are checked using their JSON; older SHA-only records use the hash and both dice.',
-      proofSummary: 'Have the roll’s JSON proof?', proofLabel: 'JSON proof (optional)',
+      portalIntro: 'Select “Full verification” in the roll history: the completed roll data is transferred automatically between this portal’s tabs, without putting JSON in the URL. For a saved file or an older link, use the manual input below.',
+      proofSummary: 'Manual JSON input (saved file or older link)', proofLabel: 'JSON proof (optional when opened automatically)',
       proofHint: 'Paste the completed roll’s record from its details. The verifier checks the server signature and recorded calculation protocol: server CSPRNG + HMAC or drand. The server key comes only from portal configuration. JSON is never imported from the URL.',
       portalHash: 'SHA-256 from the roll history', hashHint: 'Exactly 64 hexadecimal characters: 0–9, a–f.',
       dieOne: 'Die 1 from the history', dieTwo: 'Die 2 from the history',
-      preimageSummary: 'Have the disclosed input for this roll?', preimageLabel: 'SHA-256 input (optional)',
+      preimageSummary: 'Manual input string (older SHA-only records)', preimageLabel: 'SHA-256 input (optional)',
       preimageHint: 'Paste the disclosed input of this completed roll. Spaces and line breaks matter. Do not enter your account password.',
       checkPortal: 'Verify roll', explanationTitle: 'What this verifies',
       explanationPortal: 'Stream bytes are read left to right: values 252–255 are skipped and the first two accepted bytes become dice using (byte % 6) + 1. In the server scheme HMAC-SHA256 creates the stream from disclosed server seed, client seed and game context; the record’s SHA-256 verifies its integrity. This requires the roll JSON, not just its hash.',
@@ -92,7 +96,11 @@
       systemCalculationOnly: 'HMAC-SHA256 calculation matches', systemDiceVerified: 'The dice match the HMAC-SHA256 calculation.',
       systemShared: 'Players and bots use the same server cryptographic protocol. Game strategy is not used to calculate dice.',
       systemLimits: 'Randomness is created by the server operating system CSPRNG. Verification confirms the signature, commitment and calculation; it is not independent proof of entropy or commitment publication timing.',
-      systemProofRequired: 'For this server scheme, paste the completed roll JSON from its details. SHA-256 alone does not contain the HMAC stream needed to calculate dice.',
+      systemProofRequired: 'This older link contains only the hash and dice. Return to the roll in “Game history” and select “Full verification” or “Verify”. For an independent manual check, paste JSON from “Copy JSON” into the open field below: SHA-256 alone does not contain this protocol’s calculation.',
+      receiving: 'Receiving roll data…', transferReady: 'Complete roll data received. Checking the signature and calculation.',
+      transferUnavailable: 'The roll data was not received: the game tab may have closed or the transfer expired. Return to the roll in “Game history” and select “Full verification” or “Verify”. You can also select “Copy JSON” and paste the record into the open manual verification field below.',
+      transferMismatch: 'The received data does not match the hash and dice in this link. Return to the correct roll and select “Full verification” or “Verify”.',
+      signedProofRequired: 'A signed roll needs the complete JSON. Return to the roll and select “Full verification” or “Verify”, or paste the record from “Copy JSON” into the open field below.',
       systemCommitment: 'Signed SHA-256 commitment', systemServerSeed: 'Disclosed server seed', systemClientSeed: 'Client seed', systemStream: 'HMAC-SHA256 stream',
       sourceOnly: 'The drand signature is verified', sourceUnknown: 'The source signature is unverified',
       receiptUnknown: 'The roll reservation has not been verified with the configured server key.',
@@ -118,10 +126,24 @@
   let language = document.documentElement.lang === 'en' ? 'en' : 'ru';
   let noticeKey = '';
   let importedProtocol = '';
+  let importedContext;
+  let transferBlocked = false;
+  let transferController;
   const forms = [];
   const get = id => document.getElementById(id);
   const translate = key => text[language][key] || key;
   const hashPattern = /^[0-9a-f]{64}$/i;
+  const signedProtocols = ['system-csprng-v1', 'drand', 'drand-quicknet-v1'];
+
+  function cancelTransfer() {
+    if (transferController) transferController.abort();
+    transferController = undefined;
+  }
+
+  function revealManualProof() {
+    get('portal-proof-manual').open = true;
+    get('portal-proof').focus();
+  }
 
   function element(tag, className, value) {
     const node = document.createElement(tag);
@@ -278,7 +300,10 @@
 
   function argumentsFor() {
     const proof = readText('portal-proof', 16384, false);
-    if (importedProtocol === 'system-csprng-v1' && proof.trim() === '') throw fieldError(get('portal-proof'), 'systemProofRequired');
+    if (proof.trim() === '' && (transferBlocked || signedProtocols.includes(importedProtocol))) {
+      revealManualProof();
+      throw fieldError(get('portal-proof'), transferBlocked ? 'transferUnavailable' : importedProtocol === 'system-csprng-v1' ? 'systemProofRequired' : 'signedProofRequired');
+    }
     const options = { hash: readHash('portal-hash', proof.trim() === ''), expectedDice: readDice('portal') };
     const preimage = readText('portal-preimage', 4096, false);
     if (preimage !== '') options.preimage = preimage;
@@ -288,14 +313,15 @@
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
         options.proof = parsed;
       } catch { throw fieldError(get('portal-proof'), 'badProof'); }
+      if (importedContext) options.context = importedContext;
     }
     return options;
   }
 
   function updateButton(state) {
-    state.button.disabled = state.busy || !state.available;
-    state.button.textContent = translate(state.busy ? 'busy' : state.buttonKey);
-    state.form.setAttribute('aria-busy', state.busy ? 'true' : 'false');
+    state.button.disabled = state.busy || state.receiving || !state.available;
+    state.button.textContent = translate(state.receiving ? 'receiving' : state.busy ? 'busy' : state.buttonKey);
+    state.form.setAttribute('aria-busy', state.busy || state.receiving ? 'true' : 'false');
   }
 
   function renderError(state, error) {
@@ -316,16 +342,21 @@
     forms.push(state);
     updateButton(state);
     state.form.addEventListener('input', () => {
+      cancelTransfer();
+      state.receiving = false;
+      importedContext = undefined;
       state.revision += 1;
       state.result = null;
       state.error = null;
       state.lastInput = '';
       state.form.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
       if (state.out.childNodes.length) state.out.replaceChildren(resultCard('incomplete', translate('changed')));
+      if (noticeKey === 'receiving' || noticeKey === 'transferReady') showNotice('changed');
+      updateButton(state);
     });
     state.form.addEventListener('submit', async event => {
       event.preventDefault();
-      if (!state.available || state.busy) return;
+      if (!state.available || state.busy || state.receiving) return;
       const epoch = ++state.epoch;
       const revision = state.revision;
       state.result = null;
@@ -347,7 +378,10 @@
         if (epoch !== state.epoch || revision !== state.revision) return;
         state.error = error;
         renderError(state, error);
-        if (error.verifyField) error.verifyField.focus();
+        if (error.verifyField) {
+          if (error.verifyField === get('portal-proof')) revealManualProof();
+          else error.verifyField.focus();
+        }
       } finally {
         if (epoch === state.epoch) { state.busy = false; updateButton(state); }
       }
@@ -371,14 +405,18 @@
     showNotice(noticeKey);
   }
 
-  function importPublicFragment() {
+  async function importPublicFragment() {
+    cancelTransfer();
     importedProtocol = '';
+    importedContext = undefined;
+    transferBlocked = false;
     if (window.location.search) showNotice('queryIgnored');
     const fragment = window.location.hash.slice(1);
     const state = forms[0];
     state.epoch += 1;
     state.revision += 1;
     state.busy = false;
+    state.receiving = false;
     state.result = null;
     state.error = null;
     state.lastInput = '';
@@ -390,27 +428,91 @@
     });
     updateButton(state);
     if (!fragment) { showNotice(window.location.search ? 'queryIgnored' : ''); return; }
-    if (fragment.length > 256) { showNotice('importInvalid'); return; }
+    if (fragment.length > 384) { showNotice('importInvalid'); return; }
     let params;
     try { params = new URLSearchParams(fragment); } catch (_) { showNotice('importInvalid'); return; }
     const keys = Array.from(params.keys());
-    if (keys.some(key => !['hash', 'dice', 'color', 'protocol'].includes(key)) || new Set(keys).size !== keys.length || !hashPattern.test(params.get('hash') || '')) { showNotice('importInvalid'); return; }
+    if (keys.some(key => !['hash', 'dice', 'color', 'protocol', 'transfer'].includes(key)) || new Set(keys).size !== keys.length || !hashPattern.test(params.get('hash') || '')) { showNotice('importInvalid'); return; }
     const dice = params.get('dice');
     const color = params.get('color');
     const protocol = params.get('protocol');
+    const token = params.get('transfer');
     if ((dice !== null && !/^[1-6][,:][1-6]$/.test(dice)) || (color !== null && !['white', 'dark'].includes(color))
-      || (protocol !== null && protocol !== 'system-csprng-v1')) { showNotice('importInvalid'); return; }
+      || (protocol !== null && !signedProtocols.includes(protocol))
+      || (token !== null && (!/^[a-f0-9]{48}$/.test(token) || dice === null))) { showNotice('importInvalid'); return; }
     importedProtocol = protocol || '';
     get('portal-hash').value = params.get('hash');
     if (dice !== null) {
       const values = dice.split(/[,:]/);
       get('portal-die-one').value = values[0];
       get('portal-die-two').value = values[1];
-      showNotice(window.location.search ? 'queryIgnored' : importedProtocol ? 'systemProofRequired' : 'importReady');
+      if (token !== null) {
+        transferBlocked = true;
+        state.receiving = true;
+        updateButton(state);
+        showNotice('receiving');
+        const epoch = state.epoch;
+        const revision = state.revision;
+        const initialFields = ['portal-hash', 'portal-die-one', 'portal-die-two', 'portal-preimage', 'portal-proof'].map(id => get(id).value);
+        const unchanged = () => epoch === state.epoch && revision === state.revision && window.location.hash.slice(1) === fragment
+          && initialFields.every((value, index) => value === get(['portal-hash', 'portal-die-one', 'portal-die-two', 'portal-preimage', 'portal-proof'][index]).value);
+        let controller;
+        try {
+          if (typeof window.NarduRollProofTransfer?.receive !== 'function') throw new Error('transfer unavailable');
+          controller = typeof window.AbortController === 'function' ? new window.AbortController() : undefined;
+          transferController = controller;
+          const payload = await window.NarduRollProofTransfer.receive(token, controller ? { signal: controller.signal } : {});
+          if (!unchanged()) return;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('missing transfer payload');
+          if (typeof payload.hash !== 'string' || payload.hash.toLowerCase() !== params.get('hash').toLowerCase()
+            || !Array.isArray(payload.expectedDice) || payload.expectedDice.length !== 2
+            || !payload.expectedDice.every((value, index) => Number.isInteger(value) && value === Number(values[index]))) {
+            showNotice('transferMismatch');
+            revealManualProof();
+            return;
+          }
+          const proof = payload.proof;
+          const proofText = proof === undefined ? '' : JSON.stringify(proof);
+          if (proof !== undefined && (!proof || typeof proof !== 'object' || Array.isArray(proof) || proofText.length > 16384)
+            || payload.preimage !== undefined && (typeof payload.preimage !== 'string' || payload.preimage.length > 4096)
+            || payload.context !== undefined && (!payload.context || typeof payload.context !== 'object' || Array.isArray(payload.context))
+            || importedProtocol && proof?.protocol !== importedProtocol
+            || signedProtocols.includes(importedProtocol) && proof === undefined) throw new Error('invalid transfer payload');
+          // The channel is transport, not a trust root. Crypto verification still
+          // uses the configured portal key and the history's expected context.
+          get('portal-proof').value = proofText;
+          get('portal-preimage').value = payload.preimage || '';
+          importedContext = payload.context === undefined ? undefined : JSON.parse(JSON.stringify(payload.context));
+          transferBlocked = false;
+          state.receiving = false;
+          updateButton(state);
+          showNotice('transferReady');
+          if (state.available) {
+            if (typeof state.form.requestSubmit === 'function') state.form.requestSubmit();
+            else state.form.dispatchEvent(new Event('submit', { cancelable: true }));
+          }
+        } catch (_) {
+          if (!unchanged()) return;
+          showNotice('transferUnavailable');
+          revealManualProof();
+        } finally {
+          if (epoch === state.epoch && revision === state.revision) {
+            state.receiving = false;
+            updateButton(state);
+          }
+          if (transferController === controller) transferController = undefined;
+        }
+        return;
+      }
+      showNotice(window.location.search ? 'queryIgnored' : importedProtocol === 'system-csprng-v1' ? 'systemProofRequired' : importedProtocol ? 'signedProofRequired' : 'importReady');
+      if (importedProtocol) revealManualProof();
       if (forms[0].available && !importedProtocol) {
         if (typeof forms[0].form.requestSubmit === 'function') forms[0].form.requestSubmit();
         else forms[0].form.dispatchEvent(new Event('submit', { cancelable: true }));
       }
+    } else if (importedProtocol) {
+      showNotice(importedProtocol === 'system-csprng-v1' ? 'systemProofRequired' : 'signedProofRequired');
+      revealManualProof();
     } else showNotice(window.location.search ? 'queryIgnored' : 'importHashReady');
   }
 

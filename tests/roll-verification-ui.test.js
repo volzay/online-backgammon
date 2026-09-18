@@ -51,13 +51,14 @@ class InlineElement {
     if (selector === '[data-copy-roll-input], [data-copy-roll-proof]') {
       return this.hasAttribute('data-copy-roll-input') || this.hasAttribute('data-copy-roll-proof') ? this : null;
     }
+    if (selector === '[data-open-roll-verifier]') return this.hasAttribute('data-open-roll-verifier') ? this : null;
     if (selector === '[data-verify-roll], [data-verify-game]') return this;
     if (selector === '[data-verifier-context]' || selector === '.fair-hash, .history-proof') return this.parent;
     return null;
   }
 }
 
-function createInlineUI({ api = verifier, lang = 'ru', loadCore = false, fairApi = fairDice, env, clipboard } = {}) {
+function createInlineUI({ api = verifier, lang = 'ru', loadCore = false, fairApi = fairDice, env, clipboard, transfer, open } = {}) {
   const handlers = new Map();
   const pending = [];
   const calls = [];
@@ -78,6 +79,10 @@ function createInlineUI({ api = verifier, lang = 'ru', loadCore = false, fairApi
     navigator: { clipboard },
     crypto: webcrypto,
     TextEncoder,
+    URL,
+    location: new URL('https://volzay.github.io/online-backgammon/room.html'),
+    NarduRollProofTransfer: transfer,
+    open,
     localStorage: forbiddenStorage,
     sessionStorage: forbiddenStorage,
     fetch: () => { networkCalls += 1; throw new Error('inline checking must not make API requests'); },
@@ -452,7 +457,7 @@ test('signed controls escape the complete source JSON and room context and keep 
   assert.ok(markup.includes(proof.beacon.signature));
   assert.ok(markup.includes(proof.chainHash));
   assert.match(markup, /Исходная строка SHA-256 \(целиком\)|JSON-доказательство броска/);
-  const href = markup.match(/href="([^"]+)"/)[1].replace(/&amp;/g, '&');
+  const href = markup.match(/data-verifier-url="([^"]+)"/)[1].replace(/&amp;/g, '&');
   assert.match(href, /^verify-game\.html#hash=[0-9a-f]{64}&dice=/);
   for (const value of [proof.sha256Input, proof.request.id, proof.receiptSignature, proof.beacon.signature, proof.chainHash, 'proof', 'seed', 'password', 'token']) {
     assert.ok(!href.includes(value), `${value} must not enter the public verification URL`);
@@ -571,6 +576,81 @@ test('copying complete inline source input or proof JSON is explicit and local, 
   await ui.finish();
   assert.equal(writes.length, 2);
   assert.equal(ui.calls.length, 0);
+  ui.assertLocal();
+});
+
+function fullVerificationControl(item) {
+  const control = rollControl(item);
+  const full = new InlineElement();
+  full.setAttribute('data-open-roll-verifier', '');
+  full.dataset.verifierUrl = verifier.verificationUrl(item);
+  full.parent = control.parent;
+  control.parent.querySelector = selector => selector === '[data-verify-roll]' ? control.button
+    : selector === '[data-roll-result]' ? control.output : null;
+  return { ...control, full };
+}
+
+test('signed full-check action transfers only the selected complete roll and removes opener before loading the verifier', async () => {
+  const proof = signedProof();
+  const transferred = [];
+  const navigated = [];
+  const tab = { opener: 'source-page', location: { replace(url) { assert.equal(tab.opener, null); navigated.push(url); } } };
+  const token = 'ab'.repeat(24);
+  const ui = createInlineUI({ transfer: { publish(value) { transferred.push(plain(value)); return { token, close() {} }; } },
+    open(url, target) { assert.equal(url, 'about:blank'); assert.equal(target, '_blank'); return tab; } });
+  const control = fullVerificationControl(signedHistory(proof));
+  await ui.click(control.full);
+  assert.equal(ui.calls.length, 0, 'the verifier tab performs verification, not the source page');
+  assert.equal(transferred.length, 1);
+  assert.deepEqual(transferred[0], { hash: proof.sha256, expectedDice: proof.dice.join(','), preimage: proof.sha256Input,
+    proof: JSON.stringify(proof), context: { roomCode: 'ABCD-EFGH', variant: 'long', label: 'opening', color: 'none' } });
+  const url = new URL(navigated[0]);
+  assert.equal(url.origin, 'https://volzay.github.io');
+  assert.equal(url.pathname, '/online-backgammon/verify-game.html');
+  assert.equal(new URLSearchParams(url.hash.slice(1)).get('transfer'), token);
+  assert.equal(new URLSearchParams(url.hash.slice(1)).get('protocol'), fairDice.PROTOCOL);
+  assert.equal(url.href.includes(proof.sha256Input), false);
+  assert.equal(url.search, '');
+  ui.assertLocal();
+});
+
+test('blocked tabs, missing channels and navigation errors check the same signed roll inline without opening an incomplete page', async () => {
+  const proof = signedProof();
+  for (const reason of ['popup', 'channel', 'navigation', 'destination']) {
+    let released = 0;
+    let closed = 0;
+    let opened = 0;
+    const ui = createInlineUI({ loadCore: true, env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY },
+      transfer: reason === 'channel' ? undefined : { publish() { return { token: 'ab'.repeat(24), close() { released += 1; } }; } },
+      open() { opened += 1; return reason === 'popup' ? null : { opener: 'source', location: { replace() { throw new Error('Navigation blocked'); } }, close() { closed += 1; } }; } });
+    const control = fullVerificationControl(signedHistory(proof));
+    if (reason === 'destination') control.full.dataset.verifierUrl = 'https://untrusted.example/verify-game.html#hash=' + proof.sha256;
+    await ui.click(control.full);
+    assert.equal(control.output.dataset.status, 'verified', reason);
+    assert.equal(ui.calls[0].method, 'verifyFairRoll');
+    assert.equal(ui.calls[0].input.proof, JSON.stringify(proof));
+    assert.equal(opened, ['channel', 'destination'].includes(reason) ? 0 : 1);
+    assert.equal(released, ['channel', 'destination'].includes(reason) ? 0 : 1);
+    assert.equal(closed, reason === 'navigation' ? 1 : 0);
+    ui.assertLocal();
+  }
+});
+
+test('full-check ignores stale or busy controls and visible JSON copying is outside both disclosure sections', async () => {
+  const ui = createInlineUI({ transfer: { publish() { throw new Error('Must not publish'); } }, open() { throw new Error('Must not open'); } });
+  const item = signedHistory(signedProof());
+  const control = fullVerificationControl(item);
+  control.full.isConnected = false;
+  await ui.click(control.full);
+  control.full.isConnected = true;
+  control.button.disabled = true;
+  await ui.click(control.full);
+  assert.equal(ui.calls.length, 0);
+  const markup = ui.api.rollControls(item);
+  assert.match(markup, />Полная проверка<.*>Скопировать JSON</);
+  assert.ok(markup.indexOf('data-copy-roll-proof') < markup.indexOf('<details'));
+  assert.doesNotMatch(markup, /<a[^>]*target="_blank"/);
+  assert.equal((markup.match(/data-copy-roll-proof/g) || []).length, 1);
   ui.assertLocal();
 });
 

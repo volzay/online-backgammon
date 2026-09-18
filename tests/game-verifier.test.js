@@ -447,6 +447,16 @@ test('verification links omit unknown colors rather than allowing HTML or arbitr
   assert.deepEqual([...new URLSearchParams(link.split('#')[1]).keys()], ['hash', 'dice']);
 });
 
+test('verification links identify every supported signed protocol without exposing its proof', () => {
+  for (const protocol of ['system-csprng-v1', 'drand', 'drand-quicknet-v1']) {
+    const item = { sha256: hashBytes([1, 3]), roll: '2:4', fairDiceProof: { protocol, serverSeed: 'private' } };
+    const params = new URLSearchParams(verifier.verificationUrl(item).split('#')[1]);
+    assert.equal(params.get('protocol'), protocol);
+    assert.deepEqual([...params.keys()], ['hash', 'dice', 'protocol']);
+    assert.equal(verifier.verificationUrl(item).includes('private'), false);
+  }
+});
+
 test('malformed history records never produce a verification link', () => {
   for (const item of [undefined, null, 0, false, 'roll', [], {},
     { sha256: 'bad', roll: '2:4' },

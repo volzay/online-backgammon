@@ -6,6 +6,7 @@
   text-decoration: none; cursor: pointer; min-height: 32px;
 }
 .roll-verify-controls button:disabled { cursor: wait; opacity: .6; }
+.roll-verify-controls [data-open-roll-verifier], .roll-verify-controls [data-copy-roll-proof] { min-height: 40px; }
 .roll-verify-controls button:focus-visible, .roll-verify-controls a:focus-visible,
 .roll-verify-actions a:focus-visible { outline: 2px solid var(--gold, #e2a74a); outline-offset: 3px; }
 .roll-verify-status, .fair-hash .roll-verify-status {

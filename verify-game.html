@@ -10,6 +10,7 @@
   <script src="runtime-config.js" defer></script>
   <script src="fair-dice-crypto.js" defer></script>
   <script src="fair-dice.js" defer></script>
+  <script src="roll-proof-transfer.js" defer></script>
   <script src="game-verifier.js" defer></script>
   <script src="verify-game-ui.js" defer></script>
 </head>
@@ -44,12 +45,12 @@
           <span class="verify-protocol">CSPRNG · HMAC / drand</span>
           <h2 id="portal-title" data-verify-i18n="portalTitle">Бросок на этом портале</h2>
         </div>
-        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить». На этой странице для серверного протокола CSPRNG + HMAC вставьте JSON завершённого броска из его подробностей. Прежние записи drand проверяются по их JSON, старые SHA-записи — по хешу и обеим костям.</p>
+        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска нажмите «Полная проверка»: данные завершённого броска передаются сюда автоматически между вкладками этого портала, без помещения JSON в адрес страницы. Для сохранённого файла или старой ссылки используйте ручной ввод ниже.</p>
         <form id="verify-portal-form" autocomplete="off" novalidate>
-          <details class="verify-preimage">
-            <summary data-verify-i18n="proofSummary">Есть JSON-доказательство броска?</summary>
+          <details id="portal-proof-manual" class="verify-preimage">
+            <summary data-verify-i18n="proofSummary">Ручной ввод JSON (для файла или старой ссылки)</summary>
             <div class="verify-field">
-              <label for="portal-proof" data-verify-i18n="proofLabel">JSON-доказательство (необязательно)</label>
+              <label for="portal-proof" data-verify-i18n="proofLabel">JSON-доказательство (необязательно при автоматическом открытии)</label>
               <textarea id="portal-proof" class="verify-mono" maxlength="16384" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-proof-hint"></textarea>
               <span id="portal-proof-hint" class="verify-hint" data-verify-i18n="proofHint">Вставьте запись завершённого броска из его подробностей. Программа проверит подпись сервера и расчёт по протоколу записи: серверный CSPRNG + HMAC либо drand. Ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.</span>
             </div>
@@ -70,7 +71,7 @@
             </div>
           </div>
           <details class="verify-preimage">
-            <summary data-verify-i18n="preimageSummary">Есть раскрытое исходное значение для этого броска?</summary>
+            <summary data-verify-i18n="preimageSummary">Ручной ввод исходной строки (старые SHA-записи)</summary>
             <div class="verify-field">
               <label for="portal-preimage" data-verify-i18n="preimageLabel">Исходное значение SHA-256 (необязательно)</label>
               <textarea id="portal-preimage" class="verify-mono" maxlength="4096" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-preimage-hint"></textarea>

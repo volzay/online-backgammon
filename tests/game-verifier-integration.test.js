@@ -59,7 +59,7 @@ class LocalNode {
   }
 }
 
-function createLocalUI({ hash = '', search = '', api = verifier, clipboard, loadCore = false, fairApi = fairDice, env } = {}) {
+function createLocalUI({ hash = '', search = '', api = verifier, clipboard, loadCore = false, fairApi = fairDice, env, transfer } = {}) {
   const html = read('verify-game.html');
   const nodes = new Map();
   const pending = [];
@@ -110,7 +110,9 @@ function createLocalUI({ hash = '', search = '', api = verifier, clipboard, load
     location: { search, hash },
     NarduVerify: api,
     NarduFairDice: fairApi,
+    NarduRollProofTransfer: transfer,
     NARDU_ENV: env,
+    AbortController,
     crypto: webcrypto,
     TextEncoder,
     navigator: { clipboard },
@@ -123,6 +125,7 @@ function createLocalUI({ hash = '', search = '', api = verifier, clipboard, load
   if (loadCore) vm.runInContext(read('game-verifier.js'), context, { filename: 'game-verifier.js' });
   vm.runInContext(read('verify-game-ui.js'), context, { filename: 'verify-game-ui.js' });
   return {
+    context,
     nodes,
     document,
     languageButtons,
@@ -130,9 +133,15 @@ function createLocalUI({ hash = '', search = '', api = verifier, clipboard, load
     async changeFragment(next) {
       context.location.hash = next;
       await windowEvents.trigger('hashchange');
-      await Promise.all(pending.splice(0));
+      await this.flush();
     },
-    async flush() { await Promise.all(pending.splice(0)); },
+    async flush() {
+      // The automatic channel import yields before queueing form submission.
+      for (let index = 0; index < 8; index += 1) {
+        await Promise.resolve();
+        await Promise.all(pending.splice(0));
+      }
+    },
     assertLocal() { assert.equal(networkCalls, 0); assert.equal(storageCalls, 0); },
   };
 }
@@ -177,6 +186,173 @@ test('a public fragment imports only hash/dice and labels legacy consistency wit
   assert.match(portalResult(ui).textContent, /независимая подпись источника.*отсутствует/);
   assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена|Доказательство неполное/);
   assert.equal(ui.nodes.get('portal-proof').value, '');
+  ui.assertLocal();
+});
+
+const TRANSFER_TOKEN = 'ab'.repeat(24);
+function transferFragment(proof, token = TRANSFER_TOKEN) {
+  return `#hash=${proof.sha256}&dice=${proof.dice.join(',')}&protocol=${proof.protocol}&transfer=${token}`;
+}
+function transferredProof(proof) {
+  return { hash: proof.sha256, expectedDice: proof.dice, preimage: proof.sha256Input,
+    proof, context: { roomCode: proof.request.roomCode, gameId: proof.request.gameId,
+      variant: proof.request.variant, label: proof.request.label, color: proof.request.color,
+      positionHash: proof.request.positionHash, nonce: proof.request.nonce } };
+}
+
+test('full drand link automatically imports a complete proof and verifies with only the configured pin and expected history context', async () => {
+  const proof = completeFairProof();
+  const payload = transferredProof(proof);
+  const calls = [];
+  const received = [];
+  const ui = createLocalUI({ hash: transferFragment(proof), loadCore: true,
+    env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY },
+    transfer: { receive: async (token, options) => { received.push({ token, options }); return payload; } },
+    fairApi: { ...fairDice, verifyProof: (value, options) => { calls.push(options); return fairDice.verifyProof(value, options); } } });
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, true);
+  assert.match(ui.nodes.get('verify-page-notice').textContent, /Получаем данные броска/);
+  await ui.flush();
+  assert.equal(received.length, 1);
+  assert.equal(received[0].token, TRANSFER_TOKEN);
+  assert.ok(received[0].options.signal instanceof AbortSignal);
+  assert.equal(firstStatus(portalResult(ui)), 'verified');
+  assert.equal(ui.nodes.get('portal-proof').value, JSON.stringify(proof));
+  assert.equal(ui.nodes.get('portal-preimage').value, proof.sha256Input);
+  assert.deepEqual(plain(calls[0].context), payload.context);
+  assert.equal(calls[0].publicKey, FIXTURE_PUBLIC_KEY);
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
+  ui.assertLocal();
+});
+
+test('automatic proof transfer cannot adopt a receipt key from its payload without the configured portal pin', async () => {
+  const proof = { ...completeFairProof(), publicKey: FIXTURE_PUBLIC_KEY };
+  const ui = createLocalUI({ hash: transferFragment(proof), loadCore: true,
+    transfer: { receive: async () => ({ ...transferredProof(proof), publicKey: FIXTURE_PUBLIC_KEY }) } });
+  await ui.flush();
+  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
+  assert.match(portalResult(ui).textContent, /Ключ проверки серверной записи не настроен/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена/);
+  ui.assertLocal();
+});
+
+test('missing, expired or rejected transfers explain recovery and never interpret a signed hash using legacy dice mapping', async () => {
+  const proof = completeFairProof();
+  for (const transfer of [undefined, { receive: async () => undefined }, { receive: async () => { throw new Error('expired'); } }]) {
+    let legacyCalls = 0;
+    let signedCalls = 0;
+    const history = { sha256: proof.sha256, roll: proof.dice.join(':'), fairDiceProof: proof };
+    const actualFragment = verifier.verificationUrl(history).split('#')[1];
+    const ui = createLocalUI({ hash: `#${actualFragment}&transfer=${TRANSFER_TOKEN}`, transfer,
+      api: { verifyPortalRoll: () => { legacyCalls += 1; }, verifyFairRoll: () => { signedCalls += 1; } } });
+    await ui.flush();
+    assert.equal(portalResult(ui).childNodes.length, 0);
+    assert.match(ui.nodes.get('verify-page-notice').textContent, /Вернитесь к броску.*Полная проверка.*Проверить/);
+    assert.equal(ui.nodes.get('portal-proof-manual').open, true);
+    assert.equal(ui.nodes.get('portal-proof').focused, true);
+    assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
+    await ui.nodes.get('verify-portal-form').trigger('submit');
+    assert.equal(legacyCalls, 0);
+    assert.equal(signedCalls, 0);
+    ui.assertLocal();
+  }
+});
+
+test('malformed or mismatched transfer anchors and proof protocol never fill private inputs or auto-submit', async () => {
+  const proof = completeFairProof();
+  for (const mutate of [
+    payload => { payload.hash = '00'.repeat(32); },
+    payload => { payload.expectedDice.reverse(); },
+    payload => { payload.expectedDice = payload.expectedDice.map(String); },
+    payload => { payload.proof.protocol = 'system-csprng-v1'; },
+    payload => { delete payload.proof; },
+    payload => { payload.preimage = 'x'.repeat(4097); },
+    payload => { payload.context = []; },
+  ]) {
+    let calls = 0;
+    const payload = plain(transferredProof(proof));
+    mutate(payload);
+    const ui = createLocalUI({ hash: transferFragment(proof), transfer: { receive: async () => payload },
+      api: { verifyPortalRoll: () => { calls += 1; }, verifyFairRoll: () => { calls += 1; } } });
+    await ui.flush();
+    assert.equal(calls, 0);
+    assert.equal(ui.nodes.get('portal-preimage').value, '');
+    assert.equal(ui.nodes.get('portal-proof').value, '');
+    assert.match(ui.nodes.get('verify-page-notice').textContent, /не соответствуют|не получены/);
+    ui.assertLocal();
+  }
+});
+
+test('invalid transfer token, missing dice, duplicates and URL secrets are rejected before channel reception', async () => {
+  const proof = completeFairProof();
+  let calls = 0;
+  for (const fragment of [
+    transferFragment(proof, 'short'), transferFragment(proof, TRANSFER_TOKEN.toUpperCase()),
+    transferFragment(proof).replace(`dice=${proof.dice.join(',')}&`, ''),
+    `${transferFragment(proof)}&transfer=${TRANSFER_TOKEN}`,
+    `${transferFragment(proof)}&proof=%7B%7D`, `${transferFragment(proof)}&serverSeed=secret`,
+    `${transferFragment(proof)}&${'x'.repeat(385)}`,
+  ]) {
+    const ui = createLocalUI({ hash: fragment, transfer: { receive: async () => { calls += 1; } } });
+    await ui.flush();
+    assert.equal(ui.nodes.get('portal-hash').value, '');
+    assert.match(ui.nodes.get('verify-page-notice').textContent, /не прошли проверку/);
+    ui.assertLocal();
+  }
+  assert.equal(calls, 0);
+});
+
+test('editing any field cancels a pending import so late data cannot overwrite manual input or auto-verify', async () => {
+  const proof = completeFairProof();
+  let finish;
+  let signal;
+  let calls = 0;
+  const wait = new Promise(resolve => { finish = resolve; });
+  const ui = createLocalUI({ hash: transferFragment(proof),
+    transfer: { receive: (token, options) => { signal = options.signal; return wait; } },
+    api: { verifyPortalRoll: () => { calls += 1; }, verifyFairRoll: () => { calls += 1; } } });
+  ui.nodes.get('portal-proof').value = '{"manual":true}';
+  await ui.nodes.get('verify-portal-form').trigger('input');
+  assert.equal(signal.aborted, true);
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
+  finish(transferredProof(proof));
+  await ui.flush();
+  assert.equal(ui.nodes.get('portal-proof').value, '{"manual":true}');
+  assert.equal(ui.nodes.get('portal-preimage').value, '');
+  assert.equal(calls, 0);
+  ui.assertLocal();
+});
+
+test('a later hashchange import wins a race and cancels the previous transfer without restoring its private proof', async () => {
+  const proof = completeFairProof();
+  let finish;
+  let signal;
+  const wait = new Promise(resolve => { finish = resolve; });
+  const ui = createLocalUI({ hash: transferFragment(proof),
+    transfer: { receive: (token, options) => { signal = options.signal; return wait; } } });
+  const legacy = `0103${'ff'.repeat(30)}`;
+  await ui.changeFragment(`#hash=${legacy}&dice=2:4`);
+  assert.equal(signal.aborted, true);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  finish(transferredProof(proof));
+  await ui.flush();
+  assert.equal(ui.nodes.get('portal-hash').value, legacy);
+  assert.equal(ui.nodes.get('portal-proof').value, '');
+  assert.equal(ui.nodes.get('portal-preimage').value, '');
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  ui.assertLocal();
+});
+
+test('a transferred legacy disclosed input is checked automatically without being put in the URL', async () => {
+  const preimage = 'completed one-use roll|never-in-address';
+  const hash = sha256(preimage);
+  const expectedDice = verifier.diceFromHash(hash).dice;
+  const ui = createLocalUI({ hash: `#hash=${hash}&dice=${expectedDice.join(',')}&transfer=${TRANSFER_TOKEN}`,
+    transfer: { receive: async () => ({ hash, expectedDice, preimage }) } });
+  await ui.flush();
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.equal(ui.nodes.get('portal-preimage').value, preimage);
+  assert.match(portalResult(ui).textContent, /Раскрытое исходное значение соответствует SHA-256/);
+  assert.equal(ui.context.location.hash.includes(preimage), false);
   ui.assertLocal();
 });
 
@@ -582,7 +758,9 @@ test('embedded roll markup escapes disclosed input text and keeps its separate-p
   assert.ok(markup.includes('&quot;') && markup.includes('&lt;') && markup.includes('&amp;') && markup.includes('&#39;'));
   assert.ok(!markup.includes(secret));
   assert.doesNotMatch(markup, /<img|" onclick=/);
-  const href = markup.match(/href="([^"]+)"/)[1].replaceAll('&amp;', '&');
+  assert.match(markup, /data-open-roll-verifier/);
+  assert.match(markup, /Полная проверка/);
+  const href = markup.match(/data-verifier-url="([^"]+)"/)[1].replaceAll('&amp;', '&');
   assert.doesNotMatch(href, /(?:seed|preimage|password|token)=/i);
   assert.ok(!href.includes('PRIVATE') && !href.includes(encodeURIComponent(secret)));
   assert.equal(context.NarduVerifyUI.rollControls({ sha256: 'broken', roll: '2:4' }), '');

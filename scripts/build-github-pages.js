@@ -39,6 +39,7 @@ const STATIC_FILES = [
   "fair-dice.js",
   "fair-dice-crypto.js",
   "game-verifier.js",
+  "roll-proof-transfer.js",
   "verify-game-ui.js",
   "roll-verification-ui.js",
   "long-bot-engine.js",
