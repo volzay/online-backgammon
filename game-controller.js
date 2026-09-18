@@ -3657,15 +3657,19 @@ window.NarduController = (function () {
     return state?.analysis?.neuralDecisions?.find(item => item.id === activeNeuralDecisionId) || null;
   }
 
+  function neuralRuleState(source) {
+    return JSON.parse(JSON.stringify({
+      variant: source.variant, points: source.points, bar: source.bar, off: source.off,
+      phase: source.phase, turn: source.turn, winner: source.winner, dice: source.dice,
+      rolled: source.rolled, firstMoveDone: source.firstMoveDone,
+      headPlayedThisTurn: source.headPlayedThisTurn,
+      turnMoves: source.turnMoves,
+    }));
+  }
+
   function rememberNeuralDecision(planned, diagnostics) {
     state.analysis ||= {};
-    const before = JSON.parse(JSON.stringify({
-      variant: state.variant, points: state.points, bar: state.bar, off: state.off,
-      phase: state.phase, turn: state.turn, winner: state.winner, dice: state.dice,
-      rolled: state.rolled, firstMoveDone: state.firstMoveDone,
-      headPlayedThisTurn: state.headPlayedThisTurn,
-      turnMoves: state.turnMoves,
-    }));
+    const before = neuralRuleState(state);
     const rows = Array.isArray(state.analysis.neuralDecisions) ? state.analysis.neuralDecisions : [];
     activeNeuralDecisionId = `nn-${state.startedAt}-${++neuralDecisionSerial}-${Date.now()}`;
     rows.push({ schema: 'nardu-neural-decision-v1', id: activeNeuralDecisionId,
@@ -3780,7 +3784,9 @@ window.NarduController = (function () {
       const planned = NarduBot.plan(state, { difficulty: botDifficulty });
       if (!Array.isArray(planned)) throw new Error('Invalid neural plan');
       // Validate the complete maximum-use legal turn, including genuine passes.
-      const legal = NarduGame.bestMoveSequences(state, state.turn);
+      // Avoid cloning the complete proof/history/analytics archive for every
+      // validation branch, and do not normalize the live state while planning.
+      const legal = NarduGame.bestMoveSequences(neuralRuleState(state), state.turn);
       const key = moves => JSON.stringify(moves.map(({ from, die }) => ({ from, die })));
       if (!legal.some(moves => key(moves) === key(planned))) throw new Error('Illegal or incomplete neural plan');
       const decision = window.NarduNeuralBot.consumeLastDecision();

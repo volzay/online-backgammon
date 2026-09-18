@@ -137,6 +137,28 @@ test('safe neural plan archives exact selected moves and no old hard botMemory/X
   assert.equal(h.calls.experience, 0); assert.equal(h.calls.fallback, 0);
 });
 
+test('neural legality validation searches only a detached rule position, not growing proof or analytics history', () => {
+  const h = harness();
+  const state = h.setRolled();
+  state.history = [{ privateProofMarker: 'excluded' }];
+  state.analysis.largePrivateMarker = 'excluded';
+  const snapshot = plain(state);
+  const original = h.game.bestMoveSequences;
+  let checks = 0;
+  h.game.bestMoveSequences = (input, color) => {
+    assert.notEqual(input, state);
+    assert.equal(input.analysis, undefined);
+    assert.equal((input.history || []).length, 0);
+    checks += 1;
+    return original(input, color);
+  };
+  h.api.safeBotPlan();
+  assert.ok(checks >= 2);
+  assert.deepEqual(plain(state.points), snapshot.points);
+  assert.deepEqual(plain(state.history), snapshot.history);
+  assert.deepEqual(plain(state.dice), snapshot.dice);
+});
+
 test('multiple plans for one timestamp/position have unique neural decision ids', () => {
   const h = harness(); h.setRolled();
   for (let index = 0; index < 3; index += 1) h.api.safeBotPlan();
