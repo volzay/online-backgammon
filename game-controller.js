@@ -638,13 +638,13 @@ window.NarduController = (function () {
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
     const storedBotConfig = readBotGameConfig(roomCode);
-    botDifficulty = resolveBotDifficulty(
+    botDifficulty = mode === 'bot' ? resolveBotDifficulty(
       opts.difficulty,
       url.searchParams.get('difficulty'),
       storedBotConfig?.difficulty,
       opponentName,
       opponentRating,
-    );
+    ) : 'easy';
     variant = normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
     playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
     viewColor = spectatorMode

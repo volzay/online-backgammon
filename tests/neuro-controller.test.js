@@ -112,6 +112,18 @@ test('authoritative ordinary room identity cannot be upgraded by stale neural UR
   assert.equal(h.api.status().opponentName, 'Бот сложный');
 });
 
+test('a human opponent name or query hint containing neural cannot change a remote game into a neural bot room', () => {
+  const h = harness();
+  h.controller.init({ mode: 'remote', roomCode: 'NEUR-TEST', variant: 'long',
+    difficulty: 'hard-neuro', opponent: 'Нейрохирург', opponentRating: 1500,
+    skipAutoStart: true, skipRemoteSync: true });
+  const state = h.controller.getState();
+  assert.equal(state.mode, 'remote');
+  assert.notEqual(state.botDifficulty, 'hard-neuro');
+  assert.equal(state.analysis?.neuralModel, undefined);
+  assert.equal(h.api.status().opponentName, 'Нейрохирург');
+});
+
 test('controller restore retains neural ledger/model and restores the correct head-rule state', () => {
   const h = harness(); const state = h.setRolled([3, 3, 3, 3]);
   h.api.safeBotPlan(); const saved = plain(state);
