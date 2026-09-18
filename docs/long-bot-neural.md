@@ -391,9 +391,17 @@ Production-бот не заменён; 65%-й сильный контроль и
 В отдельном paired-rollout cache закреплены два полных audited tuple (game SHA,
 bundle SHA и policy implementation ID): исходный и оптимизированный. Смешанные
 или неизвестные tuple не используют cache; namespaces двух версий различны.
-Сгенерированный обычный v35 bundle отличается только implementation ID,
-поскольку этот ID включает байты `game.js`. Фабрика `current-hard` допускает эти
-же два точных tuple и неизменный dispatcher, ресурсы и веса. Это разрешение
+Сгенерированный обычный v35 bundle сохраняет истинный source-derived
+`policyImplementationId`; он включает байты `game.js` и wrapper. Dispatcher,
+ресурсы и веса не меняются. Отдельный `learningPolicyImplementationId` разрешает
+уроки исходного `fcdc…` только через immutable metadata со схемой
+`long-v35-history-free-learning-compat-v1`. Сборщик проверяет точные SHA всех
+восьми source preimages, включая финальный wrapper; изменение одного байта
+убирает alias. Единый predicate принимает текущий actual ID либо этот audited
+alias в live RPC и восстановлении frozen session. Исходные pattern IDs,
+aggregate IDs, runtime digests и fingerprints не переписываются; новый frozen
+snapshot отдельно записывает actual ID и actual source fingerprints. Фабрика
+`current-hard` допускает два точных runtime tuple. Это разрешение
 совместимости не меняет исторических отчётов и не ослабляет правила provenance:
 trainer/evaluator по-прежнему отвергают resume или новую оценку исходного
 saved448 artifact на иных training rules bytes. Для нового benchmark требуется

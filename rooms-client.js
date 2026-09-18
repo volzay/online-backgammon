@@ -48,6 +48,24 @@
     return Boolean(match && Number(match[1]) >= 35);
   }
 
+  function acceptsLongBotLearningPolicyImplementationId(value) {
+    const engine = window.NarduLongBotEngine;
+    const current = String(engine?.policyImplementationId || '');
+    if (!/^[0-9a-f]{64}$/.test(current)) return false;
+    if (value === current) return true;
+    const compatibility = engine?.learningCompatibility;
+    return current === 'ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e'
+      && !!compatibility && Object.isFrozen(compatibility) && Object.isFrozen(compatibility.sourceFingerprints)
+      && compatibility.schema === 'long-v35-history-free-learning-compat-v1'
+      && compatibility.policyImplementationId === current
+      && compatibility.sourceFingerprints?.['game.js'] === 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623'
+      && compatibility.learningPolicyImplementationId === 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1'
+      && engine.learningPolicyImplementationId === compatibility.learningPolicyImplementationId
+      && value === compatibility.learningPolicyImplementationId
+      && typeof engine.acceptsLearningPolicyImplementationId === 'function'
+      && engine.acceptsLearningPolicyImplementationId(value) === true;
+  }
+
   function validatedLongBotExperience(patterns, { trustedRpc = false } = {}) {
     if (!Array.isArray(patterns)) return null;
     const causalOnly = longBotRequiresCausalExperience();
@@ -66,7 +84,7 @@
           && pattern.reviewerVersion === LONG_BOT_SERVER_CAUSAL_REVIEWER
           && pattern.trustDomain === LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN
           && /^[0-9a-f]{64}$/.test(String(window.NarduLongBotEngine?.policyImplementationId || ""))
-          && pattern.policyImplementationId === window.NarduLongBotEngine.policyImplementationId
+          && acceptsLongBotLearningPolicyImplementationId(pattern.policyImplementationId)
           && pattern.outcomeUsed === false
           && /^[0-9a-f]{64}$/.test(String(pattern.runtimeDigest || ""))
           && /^[0-9a-f]{64}$/.test(String(pattern.aggregateId || ""))

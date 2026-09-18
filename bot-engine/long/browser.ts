@@ -6,6 +6,22 @@ const ENGINE_VERSION = 'long-analytic-v35';
 // and production dispatch/weights. Raw unbuilt modules fail closed.
 const POLICY_IMPLEMENTATION_ID = typeof NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID === 'string'
   ? NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID : '';
+// Compatibility is emitted only for a complete exact reviewed source tuple.
+// The source-derived implementation ID and existing pattern provenance never
+// change; the alias merely permits audited lessons from the equivalent rules.
+const LEARNING_COMPATIBILITY = typeof NARDU_LONG_BOT_LEARNING_COMPATIBILITY === 'object'
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY !== null
+  && Object.isFrozen(NARDU_LONG_BOT_LEARNING_COMPATIBILITY)
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.schema === 'long-v35-history-free-learning-compat-v1'
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.policyImplementationId === POLICY_IMPLEMENTATION_ID
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.learningPolicyImplementationId === 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1'
+  ? NARDU_LONG_BOT_LEARNING_COMPATIBILITY : null;
+
+function acceptsLearningPolicyImplementationId(value) {
+  return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
+    && (value === POLICY_IMPLEMENTATION_ID
+      || !!LEARNING_COMPATIBILITY && value === LEARNING_COMPATIBILITY.learningPolicyImplementationId);
+}
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
   'narduh-long-bot-frozen-experience-v34:',
@@ -235,6 +251,9 @@ export function createBrowserLongBotEngine(game, options = {}) {
     productionOptions: Object.freeze({ ...PRODUCTION_RUNTIME_OPTIONS }),
     version: ENGINE_VERSION,
     policyImplementationId: POLICY_IMPLEMENTATION_ID,
+    learningPolicyImplementationId: LEARNING_COMPATIBILITY?.learningPolicyImplementationId || POLICY_IMPLEMENTATION_ID,
+    learningCompatibility: LEARNING_COMPATIBILITY,
+    acceptsLearningPolicyImplementationId,
   };
 
   function experienceSnapshot() {
@@ -309,6 +328,9 @@ export function createBrowserLongBotEngine(game, options = {}) {
       const trustedPatterns = serverCausalPatterns(patterns) ? patterns : [];
       experienceStorage.setItem(key, JSON.stringify({
         engineVersion: ENGINE_VERSION,
+        policyImplementationId: POLICY_IMPLEMENTATION_ID,
+        learningPolicyImplementationId: LEARNING_COMPATIBILITY?.learningPolicyImplementationId || POLICY_IMPLEMENTATION_ID,
+        runtimeSourceFingerprints: LEARNING_COMPATIBILITY?.sourceFingerprints || null,
         // Resume the same immutable server-fed policy, not a newer network
         // snapshot. This session cache is not evidence of server provenance:
         // the causal worker still rejects nonempty unsigned recursive memory.
@@ -331,7 +353,7 @@ function serverCausalPatterns(patterns) {
     && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
     && pattern?.reviewerVersion === 'long-server-causal-review-v1'
     && pattern?.trustDomain === 'nardu/server-long-bot-causal/v1'
-    && pattern?.policyImplementationId === POLICY_IMPLEMENTATION_ID
+    && acceptsLearningPolicyImplementationId(pattern?.policyImplementationId)
     && pattern?.outcomeUsed === false
     && /^[0-9a-f]{64}$/.test(String(pattern.runtimeDigest || ''))
     && /^[0-9a-f]{64}$/.test(String(pattern.aggregateId || ''))
