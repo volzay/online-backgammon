@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
+const { randomBytes } = require('node:crypto');
 const FairDice = require('../fair-dice.js');
 const { rules, positionOf, validateTransition } = require('../lib/fair-dice-rules.js');
 const { SupabaseFairDiceStore } = require('../lib/fair-dice-supabase-store.js');
@@ -74,7 +75,8 @@ function readFixtureFile(file) {
 }
 
 async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl = globalThis.fetch,
-  now = Date.now, pollIntervalMs = 750, timeoutMs = 90000, report = () => {} } = {}) {
+  now = Date.now, pollIntervalMs = 750, timeoutMs = 90000, report = () => {}, protocol = FairDice.PROTOCOL } = {}) {
+  check([FairDice.PROTOCOL, FairDice.SYSTEM_PROTOCOL].includes(protocol), 'CANARY_PROTOCOL_INVALID');
   const base = endpoint(serviceUrl, true);
   check(/^[0-9a-f]{64}$/.test(publicKey || '') && typeof readRoom === 'function' && typeof fetchImpl === 'function', 'CANARY_CONFIG_INVALID');
   check(Number.isSafeInteger(pollIntervalMs) && pollIntervalMs >= 1 && pollIntervalMs <= 5000
@@ -103,7 +105,8 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
 
   const health = await requireApi('health', null, null, 'GET');
   check(health.ok && health.publicKey === publicKey && health.protocol === FairDice.PROTOCOL
-    && health.chainHash === FairDice.CHAIN.hash, 'CANARY_PIN_MISMATCH');
+    && health.chainHash === FairDice.CHAIN.hash
+    && (protocol === FairDice.PROTOCOL || health.supportedProtocols?.includes(protocol)), 'CANARY_PIN_MISMATCH');
 
   for (const fixture of controlled) {
     const { code, headers, opponentHeaders, kind } = fixture;
@@ -168,18 +171,44 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
         check(checkpoint.deferred === true && checkpoint.version === room.version, 'CANARY_PENDING_CHECKPOINT_MUTATED');
       }
       let issued;
+      let clientSeed;
+      let preparedMs;
+      let verifiedMs;
+      if (protocol === FairDice.SYSTEM_PROTOCOL) {
+        check(receipt.request.commitment && receipt.request.round === undefined, 'CANARY_PROTOCOL_INVALID');
+        // Controlled test client only, after authentic receipt. Production
+        // human clients obtain this contribution from their browser CSPRNG.
+        clientSeed = reserves[0].clientSeed || randomBytes(32).toString('hex');
+        const ready = await requireApi('challenge', { code, requestId: receipt.request.id,
+          requestHash: receipt.requestHash, clientSeed }, actor);
+        issued = ready.proof;
+        preparedMs = now() - started;
+        await FairDice.verifyProof(issued, { publicKey, context: receipt.request, clientSeed });
+        verifiedMs = now() - started;
+        const same = await requireApi('challenge', { code, requestId: receipt.request.id,
+          requestHash: receipt.requestHash, clientSeed }, actor);
+        check(isDeepStrictEqual(same.proof, issued), 'CANARY_DUPLICATE_CHALLENGE');
+        const otherSeed = (clientSeed[0] === '0' ? '1' : '0') + clientSeed.slice(1);
+        await rejectedAttempt('replace-client-seed', 'challenge', { code, requestId: receipt.request.id,
+          requestHash: receipt.requestHash, clientSeed: otherSeed }, actor);
+      }
       while (now() - started < timeoutMs) {
+        if (issued) break;
         const result = await requireApi('result', { code, requestId: receipt.request.id }, actor);
         if (result.proof) { issued = result.proof; break; }
         await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
       }
       check(issued, 'CANARY_BEACON_TIMEOUT');
-      const verified = await FairDice.verifyProof(issued, { publicKey, context: receipt.request });
-      check(verified.sourceVerified && verified.reservationVerified, 'CANARY_PROOF_INVALID');
+      const verified = await FairDice.verifyProof(issued, { publicKey, context: receipt.request, ...(clientSeed ? { clientSeed } : {}) });
+      check((protocol === FairDice.SYSTEM_PROTOCOL ? verified.commitmentVerified : verified.sourceVerified)
+        && verified.reservationVerified && issued.protocol === protocol, 'CANARY_PROOF_INVALID');
       const entry = { event: 'verified', room: code, gameId: issued.request.gameId,
         requestId: issued.request.id, nonce: issued.request.nonce, round: issued.request.round,
         dice: issued.dice, sha256: issued.sha256, elapsedMs: now() - started,
-        sourceVerified: true, reservationVerified: true };
+        ...(protocol === FairDice.SYSTEM_PROTOCOL ? { preparedMs, verifiedMs, proof: issued,
+          timingScope: testPending ? 'includes-pending-negative-tests' : 'reserve-challenge-local-verification' } : {}),
+        protocol, sourceVerified: verified.sourceVerified === true, commitmentVerified: verified.commitmentVerified === true,
+        reservationVerified: true };
       reports.push(entry);
       report(entry);
       await refresh();
@@ -278,13 +307,14 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
 function parseArguments(argv) {
   const flags = {};
   for (let index = 0; index < argv.length; index += 2) {
-    check(['--url', '--public-key', '--fixture-file', '--publishable-key'].includes(argv[index]) && argv[index + 1]
+    check(['--url', '--public-key', '--fixture-file', '--publishable-key', '--protocol'].includes(argv[index]) && argv[index + 1]
       && !Object.hasOwn(flags, argv[index]), 'CANARY_ARGUMENTS_INVALID');
     flags[argv[index]] = argv[index + 1];
   }
   check(['--url', '--public-key', '--fixture-file'].every(name => Object.hasOwn(flags, name)), 'CANARY_ARGUMENTS_INVALID');
   check(!Object.hasOwn(flags, '--publishable-key')
     || /^sb_publishable_[A-Za-z0-9_-]{16,128}$/.test(flags['--publishable-key']), 'CANARY_PUBLISHABLE_KEY_INVALID');
+  check(!Object.hasOwn(flags, '--protocol') || [FairDice.PROTOCOL, FairDice.SYSTEM_PROTOCOL].includes(flags['--protocol']), 'CANARY_PROTOCOL_INVALID');
   return flags;
 }
 
@@ -296,7 +326,8 @@ async function main(argv = process.argv.slice(2)) {
     serviceRoleKey: 'unused-client-canary-do-not-authorize' });
   const report = result => process.stdout.write(JSON.stringify(result) + '\n');
   const result = await runCanary({ serviceUrl: flags['--url'], publicKey: flags['--public-key'], fixtures: config.fixtures,
-    readRoom: (code, headers) => store.getRoom(code, headers), report });
+    readRoom: (code, headers) => store.getRoom(code, headers), report,
+    protocol: flags['--protocol'] || FairDice.PROTOCOL });
   report({ ok: result.ok, rooms: result.fixtures.map(fixture => fixture.room), completed: result.fixtures.length });
 }
 

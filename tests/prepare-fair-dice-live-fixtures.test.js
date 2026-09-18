@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { readAnonKey, buildFixtures, prepareFixtures, safeError } = require('../ops/timeweb/prepare-fair-dice-live-fixtures.js');
+const { readAnonKey, buildFixtures, prepareFixtures, parseArguments, safeError } = require('../ops/timeweb/prepare-fair-dice-live-fixtures.js');
 const { rules, validateTransition } = require('../lib/fair-dice-rules.js');
 const { readFixtureFile } = require('../scripts/fair-dice-live-canary.js');
 
@@ -137,4 +137,91 @@ test('invalid backend URL cannot produce artifacts and error reporting cannot ec
   assert.equal(safeError({ code: SERVICE, message: ANON }), 'FIXTURE_PREPARATION_FAILED');
   assert.equal(safeError(new Error(SERVICE)), 'FIXTURE_PREPARATION_FAILED');
   assert.equal(safeError({ code: 'FIXTURE_ANON_KEY_INVALID' }), 'FIXTURE_ANON_KEY_INVALID');
+});
+
+test('system canary seeding preserves both current policy fields in one transaction without disabling protection', () => {
+  const { sql, specs } = buildFixtures({ anonKey: ANON, backend: BACKEND,
+    protocol: 'system-csprng-v1', preservePolicy: true });
+  assert.equal((sql.match(/^BEGIN;$/gm) || []).length, 1);
+  assert.equal((sql.match(/^COMMIT;$/gm) || []).length, 1);
+  assert.equal((sql.match(/INSERT INTO public\.rooms/g) || []).length, 4);
+  assert.equal((sql.match(/nardu-fair-dice-v37/g) || []).length, 5);
+  assert.doesNotMatch(sql, /nardu-fair-dice-v36|Canary36/);
+  assert.match(sql, /jsonb_build_object\('enabled',enabled,'protocol',protocol\) INTO previous_policy FROM private\.fair_dice_settings WHERE singleton FOR UPDATE/);
+  assert.match(sql, /set_config\('nardu\.fixture_previous_policy',previous_policy::text,true\)/);
+  assert.match(sql, /current_setting\('nardu\.fixture_previous_policy'\)::jsonb/);
+  const target = sql.indexOf("configure_fair_dice_protocol('system-csprng-v1')");
+  const enabled = sql.indexOf('configure_fair_dice_policy(true)');
+  const firstInsert = sql.indexOf('INSERT INTO public.rooms');
+  const lastInsert = sql.lastIndexOf('INSERT INTO public.rooms');
+  const restoredProtocol = sql.indexOf("configure_fair_dice_protocol(previous_policy->>'protocol')");
+  const restoredEnabled = sql.indexOf("configure_fair_dice_policy((previous_policy->>'enabled')::boolean)");
+  assert.ok(target < enabled && enabled < firstInsert && lastInsert < restoredProtocol
+    && restoredProtocol < restoredEnabled && restoredEnabled < sql.indexOf('COMMIT;'));
+  assert.match(sql, /IS DISTINCT FROM previous_policy THEN RAISE EXCEPTION 'Original fair-dice policy restoration failed/);
+  assert.match(sql, /fair_dice_required AND fair_dice_protocol='system-csprng-v1' AND status='joined'/);
+  assert.doesNotMatch(sql, /configure_fair_dice_policy\(false\)|policy OFF|Policy OFF|UPDATE private\.fair_dice_settings|DELETE FROM|TRUNCATE|auth\.users|public\.profiles/i);
+  assert.equal(sql.includes(ANON), false);
+  assert.equal(sql.includes(SERVICE), false);
+  for (const spec of specs) assert.ok(sql.includes('Canary37 '));
+});
+
+test('explicit drand preservation also snapshots defaults rather than requiring policy OFF', () => {
+  const { sql } = buildFixtures({ anonKey: ANON, backend: BACKEND,
+    protocol: 'drand-quicknet-v1', preservePolicy: true });
+  assert.match(sql, /configure_fair_dice_protocol\('drand-quicknet-v1'\)/);
+  assert.match(sql, /fair_dice_protocol='drand-quicknet-v1'/);
+  assert.equal((sql.match(/nardu-fair-dice-v36/g) || []).length, 5);
+  assert.doesNotMatch(sql, /configure_fair_dice_policy\(false\)/);
+});
+
+test('system private artifact files keep the existing live-reader schema and omit service credentials from safe results', t => {
+  const files = sandbox(t);
+  const result = prepareFixtures({ ...files, backend: BACKEND,
+    protocol: 'system-csprng-v1', preservePolicy: true });
+  const fixture = readFixtureFile(result.fixtureFile);
+  assert.equal(fixture.fixtures.length, 4);
+  assert.equal(fixture.backendUrl, BACKEND);
+  assert.equal(fs.statSync(files.outputDir).mode & 0o777, 0o700);
+  for (const file of [result.fixtureFile, result.seedFile]) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  const sql = fs.readFileSync(result.seedFile, 'utf8');
+  assert.match(sql, /configure_fair_dice_protocol\('system-csprng-v1'\)/);
+  assert.equal(JSON.stringify(result).includes('gproof:'), false);
+  assert.equal(JSON.stringify(result).includes(ANON), false);
+  assert.equal(JSON.stringify(result).includes(SERVICE), false);
+});
+
+test('old CLI arguments retain their drand/OFF preparation defaults while the new mode is explicit', () => {
+  const argv = ['--env-file', '/private.env', '--output-dir', '/private-fixtures', '--backend-url', BACKEND];
+  assert.deepEqual(parseArguments(argv), { envFile: '/private.env', outputDir: '/private-fixtures',
+    backend: BACKEND, protocol: 'drand-quicknet-v1', preservePolicy: false });
+  assert.deepEqual(parseArguments([...argv, '--protocol', 'system-csprng-v1', '--preserve-policy']), {
+    envFile: '/private.env', outputDir: '/private-fixtures', backend: BACKEND,
+    protocol: 'system-csprng-v1', preservePolicy: true });
+  assert.equal(parseArguments(['--preserve-policy', ...argv, '--protocol', 'system-csprng-v1']).preservePolicy, true);
+});
+
+for (const [name, extra, code] of [
+  ['system without policy preservation', ['--protocol', 'system-csprng-v1'], 'FIXTURE_POLICY_MODE_INVALID'],
+  ['unknown source', ['--protocol', 'browser-random'], 'FIXTURE_PROTOCOL_INVALID'],
+  ['duplicate preservation flag', ['--preserve-policy', '--preserve-policy'], 'FIXTURE_ARGUMENTS_INVALID'],
+  ['duplicate protocol flag', ['--protocol', 'drand-quicknet-v1', '--protocol', 'drand-quicknet-v1'], 'FIXTURE_ARGUMENTS_INVALID'],
+  ['missing protocol value', ['--protocol'], 'FIXTURE_ARGUMENTS_INVALID'],
+  ['option as protocol value', ['--protocol', '--preserve-policy'], 'FIXTURE_ARGUMENTS_INVALID'],
+  ['value after boolean flag', ['--preserve-policy', 'false'], 'FIXTURE_ARGUMENTS_INVALID'],
+  ['unsupported assignment flag', ['--preserve-policy=true'], 'FIXTURE_ARGUMENTS_INVALID'],
+]) {
+  test('CLI rejects ' + name + ' without output or policy side effects', () => {
+    const argv = ['--env-file', '/private.env', '--output-dir', '/private-fixtures', '--backend-url', BACKEND];
+    assert.throws(() => parseArguments([...argv, ...extra]), error => error.code === code);
+  });
+}
+
+test('invalid source or unsafe system mode fails before creating artifact directories', t => {
+  const files = sandbox(t);
+  for (const options of [{ protocol: 'unknown', preservePolicy: true },
+    { protocol: 'system-csprng-v1' }, { protocol: 'system-csprng-v1', preservePolicy: 'true' }]) {
+    assert.throws(() => prepareFixtures({ ...files, backend: BACKEND, ...options }));
+    assert.equal(fs.existsSync(files.outputDir), false);
+  }
 });

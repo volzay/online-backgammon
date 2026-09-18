@@ -250,10 +250,12 @@ test('one populated die is rejected before invoking the core and focuses the inv
 test('the removed HMAC and Server Seed section has no fields, translated content, or UI handlers left behind', () => {
   const html = read('verify-game.html');
   const script = read('verify-game-ui.js');
-  assert.doesNotMatch(html, /HMAC|Server Seed|Client Seed|Game ID|Nonce/i);
+  assert.doesNotMatch(html, /id="(?:verify-(?:hmac|seed)-(?:form|submit|result)|(?:hmac|seed)-(?:server-seed|client-seed|game-id|nonce))"/i);
   assert.doesNotMatch(html, /(?:verify-(?:seed|hmac)|hmac-)[\w-]*/);
   assert.deepEqual([...html.matchAll(/<form\b[^>]*\bid="([^"]+)"/g)].map(match => match[1]), ['verify-portal-form']);
-  assert.doesNotMatch(script, /\b(?:verifySeed|verifyHmacRoll|readNonce|serverSeed|clientSeed|nonce)\b/i);
+  // v37 legitimately displays revealed seeds as read-only proof details;
+  // the removed unrelated manual HMAC form must not be restored.
+  assert.doesNotMatch(script, /\b(?:verifySeed|verifyHmacRoll|readNonce)\b/i);
   assert.doesNotMatch(script, /(?:verify-(?:seed|hmac)|hmac-)[\w-]*/);
 });
 

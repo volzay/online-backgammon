@@ -6,20 +6,20 @@
     ru: {
       title: 'Нарды — Проверка броска', back: 'В лобби', theme: 'Тема', language: 'Язык', day: 'День', night: 'Ночь',
       kicker: 'Нарды Онлайн · проверка данных', heading: 'Проверка броска',
-      lead: 'Проверьте источник броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.',
+      lead: 'Проверьте подписанный расчёт броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.',
       portalTitle: 'Бросок на этом портале',
-      portalIntro: 'В истории броска откройте «Проверить» или скопируйте SHA-256 и обе кости. Для нового подписанного протокола можно вручную вставить JSON-доказательство броска. Для старых записей проверяется соответствие костей хешу.',
-      proofSummary: 'Есть JSON-доказательство источника броска?', proofLabel: 'JSON-доказательство (необязательно)',
-      proofHint: 'Вставьте запись завершённого броска из его подробностей. Подпись drand и подписанное резервирование проверяются локально; ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.',
+      portalIntro: 'В истории броска откройте «Проверить». На этой странице для серверного протокола CSPRNG + HMAC вставьте JSON завершённого броска из его подробностей. Прежние записи drand проверяются по их JSON, старые SHA-записи — по хешу и обеим костям.',
+      proofSummary: 'Есть JSON-доказательство броска?', proofLabel: 'JSON-доказательство (необязательно)',
+      proofHint: 'Вставьте запись завершённого броска из его подробностей. Программа проверит подпись сервера и расчёт по протоколу записи: серверный CSPRNG + HMAC либо drand. Ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.',
       portalHash: 'SHA-256 из истории броска', hashHint: 'Ровно 64 шестнадцатеричных символа: 0–9, a–f.',
       dieOne: 'Кость 1 из истории', dieTwo: 'Кость 2 из истории',
       preimageSummary: 'Есть раскрытое исходное значение для этого броска?', preimageLabel: 'Исходное значение SHA-256 (необязательно)',
       preimageHint: 'Вставьте раскрытое значение именно этого завершённого броска. Пробелы и переводы строк значимы. Не вводите пароль от аккаунта.',
       checkPortal: 'Проверить бросок', explanationTitle: 'Что именно проверяется',
-      explanationPortal: 'Для бросков портала байты SHA-256 читаются слева направо. Значения 252–255 пропускаются; первые два подходящих байта дают кости по формуле (байт % 6) + 1. Пропуск исключает смещение при таком преобразовании байтов.',
-      explanationSource: 'В новом протоколе игроки и боты используют один независимый источник drand. Подпись источника привязана к его раунду; кости вычисляются из подписанного значения и контекста партии. Подписанная сервером запись резервирования проверяется отдельным настроенным ключом.',
+      explanationPortal: 'Байты потока читаются слева направо: значения 252–255 пропускаются, первые два подходящих байта дают кости по формуле (байт % 6) + 1. В серверной схеме поток создаётся HMAC-SHA256 из раскрытых server seed, client seed и контекста партии; SHA-256 записи подтверждает её целостность. Для неё необходим JSON броска, а не только хеш.',
+      explanationSource: 'Серверная схема CSPRNG + commit/reveal проверяет подписанное обязательство, раскрытые значения и расчёт HMAC. Она одинакова для игроков и ботов и не использует их игровую стратегию. В прежней схеме drand отдельно проверяется подпись независимого источника и подписанное сервером резервирование.',
       limitationsSummary: 'Границы проверки',
-      explanationLimits: 'Для старых записей совпадение строки, хеша и костей подтверждает только их соответствие. Для нового протокола подтверждаются подпись drand и подписанная запись резервирования, но не внешнее время её публикации или намерения игроков и оператора. Проверка законности перемещения шашек здесь не выполняется.',
+      explanationLimits: 'Серверная схема подтверждает подпись, неизменность обязательства и расчёт, но не является независимым доказательством энтропии или времени публикации. Схема drand дополнительно подтверждает подпись независимого источника. Старые SHA-записи проверяют только соответствие. Законность перемещения шашек здесь не проверяется.',
       footer: 'Проверка доступна без входа в аккаунт. Не вводите пароли, токены или значения для будущих бросков.',
       busy: 'Проверяем…', unavailable: 'Модуль проверки недоступен. Откройте страницу по HTTPS или на localhost и проверьте, загрузились ли её скрипты.',
       changed: 'Данные изменены. Нажмите кнопку для новой проверки.', errorTitle: 'Не удалось выполнить проверку',
@@ -33,6 +33,12 @@
       legacyLimits: 'Для этой записи подтверждается соответствие костей хешу; независимая подпись источника в её протоколе отсутствует.',
       fairVerified: 'Проверка пройдена', fairDetail: 'Источник броска подтверждён, кости рассчитаны верно.',
       fairIndependent: 'Источник случайного значения — независимый drand, а не игрок или бот. Протокол броска одинаков для игроков и ботов.',
+      systemVerified: 'Подпись и расчёт броска подтверждены', systemDetail: 'Подпись сервера верна, раскрытый server seed совпадает с обязательством SHA-256, кости точно соответствуют расчёту HMAC-SHA256.',
+      systemCalculationOnly: 'Расчёт HMAC-SHA256 совпал', systemDiceVerified: 'Кости соответствуют расчёту HMAC-SHA256.',
+      systemShared: 'Игроки и боты используют один серверный криптографический протокол. Игровая стратегия не участвует в расчёте костей.',
+      systemLimits: 'Случайность создаётся на сервере CSPRNG операционной системы. Проверка подтверждает подпись, обязательство и расчёт; она не является независимым доказательством источника энтропии или времени публикации обязательства.',
+      systemProofRequired: 'Для этой серверной схемы вставьте JSON завершённого броска из его подробностей. Один SHA-256 не содержит HMAC-поток для расчёта костей.',
+      systemCommitment: 'Подписанное обязательство SHA-256', systemServerSeed: 'Раскрытый server seed', systemClientSeed: 'Client seed', systemStream: 'Поток HMAC-SHA256',
       sourceOnly: 'Подпись drand подтверждена', sourceUnknown: 'Подпись источника не подтверждена',
       receiptUnknown: 'Резервирование броска не подтверждено настроенным ключом сервера.',
       receiptKeyMissing: 'Ключ проверки серверной записи не настроен: проверена подпись drand, но не резервирование броска.',
@@ -55,20 +61,20 @@
     en: {
       title: 'Backgammon — Roll verification', back: 'Back to lobby', theme: 'Theme', language: 'Language', day: 'Day', night: 'Night',
       kicker: 'Backgammon Online · data verification', heading: 'Verify a roll',
-      lead: 'Verify the roll source and compare the dice with the game history. Calculations run in this browser; entered values are neither sent nor saved.',
+      lead: 'Verify the signed roll calculation and compare the dice with the game history. Calculations run in this browser; entered values are neither sent nor saved.',
       portalTitle: 'A roll on this portal',
-      portalIntro: 'Select “Verify” in the roll history, or copy its SHA-256 and both dice. For the new signed protocol you may manually paste the roll’s JSON proof. Older records support checking that dice match the hash.',
-      proofSummary: 'Have the roll’s JSON source proof?', proofLabel: 'JSON proof (optional)',
-      proofHint: 'Paste the completed roll’s record from its details. The drand signature and signed reservation are checked locally; the server key comes only from portal configuration. JSON is never imported from the URL.',
+      portalIntro: 'Select “Verify” in the roll history. On this page, paste the completed roll JSON from its details for the server CSPRNG + HMAC protocol. Earlier drand records are checked using their JSON; older SHA-only records use the hash and both dice.',
+      proofSummary: 'Have the roll’s JSON proof?', proofLabel: 'JSON proof (optional)',
+      proofHint: 'Paste the completed roll’s record from its details. The verifier checks the server signature and recorded calculation protocol: server CSPRNG + HMAC or drand. The server key comes only from portal configuration. JSON is never imported from the URL.',
       portalHash: 'SHA-256 from the roll history', hashHint: 'Exactly 64 hexadecimal characters: 0–9, a–f.',
       dieOne: 'Die 1 from the history', dieTwo: 'Die 2 from the history',
       preimageSummary: 'Have the disclosed input for this roll?', preimageLabel: 'SHA-256 input (optional)',
       preimageHint: 'Paste the disclosed input of this completed roll. Spaces and line breaks matter. Do not enter your account password.',
       checkPortal: 'Verify roll', explanationTitle: 'What this verifies',
-      explanationPortal: 'For portal rolls, SHA-256 bytes are read from left to right. Values 252–255 are skipped; the first two eligible bytes become dice using (byte % 6) + 1. Skipping these values removes bias in the byte-to-die conversion.',
-      explanationSource: 'In the new protocol, players and bots use the same independent drand source. The source signature is bound to its round; dice are derived from the signed value and game context. The signed server reservation is checked with a separately configured key.',
+      explanationPortal: 'Stream bytes are read left to right: values 252–255 are skipped and the first two accepted bytes become dice using (byte % 6) + 1. In the server scheme HMAC-SHA256 creates the stream from disclosed server seed, client seed and game context; the record’s SHA-256 verifies its integrity. This requires the roll JSON, not just its hash.',
+      explanationSource: 'The server CSPRNG + commit/reveal scheme checks the signed commitment, disclosed inputs and HMAC calculation. Players and bots use the same scheme, without game-strategy inputs. The earlier drand scheme separately checks the independent source signature and signed server reservation.',
       limitationsSummary: 'Verification limits',
-      explanationLimits: 'For older records, a matching input, hash and dice verifies their consistency only. The new protocol verifies the drand signature and signed reservation, but not its externally observed publication time or player and operator intentions. This page does not check checker-move legality.',
+      explanationLimits: 'The server scheme verifies the signature, commitment integrity and calculation, not independent entropy or publication timing. The drand scheme additionally verifies the independent source signature. Older SHA-only records verify consistency. Checker-move legality is not checked.',
       footer: 'No account login is required. Do not enter passwords, tokens or inputs for future rolls.',
       busy: 'Verifying…', unavailable: 'The verifier is unavailable. Open this page using HTTPS or localhost and check that its scripts loaded.',
       changed: 'Inputs changed. Select the button to verify again.', errorTitle: 'Unable to verify',
@@ -82,6 +88,12 @@
       legacyLimits: 'This record supports checking that dice match the hash; its protocol does not include an independent source signature.',
       fairVerified: 'Verification passed', fairDetail: 'The roll source is verified and the dice were calculated correctly.',
       fairIndependent: 'The random value comes from independent drand, not a player or bot. Players and bots use the same roll protocol.',
+      systemVerified: 'Roll signature and calculation verified', systemDetail: 'The server signature is valid, the disclosed server seed matches the SHA-256 commitment, and the dice exactly match the HMAC-SHA256 calculation.',
+      systemCalculationOnly: 'HMAC-SHA256 calculation matches', systemDiceVerified: 'The dice match the HMAC-SHA256 calculation.',
+      systemShared: 'Players and bots use the same server cryptographic protocol. Game strategy is not used to calculate dice.',
+      systemLimits: 'Randomness is created by the server operating system CSPRNG. Verification confirms the signature, commitment and calculation; it is not independent proof of entropy or commitment publication timing.',
+      systemProofRequired: 'For this server scheme, paste the completed roll JSON from its details. SHA-256 alone does not contain the HMAC stream needed to calculate dice.',
+      systemCommitment: 'Signed SHA-256 commitment', systemServerSeed: 'Disclosed server seed', systemClientSeed: 'Client seed', systemStream: 'HMAC-SHA256 stream',
       sourceOnly: 'The drand signature is verified', sourceUnknown: 'The source signature is unverified',
       receiptUnknown: 'The roll reservation has not been verified with the configured server key.',
       receiptKeyMissing: 'No server verification key is configured: the drand signature is checked, but the reservation is not.',
@@ -105,6 +117,7 @@
 
   let language = document.documentElement.lang === 'en' ? 'en' : 'ru';
   let noticeKey = '';
+  let importedProtocol = '';
   const forms = [];
   const get = id => document.getElementById(id);
   const translate = key => text[language][key] || key;
@@ -167,26 +180,29 @@
   function renderResult(formState, result) {
     const out = formState.out;
     out.replaceChildren();
-    const signed = ['drand', 'drand-quicknet-v1'].includes(result.protocol);
-    const fullyVerified = signed && result.status === 'verified' && result.sourceVerified === true
+    const system = result.protocol === 'system-csprng-v1';
+    const signed = system || ['drand', 'drand-quicknet-v1'].includes(result.protocol);
+    const fullyVerified = signed && result.status === 'verified' && (system ? result.commitmentVerified === true : result.sourceVerified === true)
       && result.reservationVerified === true && result.diceStatus === 'verified';
-    const titleKey = result.status === 'mismatch' ? 'mismatch' : fullyVerified ? 'fairVerified'
-      : signed && result.sourceVerified ? 'sourceOnly' : result.diceStatus === 'verified' ? 'diceOnly' : 'incomplete';
+    const titleKey = result.status === 'mismatch' ? 'mismatch' : fullyVerified ? system ? 'systemVerified' : 'fairVerified'
+      : signed && result.sourceVerified ? 'sourceOnly' : result.diceStatus === 'verified' ? system ? 'systemCalculationOnly' : 'diceOnly' : 'incomplete';
     // Legacy consistency is a positive, neutral result, not a fair-source badge.
     const visualStatus = result.status === 'mismatch' ? 'mismatch' : fullyVerified ? 'verified'
       : !signed && result.diceStatus === 'verified' ? 'matched' : 'incomplete';
     const main = resultCard(visualStatus, translate(titleKey));
     addDice(main, result.dice);
     if (fullyVerified) {
-      paragraph(main, translate('fairDetail'));
-      paragraph(main, translate('fairIndependent'));
-    } else paragraph(main, translate(result.diceStatus === 'verified' ? 'diceVerified' : result.diceStatus === 'mismatch' ? 'diceMismatch' : 'expectedMissing'));
+      paragraph(main, translate(system ? 'systemDetail' : 'fairDetail'));
+      paragraph(main, translate(system ? 'systemShared' : 'fairIndependent'));
+    } else paragraph(main, translate(result.diceStatus === 'verified' ? system ? 'systemDiceVerified' : 'diceVerified' : result.diceStatus === 'mismatch' ? 'diceMismatch' : 'expectedMissing'));
     paragraph(main, translate(result.hashStatus === 'verified' ? 'hashVerified' : result.hashStatus === 'mismatch' ? 'hashMismatch' : 'hashUnavailable'));
     if (result.inputStatus === 'mismatch') paragraph(main, translate('inputMismatch'));
     if (signed) {
-      if (!result.sourceVerified) paragraph(main, translate('sourceUnknown'));
+      if (system) {
+        if (!result.reservationVerified) paragraph(main, translate('receiptUnknown'));
+      } else if (!result.sourceVerified) paragraph(main, translate('sourceUnknown'));
       else if (!result.reservationVerified) paragraph(main, translate(result.receiptKeyAvailable === false ? 'receiptKeyMissing' : 'receiptUnknown'));
-      limits(main, 'fairLimits');
+      limits(main, system ? 'systemLimits' : 'fairLimits');
     } else {
       paragraph(main, translate('legacyLimits'));
       limits(main, 'explanationLimits');
@@ -194,7 +210,11 @@
     out.append(main);
     out.append(valueCard(translate('historyHash'), result.hash));
     if (signed && result.proof) {
-      out.append(valueCard(translate('sourceChain'), result.proof.chainHash || ''),
+      if (system) out.append(valueCard(translate('systemCommitment'), result.proof.request?.commitment || ''),
+        valueCard(translate('systemServerSeed'), result.proof.commitReveal?.serverSeed || ''),
+        valueCard(translate('systemClientSeed'), result.proof.commitReveal?.clientSeed || ''),
+        disclosure(translate('systemStream'), (result.proof.commitReveal?.blocks || []).join('\n')));
+      else out.append(valueCard(translate('sourceChain'), result.proof.chainHash || ''),
         valueCard(translate('sourceRound'), result.proof.beacon?.round ?? ''),
         disclosure(translate('sourceSignature'), result.proof.beacon?.signature || ''));
       out.append(disclosure(translate('proofDetails'), JSON.stringify(result.proof, null, 2)));
@@ -258,6 +278,7 @@
 
   function argumentsFor() {
     const proof = readText('portal-proof', 16384, false);
+    if (importedProtocol === 'system-csprng-v1' && proof.trim() === '') throw fieldError(get('portal-proof'), 'systemProofRequired');
     const options = { hash: readHash('portal-hash', proof.trim() === ''), expectedDice: readDice('portal') };
     const preimage = readText('portal-preimage', 4096, false);
     if (preimage !== '') options.preimage = preimage;
@@ -284,7 +305,8 @@
       FAIR_PROOF_UNAVAILABLE: 'unavailable', FAIR_CRYPTO_UNAVAILABLE: 'unavailable', FAIR_REQUEST_INVALID: 'badProof',
       FAIR_PROTOCOL_INVALID: 'badProtocol', FAIR_RESERVATION_MISMATCH: 'badReservation', FAIR_RECEIPT_INVALID: 'badReceipt',
       FAIR_CONTEXT_MISMATCH: 'badContext', FAIR_REQUEST_NOT_FUTURE: 'badFuture', FAIR_BEACON_INVALID: 'badBeacon',
-      FAIR_BEACON_SIGNATURE_INVALID: 'badSource', FAIR_DICE_MISMATCH: 'badDerived' }[error.code];
+      FAIR_BEACON_SIGNATURE_INVALID: 'badSource', FAIR_DICE_MISMATCH: 'badDerived', FAIR_SYSTEM_PROOF_INVALID: 'badProof',
+      FAIR_SYSTEM_SEED_INVALID: 'badProof', FAIR_SYSTEM_COMMITMENT_MISMATCH: 'badDerived' }[error.code];
     paragraph(card, error.verifyTranslationKey || coreKey ? translate(error.verifyTranslationKey || coreKey) : String(error.message || error));
     state.out.append(card);
   }
@@ -350,6 +372,7 @@
   }
 
   function importPublicFragment() {
+    importedProtocol = '';
     if (window.location.search) showNotice('queryIgnored');
     const fragment = window.location.hash.slice(1);
     const state = forms[0];
@@ -371,17 +394,20 @@
     let params;
     try { params = new URLSearchParams(fragment); } catch (_) { showNotice('importInvalid'); return; }
     const keys = Array.from(params.keys());
-    if (keys.some(key => !['hash', 'dice', 'color'].includes(key)) || new Set(keys).size !== keys.length || !hashPattern.test(params.get('hash') || '')) { showNotice('importInvalid'); return; }
+    if (keys.some(key => !['hash', 'dice', 'color', 'protocol'].includes(key)) || new Set(keys).size !== keys.length || !hashPattern.test(params.get('hash') || '')) { showNotice('importInvalid'); return; }
     const dice = params.get('dice');
     const color = params.get('color');
-    if ((dice !== null && !/^[1-6][,:][1-6]$/.test(dice)) || (color !== null && !['white', 'dark'].includes(color))) { showNotice('importInvalid'); return; }
+    const protocol = params.get('protocol');
+    if ((dice !== null && !/^[1-6][,:][1-6]$/.test(dice)) || (color !== null && !['white', 'dark'].includes(color))
+      || (protocol !== null && protocol !== 'system-csprng-v1')) { showNotice('importInvalid'); return; }
+    importedProtocol = protocol || '';
     get('portal-hash').value = params.get('hash');
     if (dice !== null) {
       const values = dice.split(/[,:]/);
       get('portal-die-one').value = values[0];
       get('portal-die-two').value = values[1];
-      showNotice(window.location.search ? 'queryIgnored' : 'importReady');
-      if (forms[0].available) {
+      showNotice(window.location.search ? 'queryIgnored' : importedProtocol ? 'systemProofRequired' : 'importReady');
+      if (forms[0].available && !importedProtocol) {
         if (typeof forms[0].form.requestSubmit === 'function') forms[0].form.requestSubmit();
         else forms[0].form.dispatchEvent(new Event('submit', { cancelable: true }));
       }

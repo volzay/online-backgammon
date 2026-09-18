@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-18",
+  "scope": "isolated local program; no production changes or external random draws",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "systemDiceTests": {
+    "total": 62,
+    "passed": 60,
+    "failed": 0,
+    "skipped": 2,
+    "skipReason": "Changing file ownership for negative fixtures requires root; tests intentionally do not acquire root."
+  },
+  "allExperimentTests": { "total": 114, "passed": 112, "failed": 0, "skipped": 2 },
+  "existingFairDiceRegression": {
+    "total": 188,
+    "passed": 188,
+    "failed": 0,
+    "skipped": 0,
+    "command": "node --test --test-concurrency=1 tests/fair-dice*.test.js",
+    "note": "Local HTTP fixtures require loopback listen permission. Initial sandbox-only listen EPERM was resolved by rerunning with that permission; no production calls were made."
+  },
+  "durableLocalBenchmark": {
+    "samples": 1000,
+    "includes": ["CSPRNG server seed", "persistent private journal and fsync", "commitment", "CSPRNG demo client seed", "HMAC derivation", "proof verification"],
+    "excludes": ["network", "browser", "animation", "production SQL"],
+    "procedure": "For one fresh demonstration gameId, nonce 1..1000: journal.prepare(context), randomClientSeed(), journal.reveal(context, commitment, clientSeed), verifyProof(proof, externally retained expected fields). One private temporary directory, removed after measurement. Both participants run in the same process for mechanics only.",
+    "p50Ms": 39.075708000000304,
+    "p95Ms": 55.01145900000006,
+    "p99Ms": 65.93962499999907,
+    "maxMs": 87.18487499999901,
+    "twoSecondPortalTargetValidated": false
+  },
+  "securityChecks": [
+    "All 36 ordered dice pairs have equal accepted-byte preimage counts",
+    "Ordinary doubles retained; deterministic minimum opening counter verified",
+    "20 concurrent processes reuse one immutable commitment",
+    "Two different concurrent client challenges accept only one",
+    "Tampered context, seeds, commitment, dice, counter and HMAC rejected",
+    "Accepted client challenge survives actual SIGKILL; stale lock fails closed; controlled fixture recovery resumes same seed",
+    "Private permissions, bounded JSON, symlink and hard-link rejection",
+    "No experiment import or deployment inclusion in current runtime"
+  ],
+  "productionBaseline": {
+    "revision": "b9b26ce3135ef191f70eabc600336fe1db7bfa03",
+    "unchangedSourceFilesChecked": 7,
+    "deploymentPerformed": false,
+    "independentSourceVerifiedByNewProtocol": false
+  }
+}

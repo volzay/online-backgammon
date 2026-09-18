@@ -33,7 +33,7 @@
       <div class="verify-head">
         <span class="verify-kicker" data-verify-i18n="kicker">Нарды Онлайн · проверка данных</span>
         <h1 data-verify-i18n="heading">Проверка броска</h1>
-        <p class="verify-lead" data-verify-i18n="lead">Проверьте источник броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.</p>
+        <p class="verify-lead" data-verify-i18n="lead">Проверьте подписанный расчёт броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.</p>
       </div>
 
       <noscript><p class="verify-notice" role="alert">Для локальной проверки требуется JavaScript. Данные формы не отправляются.</p></noscript>
@@ -41,17 +41,17 @@
 
       <section class="verify-card" aria-labelledby="portal-title">
         <div class="verify-card-head">
-          <span class="verify-protocol">drand · SHA-256</span>
+          <span class="verify-protocol">CSPRNG · HMAC / drand</span>
           <h2 id="portal-title" data-verify-i18n="portalTitle">Бросок на этом портале</h2>
         </div>
-        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить» или скопируйте SHA-256 и обе кости. Для нового подписанного протокола можно вручную вставить JSON-доказательство броска. Для старых записей проверяется соответствие костей хешу.</p>
+        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить». На этой странице для серверного протокола CSPRNG + HMAC вставьте JSON завершённого броска из его подробностей. Прежние записи drand проверяются по их JSON, старые SHA-записи — по хешу и обеим костям.</p>
         <form id="verify-portal-form" autocomplete="off" novalidate>
           <details class="verify-preimage">
-            <summary data-verify-i18n="proofSummary">Есть JSON-доказательство источника броска?</summary>
+            <summary data-verify-i18n="proofSummary">Есть JSON-доказательство броска?</summary>
             <div class="verify-field">
               <label for="portal-proof" data-verify-i18n="proofLabel">JSON-доказательство (необязательно)</label>
               <textarea id="portal-proof" class="verify-mono" maxlength="16384" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-proof-hint"></textarea>
-              <span id="portal-proof-hint" class="verify-hint" data-verify-i18n="proofHint">Вставьте запись завершённого броска из его подробностей. Подпись drand и подписанное резервирование проверяются локально; ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.</span>
+              <span id="portal-proof-hint" class="verify-hint" data-verify-i18n="proofHint">Вставьте запись завершённого броска из его подробностей. Программа проверит подпись сервера и расчёт по протоколу записи: серверный CSPRNG + HMAC либо drand. Ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.</span>
             </div>
           </details>
           <div class="verify-field">
@@ -84,11 +84,11 @@
 
       <section class="verify-card verify-explanation" aria-labelledby="explanation-title">
         <h2 id="explanation-title" data-verify-i18n="explanationTitle">Что именно проверяется</h2>
-        <p data-verify-i18n="explanationPortal">Для бросков портала байты SHA-256 читаются слева направо. Значения 252–255 пропускаются; первые два подходящих байта дают кости по формуле (байт % 6) + 1. Пропуск исключает смещение при таком преобразовании байтов.</p>
-        <p data-verify-i18n="explanationSource">В новом протоколе игроки и боты используют один независимый источник drand. Подпись источника привязана к его раунду; кости вычисляются из подписанного значения и контекста партии. Подписанная сервером запись резервирования проверяется отдельным настроенным ключом.</p>
+        <p data-verify-i18n="explanationPortal">Байты потока читаются слева направо: значения 252–255 пропускаются, первые два подходящих байта дают кости по формуле (байт % 6) + 1. В серверной схеме поток создаётся HMAC-SHA256 из раскрытых server seed, client seed и контекста партии; SHA-256 записи подтверждает её целостность. Для неё необходим JSON броска, а не только хеш.</p>
+        <p data-verify-i18n="explanationSource">Серверная схема CSPRNG + commit/reveal проверяет подписанное обязательство, раскрытые значения и расчёт HMAC. Она одинакова для игроков и ботов и не использует их игровую стратегию. В прежней схеме drand отдельно проверяется подпись независимого источника и подписанное сервером резервирование.</p>
         <details class="verify-preimage">
           <summary data-verify-i18n="limitationsSummary">Границы проверки</summary>
-          <p data-verify-i18n="explanationLimits">Для старых записей совпадение строки, хеша и костей подтверждает только их соответствие. Для нового протокола подтверждаются подпись drand и подписанная запись резервирования, но не внешнее время её публикации или намерения игроков и оператора. Проверка законности перемещения шашек здесь не выполняется.</p>
+          <p data-verify-i18n="explanationLimits">Серверная схема подтверждает подпись, неизменность обязательства и расчёт, но не является независимым доказательством энтропии или времени публикации. Схема drand дополнительно подтверждает подпись независимого источника. Старые SHA-записи проверяют только соответствие. Законность перемещения шашек здесь не проверяется.</p>
         </details>
       </section>
 

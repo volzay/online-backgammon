@@ -887,6 +887,7 @@
         fairDicePolicies.set(normalizedCode, {
           required: data.fair_dice_required === true,
           gameId: data.fair_dice_game_id || null,
+          ...(typeof data.fair_dice_protocol === 'string' ? { protocol: data.fair_dice_protocol } : {}),
         });
         return { room: publicRoom(data, { password }) };
       }
@@ -1274,11 +1275,21 @@
     const client = await supabase({ signal });
     let query = client
       .from("rooms")
-      .select("id,game_state,game_version,status,fair_dice_required,fair_dice_game_id")
+      .select("id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol")
       .eq("code", normalizedCode)
       .neq("status", "closed");
     query = withAbortSignal(query, signal);
     let { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    // A v36 backend still has a protected dice policy. Missing ONLY the new
+    // protocol column must never downgrade that policy to legacy/local RNG.
+    if (error && ['42703', 'PGRST204'].includes(error.code)
+      && /fair_dice_protocol/.test(error.message || '')
+      && !/fair_dice_(?:required|game_id)/.test(error.message || '')) {
+      let previous = client.from('rooms').select('id,game_state,game_version,status,fair_dice_required,fair_dice_game_id')
+        .eq('code', normalizedCode).neq('status', 'closed');
+      previous = withAbortSignal(previous, signal);
+      ({ data, error } = await awaitWithAbort(previous.maybeSingle(), signal));
+    }
     // Before v36 is installed, existing rooms are legacy. Only an explicit
     // missing-column error allows this compatibility read, never an auth,
     // network, service-key or signature failure for a protected room.
@@ -1295,6 +1306,7 @@
     roomIdCache.set(normalizedCode, data.id);
     fairDicePolicies.set(normalizedCode, {
       required: data.fair_dice_required === true, gameId: data.fair_dice_game_id,
+      ...(typeof data.fair_dice_protocol === 'string' ? { protocol: data.fair_dice_protocol } : {}),
     });
     return { state: data.game_state || null, version: Number(data.game_version || 0),
       fairDice: fairDicePolicies.get(normalizedCode) || { required: false } };
@@ -1372,6 +1384,64 @@
     if (!window.NarduFairDice?.verifyReservation(receipt, window.NARDU_ENV.fairDicePublicKey, context)) {
       throw roomError("Не удалось подтвердить серверную запись броска.", 422);
     }
+    if (policy.protocol === 'system-csprng-v1') {
+      if (!receipt.request?.commitment || receipt.request.round !== undefined) {
+        throw roomError("Сервис вернул другой протокол броска.", 422);
+      }
+      const storageKey = `narduh-system-dice-current:${normalizedCode}`;
+      let observed;
+      try {
+        const saved = window.localStorage.getItem(storageKey);
+        if (saved) {
+          if (saved.length > 4096) throw new Error('Invalid stored commitment');
+          const value = JSON.parse(saved);
+          if (value.requestId === receipt.request.id) {
+            if (value.requestHash !== receipt.requestHash || value.commitment !== receipt.request.commitment
+              || !/^[0-9a-f]{64}$/.test(value.clientSeed || '')) throw new Error('Conflicting stored commitment');
+            observed = value;
+          }
+        }
+      } catch {
+        throw roomError("Не удалось сохранить обязательство броска. Разрешите хранилище сайта и повторите тот же запрос.", 503);
+      }
+      // A reconnect can recover the first accepted challenge. It is public,
+      // but is not evidence that this particular browser generated its bytes.
+      const acceptedSeed = reserved.clientSeed;
+      if (acceptedSeed != null && !/^[0-9a-f]{64}$/.test(acceptedSeed)) throw roomError("Некорректный клиентский вклад.", 422);
+      if (acceptedSeed && observed && acceptedSeed !== observed.clientSeed) {
+        throw roomError("Клиентский вклад не совпадает с сохранёнными данными этого броска. Проверка остановлена.", 422);
+      }
+      let clientSeed = acceptedSeed || observed?.clientSeed;
+      if (!clientSeed) {
+        if (typeof window.crypto?.getRandomValues !== 'function') {
+          throw roomError("В браузере недоступен защищённый генератор случайных значений.", 503);
+        }
+        // Receipt was verified above. No client entropy exists before it.
+        const bytes = new Uint8Array(32);
+        window.crypto.getRandomValues(bytes);
+        clientSeed = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      }
+      const witness = { requestId: receipt.request.id, requestHash: receipt.requestHash,
+        commitment: receipt.request.commitment, clientSeed,
+        ownContribution: observed ? observed.ownContribution === true : !acceptedSeed };
+      try { window.localStorage.setItem(storageKey, JSON.stringify(witness)); }
+      catch { throw roomError("Не удалось сохранить данные проверки броска. Освободите хранилище сайта и повторите тот же запрос.", 503); }
+      const result = await fairDiceJson('challenge', { code: normalizedCode, requestId: receipt.request.id,
+        requestHash: receipt.requestHash, clientSeed });
+      if (!result.proof || result.proof.protocol !== policy.protocol
+        || result.proof.requestHash !== receipt.requestHash
+        || result.proof.receiptSignature !== receipt.receiptSignature
+        || result.proof.request?.id !== receipt.request.id) throw roomError("Доказательство не относится к зарезервированному броску.", 422);
+      const verified = await window.NarduFairDice.verifyProof(result.proof, {
+        publicKey: window.NARDU_ENV.fairDicePublicKey, context, clientSeed,
+      });
+      if (!verified.commitmentVerified || !verified.reservationVerified) throw roomError("Обязательство или расчёт броска не подтверждены.", 422);
+      return result.proof;
+    }
+    if (policy.protocol && policy.protocol !== 'drand-quicknet-v1') {
+      throw roomError("Протокол этой комнаты не поддерживается. Обновите страницу.", 422);
+    }
+    if (receipt.request?.commitment !== undefined) throw roomError("Сервис вернул другой протокол броска.", 422);
     // All polling is for THIS immutable request. There is deliberately no
     // browser RNG, alternate nonce, beacon 'latest', or local fallback here.
     const deadline = Date.now() + 60000;
@@ -1405,7 +1475,7 @@
     }
     if ((await fairDicePolicy(normalizedCode))?.required) {
       const result = await fairDiceJson('state', { code: normalizedCode, state, version: Number(version) || 0 });
-      if (result.gameId) fairDicePolicies.set(normalizedCode, { required: true, gameId: result.gameId });
+      if (result.gameId) fairDicePolicies.set(normalizedCode, { ...fairDicePolicies.get(normalizedCode), required: true, gameId: result.gameId });
       return result;
     }
     const client = await supabase();

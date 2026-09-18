@@ -9,6 +9,7 @@
   const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
   const GUEST_PROOF_RE = /^gproof:[0-9a-f]{64}$/;
   const FAIR_DICE_CLIENT_MARKER = 'nardu-fair-dice-v36';
+  const SYSTEM_DICE_CLIENT_MARKER = 'nardu-fair-dice-v37';
   let clientPromise = null;
   const AUTH_RECLAIM_EXACT_KEYS = new Set([
     "narduh-long-bot-server-experience-v15",
@@ -187,6 +188,10 @@
       if (!info.split(/\s+/).includes(FAIR_DICE_CLIENT_MARKER)) {
         headers.set('X-Client-Info', `${info} ${FAIR_DICE_CLIENT_MARKER}`.trim());
       }
+      const currentInfo = headers.get('X-Client-Info') || '';
+      if (!currentInfo.split(/\s+/).includes(SYSTEM_DICE_CLIENT_MARKER)) {
+        headers.set('X-Client-Info', `${currentInfo} ${SYSTEM_DICE_CLIENT_MARKER}`.trim());
+      }
       return { ...init, headers };
     }
     const headers = Array.isArray(original) || typeof original?.entries === 'function'
@@ -196,6 +201,9 @@
     const info = String(headers[infoKey] || '');
     if (!info.split(/\s+/).includes(FAIR_DICE_CLIENT_MARKER)) {
       headers[infoKey] = `${info} ${FAIR_DICE_CLIENT_MARKER}`.trim();
+    }
+    if (!headers[infoKey].split(/\s+/).includes(SYSTEM_DICE_CLIENT_MARKER)) {
+      headers[infoKey] = `${headers[infoKey]} ${SYSTEM_DICE_CLIENT_MARKER}`.trim();
     }
     return { ...init, headers };
   }

@@ -10,6 +10,8 @@ const { rules, validateTransition } = require('../../lib/fair-dice-rules.js');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MARKER = 'nardu-fair-dice-v36';
+const DRAND_PROTOCOL = 'drand-quicknet-v1';
+const SYSTEM_PROTOCOL = 'system-csprng-v1';
 const PUBLIC_ALIAS = 'sb_publishable_kWyPnUGXGMJ0afLvIdRNNr_j7tZjhXC';
 const clone = value => JSON.parse(JSON.stringify(value));
 const quote = value => "'" + String(value).replace(/'/g, "''") + "'";
@@ -72,9 +74,9 @@ function guestHeaders(anonKey) {
   return { authorization: `Bearer ${anonKey}`, 'x-guest-id': identity, 'x-guest-proof': proof };
 }
 
-function callerSql(headers) {
+function callerSql(headers, marker = MARKER) {
   const metadata = { 'x-guest-id': headers['x-guest-id'], 'x-guest-proof': headers['x-guest-proof'],
-    'x-client-info': 'supabase-js-web/live-canary ' + MARKER };
+    'x-client-info': 'supabase-js-web/live-canary ' + marker };
   return [
     "SET LOCAL request.jwt.claims = '{\"role\":\"anon\"}';",
     "SET LOCAL request.jwt.claim.role = 'anon';",
@@ -94,9 +96,13 @@ function serviceSql() {
   ].join('\n');
 }
 
-function buildFixtures({ anonKey, backend, nowMs = Date.now() }) {
+function buildFixtures({ anonKey, backend, nowMs = Date.now(), protocol = DRAND_PROTOCOL, preservePolicy = false }) {
   check(typeof anonKey === 'string' && /^[A-Za-z0-9._-]{64,8192}$/.test(anonKey), 'FIXTURE_ANON_KEY_INVALID');
   check(Number.isSafeInteger(nowMs) && nowMs > 0, 'FIXTURE_TIME_INVALID');
+  check([DRAND_PROTOCOL, SYSTEM_PROTOCOL].includes(protocol), 'FIXTURE_PROTOCOL_INVALID');
+  check(typeof preservePolicy === 'boolean' && (protocol !== SYSTEM_PROTOCOL || preservePolicy), 'FIXTURE_POLICY_MODE_INVALID');
+  const marker = protocol === SYSTEM_PROTOCOL ? 'nardu-fair-dice-v37' : MARKER;
+  const canaryName = protocol === SYSTEM_PROTOCOL ? 'Canary37' : 'Canary36';
   const url = backendUrl(backend);
   const seen = new Set();
   const specs = [
@@ -124,31 +130,51 @@ function buildFixtures({ anonKey, backend, nowMs = Date.now() }) {
     'SET LOCAL search_path = pg_catalog, public, extensions;',
     "SET LOCAL statement_timeout = '45s';",
     "SET LOCAL lock_timeout = '5s';",
-    'DO $fixture_policy$ DECLARE enabled_now boolean; BEGIN',
-    '  SELECT enabled INTO enabled_now FROM private.fair_dice_settings WHERE singleton FOR UPDATE;',
-    "  IF enabled_now IS DISTINCT FROM false THEN RAISE EXCEPTION 'Controlled fixtures require policy OFF before seeding.'; END IF;",
-    'END; $fixture_policy$;',
-    serviceSql(),
-    'SELECT public.configure_fair_dice_policy(true);',
   ];
+  if (preservePolicy) {
+    statements.push('DO $fixture_policy$ DECLARE previous_policy jsonb; BEGIN',
+      "  SELECT jsonb_build_object('enabled',enabled,'protocol',protocol) INTO previous_policy FROM private.fair_dice_settings WHERE singleton FOR UPDATE;",
+      "  IF previous_policy IS NULL OR previous_policy->>'enabled' IS NULL OR previous_policy->>'protocol' IS NULL OR previous_policy->>'protocol' NOT IN ('drand-quicknet-v1','system-csprng-v1') THEN RAISE EXCEPTION 'Current fair-dice policy is invalid.'; END IF;",
+      "  PERFORM set_config('nardu.fixture_previous_policy',previous_policy::text,true);",
+      'END; $fixture_policy$;', serviceSql(),
+      'SELECT public.configure_fair_dice_protocol(' + quote(protocol) + ');',
+      'SELECT public.configure_fair_dice_policy(true);');
+  } else {
+    statements.push('DO $fixture_policy$ DECLARE enabled_now boolean; BEGIN',
+      '  SELECT enabled INTO enabled_now FROM private.fair_dice_settings WHERE singleton FOR UPDATE;',
+      "  IF enabled_now IS DISTINCT FROM false THEN RAISE EXCEPTION 'Controlled fixtures require policy OFF before seeding.'; END IF;",
+      'END; $fixture_policy$;', serviceSql(), 'SELECT public.configure_fair_dice_policy(true);');
+  }
   for (const spec of specs) {
-    statements.push(callerSql(spec.headers));
-    const hostName = 'Canary36 ' + (spec.kind === 'bot' ? spec.variant + ' ' + spec.color : 'remote') + ' ' + spec.code;
+    statements.push(callerSql(spec.headers, marker));
+    const hostName = canaryName + ' ' + (spec.kind === 'bot' ? spec.variant + ' ' + spec.color : 'remote') + ' ' + spec.code;
     check(hostName.length <= 32, 'FIXTURE_NAME_INVALID');
     statements.push('INSERT INTO public.rooms(code,variant,status,host_name,host_guest_id,host_registered,guest_name,game_state)',
       'VALUES(' + [quote(spec.code), quote(spec.variant), quote(spec.kind === 'bot' ? 'joined' : 'waiting'), quote(hostName),
         quote(spec.headers['x-guest-id']), 'false', spec.kind === 'bot' ? quote('Бот сложный') : 'NULL', quote(JSON.stringify(spec.state)) + '::jsonb'].join(',') + ');');
     if (spec.opponentHeaders) {
-      statements.push(callerSql(spec.opponentHeaders),
+      statements.push(callerSql(spec.opponentHeaders, marker),
         'UPDATE public.rooms SET status=\'joined\',guest_guest_id=' + quote(spec.opponentHeaders['x-guest-id'])
-          + ',guest_name=' + quote('Canary36 peer ' + spec.code) + ',guest_registered=false WHERE code=' + quote(spec.code) + ';');
+          + ',guest_name=' + quote(canaryName + ' peer ' + spec.code) + ',guest_registered=false WHERE code=' + quote(spec.code) + ';');
     }
   }
-  statements.push(serviceSql(), 'SELECT public.configure_fair_dice_policy(false);', 'RESET ROLE;',
-    'DO $fixture_check$ BEGIN',
-    "  IF (SELECT enabled FROM private.fair_dice_settings WHERE singleton) IS DISTINCT FROM false THEN RAISE EXCEPTION 'Policy OFF restoration failed.'; END IF;",
+  statements.push(serviceSql());
+  if (preservePolicy) {
+    statements.push('DO $fixture_restore$ DECLARE previous_policy jsonb := current_setting(\'nardu.fixture_previous_policy\')::jsonb; BEGIN',
+      "  PERFORM public.configure_fair_dice_protocol(previous_policy->>'protocol');",
+      "  PERFORM public.configure_fair_dice_policy((previous_policy->>'enabled')::boolean);",
+      'END; $fixture_restore$;', 'RESET ROLE;',
+      'DO $fixture_check$ DECLARE previous_policy jsonb := current_setting(\'nardu.fixture_previous_policy\')::jsonb; BEGIN',
+      "  IF (SELECT jsonb_build_object('enabled',enabled,'protocol',protocol) FROM private.fair_dice_settings WHERE singleton) IS DISTINCT FROM previous_policy THEN RAISE EXCEPTION 'Original fair-dice policy restoration failed.'; END IF;");
+  } else {
+    statements.push('SELECT public.configure_fair_dice_policy(false);', 'RESET ROLE;',
+      'DO $fixture_check$ BEGIN',
+      "  IF (SELECT enabled FROM private.fair_dice_settings WHERE singleton) IS DISTINCT FROM false THEN RAISE EXCEPTION 'Policy OFF restoration failed.'; END IF;");
+  }
+  statements.push(
     '  IF (SELECT count(*) FROM public.rooms WHERE code IN (' + specs.map(spec => quote(spec.code)).join(',')
-      + ") AND fair_dice_required AND status='joined' AND game_version=0 AND game_state->>'phase'='opening') <> 4 THEN RAISE EXCEPTION 'Controlled room seeding was incomplete.'; END IF;",
+      + ") AND fair_dice_required" + (preservePolicy ? ' AND fair_dice_protocol=' + quote(protocol) : '')
+      + " AND status='joined' AND game_version=0 AND game_state->>'phase'='opening') <> 4 THEN RAISE EXCEPTION 'Controlled room seeding was incomplete.'; END IF;",
     'END; $fixture_check$;', 'COMMIT;', '');
   return { fixture: { backendUrl: url, anonKey, fixtures }, sql: statements.join('\n'), specs };
 }
@@ -159,7 +185,7 @@ function writePrivateFile(file, data) {
   finally { fs.closeSync(descriptor); }
 }
 
-function prepareFixtures({ envFile, outputDir, backend }) {
+function prepareFixtures({ envFile, outputDir, backend, protocol = DRAND_PROTOCOL, preservePolicy = false }) {
   const key = readAnonKey(envFile);
   absoluteFile(outputDir);
   const parent = path.dirname(outputDir);
@@ -167,7 +193,7 @@ function prepareFixtures({ envFile, outputDir, backend }) {
   check(parentMetadata.isDirectory() && !parentMetadata.isSymbolicLink() && parentMetadata.uid === process.getuid?.()
     && (parentMetadata.mode & 0o022) === 0 && fs.realpathSync(parent) === parent
     && /^[A-Za-z0-9._-]+$/.test(path.basename(outputDir)), 'FIXTURE_OUTPUT_INVALID');
-  const artifacts = buildFixtures({ anonKey: key, backend });
+  const artifacts = buildFixtures({ anonKey: key, backend, protocol, preservePolicy });
   fs.mkdirSync(outputDir, { mode: 0o700 }); // EEXIST is a hard failure, never reuse.
   const directory = fs.lstatSync(outputDir);
   check(directory.isDirectory() && !directory.isSymbolicLink() && directory.uid === process.getuid?.()
@@ -181,16 +207,31 @@ function prepareFixtures({ envFile, outputDir, backend }) {
   return { ok: true, fixtureFile, seedFile, rooms: artifacts.specs.map(spec => ({ code: spec.code, kind: spec.kind, variant: spec.variant, color: spec.color })) };
 }
 
+function parseArguments(argv) {
+  check(Array.isArray(argv), 'FIXTURE_ARGUMENTS_INVALID');
+  const flags = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const name = argv[index];
+    check(['--env-file', '--output-dir', '--backend-url', '--protocol', '--preserve-policy'].includes(name)
+      && !Object.hasOwn(flags, name), 'FIXTURE_ARGUMENTS_INVALID');
+    if (name === '--preserve-policy') flags[name] = true;
+    else {
+      check(typeof argv[index + 1] === 'string' && argv[index + 1].length > 0
+        && !argv[index + 1].startsWith('--'), 'FIXTURE_ARGUMENTS_INVALID');
+      flags[name] = argv[++index];
+    }
+  }
+  check(['--env-file', '--output-dir', '--backend-url'].every(name => flags[name]), 'FIXTURE_ARGUMENTS_INVALID');
+  const protocol = flags['--protocol'] || DRAND_PROTOCOL;
+  const preservePolicy = flags['--preserve-policy'] || false;
+  check([DRAND_PROTOCOL, SYSTEM_PROTOCOL].includes(protocol), 'FIXTURE_PROTOCOL_INVALID');
+  check(protocol !== SYSTEM_PROTOCOL || preservePolicy, 'FIXTURE_POLICY_MODE_INVALID');
+  return { envFile: flags['--env-file'], outputDir: flags['--output-dir'], backend: flags['--backend-url'], protocol, preservePolicy };
+}
+
 function main(argv = process.argv.slice(2)) {
   check(process.platform === 'linux' && process.getuid?.() === 0, 'FIXTURE_ROOT_LINUX_REQUIRED');
-  const flags = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    check(['--env-file', '--output-dir', '--backend-url'].includes(argv[index]) && argv[index + 1]
-      && !Object.hasOwn(flags, argv[index]), 'FIXTURE_ARGUMENTS_INVALID');
-    flags[argv[index]] = argv[index + 1];
-  }
-  check(Object.keys(flags).length === 3, 'FIXTURE_ARGUMENTS_INVALID');
-  const result = prepareFixtures({ envFile: flags['--env-file'], outputDir: flags['--output-dir'], backend: flags['--backend-url'] });
+  const result = prepareFixtures(parseArguments(argv));
   process.stdout.write(JSON.stringify(result) + '\n');
   return result;
 }
@@ -201,4 +242,4 @@ if (require.main === module) {
     process.exitCode = 1;
   }
 }
-module.exports = { readAnonKey, buildFixtures, prepareFixtures, main, safeError };
+module.exports = { readAnonKey, buildFixtures, prepareFixtures, parseArguments, main, safeError };

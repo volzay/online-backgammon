@@ -1963,7 +1963,7 @@ window.NarduController = (function () {
         layer: boardDiceLayer,
         opening,
         token,
-        duration: 800,
+        duration: state.openingRoll?.fairDiceProof?.protocol === 'system-csprng-v1' ? 380 : 800,
       }),
       trayRollAnimation(),
     ]).then(() => {
@@ -1996,6 +1996,7 @@ window.NarduController = (function () {
         faces,
         color: rollingTurn,
         token,
+        duration: state.history?.[0]?.fairDiceProof?.protocol === 'system-csprng-v1' ? 380 : undefined,
       }),
       trayRollAnimation(),
     ]).then(() => {
@@ -2178,7 +2179,7 @@ window.NarduController = (function () {
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
     if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
-    if (fairDiceInFlight) return { text: lang() === 'en' ? 'Waiting for the independent signed dice source…' : 'Ожидаем независимый подписанный источник броска…', tone: 'waiting' };
+    if (fairDiceInFlight) return { text: lang() === 'en' ? 'Preparing and verifying the dice roll…' : 'Подготавливаем и проверяем бросок…', tone: 'waiting' };
     if (botAnalysisRestorePending) return { text: tr('preparing'), tone: 'waiting' };
     if (state.phase === 'waiting') return { text: tr('turn_waiting'), tone: 'waiting' };
     if (state.phase === 'over' || state.winner) {
@@ -2829,7 +2830,7 @@ window.NarduController = (function () {
           layer: boardDiceLayer,
           opening,
           token: state.rollToken,
-          duration: 800,
+          duration: fair.proof?.protocol === 'system-csprng-v1' ? 380 : 800,
         }),
         trayRollAnimation(),
       ])
@@ -2904,6 +2905,7 @@ window.NarduController = (function () {
           faces: boardFaces,
           color: rollingTurn,
           token: state.rollToken,
+          duration: fair.proof?.protocol === 'system-csprng-v1' ? 380 : undefined,
         }),
         trayRollAnimation(),
       ])

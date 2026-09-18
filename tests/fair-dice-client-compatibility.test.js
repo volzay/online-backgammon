@@ -48,8 +48,9 @@ function header(headers, name) {
 
 function assertProtocol(headers, original = '') {
   const info = header(headers, 'X-Client-Info');
-  assert.equal(info, `${original} ${MARKER}`.trim());
+  assert.equal(info, `${original} ${MARKER} nardu-fair-dice-v37`.trim());
   assert.equal(info.split(/\s+/).filter(value => value === MARKER).length, 1);
+  assert.equal(info.split(/\s+/).filter(value => value === 'nardu-fair-dice-v37').length, 1);
 }
 
 for (const guest of [false, true]) {
@@ -87,7 +88,7 @@ test('existing compatibility marker is preserved once, including case-insensitiv
   const original = new Headers({ 'x-client-info': `sdk/v2\t${MARKER}  other-client`, authorization: 'Bearer unchanged' });
   await client.fetch(`${API}/rest/v1/rooms`, { headers: original });
   const headers = client.calls[0].init.headers;
-  assert.equal(header(headers, 'x-client-info'), `sdk/v2\t${MARKER}  other-client`);
+  assert.equal(header(headers, 'x-client-info'), `sdk/v2\t${MARKER}  other-client nardu-fair-dice-v37`);
   assert.equal(header(headers, 'Authorization'), 'Bearer unchanged');
   assert.equal(header(headers, 'x-client-info').split(/\s+/).filter(value => value === MARKER).length, 1);
 });

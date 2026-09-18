@@ -132,8 +132,12 @@
     if (context !== undefined) {
       if (!context || typeof context !== 'object' || Array.isArray(context)) throw invalid('INVALID_INPUT', 'Контекст броска должен быть объектом.');
       expectedContext = {};
-      for (const field of ['roomCode', 'gameId', 'variant', 'label', 'color']) {
+      for (const field of ['id', 'roomCode', 'gameId', 'variant', 'label', 'color', 'commitment', 'positionHash', 'createdAt']) {
         if (context[field] !== undefined) expectedContext[field] = text(context[field], 'Контекст броска', 256);
+      }
+      if (context.nonce !== undefined) {
+        if (!Number.isSafeInteger(context.nonce) || context.nonce < 1) throw invalid('INVALID_INPUT', 'Номер броска должен быть целым числом 1 или больше.');
+        expectedContext.nonce = context.nonce;
       }
     }
     const publicKey = root.NARDU_ENV?.fairDicePublicKey;
@@ -148,15 +152,21 @@
     if (!actualDice) throw invalid('INVALID_DICE', 'В доказательстве нет результата броска.');
     const input = text(checked?.input, 'Исходная строка', MAX_TEXT, true);
     const sourceVerified = checked.sourceVerified === true;
+    const systemProtocol = checked.protocol === 'system-csprng-v1';
+    const commitmentVerified = systemProtocol && checked.commitmentVerified === true;
     const reservationVerified = hasPinnedKey && checked.reservationVerified === true;
     const hashStatus = recordedHash === null || actualHash === recordedHash ? 'verified' : 'mismatch';
     const diceStatus = comparison(actualDice, expected);
     const inputStatus = recordedInput === null || input === recordedInput ? 'verified' : 'mismatch';
     const mismatch = hashStatus === 'mismatch' || diceStatus === 'mismatch' || inputStatus === 'mismatch';
-    const status = mismatch ? 'mismatch' : sourceVerified && reservationVerified && diceStatus === 'verified' ? 'verified' : 'incomplete';
+    const status = mismatch ? 'mismatch' : (sourceVerified || commitmentVerified) && reservationVerified && diceStatus === 'verified' ? 'verified' : 'incomplete';
     return { status, protocol: checked.protocol || snapshot.protocol, hash: actualHash, dice: actualDice, input, proof: snapshot, sourceBytes: [],
       hashStatus, diceStatus, inputStatus, sourceVerified, reservationVerified, receiptKeyAvailable: hasPinnedKey,
-      warning: !sourceVerified ? 'Подпись независимого источника не подтверждена.'
+      ...(systemProtocol ? { commitmentVerified, independentSourceVerified: false, entropyVerified: false, priorPublicationVerified: false } : {}),
+      warning: systemProtocol ? reservationVerified && commitmentVerified
+        ? 'Подпись сервера, обязательство SHA-256 и расчёт HMAC-SHA256 подтверждены. Игроки и боты используют одну серверную схему; эта проверка не является независимым доказательством источника случайности.'
+        : 'Для серверной схемы подпись или обязательство не подтверждены настроенным ключом.'
+        : !sourceVerified ? 'Подпись независимого источника не подтверждена.'
         : !reservationVerified ? 'Подпись источника drand подтверждена; резервирование броска не подтверждено настроенным ключом сервера.'
           : 'Подтверждены подпись независимого источника и подписанная запись резервирования. Это не доказывает намерения участников или внешнее время фиксации записи.' };
   }
@@ -210,14 +220,15 @@
     const expectedDice = normalizeDice(item.opening ? [item.host, item.guest] : item.roll);
     if (!expectedDice) throw invalid('INVALID_DICE', 'В записи нет результата броска.');
     const preimage = typeof item.sha256Input === 'string' ? text(item.sha256Input, 'Исходная строка') : undefined;
-    return { hash, expectedDice, ...(preimage !== undefined ? { preimage } : {}) };
+    return { hash, expectedDice, ...(preimage !== undefined ? { preimage } : {}),
+      ...(item.fairDiceProof?.protocol === 'system-csprng-v1' ? { protocol: 'system-csprng-v1' } : {}) };
   }
   function verificationUrl(item) {
     try {
-      const { hash, expectedDice } = portalRollFromHistory(item);
+      const { hash, expectedDice, protocol } = portalRollFromHistory(item);
       const color = ['white', 'dark'].includes(item.color) ? `&color=${item.color}` : '';
       // Only public hash/dice go in the fragment: never a seed or input preimage.
-      return `verify-game.html#hash=${hash}&dice=${encodeURIComponent(expectedDice.join(','))}${color}`;
+      return `verify-game.html#hash=${hash}&dice=${encodeURIComponent(expectedDice.join(','))}${color}${protocol ? `&protocol=${protocol}` : ''}`;
     } catch { return ''; }
   }
   async function verifyGameRolls(game) {
@@ -265,7 +276,7 @@
             warning: 'Порядок или номера подписанных бросков не соответствуют последовательности резервирования.' };
         } else result = await verifyPortalRoll({ hash: item.sha256, expectedDice, preimage: item.sha256Input });
       } catch (error) {
-        const mismatch = ['FAIR_CONTEXT_MISMATCH', 'FAIR_RESERVATION_MISMATCH', 'FAIR_BEACON_SIGNATURE_INVALID', 'FAIR_DICE_MISMATCH'].includes(error.code);
+        const mismatch = ['FAIR_CONTEXT_MISMATCH', 'FAIR_RESERVATION_MISMATCH', 'FAIR_BEACON_SIGNATURE_INVALID', 'FAIR_DICE_MISMATCH', 'FAIR_SYSTEM_COMMITMENT_MISMATCH'].includes(error.code);
         result = { status: mismatch ? 'mismatch' : 'incomplete', dice: [], hashStatus: 'unavailable', diceStatus: 'unavailable', warning: error.message, errorCode: error.code };
       }
       counts[result.status] += 1;
@@ -276,7 +287,11 @@
     const status = counts.mismatch ? 'mismatch' : counts.rolls && counts.verified === counts.rolls ? 'verified' : 'incomplete';
     const sourceCounts = { signed: rolls.filter(item => Object.prototype.hasOwnProperty.call(item, 'fairDiceProof')).length,
       sourceVerified: results.filter(item => item.sourceVerified).length,
-      reservationVerified: results.filter(item => item.reservationVerified).length };
+      reservationVerified: results.filter(item => item.reservationVerified).length,
+      ...(signedRolls.some(item => item.fairDiceProof?.protocol === 'system-csprng-v1') ? {
+        system: signedRolls.filter(item => item.fairDiceProof?.protocol === 'system-csprng-v1').length,
+        commitmentVerified: results.filter(item => item.protocol === 'system-csprng-v1' && item.commitmentVerified).length,
+      } : {}) };
     return { status, historyLength, counts, results, ...(sourceCounts.signed ? { sourceCounts } : {}) };
   }
   return Object.freeze({ MAX_TEXT, normalizeHash, normalizeDice, sha256Hex, diceFromHash,
