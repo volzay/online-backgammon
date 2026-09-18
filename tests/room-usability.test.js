@@ -100,6 +100,7 @@ function evaluateTurnStatus(state, flags = {}, language = 'ru') {
       spectatorMode = false, mode = 'remote', playerColor = 'white',
       isRolling = false, botAnalysisRestorePending = false,
       fairDiceError = '', fairDiceInFlight = false,
+      botPlannerError = '',
     } = flags;
     ${sources}
     return { status: currentTurnStatus(), isMyTurn: isMyTurn() };
@@ -134,6 +135,15 @@ test('failed protected dice pause the real turn guard and take precedence over a
   assert.equal(evaluateTurnStatus(state, { botAnalysisRestorePending: true }).isMyTurn, false);
   assert.equal(evaluateTurnStatus(state, { playerColor: 'dark' }).isMyTurn, false);
   assert.equal(evaluateTurnStatus(state, { mode: 'hotseat', fairDiceError: message }).isMyTurn, false);
+});
+
+test('unavailable neural model displays its pause reason and disables live player moves', () => {
+  const state = { phase: 'move', turn: 'white', winner: null };
+  const reason = 'Нейробот недоступен. Игра приостановлена без замены бота.';
+  const result = evaluateTurnStatus(state, { mode: 'bot', botPlannerError: reason });
+  assert.deepEqual(result.status, { text: reason, tone: 'waiting' });
+  assert.equal(result.isMyTurn, false);
+  assert.equal(evaluateTurnStatus(state, { mode: 'bot' }).isMyTurn, true);
 });
 
 test('waiting-room invitation contains a join deep link and never puts its password in the URL', () => {

@@ -2201,7 +2201,7 @@ window.NarduController = (function () {
 
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
-    if (botPlannerError && !state.winner) return { text: botPlannerError, tone: 'waiting' };
+    if (typeof botPlannerError !== 'undefined' && botPlannerError && !state.winner) return { text: botPlannerError, tone: 'waiting' };
     if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
     if (fairDiceInFlight) return { text: lang() === 'en' ? 'Preparing and verifying the dice roll…' : 'Подготавливаем и проверяем бросок…', tone: 'waiting' };
     if (botAnalysisRestorePending) return { text: tr('preparing'), tone: 'waiting' };
@@ -2488,7 +2488,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
-    if (spectatorMode || botAnalysisRestorePending || fairDiceError || botPlannerError) return false;
+    if (spectatorMode || botAnalysisRestorePending || fairDiceError || (typeof botPlannerError !== 'undefined' && botPlannerError)) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }

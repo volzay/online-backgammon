@@ -72,7 +72,7 @@ test('public model builder rejects a reset network, changed weight, extra proven
 
 test('hard-neuro normalization preserves its identity before the old hard/name/rating hints', () => {
   const { bot } = environment();
-  for (const hint of ['hard-neuro', 'hard neuro', 'hard_neuro', 'Сложный бот-нейро']) {
+  for (const hint of ['hard-neuro', 'hard neuro', 'hard_neuro', 'Hard neural bot', 'Сложный бот-нейро']) {
     assert.equal(bot.normalizeDifficulty(hint, { botDifficulty: 'hard', analysis: { botName: 'Бот сложный 1500' } }), 'hard-neuro');
   }
   assert.equal(bot.normalizeDifficulty('hard', { analysis: { difficulty: 'hard-neuro' } }), 'hard-neuro');
