@@ -819,7 +819,7 @@ window.NarduController = (function () {
         }
         persistBotGameConfig(roomCode, url);
         pending = null;
-        undoStack = [];
+        undoStack = restoreCurrentTurnUndo(state);
         persistRoomSnapshot();
       }
 
@@ -1799,6 +1799,7 @@ window.NarduController = (function () {
       matchScore: normalizedMatchScore(nextState.matchScore || previousMatchScore),
     };
     state = remoteState;
+    undoStack = restoreCurrentTurnUndo(remoteState);
     if (state.phase === 'over' && state.rematch?.status === 'accepted' && isRemoteHost()) {
       isApplyingRemote = false;
       startNextGame({ publish: true });
@@ -3534,6 +3535,140 @@ window.NarduController = (function () {
       hints: [],
       fullHints: [],
     }));
+  }
+
+  // A reload must not make an already accepted checker move irrevocable. Only
+  // authoritative server restores call this helper; never trust saved local
+  // undo stacks or replay rolls. Reverse at most this roll's four moves, then
+  // verify them forwards with the actual rules before exposing any snapshot.
+  function restoreCurrentTurnUndo(source) {
+    try {
+      const color = source?.turn;
+      const moves = source?.turnMoves;
+      if (!source || source.phase !== 'move' || source.winner
+        || !['white', 'dark'].includes(color) || !['long', 'short'].includes(source.variant)
+        || !Array.isArray(moves) || moves.length < 1 || moves.length > 4
+        || !Array.isArray(source.history) || source.history.length <= moves.length) return [];
+      const isDie = value => Number.isInteger(value) && value >= 1 && value <= 6;
+      const rolled = source.rolled;
+      if (!Array.isArray(rolled) || !rolled.every(isDie)
+        || !(rolled.length === 2 && rolled[0] !== rolled[1]
+          || rolled.length === 4 && rolled.every(die => die === rolled[0]))
+        || !Array.isArray(source.dice) || !source.dice.every(isDie)) return [];
+      const roll = source.history[moves.length];
+      if (!roll || roll.color !== color || roll.roll !== compactRollText(rolled)
+        || roll.from !== undefined || roll.to !== undefined || roll.die !== undefined
+        || roll.opening || roll.resign || roll.leave || roll.networkLoss || roll.timeout) return [];
+      if (roll.fairDiceProof && JSON.stringify(roll.fairDiceProof.dice) !== JSON.stringify(rolled.slice(0, 2))) return [];
+      const opponent = NarduGame.opponentOf(color);
+      const currentEvents = source.history.slice(0, moves.length).reverse();
+      const remaining = rolled.slice();
+      for (let index = 0; index < moves.length; index += 1) {
+        const move = moves[index];
+        const event = currentEvents[index];
+        if (!move || !event || move.color !== color || event.color !== color
+          || !Number.isInteger(move.from) || !Number.isInteger(move.to) || !isDie(move.die)
+          || typeof move.bearOff !== 'boolean'
+          || (move.bearOff ? move.to !== 0 : move.to < 1 || move.to > 24)
+          || !(move.from >= 1 && move.from <= 24
+            || source.variant === 'short' && move.from === NarduGame.barPoint(color))
+          || event.from !== move.from || event.die !== move.die
+          || (move.bearOff ? event.to !== 'снято' : event.to !== move.to)
+          || typeof event.hit !== 'boolean' || event.hitColor !== (event.hit ? opponent : null)
+          || event.hit && (source.variant !== 'short' || move.bearOff)
+          || event.roll !== undefined || event.opening || event.resign || event.leave
+          || event.networkLoss || event.timeout || event.fairDiceProof) return [];
+        const dieIndex = remaining.indexOf(move.die);
+        if (dieIndex < 0) return [];
+        remaining.splice(dieIndex, 1);
+      }
+      if (JSON.stringify(remaining) !== JSON.stringify(source.dice)) return [];
+
+      const fields = ['variant', 'points', 'bar', 'off', 'score', 'dice', 'rolled',
+        'turn', 'phase', 'winner', 'resultType', 'firstMoveDone', 'headPlayedThisTurn', 'turnMoves'];
+      const core = value => JSON.parse(JSON.stringify(Object.fromEntries(fields.map(key => [key, value[key]]))));
+      const validPosition = value => {
+        const totals = { white: 0, dark: 0 };
+        for (const field of ['bar', 'off', 'score']) {
+          for (const side of ['white', 'dark']) {
+            const count = value[field]?.[side];
+            if (!Number.isInteger(count) || count < 0 || count > (field === 'score' ? 1000000 : 15)) return false;
+            if (field !== 'score') totals[side] += count;
+          }
+        }
+        if (value.variant === 'long' && (value.bar.white || value.bar.dark)) return false;
+        for (const [point, stack] of Object.entries(value.points || {})) {
+          if (!/^(?:[1-9]|1[0-9]|2[0-4])$/.test(point) || !stack
+            || !['white', 'dark'].includes(stack.color) || !Number.isInteger(stack.count)
+            || stack.count < 1 || stack.count > 15) return false;
+          totals[stack.color] += stack.count;
+        }
+        return totals.white === 15 && totals.dark === 15
+          && ['firstMoveDone', 'headPlayedThisTurn'].every(field =>
+            ['white', 'dark'].every(side => typeof value[field]?.[side] === 'boolean'));
+      };
+      const probe = core(source);
+      if (!validPosition(probe)) return [];
+      for (let index = moves.length - 1; index >= 0; index -= 1) {
+        const move = moves[index];
+        const event = currentEvents[index];
+        if (move.bearOff) {
+          if (probe.off[color] < 1) return [];
+          probe.off[color] -= 1;
+          probe.score[color] -= 24 - NarduGame.pathPos(color, move.from, probe);
+        } else {
+          const target = probe.points[move.to];
+          if (target?.color !== color || target.count < 1) return [];
+          target.count -= 1;
+          if (!target.count) delete probe.points[move.to];
+          if (event.hit) {
+            if (probe.points[move.to] || probe.bar[opponent] < 1) return [];
+            probe.points[move.to] = { color: opponent, count: 1 };
+            probe.bar[opponent] -= 1;
+          }
+          probe.score[color] -= move.die;
+        }
+        if (source.variant === 'short' && move.from === NarduGame.barPoint(color)) probe.bar[color] += 1;
+        else {
+          const from = probe.points[move.from];
+          if (from && from.color !== color) return [];
+          if (!from) probe.points[move.from] = { color, count: 0 };
+          probe.points[move.from].count += 1;
+        }
+      }
+      probe.dice = rolled.slice();
+      probe.turnMoves = [];
+      probe.headPlayedThisTurn = { white: false, dark: false };
+      // Private evidence/history is copied into snapshots, not rules search.
+      probe.history = [];
+      if (!validPosition(probe)) return [];
+      const snapshots = [];
+      for (let index = 0; index < moves.length; index += 1) {
+        snapshots.push(cloneStateForUndo({
+          ...source, ...core(probe), turnMoves: moves.slice(0, index),
+          history: source.history.slice(moves.length - index),
+        }));
+        const move = moves[index];
+        if (!NarduGame.applyMove(probe, move.from, move.die, { autoEnd: false }) || probe.winner) return [];
+        const generated = probe.history[0];
+        const accepted = currentEvents[index];
+        if (['color', 'from', 'to', 'die', 'hit', 'hitColor'].some(key => generated[key] !== accepted[key])) return [];
+        const actualMove = probe.turnMoves[index];
+        if (['color', 'from', 'to', 'die', 'bearOff'].some(key => actualMove[key] !== move[key])) return [];
+        probe.history = [];
+      }
+      // JSONB may reorder any nested object (including counters/head flags).
+      const stable = value => Array.isArray(value) ? value.map(stable)
+        : value && typeof value === 'object'
+          ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+      const canonical = value => JSON.stringify(stable({
+        ...core(value),
+        turnMoves: value.turnMoves.map(move => Object.fromEntries(['color', 'from', 'to', 'die', 'bearOff'].map(key => [key, move[key]]))),
+      }));
+      return canonical(probe) === canonical(source) ? snapshots : [];
+    } catch {
+      return []; // Incomplete or contradictory evidence must not enable undo.
+    }
   }
 
   function undoLastMove() {

@@ -157,6 +157,8 @@ for (const kind of ['bot', 'remote']) {
     assert.deepEqual(fixture.rolls.map(roll => roll.nonce), [1, 2, 3, 1]);
     assert.equal(fixture.rolls.every(roll => roll.sourceVerified && roll.reservationVerified && roll.dice.length === 2), true);
     assert.equal(fixture.rejected.length, 7);
+    assert.equal(fixture.undoChecks, 2);
+    assert.equal(output.filter(entry => entry.event === 'undo' && entry.proofPreserved).length, 2);
     assert.notEqual(fixture.rolls[0].gameId, fixture.rolls.at(-1).gameId);
     assert.equal(h.records.size, 4, 'Parallel reservation retries must not allocate additional dice');
     const ended = h.current();

@@ -118,6 +118,7 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
     const ownerColor = room.actor.actorColor;
     const reports = [];
     const rejected = [];
+    let undoChecks = 0;
     let cleanupNeeded = true;
 
     function actorFor(color) { return kind === 'bot' || color === ownerColor ? headers : opponentHeaders; }
@@ -254,9 +255,21 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
           await rejectedAttempt('discard-known-roll', 'state', { code, state: discarded, version: room.version }, actor);
           await rejectedAttempt('reroll-known-dice', 'reserve', { code, label: 'roll', color: room.state.turn }, actor);
         }
-        const moved = clone(room.state);
+        const beforeMove = clone(room.state);
+        const moved = clone(beforeMove);
         const moves = rules.bestMoveSequences(clone(moved), moved.turn)[0] || [];
-        for (const move of moves) check(rules.applyMove(moved, move.from, move.die, { autoEnd: false }), 'CANARY_MOVE_INVALID');
+        if (moves.length) {
+          const firstMove = moves[0];
+          check(rules.applyMove(moved, firstMove.from, firstMove.die, { autoEnd: false }), 'CANARY_MOVE_INVALID');
+          await save(moved, actor);
+          await save(beforeMove, actor);
+          check(samePosition(room.state, beforeMove), 'CANARY_UNDO_INVALID');
+          undoChecks += 1;
+          report({ event: 'undo', room: code, turn: beforeMove.turn,
+            proofPreserved: true, dice: beforeMove.rolled.slice() });
+          await save(moved, actor);
+        }
+        for (const move of moves.slice(1)) check(rules.applyMove(moved, move.from, move.die, { autoEnd: false }), 'CANARY_MOVE_INVALID');
         check(!moved.dice.length || !rules.hasAnyMoves(clone(moved)), 'CANARY_MOVES_INCOMPLETE');
         rules.endTurn(moved);
         await save(moved, actor);
@@ -289,7 +302,7 @@ async function runCanary({ serviceUrl, publicKey, fixtures, readRoom, fetchImpl 
       const second = await roll('opening');
       check(second.request.nonce === 1 && second.request.gameId !== first.request.gameId
         && second.request.id !== first.request.id, 'CANARY_REMATCH_NONCE_INVALID');
-      results.push({ room: code, kind, rolls: reports, rejected, rematch: true });
+      results.push({ room: code, kind, rolls: reports, rejected, undoChecks, rematch: true });
     } finally {
       if (cleanupNeeded) {
         const cleanup = await requireApi('leave', { code }, headers);

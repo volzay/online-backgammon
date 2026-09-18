@@ -276,6 +276,61 @@ test('undo reconstructs only the same current turn and preserves its known roll'
   assertCode(() => validateTransition(completed, rolled, { actorColor: 'white' }), 'fair_undo_forbidden');
 });
 
+for (const variant of ['long', 'short']) {
+  for (const mode of ['bot', 'remote']) {
+    test(`system-csprng ${variant} ${mode}: first checker undo works without snapshot protocol metadata (QM5N-CCQG)`, () => {
+      const rolled = roll(ready(variant, mode)).next;
+      assert.equal(rolled.fairDice, undefined);
+      for (const event of rolled.history) {
+        if (event.fairDiceProof) event.fairDiceProof.protocol = 'system-csprng-v1';
+      }
+      rolled.openingRoll.fairDiceProof.protocol = 'system-csprng-v1';
+      const one = moved(rolled);
+      const options = { actorColor: 'white', botOwner: mode === 'bot', fairDiceProtocol: 'system-csprng-v1' };
+      assert.equal(validateTransition(one, rolled, options), true);
+      assert.equal(validateTransition(one, rolled, { actorColor: 'white', botOwner: mode === 'bot' }), true,
+        'standalone replay derives the protocol from confirmed history, not the proposed undo');
+      assertCode(() => validateTransition(one, rolled, { ...options, actorColor: 'dark', botOwner: false }), 'fair_actor_forbidden');
+      const changed = clone(rolled);
+      changed.history[0].fairDiceProof.protocol = 'drand-quicknet-v1';
+      assertCode(() => validateTransition(one, changed, options), 'fair_roll_history_changed');
+      assertCode(() => validateTransition(one, rolled, { ...options, fairDiceProtocol: 'drand-quicknet-v1' }), 'fair_proof_required');
+    });
+  }
+}
+
+test('system-csprng long undo replays completed turns, keeps all issued proofs and rejects mixed protocols', () => {
+  let state = ready('long', 'bot');
+  state.analysis = { playerColor: 'white' };
+  for (const event of state.history) if (event.fairDiceProof) event.fairDiceProof.protocol = 'system-csprng-v1';
+  state.openingRoll.fairDiceProof.protocol = 'system-csprng-v1';
+  const options = { actorColor: 'white', botOwner: true, fairDiceProtocol: 'system-csprng-v1' };
+  for (const dice of [[4, 1], [6, 2], [3, 3], [2, 5]]) {
+    const issued = roll(state, dice);
+    issued.proof.protocol = 'system-csprng-v1';
+    issued.next.history[0].fairDiceProof.protocol = 'system-csprng-v1';
+    assert.equal(validateTransition(state, issued.next, { ...options, issuedProof: issued.proof }), true);
+    state = issued.next;
+    for (const move of rules.bestMoveSequences(clone(state), state.turn)[0]) state = moved(state, move);
+    const finished = clone(state);
+    rules.endTurn(finished);
+    assert.equal(validateTransition(state, finished, options), true);
+    state = finished;
+  }
+  const current = roll(state, [1, 5]).next;
+  current.history[0].fairDiceProof.protocol = 'system-csprng-v1';
+  const one = moved(current);
+  assert.equal(validateTransition(one, current, options), true);
+  const alteredBoard = clone(current);
+  alteredBoard.score[current.turn] += 1;
+  assertCode(() => validateTransition(one, alteredBoard, options), 'fair_position_mismatch');
+  const mixedPrevious = clone(one);
+  const mixedNext = clone(current);
+  mixedPrevious.history.at(-1).fairDiceProof.protocol = 'drand-quicknet-v1';
+  mixedNext.history.at(-1).fairDiceProof.protocol = 'drand-quicknet-v1';
+  assertCode(() => validateTransition(mixedPrevious, mixedNext, options), 'fair_proof_required');
+});
+
 test('existing roll proofs and move history cannot be rewritten or reordered', () => {
   const state = moved(roll(ready()).next);
   const tampered = clone(state);

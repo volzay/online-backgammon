@@ -171,6 +171,114 @@ async function issueOpening(h) {
   return ready.data.proof;
 }
 
+test('system coordinator accepts a first-checker undo without top-level policy metadata and preserves its issued dice', async t => {
+  const serverSeed = 'ab'.repeat(32);
+  const at = '2026-09-18T00:00:00.000Z';
+  class SystemUndoStore extends MemoryStore {
+    async getRoom(code, headers) {
+      const room = await super.getRoom(code, headers);
+      if (headers.authorization === 'Bearer dark.test') room.actor.actorColor = 'dark';
+      return { ...room, fairDiceProtocol: FairDice.SYSTEM_PROTOCOL };
+    }
+    async reserve(code, intent, headers) {
+      const request = await super.reserve(code, intent, headers);
+      const record = this.records.get(request.id);
+      if (record.protocol !== FairDice.SYSTEM_PROTOCOL) {
+        delete request.round;
+        request.commitment = '0'.repeat(64);
+        request.commitment = FairDice.systemCommitment(request, serverSeed);
+        Object.assign(record, { request, protocol: FairDice.SYSTEM_PROTOCOL,
+          privateSeed: serverSeed, clientSeed: null });
+      }
+      return clone(record.request);
+    }
+    async acceptClientSeed(id, seed, headers) {
+      assert.equal(this.validated.has(headers), true);
+      const record = this.records.get(id);
+      if (record.clientSeed === null) record.clientSeed = seed;
+      return clone(record);
+    }
+  }
+  const store = new SystemUndoStore(initial('bot'));
+  store.bot = true;
+  store.state.analysis = { playerColor: 'white', difficulty: 'hard-neuro' };
+  const h = await harness(t, { store });
+  async function issueSystem(label, color) {
+    const reserved = await h.request('/reserve', { code: CODE, label, color });
+    assert.equal(reserved.status, 202, JSON.stringify(reserved.data));
+    const receipt = reserved.data.receipt;
+    // Pick reproducible fixture dice; the actual service must still accept,
+    // persist, derive and sign the challenge through its real system path.
+    let clientSeed;
+    for (let index = 0; index < 128; index += 1) {
+      const seed = index.toString(16).padStart(64, '0');
+      const fixture = FairDice.createSystemProof(receipt, serverSeed, seed);
+      if (label === 'opening' ? fixture.dice[0] > fixture.dice[1]
+        : fixture.dice[0] !== fixture.dice[1]) { clientSeed = seed; break; }
+    }
+    assert.ok(clientSeed, 'fixture must give the human the opening and a two-die turn');
+    const challenged = await h.request('/challenge', { code: CODE, requestId: receipt.request.id,
+      requestHash: receipt.requestHash, clientSeed });
+    assert.equal(challenged.status, 200, JSON.stringify(challenged.data));
+    const proof = challenged.data.proof;
+    assert.equal((await FairDice.verifyProof(proof, { publicKey: h.service.publicKey })).protocol,
+      FairDice.SYSTEM_PROTOCOL);
+    return proof;
+  }
+  const save = state => h.request('/state', { code: CODE, state, version: store.version });
+  const openingProof = await issueSystem('opening', 'none');
+  const opened = openingState(store.state, openingProof);
+  opened.openingRoll.at = at;
+  opened.history[0].at = at;
+  assert.equal((await save(opened)).status, 200);
+  const ready = clone(store.state);
+  rules.startOpeningTurn(ready);
+  assert.equal((await save(ready)).status, 200);
+  const turnProof = await issueSystem('roll', 'white');
+  const rolled = clone(store.state);
+  rules.applyRoll(rolled, turnProof.dice);
+  rolled.history.unshift({ color: 'white', roll: turnProof.dice.join(':'), openingMove: true,
+    sha256: turnProof.sha256, sha256Input: turnProof.sha256Input,
+    fairDiceProof: clone(turnProof), at });
+  assert.equal(rolled.fairDice, undefined, 'live neural rooms keep their policy on the room row');
+  assert.equal((await save(rolled)).status, 200);
+  const moved = clone(rolled);
+  const firstMove = rules.legalNextMoves(clone(moved))[0];
+  assert.equal(rules.applyMove(moved, firstMove.from, firstMove.die, { autoEnd: false }), true);
+  assert.equal((await save(moved)).status, 200);
+  const rejectedVersion = store.version;
+  const wrongActor = await h.request('/state', { code: CODE, state: rolled, version: store.version }, {
+    headers: { origin: ORIGIN, authorization: 'Bearer dark.test', 'content-type': 'application/json' },
+  });
+  assert.equal(wrongActor.status, 422);
+  assert.equal(wrongActor.data.code, 'fair_actor_forbidden');
+  const tampered = clone(rolled);
+  tampered.history[0].fairDiceProof.dice[0] = (turnProof.dice[0] % 6) + 1;
+  const forged = await save(tampered);
+  assert.equal(forged.status, 422);
+  assert.equal(forged.data.code, 'fair_roll_history_changed');
+  assert.equal(store.version, rejectedVersion);
+  const undone = await save(rolled);
+  assert.equal(undone.status, 200, JSON.stringify(undone.data));
+  assert.deepEqual(undone.data.state, clone(rolled));
+  assert.deepEqual(undone.data.state.history[0].fairDiceProof, turnProof);
+  assert.deepEqual(undone.data.state.rolled, turnProof.dice);
+  assert.equal(store.allocations, 2);
+  assert.equal(store.proofCommits, 2);
+  assert.equal(h.calls.length, 0, 'system undo cannot fetch another random source');
+  const completed = clone(store.state);
+  for (const move of rules.bestMoveSequences(clone(completed), completed.turn)[0]) {
+    assert.equal(rules.applyMove(completed, move.from, move.die, { autoEnd: false }), true);
+  }
+  rules.endTurn(completed);
+  assert.equal((await save(completed)).status, 200);
+  const completedVersion = store.version;
+  const lateUndo = await save(rolled);
+  assert.equal(lateUndo.status, 422);
+  assert.equal(lateUndo.data.code, 'fair_undo_forbidden');
+  assert.equal(store.version, completedVersion);
+});
+
 test('reservation returns signed future intent before source completion, no client-supplied round', async t => {
   let release;
   let called;
