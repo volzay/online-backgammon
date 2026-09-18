@@ -1,0 +1,579 @@
+{
+  "documentType": "nardu.fair-dice-production-canary",
+  "date": "2026-09-18",
+  "scope": "Four disposable synthetic guest rooms only; overall new-room policy OFF during canaries. Frontend publication and global activation are subsequent gates.",
+  "host": "201.51.7.193",
+  "backendRelease": "v36-366bc4bb479f1c0f",
+  "node": "v24.21.0",
+  "baseImage": "node@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553",
+  "serviceUrl": "https://api.201-51-7-193.sslip.io/fair-dice/v1",
+  "publicKey": "e644c8245a4aa58f0de567a0dca8a5e1c77e816968b375110aafa7562f088322",
+  "postgresql": {
+    "version": "17.6",
+    "migrationApplied": true,
+    "rollbackSmokes": [
+      "Basic: stamping/auth/idempotence/proof immutability/CAS/cancellation/rematch",
+      "Extra actual anon/authenticated/service_role: bans/waiting close/guest join/JWT isolation/reconnect CAS/rematch/deletion ledger retention/old client rejection"
+    ],
+    "migrationSha256": "80f52a8404a91abcc2b9bfca035c913c02ff09ffdd37e74a5cf2eeea8daa2b18"
+  },
+  "keySafety": {
+    "persistent": true,
+    "ownerUid": 10001,
+    "mode": "0600",
+    "protectedBackupVerified": true,
+    "reprovisionKeptSamePublicKey": true,
+    "privateValuesInReport": false
+  },
+  "clock": {
+    "ntpSynchronized": true,
+    "postgresContainerUtcChecked": true
+  },
+  "backups": {
+    "databaseCompressedIntegrityChecked": true,
+    "restoreListEntries": 979,
+    "fullRestoreExecuted": false,
+    "caddyConfigurationCopied": true,
+    "signingKeyCopiedSeparately": true
+  },
+  "matrix": [
+    {
+      "code": "DJBV-K7S8",
+      "variant": "long",
+      "kind": "bot",
+      "humanColor": "white"
+    },
+    {
+      "code": "ZUTS-372B",
+      "variant": "long",
+      "kind": "bot",
+      "humanColor": "dark"
+    },
+    {
+      "code": "LUSQ-LREM",
+      "variant": "short",
+      "kind": "bot",
+      "humanColor": "white",
+      "publicGuestAliasExercised": true
+    },
+    {
+      "code": "94X4-5M37",
+      "variant": "long",
+      "kind": "remote",
+      "guestParticipants": 2
+    }
+  ],
+  "summary": {
+    "completed": 4,
+    "verifiedProofs": 16,
+    "rejectedTamperAttempts": 28,
+    "allSourceAndReservationSignaturesVerified": true,
+    "duplicateReserveKeptSameRequest": true,
+    "twoLegalTurnsPerRoom": true,
+    "ownLeaveAndRematchVerified": true,
+    "allFixturesEnded": true,
+    "latency": {
+      "minimumMs": 7727,
+      "maximumMs": 9330,
+      "meanMs": 8744,
+      "sampleSize": 16
+    },
+    "logSha256": "65f0ef83ded56701e2586f70f9da1d9005edc9ae6db5f0371db6021e10926b00"
+  },
+  "signaturesVerifiedIndependentlyInNode": {
+    "shaAndDiceMatch": true,
+    "tamperedDiceRejected": true
+  },
+  "verified": [
+    {
+      "event": "verified",
+      "room": "DJBV-K7S8",
+      "gameId": "c2f016fe-3271-4c58-a653-b9406bdb8681",
+      "requestId": "a42e0e7f-2a74-42e8-a741-6b0bc627430d",
+      "nonce": 1,
+      "round": 32302810,
+      "dice": [
+        2,
+        4
+      ],
+      "sha256": "73f998dd8c647dc487d9f72e34715c3a37e2d4676d47b4444eece980cb98b80f",
+      "elapsedMs": 8175,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "DJBV-K7S8",
+      "gameId": "c2f016fe-3271-4c58-a653-b9406bdb8681",
+      "requestId": "cdee51b7-b23c-4efb-bd8d-45fa879a5d74",
+      "nonce": 2,
+      "round": 32302813,
+      "dice": [
+        4,
+        3
+      ],
+      "sha256": "5d4a077ae4733845368c93f67d29951c8b3838af72555d6718806f132e349a1c",
+      "elapsedMs": 8586,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "DJBV-K7S8",
+      "gameId": "c2f016fe-3271-4c58-a653-b9406bdb8681",
+      "requestId": "bb96ac96-378f-4be0-b40e-ade552a817f6",
+      "nonce": 3,
+      "round": 32302816,
+      "dice": [
+        2,
+        2
+      ],
+      "sha256": "679189316739f9a73b5e5b41836191f2654ae2de337316d6afd7a6910f6e1367",
+      "elapsedMs": 9297,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "DJBV-K7S8",
+      "gameId": "1d316821-52d7-45d4-9c71-408705f8fea7",
+      "requestId": "47874476-c888-44ab-8519-2615f7cb3aa8",
+      "nonce": 1,
+      "round": 32302819,
+      "dice": [
+        6,
+        5
+      ],
+      "sha256": "e35ed9699f94b8095f209840552b91f29447be6c19bdf646284cac5d5a8fc693",
+      "elapsedMs": 7742,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "ZUTS-372B",
+      "gameId": "66e0904d-8643-4f7b-9136-9c332b3bd8c8",
+      "requestId": "eb688bff-0c8d-4167-9b4b-c5f01c6551b8",
+      "nonce": 1,
+      "round": 32302822,
+      "dice": [
+        6,
+        2
+      ],
+      "sha256": "95cdc5f8d6749170b5ee86310518e31dc55d89d7e3ae463ad20b47505ecca2e6",
+      "elapsedMs": 9306,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "ZUTS-372B",
+      "gameId": "66e0904d-8643-4f7b-9136-9c332b3bd8c8",
+      "requestId": "e2f697c7-ce78-4c10-b639-691cc089104a",
+      "nonce": 2,
+      "round": 32302825,
+      "dice": [
+        2,
+        3
+      ],
+      "sha256": "85cee37ae562983d2cb30ef9cfea91dad998b6fd114b606363515d4a8f1a00d4",
+      "elapsedMs": 8537,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "ZUTS-372B",
+      "gameId": "66e0904d-8643-4f7b-9136-9c332b3bd8c8",
+      "requestId": "80cbcc0a-ffbd-4265-a6a6-30154e2db245",
+      "nonce": 3,
+      "round": 32302828,
+      "dice": [
+        5,
+        2
+      ],
+      "sha256": "d6f1d70c8bd2e7c5e34a8e1d37ef23cfeb83e49d005423df994902a79440a8d2",
+      "elapsedMs": 9295,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "ZUTS-372B",
+      "gameId": "edb36a26-76d8-449a-829e-8324cf76ba39",
+      "requestId": "115d4521-b8ec-4171-a3fb-477d08871e1c",
+      "nonce": 1,
+      "round": 32302831,
+      "dice": [
+        1,
+        6
+      ],
+      "sha256": "3659e7f8d433ac51b4c43c4e3e809229bb07113c1eae56758cfffb7f6006cbac",
+      "elapsedMs": 8503,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "LUSQ-LREM",
+      "gameId": "afe13fae-f0a0-4341-997c-950102194647",
+      "requestId": "6511773c-8970-47fe-98b1-c4ceb40335fc",
+      "nonce": 1,
+      "round": 32302834,
+      "dice": [
+        2,
+        4
+      ],
+      "sha256": "191b5163c3ae53ce70cd38a3238fe790bf8142f9ed8491809113aa04c1326bdb",
+      "elapsedMs": 8598,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "LUSQ-LREM",
+      "gameId": "afe13fae-f0a0-4341-997c-950102194647",
+      "requestId": "d7452a49-c38b-4d86-b3ea-12b72ef6728a",
+      "nonce": 2,
+      "round": 32302837,
+      "dice": [
+        4,
+        1
+      ],
+      "sha256": "b15ad74009f98df3732327e393f723432fbf7fc02233e865c13cdd7ddfe65eb4",
+      "elapsedMs": 9260,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "LUSQ-LREM",
+      "gameId": "afe13fae-f0a0-4341-997c-950102194647",
+      "requestId": "e630ba95-1552-4f35-a990-7eb2d3c55c40",
+      "nonce": 3,
+      "round": 32302840,
+      "dice": [
+        5,
+        3
+      ],
+      "sha256": "b24a5567386ab05e081e501ef9c11d05ae71a5451f76a284bdbf3a41a438cfee",
+      "elapsedMs": 9330,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "LUSQ-LREM",
+      "gameId": "36406e3c-6966-41d5-840d-13483f3edd9c",
+      "requestId": "830a7e65-cdd4-4a8d-bb8c-ab5994b554ee",
+      "nonce": 1,
+      "round": 32302843,
+      "dice": [
+        4,
+        6
+      ],
+      "sha256": "e14d2f1bab646deca8d8169385d3b92f82d869698a1561e06e1849433b40c276",
+      "elapsedMs": 7727,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "94X4-5M37",
+      "gameId": "f686e11f-11d3-45fb-bc9b-70cb0c15344c",
+      "requestId": "1b9f1012-a0d8-4dc5-a97b-3a895fb49e6e",
+      "nonce": 1,
+      "round": 32302846,
+      "dice": [
+        2,
+        3
+      ],
+      "sha256": "37d418ee7db545ab0ef7d90f5e7180feab760f01604e09bcd31439745e2b2ca2",
+      "elapsedMs": 9321,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "94X4-5M37",
+      "gameId": "f686e11f-11d3-45fb-bc9b-70cb0c15344c",
+      "requestId": "565cf228-8b1d-44ce-bc0b-f15b96d4c754",
+      "nonce": 2,
+      "round": 32302849,
+      "dice": [
+        6,
+        5
+      ],
+      "sha256": "ef3aee736b70d6152a5ce4d2ca35ba81dfbfcd5a3589242d31f25e8f7ea218bb",
+      "elapsedMs": 8468,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "94X4-5M37",
+      "gameId": "f686e11f-11d3-45fb-bc9b-70cb0c15344c",
+      "requestId": "b046c267-1427-46a9-b8a7-8ae68cd8eb53",
+      "nonce": 3,
+      "round": 32302852,
+      "dice": [
+        6,
+        6
+      ],
+      "sha256": "c535094ab47461303ce7e7588fe881c2c78d7d4506e73a4e34e900e11350c6f2",
+      "elapsedMs": 9269,
+      "sourceVerified": true,
+      "reservationVerified": true
+    },
+    {
+      "event": "verified",
+      "room": "94X4-5M37",
+      "gameId": "185eb827-5ae1-4e9c-8c32-3f8df9a00348",
+      "requestId": "8deaaf62-d3aa-48f6-80ed-ecfb001f25b1",
+      "nonce": 1,
+      "round": 32302855,
+      "dice": [
+        3,
+        1
+      ],
+      "sha256": "26fcde492b78df4bddc699381e5c6b0dc8e1077deb649d8cdd3b30cdd4d7617b",
+      "elapsedMs": 8482,
+      "sourceVerified": true,
+      "reservationVerified": true
+    }
+  ],
+  "rejected": [
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "pending-board-change",
+      "status": 422,
+      "code": "fair_request_pending"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "discard-known-roll",
+      "status": 422,
+      "code": "fair_position_mismatch"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "reroll-known-dice",
+      "status": 422,
+      "code": "22023"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "opponent-resignation",
+      "status": 422,
+      "code": "fair_actor_forbidden"
+    },
+    {
+      "event": "rejected",
+      "room": "DJBV-K7S8",
+      "test": "old-epoch-proof-result",
+      "status": 403,
+      "code": "REQUEST_CONTEXT_MISMATCH"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "pending-board-change",
+      "status": 422,
+      "code": "fair_request_pending"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "discard-known-roll",
+      "status": 422,
+      "code": "fair_position_mismatch"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "reroll-known-dice",
+      "status": 422,
+      "code": "22023"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "opponent-resignation",
+      "status": 422,
+      "code": "fair_actor_forbidden"
+    },
+    {
+      "event": "rejected",
+      "room": "ZUTS-372B",
+      "test": "old-epoch-proof-result",
+      "status": 403,
+      "code": "REQUEST_CONTEXT_MISMATCH"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "pending-board-change",
+      "status": 422,
+      "code": "fair_request_pending"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "discard-known-roll",
+      "status": 422,
+      "code": "fair_position_mismatch"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "reroll-known-dice",
+      "status": 422,
+      "code": "22023"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "opponent-resignation",
+      "status": 422,
+      "code": "fair_actor_forbidden"
+    },
+    {
+      "event": "rejected",
+      "room": "LUSQ-LREM",
+      "test": "old-epoch-proof-result",
+      "status": 403,
+      "code": "REQUEST_CONTEXT_MISMATCH"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "pending-board-change",
+      "status": 422,
+      "code": "fair_request_pending"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "forged-proof-dice",
+      "status": 409,
+      "code": "PROOF_NOT_OUTSTANDING"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "discard-known-roll",
+      "status": 422,
+      "code": "fair_position_mismatch"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "reroll-known-dice",
+      "status": 422,
+      "code": "22023"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "opponent-resignation",
+      "status": 422,
+      "code": "fair_actor_forbidden"
+    },
+    {
+      "event": "rejected",
+      "room": "94X4-5M37",
+      "test": "old-epoch-proof-result",
+      "status": 403,
+      "code": "REQUEST_CONTEXT_MISMATCH"
+    }
+  ],
+  "publicSampleProof": {
+    "dice": [
+      2,
+      4
+    ],
+    "beacon": {
+      "round": 32302810,
+      "signature": "8f0abe04c0fd352613764867721569bd2aa0b17f81b801509ec98afe8605dc3d6f44555cbb02f7586dfef66d9196391a",
+      "randomness": "5e548e827e4d46fd8745e5c4f5227b58db5fc65a10e6ee60af5fc61e820c2ea6"
+    },
+    "sha256": "73f998dd8c647dc487d9f72e34715c3a37e2d4676d47b4444eece980cb98b80f",
+    "request": {
+      "id": "a42e0e7f-2a74-42e8-a741-6b0bc627430d",
+      "color": "none",
+      "label": "opening",
+      "nonce": 1,
+      "round": 32302810,
+      "gameId": "c2f016fe-3271-4c58-a653-b9406bdb8681",
+      "variant": "long",
+      "roomCode": "DJBV-K7S8",
+      "createdAt": "2026-09-18T06:09:47.650Z",
+      "positionHash": "19584b360547d345624cbb58d28cf4e0b8bc500c3770687dbfb9b65d22477053"
+    },
+    "rerolls": 0,
+    "protocol": "drand-quicknet-v1",
+    "chainHash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+    "requestHash": "f4d44d66235ab0906de207f461883e64243867135b5ea53b80d29aa0679e304e",
+    "sha256Input": "nardu/drand-quicknet/v1|a42e0e7f-2a74-42e8-a741-6b0bc627430d|DJBV-K7S8|c2f016fe-3271-4c58-a653-b9406bdb8681|1|opening|none|long|32302810|2026-09-18T06:09:47.650Z|19584b360547d345624cbb58d28cf4e0b8bc500c3770687dbfb9b65d22477053|5e548e827e4d46fd8745e5c4f5227b58db5fc65a10e6ee60af5fc61e820c2ea6|0",
+    "receiptSignature": "1f41b90306dc6048e37dc5aeabf83ceb12b23df8604cd2dac6c50e0d112e900f7c7fab4ab420e0f7b70a665224c59163321c4acb5099a102a9b7049dbde6ee08"
+  },
+  "limitations": [
+    "Controlled healthy-source canaries are not a tournament capacity benchmark.",
+    "This snapshot precedes final Pages byte verification and new-room policy activation.",
+    "Operator clock/client/infrastructure and the threshold source trust remain; a server signature is not external evidence of precommit publication time.",
+    "Legacy games cannot acquire signatures retroactively."
+  ]
+}

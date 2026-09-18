@@ -1,0 +1,6 @@
+# Insert BEFORE the existing catch-all Kong reverse_proxy, inside the existing
+# api.201-51-7-193.sslip.io site block. Preserve every existing auth/API route.
+# "handle", not "handle_path": the coordinator expects the full path prefix.
+handle /fair-dice/v1/* {
+    reverse_proxy fair-dice:3895
+}

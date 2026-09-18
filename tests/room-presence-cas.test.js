@@ -31,19 +31,26 @@ test('concurrent room heartbeats retry with CAS and preserve both player slots',
   };
   const updateFilters = [];
   let loads = 0;
+  let policyLoads = 0;
   let updates = 0;
 
   function query() {
     let updatePayload = null;
+    let policyRead = false;
     const filters = [];
     const chain = {
-      select() { return chain; },
+      select(columns) { policyRead = Boolean(columns?.includes('fair_dice_required')); return chain; },
       update(payload) { updatePayload = payload; return chain; },
       eq(column, value) { filters.push(['eq', column, value]); return chain; },
       neq(column, value) { filters.push(['neq', column, value]); return chain; },
       in(column, value) { filters.push(['in', column, value]); return chain; },
       maybeSingle() {
         if (!updatePayload) {
+          if (policyRead) {
+            policyLoads += 1;
+            assert.deepEqual(filters, [['eq', 'code', 'CAS1-ROOM'], ['neq', 'status', 'closed']]);
+            return Promise.resolve({ data: { ...JSON.parse(JSON.stringify(room)), fair_dice_required: false }, error: null });
+          }
           loads += 1;
           return Promise.resolve({ data: JSON.parse(JSON.stringify(room)), error: null });
         }
@@ -108,6 +115,7 @@ test('concurrent room heartbeats retry with CAS and preserve both player slots',
 
   assert.equal(result.ok, true);
   assert.equal(loads, 2);
+  assert.equal(policyLoads, 1);
   assert.equal(updates, 2);
   assert.equal(room.presence.dark.lastSeen, now + 50);
   assert.ok(room.presence.white.lastSeen >= now);
@@ -130,6 +138,7 @@ test('concurrent room heartbeats retry with CAS and preserve both player slots',
   assert.equal(final.state.winner, 'dark');
   assert.equal(final.version, 4);
   assert.equal(updates, 2, 'a final room is returned without an RLS-blocked presence PATCH');
+  assert.equal(policyLoads, 1, 'cached legacy policy reads do not alter heartbeat retry counts');
 });
 
 test('spectator-only updates do not invalidate the player presence lock', () => {

@@ -1,0 +1,58 @@
+# Standalone coordinator, attached only to the existing Supabase Docker network.
+# This file is a deployment template; it does not activate the database policy.
+services:
+  fair-dice:
+    build:
+      context: ${FAIR_DICE_RELEASE_DIR:?Set the exact reviewed release directory}
+      dockerfile: ops/timeweb/fair-dice.Dockerfile
+      args:
+        NODE_IMAGE: ${FAIR_DICE_NODE_IMAGE:?Set the verified Node 24 image digest}
+    image: online-backgammon-fair-dice:${FAIR_DICE_RELEASE_ID:?Set the reviewed release ID}
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 15s
+    environment:
+      NODE_ENV: production
+      FAIR_DICE_HOST: 0.0.0.0
+      FAIR_DICE_INTERNAL_CONTAINER: "1"
+      FAIR_DICE_PORT: "3895"
+      FAIR_DICE_ALLOWED_ORIGINS: https://volzay.github.io
+      FAIR_DICE_SIGNING_KEY_FILE: /run/secrets/fair-dice-signing.key
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY:?Read ANON_KEY from the protected server environment}
+      # This public alias is the Pages browser key, not a private service key.
+      # Only this exact guest alias may be translated to the internal anon JWT.
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_kWyPnUGXGMJ0afLvIdRNNr_j7tZjhXC
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Read SERVICE_ROLE_KEY from the protected server environment}
+    volumes:
+      - type: bind
+        source: /etc/online-backgammon/fair-dice-signing.key
+        target: /run/secrets/fair-dice-signing.key
+        read_only: true
+        bind:
+          create_host_path: false
+    expose: ["3895"]
+    networks: [fair_dice_backend]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3895/fair-dice/v1/health',{signal:AbortSignal.timeout(3000)}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  fair_dice_backend:
+    external: true
+    name: supabase_default

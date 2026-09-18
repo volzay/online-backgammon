@@ -18,7 +18,7 @@ function independentlyExtractDice(hash) {
   return usable.slice(0, 2).map(value => (value % 6) + 1);
 }
 
-function loadBrowserVerifier() {
+function loadBrowserVerifier({ fairDice, env } = {}) {
   let networkCalls = 0;
   const math = Object.create(Math);
   math.random = () => { throw new Error('random fallback must not be used by a verifier'); };
@@ -28,6 +28,8 @@ function loadBrowserVerifier() {
     Uint8Array,
     ArrayBuffer,
     Math: math,
+    NarduFairDice: fairDice,
+    NARDU_ENV: env,
     fetch: () => { networkCalls += 1; throw new Error('verification must remain local'); },
   });
   context.window = context;
@@ -35,6 +37,27 @@ function loadBrowserVerifier() {
     filename: 'game-verifier.js',
   });
   return { verifier: context.NarduVerify, networkCalls: () => networkCalls };
+}
+
+const fairDice = require('../fair-dice.js');
+const TEST_RECEIPT_KEY = '11'.repeat(32);
+const TEST_RECEIPT_PUBLIC_KEY = fairDice.receiptPublicKey(TEST_RECEIPT_KEY);
+const QUICKNET_1000 = Object.freeze({
+  round: 1000,
+  signature: 'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39',
+  randomness: 'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd',
+});
+function signedProof({ nonce = 1, label = 'opening', color = 'none', gameId = '11111111-1111-4111-8111-111111111111', roomCode = 'ABCD-EFGH' } = {}) {
+  const request = { id: `${String(nonce).padStart(8, '0')}-1111-4111-8111-111111111111`, roomCode, gameId, nonce,
+    label, color, variant: 'long', round: 1000, createdAt: new Date(fairDice.roundTime(1000) - 6000).toISOString(), positionHash: 'a'.repeat(64) };
+  const receipt = fairDice.signReservation(request, TEST_RECEIPT_KEY);
+  const derived = fairDice.deriveDice(request, QUICKNET_1000.randomness);
+  return { protocol: fairDice.PROTOCOL, ...receipt, chainHash: fairDice.CHAIN.hash, beacon: { ...QUICKNET_1000 },
+    dice: derived.dice, sha256: derived.hash, sha256Input: derived.input, rerolls: derived.rerolls };
+}
+function signedHistory(proof) {
+  return { ...(proof.request.label === 'opening' ? { opening: true, host: proof.dice[0], guest: proof.dice[1] }
+    : { roll: proof.dice.join(':'), color: proof.request.color }), sha256: proof.sha256, sha256Input: proof.sha256Input, fairDiceProof: proof };
 }
 
 test('the verifier exports the same local API in Node and in a browser without Node globals', async () => {
@@ -581,4 +604,150 @@ test('a chat entry containing only unrelated SHA-256 metadata is not mistaken fo
   assert.equal(result.status, 'verified');
   assert.equal(result.counts.rolls, 1);
   assert.deepEqual(result.results.map(item => item.historyIndex), [0]);
+});
+
+test('a self-contained signed quicknet proof verifies real BLS and the configured receipt key without duplicate input fields', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const proof = signedProof();
+  const original = JSON.stringify(proof);
+  const result = await browser.verifier.verifyFairRoll({ proof: JSON.stringify(proof) });
+  assert.equal(result.status, 'verified');
+  assert.equal(result.sourceVerified, true);
+  assert.equal(result.reservationVerified, true);
+  assert.equal(result.receiptKeyAvailable, true);
+  assert.equal(result.diceStatus, 'verified');
+  assert.equal(result.hashStatus, 'verified');
+  assert.equal(result.input, proof.sha256Input);
+  assert.equal(sha256(result.input), result.hash);
+  assert.deepEqual(plain(result.dice), independentlyExtractDice(result.hash));
+  assert.equal(JSON.stringify(proof), original);
+  assert.equal(browser.networkCalls(), 0);
+});
+
+test('signed source authentication does not claim server reservation authentication without an environment-pinned key', async () => {
+  const proof = { ...signedProof(), publicKey: TEST_RECEIPT_PUBLIC_KEY, serverPublicKey: TEST_RECEIPT_PUBLIC_KEY };
+  for (const env of [undefined, {}, { fairDicePublicKey: '' }]) {
+    const browser = loadBrowserVerifier({ fairDice, env });
+    const result = await browser.verifier.verifyFairRoll({ proof });
+    assert.equal(result.status, 'incomplete');
+    assert.equal(result.sourceVerified, true);
+    assert.equal(result.reservationVerified, false);
+    assert.equal(result.receiptKeyAvailable, false);
+    assert.equal(result.diceStatus, 'verified');
+    assert.equal(browser.networkCalls(), 0);
+  }
+});
+
+test('the wrapper cannot promote an unpinned receipt even if a proof verifier reports reservationVerified true', async () => {
+  const proof = signedProof();
+  const browser = loadBrowserVerifier({ fairDice: { verifyProof: async () => ({ dice: proof.dice, hash: proof.sha256,
+    input: proof.sha256Input, sourceVerified: true, reservationVerified: true }) } });
+  const result = await browser.verifier.verifyFairRoll({ proof });
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.reservationVerified, false);
+});
+
+test('external history dice, hash and input must independently match a signed proof and retain physical-die order', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const proof = signedProof();
+  for (const options of [
+    { expectedDice: [proof.dice[1], proof.dice[0]] },
+    { hash: '0'.repeat(64) },
+    { preimage: `${proof.sha256Input} ` },
+  ]) {
+    const result = await browser.verifier.verifyFairRoll({ proof, ...options });
+    assert.equal(result.status, 'mismatch');
+    assert.equal(result.sourceVerified, true);
+    assert.equal(result.reservationVerified, true);
+  }
+  await assert.rejects(() => browser.verifier.verifyFairRoll({ proof, expectedDice: [2] }), error => error.code === 'INVALID_DICE');
+  await assert.rejects(() => browser.verifier.verifyFairRoll({ proof, hash: 'bad' }), error => error.code === 'INVALID_HASH');
+});
+
+test('an invalid beacon signature or mismatched pinned receipt fails closed without a legacy SHA fallback', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const source = signedProof();
+  const beacon = { ...source.beacon, signature: `a${source.beacon.signature.slice(1)}` };
+  beacon.randomness = createHash('sha256').update(Buffer.from(beacon.signature, 'hex')).digest('hex');
+  await assert.rejects(() => browser.verifier.verifyFairRoll({ proof: { ...source, beacon } }), error => error.code === 'FAIR_BEACON_SIGNATURE_INVALID');
+  await assert.rejects(() => browser.verifier.verifyFairRoll({ proof: { ...source, receiptSignature: '0'.repeat(128) } }), error => error.code === 'FAIR_RECEIPT_INVALID');
+  assert.equal(browser.networkCalls(), 0);
+});
+
+test('malformed, oversized and nonobject signed proofs are input errors and a missing source module is explicit', async () => {
+  for (const proof of [undefined, null, [], 0, 'bad JSON', '{', '{"value":"' + 'a'.repeat(16384) + '"}']) {
+    assert.throws(() => verifier.parseFairProof(proof), error => error.code === 'INVALID_INPUT');
+  }
+  const circular = {}; circular.self = circular;
+  assert.throws(() => verifier.parseFairProof(circular), error => error.code === 'INVALID_INPUT');
+  const browser = loadBrowserVerifier();
+  await assert.rejects(() => browser.verifier.verifyFairRoll({ proof: signedProof() }), error => error.code === 'FAIR_PROOF_UNAVAILABLE');
+});
+
+test('signed verification snapshots the proof, expected dice and configured receipt key before any asynchronous work', async () => {
+  const proof = signedProof();
+  const original = plain(proof);
+  const expectedDice = [...proof.dice];
+  const env = { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY };
+  let proceed;
+  const wait = new Promise(resolve => { proceed = resolve; });
+  const captured = [];
+  const browser = loadBrowserVerifier({ env, fairDice: { verifyProof: async (input, options) => {
+    captured.push({ input, options });
+    await wait;
+    return fairDice.verifyProof(input, options);
+  } } });
+  const pending = browser.verifier.verifyFairRoll({ proof, expectedDice });
+  proof.request.round += 1;
+  proof.beacon.signature = '0'.repeat(96);
+  expectedDice[0] = expectedDice[0] === 6 ? 1 : expectedDice[0] + 1;
+  env.fairDicePublicKey = '0'.repeat(64);
+  proceed();
+  const result = await pending;
+  assert.equal(result.status, 'verified');
+  assert.deepEqual(plain(captured[0].input), original);
+  assert.equal(captured[0].options.publicKey, TEST_RECEIPT_PUBLIC_KEY);
+});
+
+test('whole-game signed verification checks room, purpose, player color, common game epoch and contiguous newest-first nonces', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const opening = signedProof();
+  const ordinary = signedProof({ nonce: 2, label: 'roll', color: 'white' });
+  const game = { roomCode: 'ABCD-EFGH', variant: 'long', history: [signedHistory(ordinary), signedHistory(opening)] };
+  const result = await browser.verifier.verifyGameRolls(game);
+  assert.equal(result.status, 'verified');
+  assert.deepEqual(plain(result.sourceCounts), { signed: 2, sourceVerified: 2, reservationVerified: 2 });
+  for (const corrupt of [
+    { ...game, roomCode: 'EFGH-ABCD' },
+    { ...game, variant: 'short' },
+    { ...game, history: [{ ...signedHistory(ordinary), color: 'dark' }, signedHistory(opening)] },
+    { ...game, history: [signedHistory(opening), signedHistory(ordinary)] },
+    { ...game, history: [signedHistory(ordinary), signedHistory(ordinary)] },
+    { ...game, history: [signedHistory(signedProof({ nonce: 3, label: 'roll', color: 'white' })), signedHistory(opening)] },
+    { ...game, history: [signedHistory(signedProof({ nonce: 2, label: 'roll', color: 'white', gameId: '22222222-2222-4222-8222-222222222222' })), signedHistory(opening)] },
+  ]) {
+    const failed = await browser.verifier.verifyGameRolls(corrupt);
+    assert.equal(failed.status, 'mismatch');
+    assert.ok(failed.counts.mismatch > 0);
+  }
+});
+
+test('a corrupted or missing signed proof is not silently replaced with a matching legacy proof', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const legacy = historyRoll('otherwise valid legacy input', { color: 'white' });
+  for (const fairDiceProof of [null, undefined, 0, {}, []]) {
+    const result = await browser.verifier.verifyGameRolls({ history: [{ ...legacy, fairDiceProof }] });
+    assert.equal(result.status, 'incomplete');
+    assert.equal(result.counts.verified, 0);
+    assert.equal(result.sourceCounts.signed, 1);
+    assert.equal(result.sourceCounts.sourceVerified, 0);
+  }
+});
+
+test('a mixed legacy/signed history reports each protocol without claiming all roll sources are signed', async () => {
+  const browser = loadBrowserVerifier({ fairDice, env: { fairDicePublicKey: TEST_RECEIPT_PUBLIC_KEY } });
+  const result = await browser.verifier.verifyGameRolls({ history: [historyRoll('legacy recorded input'), signedHistory(signedProof())] });
+  assert.equal(result.status, 'verified');
+  assert.equal(result.counts.rolls, 2);
+  assert.deepEqual(plain(result.sourceCounts), { signed: 1, sourceVerified: 1, reservationVerified: 1 });
 });

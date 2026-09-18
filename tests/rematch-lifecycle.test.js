@@ -16,6 +16,29 @@ function memoryStorage() {
   };
 }
 
+// Policy reads have their own SELECT builder; they must not pollute the
+// mutation/CAS filters exercised by these legacy-room regression tests.
+function legacyRoomQuery(mutationBuilder, policyReads, code = "TEST-RM1") {
+  return {
+    update(value) { return mutationBuilder.update(value); },
+    select(columns) {
+      assert.equal(columns, "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id");
+      const filters = [];
+      const policyBuilder = {
+        eq(column, value) { filters.push([column, value]); return this; },
+        neq(column, value) { filters.push([column, value]); return this; },
+        async maybeSingle() {
+          assert.deepEqual(filters, [["code", code], ["status", "closed"]]);
+          policyReads.push({ columns, filters });
+          return { data: { id: "legacy-room", game_state: null, game_version: 0,
+            status: "joined", fair_dice_required: false }, error: null };
+        },
+      };
+      return policyBuilder;
+    },
+  };
+}
+
 function controllerContext() {
   const localStorage = memoryStorage();
   const sessionStorage = memoryStorage();
@@ -719,6 +742,7 @@ test("finished-game lobby navigation bypasses room cleanup network waits", () =>
 test("saving game state is restricted to an already joined room", async () => {
   const updates = [];
   const filters = [];
+  const policyReads = [];
   const builder = {
     update(value) { updates.push(value); return this; },
     eq(column, value) { filters.push([column, value]); return this; },
@@ -729,7 +753,7 @@ test("saving game state is restricted to an already joined room", async () => {
     window: {
       NarduSupabase: {
         configured() { return true; },
-        async client() { return { from() { return builder; } }; },
+        async client() { return { from(table) { assert.equal(table, "rooms"); return legacyRoomQuery(builder, policyReads); } }; },
       },
     },
     console,
@@ -754,6 +778,7 @@ test("saving game state is restricted to an already joined room", async () => {
   await context.window.NarduRooms.putGameState("TEST-RM1", { phase: "over", winner: "white" }, 8);
   assert.equal(updates[1].status, "over");
   assert.equal(updates[1].closed_reason, "finished");
+  assert.equal(policyReads.length, 1);
   assert.deepEqual(filters, [
     ["code", "TEST-RM1"],
     ["game_version", 7],
@@ -767,6 +792,7 @@ test("saving game state is restricted to an already joined room", async () => {
 test("a stale Supabase tab cannot resurrect a closed room", async () => {
   const current = { status: "closed", gameVersion: 7 };
   const filters = [];
+  const policyReads = [];
   let mutations = 0;
   const builder = {
     update(value) { this.pendingUpdate = value; return this; },
@@ -788,7 +814,7 @@ test("a stale Supabase tab cannot resurrect a closed room", async () => {
     window: {
       NarduSupabase: {
         configured() { return true; },
-        async client() { return { from() { return builder; } }; },
+        async client() { return { from(table) { assert.equal(table, "rooms"); return legacyRoomQuery(builder, policyReads); } }; },
       },
     },
     console,
@@ -812,6 +838,7 @@ test("a stale Supabase tab cannot resurrect a closed room", async () => {
 
   assert.equal(mutations, 0);
   assert.equal(current.status, "closed");
+  assert.equal(policyReads.length, 1, "the unchanged legacy policy cannot bypass a later closed-room CAS");
   assert.deepEqual(filters, [
     ["code", "TEST-RM1"],
     ["game_version", 7],
@@ -822,6 +849,7 @@ test("a stale Supabase tab cannot resurrect a closed room", async () => {
 test("guest hard-bot finalization uses the versioned room update", async () => {
   const updates = [];
   const filters = [];
+  const policyReads = [];
   let rpcCalls = 0;
   let signOutCalls = 0;
   const builder = {
@@ -836,7 +864,7 @@ test("guest hard-bot finalization uses the versioned room update", async () => {
     },
     from(table) {
       assert.equal(table, "rooms");
-      return builder;
+      return legacyRoomQuery(builder, policyReads);
     },
     async rpc() {
       rpcCalls += 1;
@@ -879,6 +907,7 @@ test("guest hard-bot finalization uses the versioned room update", async () => {
   assert.equal(result.version, 4);
   assert.equal(signOutCalls, 1);
   assert.equal(rpcCalls, 0);
+  assert.equal(policyReads.length, 1);
   assert.equal(updates[0].status, "over");
   assert.deepEqual(updates[0].game_state.analysis.botMemory.decisions, decisions);
   assert.deepEqual(filters, [["code", "TEST-RM1"], ["game_version", 3], ["status", "joined"]]);
@@ -886,6 +915,7 @@ test("guest hard-bot finalization uses the versioned room update", async () => {
 
 test("registered hard-bot finalization falls back to the old RPC signature", async () => {
   const rpcCalls = [];
+  const policyReads = [];
   const profileBuilder = {
     select() { return this; },
     update() { return this; },
@@ -903,6 +933,7 @@ test("registered hard-bot finalization falls back to the old RPC signature", asy
       async getUser() { return { data: { user: { id: "user-1", user_metadata: {} } }, error: null }; },
     },
     from(table) {
+      if (table === "rooms") return legacyRoomQuery(null, policyReads);
       assert.equal(table, "profiles");
       return profileBuilder;
     },
@@ -964,6 +995,7 @@ test("registered hard-bot finalization falls back to the old RPC signature", asy
   );
 
   assert.equal(rpcCalls.length, 2);
+  assert.equal(policyReads.length, 1);
   assert.deepEqual(rpcCalls[0].p_training_state.analysis.botMemory.decisions, trainingState.analysis.botMemory.decisions);
   assert.equal(Object.hasOwn(rpcCalls[1], "p_training_state"), false);
   assert.equal(result.version, 9);

@@ -1,0 +1,96 @@
+{
+  "documentType": "nardu.fair-dice-local-verification",
+  "date": "2026-09-18",
+  "baselineRevision": "110c5f3876a9c12cc4a93c7978ed80a4052a271a",
+  "implementationIdentity": "Uncommitted working-tree patch; runtime files identified by SHA-256 below",
+  "protocol": "drand-quicknet-v1",
+  "environment": {
+    "node": "v24.15.0",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "fullTestRun": {
+    "command": "npm test",
+    "tests": 1164,
+    "passed": 1153,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 11,
+    "skipScope": "Existing Linux-specific production-worker/flock tests on macOS",
+    "durationMs": 541588.01775
+  },
+  "build": {
+    "command": "npm run build",
+    "succeeded": true,
+    "staticCryptoAndVerifierAssetsMatchSource": true,
+    "finalFairDiceUrl": "",
+    "finalFairDicePublicKey": "",
+    "testReceiptPinRemovedFromFinalBuild": true
+  },
+  "browserVerification": {
+    "surface": "Local static build, Codex in-app browser",
+    "fixture": "Real signed quicknet round 1000 with a local synthetic Ed25519 reservation, not a production game",
+    "validProofResult": "Проверка пройдена. Источник броска подтверждён, кости рассчитаны верно.",
+    "sourceStatement": "Источник случайного значения — независимый drand, а не игрок или бот. Протокол броска одинаков для игроков и ботов.",
+    "tamperedDiceDoesNotShowSuccess": true,
+    "completeSourceSignatureJsonAndShaInputDisclosure": true,
+    "languagesVerified": ["ru", "en"],
+    "themesVerified": ["night", "day"],
+    "mobileViewport": { "width": 375, "height": 812 },
+    "mobileDocumentContentWidth": 375,
+    "temporaryViewportReset": true,
+    "temporaryTabAndHttpServerClosed": true,
+    "playerAccountsOrLiveGamesUsed": false
+  },
+  "deploymentStatus": {
+    "productionChanged": false,
+    "publicFrontendPublished": false,
+    "sqlMigrationApplied": false,
+    "realPostgresqlRollbackSmokeExecuted": false,
+    "dockerImageBuilt": false,
+    "coordinatorProvisioned": false,
+    "productionSigningKeyCreated": false,
+    "newRoomPolicyActivated": false,
+    "readOnlyTopologyObserved": "Caddy is a Docker container on supabase_default; Kong is internal",
+    "requiredGates": [
+      "Scoped authority for SQL v36, coordinator/container, Caddy route and frontend publication",
+      "Recoverable database/configuration backup and real PostgreSQL transactional rollback smoke",
+      "Immutable official Node 24 image digest and persistent protected Ed25519 signing key",
+      "Actual guest/registered identity, presence, leave, CAS and rematch canaries",
+      "Published client pinned to the real production public key, not a fixture key",
+      "Latency/load/source-outage checks before tournament activation"
+    ]
+  },
+  "unchangedPolicy": {
+    "gameRulesAndBotStrategyGitDiffEmpty": true,
+    "accountPasswordsOrIdentitiesChanged": false
+  },
+  "limitations": [
+    "Legacy SHA-only records cannot retroactively acquire independent-source signatures",
+    "Signed server timestamps are not independent external evidence of precommit publication time",
+    "Threshold-beacon, operator infrastructure and delivered-client trust remain explicit assumptions",
+    "No absolute physical-randomness or operator-intention claim is made",
+    "SQL mocks/static tests do not certify actual PostgreSQL execution",
+    "Healthy-source 6-9 second planned wait follows protocol arithmetic, not production measurement",
+    "Historical-key rotation needs a separate compatible trust catalogue before any key change"
+  ],
+  "sha256": {
+    "game.js": "769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
+    "long-bot-engine.js": "6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255",
+    "short-bot-engine.js": "3386f5beeb5adc6fe0ad0e3c6ba6eb0710e4c63d3a3bc358cb06ffaaf1edc161",
+    "fair-dice.js": "5d625701e42dccae0d749072ffd1e364d36cb26f093ab11f3d3c6277a4f74ee9",
+    "fair-dice-crypto.js": "29c80c8dbccd3636c4ba23a2e09956f713edf3cc611b294734e79df7cf969c55",
+    "lib/fair-dice-crypto-entry.mjs": "9de1d379a1b4a7c37a0f8c6d8894bd7236246e81b214175f2e945e47397a6d10",
+    "lib/fair-dice-service.js": "402d54dfe46cb177acb9666916b63be24215b71f0e4894d562c2b13e74462df2",
+    "lib/fair-dice-rules.js": "66acd65bbeabd9da58e7e06551c31063b36bb210a402b1943ef57c3eb4cec4a5",
+    "lib/fair-dice-supabase-store.js": "5c137efa4404e174ec3215df75f20f298b81358783949f96940e72f1c30b580a",
+    "supabase/fair-dice-v36.sql": "40b9bf8ed62e2b6b1ee340579b94b538e3cdd23d2716d4cef7706231aa48d998",
+    "supabase/tests/fair-dice-v36-rollback-smoke.sql": "3274fef7cfe6c37faad848886c0453cefd6d7481848d42645c355df6dca0f851",
+    "rooms-client.js": "883e1f2334cb534409e544f1124f49fb66dae50e462a48902a9cf67dcb6d0f38",
+    "game-controller.js": "20df354b98b356ba8ee2da6125a72485fded5e5b6e5ab77ef0be4bded5165bd9",
+    "game-verifier.js": "db42a68068614a0986450e0452b4428b85d1b71157fa2789028386fdbf7819d5",
+    "verify-game-ui.js": "61238da45a611c400a704463fcc5327519a2391a187eaa62e78ec0b18ba15515",
+    "roll-verification-ui.js": "f7330dcc3764735113da536962f919f3fed7c6f7fc9c0f817d8dc7fb55019b84",
+    "package-lock.json": "b66e2874c1ca9868b7562f4e5b9ca60712457f7ba7b41a3a4241fe0db2122d08"
+  }
+}

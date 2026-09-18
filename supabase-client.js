@@ -8,6 +8,7 @@
   const GUEST_CREDENTIAL_KEY = 'narduh-guest-credential-v1';
   const GUEST_PUBLIC_ID_RE = /^guest:sha256:[0-9a-f]{64}$/;
   const GUEST_PROOF_RE = /^gproof:[0-9a-f]{64}$/;
+  const FAIR_DICE_CLIENT_MARKER = 'nardu-fair-dice-v36';
   let clientPromise = null;
   const AUTH_RECLAIM_EXACT_KEYS = new Set([
     "narduh-long-bot-server-experience-v15",
@@ -162,13 +163,49 @@
     }
   }
 
+  function isSupabaseRestRequest(input) {
+    const value = typeof input === 'string' ? input : String(input?.url || input || '');
+    const base = config().url.replace(/\/+$/, '');
+    if (!base) return false;
+    if (typeof URL === 'function') {
+      try {
+        const configuredUrl = new URL(base);
+        const requestUrl = new URL(value, configuredUrl);
+        return requestUrl.origin === configuredUrl.origin
+          && requestUrl.pathname.startsWith(`${configuredUrl.pathname.replace(/\/+$/, '')}/rest/v1/`);
+      } catch { return false; }
+    }
+    return value.startsWith(`${base}/rest/v1/`);
+  }
+
+  function withProtocolRequestHeaders(input, init = {}) {
+    if (!isSupabaseRestRequest(input)) return init;
+    const original = init.headers || input?.headers || {};
+    if (typeof Headers === 'function') {
+      const headers = new Headers(original);
+      const info = headers.get('X-Client-Info') || '';
+      if (!info.split(/\s+/).includes(FAIR_DICE_CLIENT_MARKER)) {
+        headers.set('X-Client-Info', `${info} ${FAIR_DICE_CLIENT_MARKER}`.trim());
+      }
+      return { ...init, headers };
+    }
+    const headers = Array.isArray(original) || typeof original?.entries === 'function'
+      ? Object.fromEntries(typeof original.entries === 'function' && !Array.isArray(original) ? original.entries() : original)
+      : { ...original };
+    const infoKey = Object.keys(headers).find(key => key.toLowerCase() === 'x-client-info') || 'X-Client-Info';
+    const info = String(headers[infoKey] || '');
+    if (!info.split(/\s+/).includes(FAIR_DICE_CLIENT_MARKER)) {
+      headers[infoKey] = `${info} ${FAIR_DICE_CLIENT_MARKER}`.trim();
+    }
+    return { ...init, headers };
+  }
+
   function withGuestRequestHeaders(input, init = {}) {
-    const url = typeof input === 'string' ? input : String(input?.url || input || '');
-    if (!/\/rest\/v1\//i.test(url)) return init;
+    if (!isSupabaseRestRequest(input)) return init;
     const credential = currentGuestRequestCredential();
     if (!credential) return init;
     if (typeof Headers === 'function') {
-      const headers = new Headers(init.headers || {});
+      const headers = new Headers(init.headers || input?.headers || {});
       headers.set('X-Guest-Id', credential.guestId);
       headers.set('X-Guest-Proof', credential.proof);
       return { ...init, headers };
@@ -184,7 +221,7 @@
   }
 
   async function boundedFetch(input, init = {}) {
-    const requestInit = withGuestRequestHeaders(input, init);
+    const requestInit = withGuestRequestHeaders(input, withProtocolRequestHeaders(input, init));
     if (!isAuthCriticalRequest(input)) return fetch(input, requestInit);
     if (typeof AbortController !== "function") return fetch(input, requestInit);
 

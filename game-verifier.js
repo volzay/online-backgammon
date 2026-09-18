@@ -1,4 +1,4 @@
-/* Local result verification. This does not attest prior commitment or RNG fairness. */
+/* Read-only roll verification. Source/receipt claims require independent proofs. */
 (function (root, factory) {
   const api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -109,6 +109,57 @@
       : 'Исходная строка этого броска не сохранена. Можно проверить только соответствие костей хешу, но не вычисление SHA-256 или независимую честность генерации.';
     return { status: aggregate(hashStatus, diceStatus), hash, ...extracted, hashStatus, diceStatus, warning };
   }
+  function parseFairProof(value) {
+    try {
+      const encoded = typeof value === 'string' ? text(value, 'Доказательство броска') : JSON.stringify(value);
+      if (typeof encoded !== 'string' || encoded.length > MAX_TEXT) throw invalid('INVALID_INPUT', 'Доказательство броска превышает допустимую длину.');
+      const proof = JSON.parse(encoded);
+      if (!proof || typeof proof !== 'object' || Array.isArray(proof)) throw invalid('INVALID_INPUT', 'Для доказательства броска нужен JSON-объект.');
+      return proof;
+    } catch (error) {
+      if (error.code === 'INVALID_INPUT') throw error;
+      throw invalid('INVALID_INPUT', 'Доказательство броска должно быть корректным JSON-объектом.');
+    }
+  }
+  async function verifyFairRoll({ proof, expectedDice, hash: expectedHash, preimage, context } = {}) {
+    // Snapshot all user-supplied values and the configured trust root before await.
+    // Never adopt a receipt key from the proof itself.
+    const snapshot = parseFairProof(proof);
+    const expected = normalizeDice(expectedDice) || normalizeDice(snapshot.dice);
+    const recordedHash = optionalHash(expectedHash);
+    const recordedInput = preimage === undefined || preimage === null || preimage === '' ? null : text(preimage, 'Исходная строка');
+    let expectedContext;
+    if (context !== undefined) {
+      if (!context || typeof context !== 'object' || Array.isArray(context)) throw invalid('INVALID_INPUT', 'Контекст броска должен быть объектом.');
+      expectedContext = {};
+      for (const field of ['roomCode', 'gameId', 'variant', 'label', 'color']) {
+        if (context[field] !== undefined) expectedContext[field] = text(context[field], 'Контекст броска', 256);
+      }
+    }
+    const publicKey = root.NARDU_ENV?.fairDicePublicKey;
+    const hasPinnedKey = typeof publicKey === 'string' && publicKey.trim().length > 0 && publicKey.length <= 1024;
+    if (typeof root.NarduFairDice?.verifyProof !== 'function') {
+      throw invalid('FAIR_PROOF_UNAVAILABLE', 'Модуль проверки подписанного источника не загрузился.');
+    }
+    const checked = await root.NarduFairDice.verifyProof(snapshot, { publicKey: hasPinnedKey ? publicKey : undefined,
+      ...(expectedContext ? { context: expectedContext } : {}) });
+    const actualHash = normalizeHash(checked?.hash);
+    const actualDice = normalizeDice(checked?.dice);
+    if (!actualDice) throw invalid('INVALID_DICE', 'В доказательстве нет результата броска.');
+    const input = text(checked?.input, 'Исходная строка', MAX_TEXT, true);
+    const sourceVerified = checked.sourceVerified === true;
+    const reservationVerified = hasPinnedKey && checked.reservationVerified === true;
+    const hashStatus = recordedHash === null || actualHash === recordedHash ? 'verified' : 'mismatch';
+    const diceStatus = comparison(actualDice, expected);
+    const inputStatus = recordedInput === null || input === recordedInput ? 'verified' : 'mismatch';
+    const mismatch = hashStatus === 'mismatch' || diceStatus === 'mismatch' || inputStatus === 'mismatch';
+    const status = mismatch ? 'mismatch' : sourceVerified && reservationVerified && diceStatus === 'verified' ? 'verified' : 'incomplete';
+    return { status, protocol: checked.protocol || snapshot.protocol, hash: actualHash, dice: actualDice, input, proof: snapshot, sourceBytes: [],
+      hashStatus, diceStatus, inputStatus, sourceVerified, reservationVerified, receiptKeyAvailable: hasPinnedKey,
+      warning: !sourceVerified ? 'Подпись независимого источника не подтверждена.'
+        : !reservationVerified ? 'Подпись источника drand подтверждена; резервирование броска не подтверждено настроенным ключом сервера.'
+          : 'Подтверждены подпись независимого источника и подписанная запись резервирования. Это не доказывает намерения участников или внешнее время фиксации записи.' };
+  }
   async function verifySeed({ seed, expectedHash } = {}) {
     const expected = optionalHash(expectedHash);
     const hash = await sha256Hex(text(seed, 'Server Seed'));
@@ -178,11 +229,26 @@
     // game may advance while verification runs; no original record is modified.
     const historyLength = game.history.length;
     const rolls = game.history.flatMap((item, historyIndex) => item.opening || item.openingMove
-      || Object.prototype.hasOwnProperty.call(item, 'roll') || Object.prototype.hasOwnProperty.call(item, 'sha256Input') ? [{
+      || Object.prototype.hasOwnProperty.call(item, 'roll') || Object.prototype.hasOwnProperty.call(item, 'sha256Input')
+      || Object.prototype.hasOwnProperty.call(item, 'fairDiceProof') ? [{
       historyIndex, opening: Boolean(item.opening), host: item.host, guest: item.guest,
+      color: item.color,
       roll: Array.isArray(item.roll) ? [...item.roll] : item.roll,
       sha256: item.sha256, sha256Input: item.sha256Input,
+      ...(Object.prototype.hasOwnProperty.call(item, 'fairDiceProof') ? { fairDiceProof: (() => {
+        try { return parseFairProof(item.fairDiceProof); } catch { return null; }
+      })() } : {}),
     }] : []);
+    const signedRolls = rolls.filter(item => Object.prototype.hasOwnProperty.call(item, 'fairDiceProof'));
+    const epoch = signedRolls.find(item => typeof item.fairDiceProof?.request?.gameId === 'string')?.fairDiceProof.request.gameId;
+    const gameContext = {
+      ...(typeof game.roomCode === 'string' && game.roomCode ? { roomCode: game.roomCode } : {}),
+      ...(typeof game.variant === 'string' && game.variant ? { variant: game.variant } : {}),
+      ...(epoch ? { gameId: epoch } : {}),
+    };
+    const nonces = signedRolls.map(item => item.fairDiceProof?.request?.nonce);
+    const knownSequence = signedRolls.length === rolls.length && nonces.every(nonce => Number.isSafeInteger(nonce) && nonce >= 1);
+    const sequenceValid = !knownSequence || nonces.every((nonce, index) => nonce === nonces.length - index);
     const results = [];
     const counts = { rolls: rolls.length, verified: 0, incomplete: 0, mismatch: 0, diceVerified: 0, hashVerified: 0 };
     for (const item of rolls) {
@@ -191,18 +257,28 @@
         const expectedDice = normalizeDice(item.opening ? [item.host, item.guest] : item.roll);
         if (!expectedDice) throw invalid('INVALID_DICE', 'В записи нет результата броска.');
         if (item.sha256Input !== undefined && typeof item.sha256Input !== 'string') throw invalid('INVALID_INPUT', 'Исходная строка броска повреждена.');
-        result = await verifyPortalRoll({ hash: item.sha256, expectedDice, preimage: item.sha256Input });
+        if (Object.prototype.hasOwnProperty.call(item, 'fairDiceProof')) {
+          if (!item.opening && !['white', 'dark'].includes(item.color)) throw invalid('INVALID_INPUT', 'В записи подписанного броска не указан цвет игрока.');
+          result = await verifyFairRoll({ proof: item.fairDiceProof, hash: item.sha256, expectedDice, preimage: item.sha256Input,
+            context: { ...gameContext, label: item.opening ? 'opening' : 'roll', color: item.opening ? 'none' : item.color } });
+          if (!sequenceValid) result = { ...result, status: 'mismatch', contextStatus: 'mismatch',
+            warning: 'Порядок или номера подписанных бросков не соответствуют последовательности резервирования.' };
+        } else result = await verifyPortalRoll({ hash: item.sha256, expectedDice, preimage: item.sha256Input });
       } catch (error) {
-        result = { status: 'incomplete', dice: [], hashStatus: 'unavailable', diceStatus: 'unavailable', warning: error.message, errorCode: error.code };
+        const mismatch = ['FAIR_CONTEXT_MISMATCH', 'FAIR_RESERVATION_MISMATCH', 'FAIR_BEACON_SIGNATURE_INVALID', 'FAIR_DICE_MISMATCH'].includes(error.code);
+        result = { status: mismatch ? 'mismatch' : 'incomplete', dice: [], hashStatus: 'unavailable', diceStatus: 'unavailable', warning: error.message, errorCode: error.code };
       }
       counts[result.status] += 1;
       if (result.diceStatus === 'verified') counts.diceVerified += 1;
-      if (result.hashStatus === 'verified') counts.hashVerified += 1;
+      if (result.hashStatus === 'verified' && result.inputStatus !== 'mismatch') counts.hashVerified += 1;
       results.push({ historyIndex: item.historyIndex, ...result });
     }
     const status = counts.mismatch ? 'mismatch' : counts.rolls && counts.verified === counts.rolls ? 'verified' : 'incomplete';
-    return { status, historyLength, counts, results };
+    const sourceCounts = { signed: rolls.filter(item => Object.prototype.hasOwnProperty.call(item, 'fairDiceProof')).length,
+      sourceVerified: results.filter(item => item.sourceVerified).length,
+      reservationVerified: results.filter(item => item.reservationVerified).length };
+    return { status, historyLength, counts, results, ...(sourceCounts.signed ? { sourceCounts } : {}) };
   }
   return Object.freeze({ MAX_TEXT, normalizeHash, normalizeDice, sha256Hex, diceFromHash,
-    verifyPortalRoll, verifySeed, verifyHmacRoll, portalRollFromHistory, verificationUrl, verifyGameRolls });
+    verifyPortalRoll, parseFairProof, verifyFairRoll, verifySeed, verifyHmacRoll, portalRollFromHistory, verificationUrl, verifyGameRolls });
 });

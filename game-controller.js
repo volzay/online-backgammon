@@ -20,6 +20,8 @@ window.NarduController = (function () {
   let pending = null;            /* { from } — currently selected source point */
   let isAnimating = false;
   let isRolling = false;
+  let fairDiceError = '';
+  let fairDiceInFlight = false;
   let autoRollTimer = null;
   let autoEndTimer = null;
   let onRender = null;           /* the existing renderQuad-chain renderer */
@@ -665,6 +667,8 @@ window.NarduController = (function () {
       window.NarduStrongBot?.syncLocalExperience?.();
     }
     remoteVersion = 0;
+    fairDiceError = '';
+    fairDiceInFlight = false;
     botAnalysisReady = false;
     botAnalysisDisabled = false;
     botAnalysisOwnershipUnknown = false;
@@ -1414,6 +1418,7 @@ window.NarduController = (function () {
         } catch (error) {
           if (error?.status !== 409) {
             console.warn('Could not save bot analysis state', error?.message || error);
+            await handleFairDiceFailure(error);
             return false;
           }
           if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
@@ -1432,6 +1437,7 @@ window.NarduController = (function () {
             return true;
           } catch (retryError) {
             console.warn('Could not recover bot analysis sync', retryError?.message || retryError);
+            await handleFairDiceFailure(retryError);
             return false;
           }
         }
@@ -1604,11 +1610,40 @@ window.NarduController = (function () {
       if (response.ok && Number.isFinite(data.version)) remoteVersion = data.version;
     } catch (error) {
       if (error?.status === 409) {
+        const rejectedState = state;
         const recovered = await recoverRemotePublishConflict(payload);
-        if (!recovered) await pollRemoteState({ force: true });
+        if (!recovered) {
+          await pollRemoteState({ force: true });
+          if (state === rejectedState) await handleFairDiceFailure(error);
+        }
       }
-      /* keep local play responsive while the room server recovers */
+      // Legacy rooms keep their previous offline behavior. Protected games
+      // must not continue on an unaccepted board or throw away known dice.
+      if (error?.status !== 409) await handleFairDiceFailure(error);
     }
+  }
+
+  async function handleFairDiceFailure(error) {
+    if (!remoteCode || mode === 'hotseat') return false;
+    let policy;
+    try { policy = await window.NarduRooms?.fairDicePolicy?.(remoteCode); } catch { return false; }
+    if (!policy?.required) return false;
+    fairDiceError = lang() === 'en'
+      ? 'Verified dice are temporarily unavailable. Refresh the page: the same roll is preserved.'
+      : 'Подтверждённый бросок временно недоступен. Обновите страницу: этот же бросок сохранён.';
+    fairDiceInFlight = false;
+    cancelBotTurnActivity();
+    undoStack = [];
+    try {
+      const current = await window.NarduRooms.getGameState(remoteCode);
+      if (current.state) state = normalizeRestoredState(current.state, new URL(location.href));
+      if (Number.isFinite(current.version)) {
+        if (mode === 'bot') botAnalysisVersion = current.version;
+        else remoteVersion = current.version;
+      }
+    } catch { /* Remain paused; do not synthesize a replacement roll. */ }
+    render();
+    return true;
   }
 
   async function recoverRemotePublishConflict(payload) {
@@ -2142,6 +2177,8 @@ window.NarduController = (function () {
 
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
+    if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
+    if (fairDiceInFlight) return { text: lang() === 'en' ? 'Waiting for the independent signed dice source…' : 'Ожидаем независимый подписанный источник броска…', tone: 'waiting' };
     if (botAnalysisRestorePending) return { text: tr('preparing'), tone: 'waiting' };
     if (state.phase === 'waiting') return { text: tr('turn_waiting'), tone: 'waiting' };
     if (state.phase === 'over' || state.winner) {
@@ -2367,7 +2404,7 @@ window.NarduController = (function () {
             <span>SHA-256</span>
             <code>${safeHash}</code>
             <button type="button" data-copy-hash="${safeHash}" title="${tr('copy_sha')}">${tr('copy')}</button>
-            ${rollItem ? window.NarduVerifyUI?.rollControls(rollItem, { lang: lang() }) || '' : ''}
+            ${rollItem ? window.NarduVerifyUI?.rollControls(rollItem, { lang: lang(), context: { roomCode: remoteCode || state.roomCode, variant: state.variant } }) || '' : ''}
           </div>` : '';
     return `
       <div class="hist-item">
@@ -2426,7 +2463,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
-    if (spectatorMode || botAnalysisRestorePending) return false;
+    if (spectatorMode || botAnalysisRestorePending || fairDiceError) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }
@@ -2599,6 +2636,22 @@ window.NarduController = (function () {
   }
 
   async function shaDiceRoll({ label, color, noTie = false } = {}) {
+    if (remoteCode && mode !== 'hotseat' && window.NarduRooms?.fairDicePolicy) {
+      const policy = await window.NarduRooms.fairDicePolicy(remoteCode, { refresh: true });
+      if (policy.required) {
+        fairDiceInFlight = true;
+        render();
+        await publishRemoteState();
+        if (fairDiceError) throw new Error('The protected room is paused.');
+        const proof = await window.NarduRooms.requestFairDice(remoteCode, {
+          label: label === 'opening' ? 'opening' : 'roll',
+          color: label === 'opening' ? 'none' : color,
+        });
+        fairDiceInFlight = false;
+        return { hash: proof.sha256, input: proof.sha256Input, values: proof.dice.slice(),
+          roll: expandRollValues(proof.dice), rerolls: proof.rerolls, proof };
+      }
+    }
     let rerolls = 0;
     while (true) {
       const seed = [
@@ -2695,6 +2748,7 @@ window.NarduController = (function () {
   }
 
   function ensureAutoProgress(ms = 650) {
+    if (fairDiceError) return;
     if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isRolling || isAnimating || isChainingMove) return;
     if (state.phase === 'opening') {
@@ -2722,11 +2776,21 @@ window.NarduController = (function () {
     if (botAnalysisRestorePending || state.phase !== 'opening' || isRolling) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     const user = window.NarduApp?.getUser?.();
+    const startedAt = state.startedAt;
+    const generation = botAnalysisStartupGeneration;
     isRolling = true;
     try {
       NarduSound.prime();
       NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'opening', color: 'opening', noTie: true });
+      if (generation !== botAnalysisStartupGeneration) return;
+      if (fair.proof && (state.history?.some(item => item.fairDiceProof?.request?.id === fair.proof.request.id)
+        || state.startedAt !== startedAt || state.phase !== 'opening')) {
+        isRolling = false;
+        render();
+        ensureAutoProgress(800);
+        return;
+      }
       const whitePlayer = {
         id: 'white',
         name: playerColor === 'white' ? (user?.name || sideName('white')) : localizedName(opponentName),
@@ -2743,14 +2807,19 @@ window.NarduController = (function () {
       opening.sha256 = fair.hash;
       opening.sha256Input = fair.input;
       opening.rerolls = fair.rerolls;
+      if (fair.proof) opening.fairDiceProof = fair.proof;
       const openingHistory = state.history?.find(item => item.opening);
       if (openingHistory) {
         openingHistory.sha256 = fair.hash;
         openingHistory.sha256Input = fair.input;
         openingHistory.rerolls = fair.rerolls;
+        if (fair.proof) openingHistory.fairDiceProof = fair.proof;
       }
       state.rollToken = `opening:${fair.hash.slice(0, 16)}:${opening.host.die}:${opening.guest.die}`;
-      publishRemoteState();
+      if (fair.proof) {
+        const saved = await publishRemoteState();
+        if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified opening dice.');
+      } else publishRemoteState();
       render();
 
       const boardDiceLayer = document.getElementById('board-dice-layer');
@@ -2768,6 +2837,7 @@ window.NarduController = (function () {
         .catch(error => finishOpeningRollAnimation(error));
     } catch (error) {
       console.warn('Opening roll failed', error?.message || error);
+      await handleFairDiceFailure(error);
       isRolling = false;
       render();
       ensureAutoProgress(800);
@@ -2789,11 +2859,21 @@ window.NarduController = (function () {
   async function autoRoll() {
     if (botAnalysisRestorePending || state.phase !== 'roll' || isRolling) return;
     const rollingTurn = state.turn;
+    const startedAt = state.startedAt;
+    const generation = botAnalysisStartupGeneration;
     isRolling = true;
     try {
       NarduSound.prime();
       NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
+      if (generation !== botAnalysisStartupGeneration) return;
+      if (fair.proof && (state.history?.some(item => item.fairDiceProof?.request?.id === fair.proof.request.id)
+        || state.startedAt !== startedAt || state.phase !== 'roll' || state.turn !== rollingTurn)) {
+        isRolling = false;
+        render();
+        ensureAutoProgress(800);
+        return;
+      }
       const r = fair.roll;
       const openingMove = Boolean(state.openingRoll)
         && !state.history?.some(item => item.openingMove);
@@ -2805,10 +2885,14 @@ window.NarduController = (function () {
         openingMove,
         sha256: fair.hash,
         sha256Input: fair.input,
+        ...(fair.proof ? { fairDiceProof: fair.proof } : {}),
         at: new Date().toISOString(),
       });
       state.rollToken = `roll:${fair.hash.slice(0, 16)}:${compactRollText(r)}`;
-      publishRemoteState();
+      if (fair.proof) {
+        const saved = await publishRemoteState();
+        if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified turn dice.');
+      } else publishRemoteState();
       render();
       const boardFaces = boardDiceFaces(r);
       const boardDiceLayer = document.getElementById('board-dice-layer');
@@ -2827,6 +2911,7 @@ window.NarduController = (function () {
         .catch(error => finishTurnRollAnimation(rollingTurn, error));
     } catch (error) {
       console.warn('Turn roll failed', error?.message || error);
+      await handleFairDiceFailure(error);
       isRolling = false;
       render();
       ensureAutoProgress(800);
@@ -4118,6 +4203,7 @@ window.NarduController = (function () {
 
   function playBotTurn() {
     if (
+      fairDiceError ||
       botAnalysisRestorePending ||
       !state ||
       state.phase !== 'move' ||

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { createHash } = require('node:crypto');
+const { createHash, webcrypto } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -9,6 +9,21 @@ const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const verifier = require('../game-verifier.js');
 const sha256 = text => createHash('sha256').update(text, 'utf8').digest('hex');
+const plain = value => JSON.parse(JSON.stringify(value));
+const fairDice = require('../fair-dice.js');
+const FIXTURE_KEY = '11'.repeat(32);
+const FIXTURE_PUBLIC_KEY = fairDice.receiptPublicKey(FIXTURE_KEY);
+function completeFairProof() {
+  const request = { id: '11111111-1111-4111-8111-111111111111', roomCode: 'ABCD-EFGH',
+    gameId: '22222222-2222-4222-8222-222222222222', nonce: 1, label: 'opening', color: 'none', variant: 'long', round: 1000,
+    createdAt: new Date(fairDice.roundTime(1000) - 6000).toISOString(), positionHash: 'a'.repeat(64) };
+  const beacon = { round: 1000, signature: 'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39',
+    randomness: 'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd' };
+  const receipt = fairDice.signReservation(request, FIXTURE_KEY);
+  const derived = fairDice.deriveDice(request, beacon.randomness);
+  return { protocol: fairDice.PROTOCOL, ...receipt, chainHash: fairDice.CHAIN.hash, beacon,
+    sha256: derived.hash, sha256Input: derived.input, dice: derived.dice, rerolls: derived.rerolls };
+}
 
 class LocalNode {
   constructor(tagName, id = '') {
@@ -44,7 +59,7 @@ class LocalNode {
   }
 }
 
-function createLocalUI({ hash = '', search = '', api = verifier } = {}) {
+function createLocalUI({ hash = '', search = '', api = verifier, clipboard, loadCore = false, fairApi = fairDice, env } = {}) {
   const html = read('verify-game.html');
   const nodes = new Map();
   const pending = [];
@@ -94,12 +109,18 @@ function createLocalUI({ hash = '', search = '', api = verifier } = {}) {
     Event: class { constructor(type) { this.type = type; } },
     location: { search, hash },
     NarduVerify: api,
+    NarduFairDice: fairApi,
+    NARDU_ENV: env,
+    crypto: webcrypto,
+    TextEncoder,
+    navigator: { clipboard },
     localStorage: forbiddenStorage,
     sessionStorage: forbiddenStorage,
     addEventListener: windowEvents.addEventListener.bind(windowEvents),
     fetch: () => { networkCalls += 1; throw new Error('verification must not send input data'); },
   });
   context.window = context;
+  if (loadCore) vm.runInContext(read('game-verifier.js'), context, { filename: 'game-verifier.js' });
   vm.runInContext(read('verify-game-ui.js'), context, { filename: 'verify-game-ui.js' });
   return {
     nodes,
@@ -127,6 +148,7 @@ test('the standalone verifier loads its local scripts without auth, external res
   const html = read('verify-game.html');
   assert.match(html, /<meta name="referrer" content="no-referrer"/);
   assert.match(html, /<script src="game-verifier\.js" defer><\/script>[\s\S]*<script src="verify-game-ui\.js" defer><\/script>/);
+  assert.match(html, /src="runtime-config\.js"[\s\S]*src="fair-dice-crypto\.js"[\s\S]*src="fair-dice\.js"[\s\S]*src="game-verifier\.js"/);
   assert.doesNotMatch(html, /(?:src|href)="(?:https?:)?\/\//);
   assert.doesNotMatch(html, /<script[^>]*src="(?:app|auth-client|rooms-client|supabase-client)\.js/);
   assert.doesNotMatch(html, /<(?:input|textarea)[^>]*\bname=/);
@@ -142,7 +164,7 @@ test('an unavailable core leaves the SHA-256 submission button disabled and expl
   ui.assertLocal();
 });
 
-test('a public fragment imports only hash/dice and reports matching legacy dice as incomplete proof', async () => {
+test('a public fragment imports only hash/dice and labels legacy consistency without a fair-source badge', async () => {
   const hash = `0103${'ff'.repeat(30)}`;
   const ui = createLocalUI({ hash: `#hash=${hash}&dice=2%3A4&color=white` });
   await ui.flush();
@@ -150,9 +172,11 @@ test('a public fragment imports only hash/dice and reports matching legacy dice 
   assert.equal(ui.nodes.get('portal-die-one').value, '2');
   assert.equal(ui.nodes.get('portal-die-two').value, '4');
   assert.equal(ui.nodes.get('portal-preimage').value, '');
-  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
-  assert.match(portalResult(ui).textContent, /Доказательство неполное/);
-  assert.match(portalResult(ui).textContent, /не доказывает случайность/);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.match(portalResult(ui).textContent, /Кости соответствуют хешу/);
+  assert.match(portalResult(ui).textContent, /независимая подпись источника.*отсутствует/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена|Доказательство неполное/);
+  assert.equal(ui.nodes.get('portal-proof').value, '');
   ui.assertLocal();
 });
 
@@ -167,6 +191,7 @@ test('invalid, duplicate, oversized, or secret fragment fields are not imported 
     `hash=${hash}&dice=2:4&preimage=password`,
     `hash=${hash}&dice=2:4&seed=secret`,
     `hash=${hash}&dice=2:4&clientSeed=secret`,
+    `hash=${hash}&dice=2:4&proof=%7B%22private%22%3A%22secret%22%7D`,
     `hash=${hash}&dice=2:4&extra=${'a'.repeat(257)}`,
     'hash=bad&dice=2:4',
   ]) {
@@ -184,7 +209,7 @@ test('invalid, duplicate, oversized, or secret fragment fields are not imported 
 test('query-string secrets are ignored and never enter any verification field', async () => {
   const ui = createLocalUI({ search: `?hash=${'a'.repeat(64)}&seed=secret&preimage=secret&dice=2:4` });
   await ui.flush();
-  for (const id of ['portal-hash', 'portal-preimage', 'portal-die-one', 'portal-die-two']) assert.equal(ui.nodes.get(id).value, '');
+  for (const id of ['portal-hash', 'portal-preimage', 'portal-die-one', 'portal-die-two', 'portal-proof']) assert.equal(ui.nodes.get(id).value, '');
   assert.match(ui.nodes.get('verify-page-notice').textContent, /не импортируются/);
   ui.assertLocal();
 });
@@ -196,8 +221,10 @@ test('a disclosed portal preimage verifies exact data, while a wrong preimage re
   const ui = createLocalUI();
   setFields(ui, { 'portal-hash': hash, 'portal-die-one': String(dice[0]), 'portal-die-two': String(dice[1]), 'portal-preimage': seed });
   await ui.nodes.get('verify-portal-form').trigger('submit');
-  assert.equal(firstStatus(portalResult(ui)), 'verified');
-  assert.match(portalResult(ui).textContent, /не доказывает случайность/);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.match(portalResult(ui).textContent, /Исходная строка SHA-256 \(целиком\)/);
+  assert.ok(portalResult(ui).textContent.includes(seed));
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена/);
   ui.nodes.get('portal-preimage').value += ' ';
   await ui.nodes.get('verify-portal-form').trigger('input');
   assert.equal(firstStatus(portalResult(ui)), 'incomplete');
@@ -250,12 +277,12 @@ test('a portal-only API initializes without the deleted forms and still supports
   assert.equal(calls[0].preimage, input);
   assert.equal(calls[0].hash, hash);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].expectedDice)), dice);
-  assert.equal(firstStatus(portalResult(ui)), 'verified');
-  assert.match(portalResult(ui).textContent, /Hash and dice match/);
-  assert.match(portalResult(ui).textContent, /does not prove a random roll/);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.match(portalResult(ui).textContent, /Dice match the hash/);
+  assert.match(portalResult(ui).textContent, /does not include an independent source signature/);
   await ui.languageButtons[0].trigger('click');
-  assert.equal(firstStatus(portalResult(ui)), 'verified');
-  assert.match(portalResult(ui).textContent, /Хеш и бросок совпадают/);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.match(portalResult(ui).textContent, /Кости соответствуют хешу/);
   assert.equal(ui.document.documentElement.dataset.theme, 'day');
   ui.assertLocal();
 });
@@ -304,9 +331,9 @@ test('changing the language and theme leaves verification data local and retains
   await ui.flush();
   await ui.languageButtons[1].trigger('click');
   assert.equal(ui.document.documentElement.lang, 'en');
-  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
-  assert.match(portalResult(ui).textContent, /Proof is incomplete/);
-  assert.match(portalResult(ui).textContent, /does not prove a random roll/);
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.match(portalResult(ui).textContent, /Dice match the hash/);
+  assert.match(portalResult(ui).textContent, /does not include an independent source signature/);
   await ui.themeButtons[0].trigger('click');
   assert.equal(ui.document.documentElement.dataset.theme, 'day');
   ui.assertLocal();
@@ -318,9 +345,11 @@ test('changing the public fragment clears an earlier private preimage and invali
   const ui = createLocalUI({ hash: `#hash=${first}&dice=2:4` });
   await ui.flush();
   ui.nodes.get('portal-preimage').value = 'private input manually pasted for the previous roll';
+  ui.nodes.get('portal-proof').value = '{"private":"explicitly pasted old proof"}';
   await ui.changeFragment(`#hash=${second}`);
   assert.equal(ui.nodes.get('portal-hash').value, second);
   assert.equal(ui.nodes.get('portal-preimage').value, '');
+  assert.equal(ui.nodes.get('portal-proof').value, '');
   assert.equal(ui.nodes.get('portal-die-one').value, '');
   assert.equal(ui.nodes.get('portal-die-two').value, '');
   assert.equal(portalResult(ui).childNodes.length, 0);
@@ -347,11 +376,11 @@ test('a later public-fragment check cannot be overwritten by an older pending di
   const oldSubmit = ui.nodes.get('verify-portal-form').trigger('submit');
   await ui.changeFragment(`#hash=${second}&dice=5:6`);
   assert.equal(calls, 2);
-  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
   assert.ok(portalResult(ui).textContent.includes(second));
   finishOld({ status: 'verified', hashStatus: 'verified', diceStatus: 'verified', hash: first, dice: [2, 4], sourceBytes: [] });
   await oldSubmit;
-  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
   assert.ok(portalResult(ui).textContent.includes(second));
   assert.ok(!portalResult(ui).textContent.includes(first));
   assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
@@ -364,7 +393,7 @@ test('removing the public fragment clears the previous imported proof and privat
   await ui.flush();
   ui.nodes.get('portal-preimage').value = 'private input pasted for the old roll';
   await ui.changeFragment('');
-  for (const id of ['portal-hash', 'portal-die-one', 'portal-die-two', 'portal-preimage']) {
+  for (const id of ['portal-hash', 'portal-die-one', 'portal-die-two', 'portal-preimage', 'portal-proof']) {
     assert.equal(ui.nodes.get(id).value, '', `${id} must not retain the removed fragment's proof`);
   }
   assert.equal(portalResult(ui).childNodes.length, 0);
@@ -410,6 +439,7 @@ test('the actual game roll generator discloses the exact accepted one-use preima
   const state = { roomCode: 'ABCD-EFGH', history: [{}, {}], matchScore: { white: 2, dark: 3 }, turn: 'dark' };
   const context = vm.createContext({
     state,
+    remoteCode: '',
     Date: { now: () => 1789671000000 },
     randomHex: bytes => { entropy.push(bytes); return 'ab'.repeat(bytes); },
     sha256Hex: async text => sha256(text),
@@ -446,6 +476,7 @@ test('the actual opening roll rerolls ties and discloses only the accepted one-u
   const originalState = JSON.stringify(state);
   const context = vm.createContext({
     state,
+    remoteCode: '',
     Date: { now: () => 1789671000000 },
     randomHex: bytes => { entropy.push(bytes); return salt; },
     sha256Hex: async input => { inputs.push(input); return sha256(input); },
@@ -467,6 +498,45 @@ test('the actual opening roll rerolls ties and discloses only the accepted one-u
   assert.equal(JSON.stringify(state), originalState, 'generation must not mutate the game history before the accepted proof is saved');
   const opening = { opening: true, host: generated.values[0], guest: generated.values[1], sha256: generated.hash, sha256Input: generated.input };
   assert.equal((await verifier.verifyPortalRoll(verifier.portalRollFromHistory(opening))).status, 'verified');
+});
+
+test('the actual protected roll producer uses the signed proof for opening and ordinary rolls without local entropy or a legacy fallback', async () => {
+  const source = read('game-controller.js');
+  for (const opening of [true, false]) {
+    const proof = completeFairProof();
+    const calls = [];
+    const state = { roomCode: 'ABCD-EFGH', history: [], turn: 'dark' };
+    const original = JSON.stringify(state);
+    const context = vm.createContext({
+      state, remoteCode: 'ABCD-EFGH', mode: 'remote', fairDiceError: '', fairDiceInFlight: false,
+      window: { NarduRooms: {
+        fairDiceConfigured: () => true,
+        fairDicePolicy: async roomCode => { calls.push(['policy', roomCode]); return { required: true }; },
+        requestFairDice: async (roomCode, intent) => { calls.push(['proof', roomCode, plain(intent)]); return proof; },
+      } },
+      render: () => calls.push(['render']),
+      publishRemoteState: async () => calls.push(['publish']),
+      randomHex: () => { throw new Error('protected rolls must not select local entropy'); },
+      sha256Hex: () => { throw new Error('protected rolls must not fall back to legacy SHA generation'); },
+    });
+    vm.runInContext([
+      extractDeclaration(source, 'function diceValuesFromHash('),
+      extractDeclaration(source, 'function expandRollValues('),
+      extractDeclaration(source, 'async function shaDiceRoll('),
+      'this.generate = shaDiceRoll;',
+    ].join('\n'), context);
+    const generated = await context.generate({ label: opening ? 'opening' : 'turn-roll', color: 'dark', noTie: opening });
+    assert.equal(generated.proof, proof);
+    assert.equal(generated.hash, proof.sha256);
+    assert.equal(generated.input, proof.sha256Input);
+    assert.deepEqual(plain(generated.values), proof.dice);
+    assert.deepEqual(calls, [['policy', 'ABCD-EFGH'], ['render'], ['publish'],
+      ['proof', 'ABCD-EFGH', { label: opening ? 'opening' : 'roll', color: opening ? 'none' : 'dark' }]]);
+    assert.equal(context.fairDiceInFlight, false);
+    assert.equal(JSON.stringify(state), original);
+    context.window.NarduRooms.requestFairDice = async () => { throw new Error('source temporarily unavailable'); };
+    await assert.rejects(context.generate({ label: 'turn-roll', color: 'dark' }), /source temporarily unavailable/);
+  }
 });
 
 test('opening and ordinary history save the accepted one-use preimage alongside the exact generated hash', () => {
@@ -514,4 +584,126 @@ test('embedded roll markup escapes disclosed input text and keeps its separate-p
   assert.doesNotMatch(href, /(?:seed|preimage|password|token)=/i);
   assert.ok(!href.includes('PRIVATE') && !href.includes(encodeURIComponent(secret)));
   assert.equal(context.NarduVerifyUI.rollControls({ sha256: 'broken', roll: '2:4' }), '');
+});
+
+test('a complete manually pasted signed proof shows an unambiguous success and every source/input value without duplicate fields', async () => {
+  const proof = completeFairProof();
+  const writes = [];
+  const ui = createLocalUI({ loadCore: true, env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY }, clipboard: { writeText: async value => { writes.push(value); } } });
+  setFields(ui, { 'portal-proof': JSON.stringify(proof) });
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  const out = portalResult(ui);
+  assert.equal(firstStatus(out), 'verified');
+  assert.equal(out.childNodes[0].childNodes[0].textContent, 'Проверка пройдена');
+  assert.match(out.textContent, /Источник броска подтверждён, кости рассчитаны верно\./);
+  assert.match(out.textContent, /независимый drand, а не игрок или бот/);
+  for (const value of [proof.chainHash, String(proof.beacon.round), proof.beacon.signature, proof.sha256Input, proof.sha256]) {
+    assert.ok(out.textContent.includes(value), `complete value must be available: ${value}`);
+  }
+  assert.equal(writes.length, 0, 'no automatic clipboard writes');
+  const inputDetails = out.childNodes.find(node => node.tagName === 'DETAILS' && node.childNodes[0]?.textContent === 'Исходная строка SHA-256 (целиком)');
+  assert.ok(inputDetails);
+  const inputCopy = inputDetails.childNodes.find(node => node.tagName === 'BUTTON');
+  await inputCopy.trigger('click');
+  assert.deepEqual(writes, [proof.sha256Input]);
+  assert.equal(inputCopy.textContent, 'Скопировано');
+  await ui.languageButtons[1].trigger('click');
+  assert.equal(firstStatus(out), 'verified');
+  assert.match(out.textContent, /Verification passed/);
+  assert.match(out.textContent, /random value comes from independent drand, not a player or bot/);
+  assert.match(out.textContent, /externally observed publication time/);
+  ui.assertLocal();
+});
+
+test('a source-authentic signed proof without a configured receipt pin cannot display the success badge or a verified server reservation', async () => {
+  const proof = { ...completeFairProof(), publicKey: FIXTURE_PUBLIC_KEY };
+  const ui = createLocalUI({ loadCore: true });
+  setFields(ui, { 'portal-proof': JSON.stringify(proof) });
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.equal(firstStatus(portalResult(ui)), 'incomplete');
+  assert.match(portalResult(ui).textContent, /Подпись drand подтверждена/);
+  assert.match(portalResult(ui).textContent, /Ключ проверки серверной записи не настроен/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена|Подписанная серверная запись подтверждена/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Подтверждены подпись drand и подписанная/);
+  ui.assertLocal();
+});
+
+test('a signed proof with a wrong pinned receipt or wrong external dice never falls back to positive legacy consistency', async () => {
+  const proof = completeFairProof();
+  const badReceipt = { ...proof, receiptSignature: '0'.repeat(128) };
+  const ui = createLocalUI({ loadCore: true, env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY } });
+  setFields(ui, { 'portal-proof': JSON.stringify(badReceipt), 'portal-hash': proof.sha256,
+    'portal-die-one': String(proof.dice[0]), 'portal-die-two': String(proof.dice[1]) });
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.notEqual(firstStatus(portalResult(ui)), 'verified');
+  assert.match(portalResult(ui).textContent, /Подпись серверной записи не соответствует настроенному ключу/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена|Кости соответствуют хешу/);
+  setFields(ui, { 'portal-proof': JSON.stringify(proof), 'portal-die-one': String(proof.dice[1]), 'portal-die-two': String(proof.dice[0]) });
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.equal(firstStatus(portalResult(ui)), 'mismatch');
+  assert.match(portalResult(ui).textContent, /Обнаружено несовпадение/);
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена/);
+  ui.assertLocal();
+});
+
+test('malformed or partial signed inputs are rejected locally before invoking either verification method', async () => {
+  let calls = 0;
+  const api = { verifyPortalRoll: async () => { calls += 1; }, verifyFairRoll: async () => { calls += 1; } };
+  for (const proof of ['bad JSON', '[]', 'null', '0', '{"value":"' + 'x'.repeat(16384) + '"}']) {
+    const ui = createLocalUI({ api });
+    setFields(ui, { 'portal-proof': proof });
+    await ui.nodes.get('verify-portal-form').trigger('submit');
+    assert.notEqual(firstStatus(portalResult(ui)), 'verified');
+    assert.equal(ui.nodes.get('portal-proof').getAttribute('aria-invalid'), 'true');
+    assert.equal(ui.nodes.get('portal-proof').focused, true);
+    ui.assertLocal();
+  }
+  const partial = createLocalUI({ api });
+  setFields(partial, { 'portal-proof': JSON.stringify(completeFairProof()), 'portal-die-one': '2', 'portal-die-two': '' });
+  await partial.nodes.get('verify-portal-form').trigger('submit');
+  assert.equal(partial.nodes.get('portal-die-two').getAttribute('aria-invalid'), 'true');
+  assert.equal(calls, 0);
+});
+
+test('signed proof details render hostile JSON fields as text and copy only explicitly selected complete proof data', async () => {
+  const hostile = '<img src=x onerror="throw 1">';
+  const proof = { ...completeFairProof(), note: hostile };
+  const writes = [];
+  const ui = createLocalUI({ loadCore: true, env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY }, clipboard: { writeText: async value => writes.push(value) } });
+  setFields(ui, { 'portal-proof': JSON.stringify(proof) });
+  await ui.nodes.get('verify-portal-form').trigger('submit');
+  const out = portalResult(ui);
+  assert.equal(firstStatus(out), 'verified');
+  assert.ok(out.textContent.includes('<img src=x onerror='));
+  const details = out.childNodes.find(node => node.tagName === 'DETAILS' && node.childNodes[0]?.textContent === 'JSON-доказательство броска');
+  assert.ok(details);
+  assert.equal(details.childNodes.find(node => node.tagName === 'CODE').textContent, JSON.stringify(proof, null, 2));
+  assert.equal(writes.length, 0);
+  await details.childNodes.find(node => node.tagName === 'BUTTON').trigger('click');
+  assert.deepEqual(JSON.parse(writes[0]), proof);
+  ui.assertLocal();
+});
+
+test('editing a pending signed proof or navigating to a public fragment invalidates its old positive result and clears private JSON', async () => {
+  const proof = completeFairProof();
+  let finish;
+  const wait = new Promise(resolve => { finish = resolve; });
+  const ui = createLocalUI({ api: { ...verifier, verifyFairRoll: () => wait } });
+  setFields(ui, { 'portal-proof': JSON.stringify(proof) });
+  const submitted = ui.nodes.get('verify-portal-form').trigger('submit');
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, true);
+  ui.nodes.get('portal-proof').value = '{"edited":true}';
+  await ui.nodes.get('verify-portal-form').trigger('input');
+  const hash = `0103${'ff'.repeat(30)}`;
+  await ui.changeFragment(`#hash=${hash}&dice=2:4`);
+  assert.equal(ui.nodes.get('portal-proof').value, '');
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  finish({ status: 'verified', protocol: 'drand', sourceVerified: true, reservationVerified: true,
+    hashStatus: 'verified', diceStatus: 'verified', hash: proof.sha256, input: proof.sha256Input, dice: proof.dice, proof });
+  await submitted;
+  assert.equal(firstStatus(portalResult(ui)), 'matched');
+  assert.doesNotMatch(portalResult(ui).textContent, /Проверка пройдена/);
+  assert.ok(!portalResult(ui).textContent.includes(proof.sha256Input));
+  assert.equal(ui.nodes.get('verify-portal-submit').disabled, false);
+  ui.assertLocal();
 });

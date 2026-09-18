@@ -44,6 +44,7 @@ html[data-theme="day"] .verify-submit { color: white; }
 .verify-result-card[data-status="verified"] { border-color: #419567; }
 .verify-result-card[data-status="mismatch"] { border-color: #de6666; }
 .verify-result-card[data-status="incomplete"] { border-color: #b08d43; }
+.verify-result-card[data-status="matched"] { border-color: var(--line); }
 .verify-result-title { font-size: 15px; font-weight: 650; margin: 0 0 9px; }
 .verify-result-card[data-status="verified"] .verify-result-title { color: #7bdaa1; }
 .verify-result-card[data-status="mismatch"] .verify-result-title { color: #ff9c9c; }
@@ -55,6 +56,12 @@ html[data-theme="day"] .verify-result-card[data-status="incomplete"] .verify-res
 .verify-result-card p { font-size: 13px; }
 .verify-output-label { color: var(--ink-2); display: block; font-size: 12px; margin-bottom: 7px; }
 .verify-output-value { display: block; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.verify-output-details { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); }
+.verify-output-details summary, .verify-limits summary { color: var(--ink-2); font-size: 13px; line-height: 1.5; cursor: pointer; }
+.verify-output-details .verify-output-value { margin-top: 12px; max-height: 360px; overflow: auto; }
+.verify-copy { margin-top: 12px; min-height: 40px; padding: 8px 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); font: inherit; font-size: 13px; cursor: pointer; }
+.verify-limits { margin-top: 12px; }
+.verify-limits p { margin-top: 10px; color: var(--ink-2); }
 .verify-dice { display: flex; flex-wrap: wrap; gap: 9px; margin: 10px 0; }
 .verify-die { display: inline-grid; place-items: center; width: 46px; height: 46px; border-radius: 9px; background: #faf3df; color: #21190e; font-size: 24px; font-weight: 700; box-shadow: 0 2px 0 rgba(0, 0, 0, .2); }
 .verify-notice { padding: 13px 16px; background: var(--accent-soft); color: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r-md); line-height: 1.6; overflow-wrap: anywhere; }

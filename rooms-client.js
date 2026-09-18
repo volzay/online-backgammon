@@ -24,6 +24,7 @@
   const BOT_ANALYSIS_OWNER_STORAGE_VERSION = 1;
   const BOT_ANALYSIS_OWNER_STORAGE_PREFIX = "narduh-bot-analysis-owner-v2:";
   const roomIdCache = new Map();
+  const fairDicePolicies = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
   const shortBotExperiencePromises = new Map();
@@ -879,7 +880,14 @@
         .select("*")
         .single();
       if (!error) {
-        roomIdCache.set(normalizeCode(data.code), data.id);
+        const normalizedCode = normalizeCode(data.code);
+        roomIdCache.set(normalizedCode, data.id);
+        // Codes can be reused after a deleted legacy room. Never inherit its
+        // cached protocol or epoch: these fields are stamped by the database.
+        fairDicePolicies.set(normalizedCode, {
+          required: data.fair_dice_required === true,
+          gameId: data.fair_dice_game_id || null,
+        });
         return { room: publicRoom(data, { password }) };
       }
       lastError = error;
@@ -896,6 +904,7 @@
 
   async function ensureBotAnalysisRoom(payload = {}) {
     const normalizedCode = normalizeCode(payload.code);
+    fairDicePolicies.delete(normalizedCode);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
     const variant = payload.variant === "short" ? "short" : "long";
@@ -1175,6 +1184,10 @@
       }
       return result;
     }
+    if ((await fairDicePolicy(normalizedCode))?.required) {
+      const result = await fairDiceJson('leave', { code: normalizedCode }, { signal });
+      return { ...result, closed: result.ok === true, removed: result.ok === true, code: normalizedCode };
+    }
 
     const { client, authUser, guest } = await roomClientContext({ signal });
     const identity = playerIdentity(authUser);
@@ -1261,16 +1274,124 @@
     const client = await supabase({ signal });
     let query = client
       .from("rooms")
-      .select("id,game_state,game_version,status")
+      .select("id,game_state,game_version,status,fair_dice_required,fair_dice_game_id")
       .eq("code", normalizedCode)
       .neq("status", "closed");
     query = withAbortSignal(query, signal);
-    const { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    let { data, error } = await awaitWithAbort(query.maybeSingle(), signal);
+    // Before v36 is installed, existing rooms are legacy. Only an explicit
+    // missing-column error allows this compatibility read, never an auth,
+    // network, service-key or signature failure for a protected room.
+    if (error && ['42703', 'PGRST204'].includes(error.code)
+      && /fair_dice_(?:required|game_id)/.test(error.message || '')) {
+      let legacy = client.from('rooms').select('id,game_state,game_version,status')
+        .eq('code', normalizedCode).neq('status', 'closed');
+      legacy = withAbortSignal(legacy, signal);
+      ({ data, error } = await awaitWithAbort(legacy.maybeSingle(), signal));
+    }
     throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not load game state.");
     if (!data) throw roomError("Комната не найдена.", 404);
     roomIdCache.set(normalizedCode, data.id);
-    return { state: data.game_state || null, version: Number(data.game_version || 0) };
+    fairDicePolicies.set(normalizedCode, {
+      required: data.fair_dice_required === true, gameId: data.fair_dice_game_id,
+    });
+    return { state: data.game_state || null, version: Number(data.game_version || 0),
+      fairDice: fairDicePolicies.get(normalizedCode) || { required: false } };
+  }
+
+  function fairDiceConfigured() {
+    const env = window.NARDU_ENV || {};
+    return configured() && Boolean(env.fairDiceUrl) && /^[0-9a-f]{64}$/.test(env.fairDicePublicKey || '');
+  }
+
+  async function fairDicePolicy(code, { refresh = false } = {}) {
+    if (!configured()) return { required: false };
+    const normalizedCode = normalizeCode(code);
+    if (refresh || !fairDicePolicies.has(normalizedCode)) await getGameState(normalizedCode);
+    return fairDicePolicies.get(normalizedCode);
+  }
+
+  async function fairDiceJson(path, body, options = {}) {
+    if (!fairDiceConfigured()) throw roomError("Сервис подтверждённых бросков не настроен.", 503);
+    const base = new URL(window.NARDU_ENV.fairDiceUrl);
+    if (base.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) {
+      throw roomError("Небезопасный адрес сервиса бросков.", 503);
+    }
+    if (base.username || base.password || base.search || base.hash) throw roomError("Неверный адрес сервиса бросков.", 503);
+    const client = await supabase();
+    const { data, error } = await client.auth.getSession();
+    if (error) throw supabaseError(error, "Could not load dice session.");
+    const token = localUserIsGuest() ? window.NARDU_ENV.supabaseAnonKey
+      : data?.session?.access_token || window.NARDU_ENV.supabaseAnonKey;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    options.signal?.addEventListener('abort', abort, { once: true });
+    const timeout = window.setTimeout(abort, 12000);
+    try {
+      const response = await fetch(`${base.href.replace(/\/$/, '')}/${path}`, {
+        method: 'POST', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          ...(window.NarduApp?.guestRequestHeaders?.() || {}) },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      throwIfAborted(controller.signal);
+      if (!result || typeof result !== 'object' || Array.isArray(result)) {
+        throw roomError("Некорректный ответ сервиса бросков.", 502);
+      }
+      if (!response.ok) {
+        const err = roomError("Подтверждённый бросок временно недоступен. Повторный запрос сохранит те же кости.", response.status, result);
+        err.code = result.code || 'FAIR_DICE_UNAVAILABLE';
+        throw err;
+      }
+      return result;
+    } catch (error) {
+      if (controller.signal.aborted && !options.signal?.aborted) {
+        throw roomError("Сервис бросков не ответил вовремя. Повторный запрос сохранит тот же бросок.", 503);
+      }
+      if (error?.name === 'SyntaxError') throw roomError("Некорректный ответ сервиса бросков.", 502);
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abort);
+    }
+  }
+
+  async function requestFairDice(code, { label, color } = {}) {
+    const normalizedCode = normalizeCode(code);
+    // Refresh the protected epoch after a rematch; it never comes from storage,
+    // URL parameters, a bot or the proof's self-declared public key.
+    const current = await getGameState(normalizedCode);
+    const policy = current.fairDice;
+    if (!policy?.required) throw roomError("Эта партия использует прежний протокол бросков.", 422);
+    const context = { roomCode: normalizedCode, gameId: policy.gameId, label, color, variant: current.state?.variant };
+    const reserved = await fairDiceJson('reserve', { code: normalizedCode, label, color });
+    const receipt = reserved.receipt || reserved;
+    if (!window.NarduFairDice?.verifyReservation(receipt, window.NARDU_ENV.fairDicePublicKey, context)) {
+      throw roomError("Не удалось подтвердить серверную запись броска.", 422);
+    }
+    // All polling is for THIS immutable request. There is deliberately no
+    // browser RNG, alternate nonce, beacon 'latest', or local fallback here.
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      const result = await fairDiceJson('result', { code: normalizedCode, requestId: receipt.request.id });
+      if (result.proof) {
+        if (result.proof.requestHash !== receipt.requestHash
+          || result.proof.receiptSignature !== receipt.receiptSignature
+          || result.proof.request?.id !== receipt.request.id) {
+          throw roomError("Доказательство не относится к зарезервированному броску.", 422);
+        }
+        const verified = await window.NarduFairDice.verifyProof(result.proof, {
+          publicKey: window.NARDU_ENV.fairDicePublicKey, context,
+        });
+        if (!verified.sourceVerified || !verified.reservationVerified) throw roomError("Подпись источника броска не подтверждена.", 422);
+        return result.proof;
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 750));
+    }
+    throw roomError("Источник броска задерживается. Повторный запрос продолжит тот же бросок.", 503);
   }
 
   async function putGameState(code, state, version = 0) {
@@ -1281,6 +1402,11 @@
         method: "PUT",
         body: JSON.stringify({ state, version, ownerToken }),
       });
+    }
+    if ((await fairDicePolicy(normalizedCode))?.required) {
+      const result = await fairDiceJson('state', { code: normalizedCode, state, version: Number(version) || 0 });
+      if (result.gameId) fairDicePolicies.set(normalizedCode, { required: true, gameId: result.gameId });
+      return result;
     }
     const client = await supabase();
     const nextVersion = Math.max(0, Number(version) || 0) + 1;
@@ -1323,8 +1449,12 @@
     }
     const { client, authUser, guest } = await roomClientContext();
     const payload = JSON.parse(JSON.stringify(finalState || {}));
+    let fairSaved = null;
+    if ((await fairDicePolicy(normalizedCode))?.required) {
+      fairSaved = await putGameState(normalizedCode, payload, version);
+    }
     if (guest && !authUser?.id) {
-      const saved = await putGameState(normalizedCode, payload, version);
+      const saved = fairSaved || await putGameState(normalizedCode, payload, version);
       return { ...saved, trainingArchived: false };
     }
     const args = {
@@ -1353,6 +1483,7 @@
     if (error) throw supabaseError(error, "Could not finish room game.");
     return {
       ...(data || { ok: true }),
+      ...(fairSaved ? { version: fairSaved.version } : {}),
       trainingArchived: usedLegacyFinalizer ? false : data?.trainingArchived === true,
     };
   }
@@ -1599,6 +1730,9 @@
         signal,
       });
     }
+    if ((await fairDicePolicy(normalizedCode))?.required) {
+      return fairDiceJson('presence', { code: normalizedCode }, { signal });
+    }
     const client = await supabase({ signal });
     throwIfAborted(signal);
     const color = payload.color === "dark" ? "dark" : "white";
@@ -1707,6 +1841,9 @@
         method: "POST",
         body: JSON.stringify(payload),
       });
+    }
+    if ((await fairDicePolicy(normalizedCode))?.required) {
+      return fairDiceJson('leave', { code: normalizedCode });
     }
     const { client, authUser, guest } = await roomClientContext();
     const identity = playerIdentity(authUser);
@@ -1924,6 +2061,9 @@
     closeOwnLobbyRooms,
     closeOwnWaitingRooms,
     getGameState,
+    fairDiceConfigured,
+    fairDicePolicy,
+    requestFairDice,
     putGameState,
     finishRoomGame,
     archiveBotTrainingGame,

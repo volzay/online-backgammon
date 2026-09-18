@@ -57,7 +57,7 @@ test('a spectator sees the actual winner instead of the spectator identity', () 
   const evaluate = new Function(
     'state', 'spectatorMode', 'mode', 'playerColor', 'window', 'localizedName',
     'opponentName', 'tr', 'sideName', 'NarduGame', 'isRolling',
-    'botAnalysisRestorePending',
+    'botAnalysisRestorePending', 'fairDiceError', 'fairDiceInFlight',
     `${sources}\nreturn currentTurnStatus();`,
   );
   const status = evaluate(
@@ -81,10 +81,59 @@ test('a spectator sees the actual winner instead of the spectator identity', () 
     { hasAnyMoves: () => true },
     false,
     false,
+    '',
+    false,
   );
 
   assert.equal(status.text, 'Победитель: tester1');
   assert.doesNotMatch(status.text, /Наблюдатель/);
+});
+
+function evaluateTurnStatus(state, flags = {}, language = 'ru') {
+  const sources = [
+    extractFunction(controller, 'function turnName'),
+    extractFunction(controller, 'function isMyTurn'),
+    extractFunction(controller, 'function currentTurnStatus'),
+  ].join('\n');
+  const evaluate = new Function('state', 'flags', 'lang', 'window', 'tr', 'sideName', 'localizedName', 'opponentName', 'NarduGame', `
+    const {
+      spectatorMode = false, mode = 'remote', playerColor = 'white',
+      isRolling = false, botAnalysisRestorePending = false,
+      fairDiceError = '', fairDiceInFlight = false,
+    } = flags;
+    ${sources}
+    return { status: currentTurnStatus(), isMyTurn: isMyTurn() };
+  `);
+  return evaluate(state, flags, () => language,
+    { NarduApp: { getUser: () => ({ name: 'Игрок' }) } },
+    key => key, color => color, value => value, 'Соперник',
+    { hasAnyMoves: () => true });
+}
+
+test('waiting for an independent beacon has an explicit waiting status in both languages', () => {
+  const state = { phase: 'roll', turn: 'white', winner: null };
+  const ru = evaluateTurnStatus(state, { fairDiceInFlight: true, isRolling: true });
+  assert.equal(ru.status.tone, 'waiting');
+  assert.equal(ru.status.text, 'Ожидаем независимый подписанный источник броска…');
+  const en = evaluateTurnStatus(state, { fairDiceInFlight: true, isRolling: true }, 'en');
+  assert.equal(en.status.tone, 'waiting');
+  assert.equal(en.status.text, 'Waiting for the independent signed dice source…');
+  const ordinary = evaluateTurnStatus(state);
+  assert.equal(ordinary.status.text, 'turn_your_roll');
+  assert.equal(ordinary.status.tone, 'active');
+});
+
+test('failed protected dice pause the real turn guard and take precedence over an outstanding beacon', () => {
+  const state = { phase: 'move', turn: 'white', winner: null };
+  const message = 'Подтверждённый бросок временно недоступен. Этот же бросок сохранён.';
+  const paused = evaluateTurnStatus(state, { fairDiceError: message, fairDiceInFlight: true });
+  assert.deepEqual(paused.status, { text: message, tone: 'waiting' });
+  assert.equal(paused.isMyTurn, false);
+  assert.equal(evaluateTurnStatus(state).isMyTurn, true);
+  assert.equal(evaluateTurnStatus(state, { spectatorMode: true }).isMyTurn, false);
+  assert.equal(evaluateTurnStatus(state, { botAnalysisRestorePending: true }).isMyTurn, false);
+  assert.equal(evaluateTurnStatus(state, { playerColor: 'dark' }).isMyTurn, false);
+  assert.equal(evaluateTurnStatus(state, { mode: 'hotseat', fairDiceError: message }).isMyTurn, false);
 });
 
 test('waiting-room invitation contains a join deep link and never puts its password in the URL', () => {

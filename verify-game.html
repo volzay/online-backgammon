@@ -7,6 +7,9 @@
   <title>Нарды — Проверка броска</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="verify-game.css" />
+  <script src="runtime-config.js" defer></script>
+  <script src="fair-dice-crypto.js" defer></script>
+  <script src="fair-dice.js" defer></script>
   <script src="game-verifier.js" defer></script>
   <script src="verify-game-ui.js" defer></script>
 </head>
@@ -30,7 +33,7 @@
       <div class="verify-head">
         <span class="verify-kicker" data-verify-i18n="kicker">Нарды Онлайн · проверка данных</span>
         <h1 data-verify-i18n="heading">Проверка броска</h1>
-        <p class="verify-lead" data-verify-i18n="lead">Сверьте кости с SHA-256 из истории партии. Вычисления выполняются только в этом браузере; введённые значения не отправляются и не сохраняются.</p>
+        <p class="verify-lead" data-verify-i18n="lead">Проверьте источник броска и соответствие костей истории партии. Вычисления выполняются в этом браузере; введённые значения не отправляются и не сохраняются.</p>
       </div>
 
       <noscript><p class="verify-notice" role="alert">Для локальной проверки требуется JavaScript. Данные формы не отправляются.</p></noscript>
@@ -38,14 +41,22 @@
 
       <section class="verify-card" aria-labelledby="portal-title">
         <div class="verify-card-head">
-          <span class="verify-protocol">SHA-256</span>
+          <span class="verify-protocol">drand · SHA-256</span>
           <h2 id="portal-title" data-verify-i18n="portalTitle">Бросок на этом портале</h2>
         </div>
-        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить» или скопируйте SHA-256 и обе кости. Одного хеша достаточно для проверки соответствия костей, но не для подтверждения происхождения хеша.</p>
+        <p class="verify-muted" data-verify-i18n="portalIntro">В истории броска откройте «Проверить» или скопируйте SHA-256 и обе кости. Для нового подписанного протокола можно вручную вставить JSON-доказательство броска. Для старых записей проверяется соответствие костей хешу.</p>
         <form id="verify-portal-form" autocomplete="off" novalidate>
+          <details class="verify-preimage">
+            <summary data-verify-i18n="proofSummary">Есть JSON-доказательство источника броска?</summary>
+            <div class="verify-field">
+              <label for="portal-proof" data-verify-i18n="proofLabel">JSON-доказательство (необязательно)</label>
+              <textarea id="portal-proof" class="verify-mono" maxlength="16384" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-proof-hint"></textarea>
+              <span id="portal-proof-hint" class="verify-hint" data-verify-i18n="proofHint">Вставьте запись завершённого броска из его подробностей. Подпись drand и подписанное резервирование проверяются локально; ключ сервера берётся только из настроек портала. JSON не импортируется из адреса страницы.</span>
+            </div>
+          </details>
           <div class="verify-field">
             <label for="portal-hash" data-verify-i18n="portalHash">SHA-256 из истории броска</label>
-            <input id="portal-hash" class="verify-mono" type="text" maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-hash-hint" required />
+            <input id="portal-hash" class="verify-mono" type="text" maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="portal-hash-hint" />
             <span id="portal-hash-hint" class="verify-hint" data-verify-i18n="hashHint">Ровно 64 шестнадцатеричных символа: 0–9, a–f.</span>
           </div>
           <div class="verify-grid">
@@ -74,7 +85,11 @@
       <section class="verify-card verify-explanation" aria-labelledby="explanation-title">
         <h2 id="explanation-title" data-verify-i18n="explanationTitle">Что именно проверяется</h2>
         <p data-verify-i18n="explanationPortal">Для бросков портала байты SHA-256 читаются слева направо. Значения 252–255 пропускаются; первые два подходящих байта дают кости по формуле (байт % 6) + 1. Пропуск исключает смещение при таком преобразовании байтов.</p>
-        <p data-verify-i18n="explanationLimits">Совпадение костей и хеша не доказывает случайность или невозможность подбора хеша сервером. Раскрытое исходное значение позволяет дополнительно сверить SHA-256, но эта страница не подтверждает, когда хеш был опубликован. Проверка законности перемещения шашек здесь не выполняется.</p>
+        <p data-verify-i18n="explanationSource">В новом протоколе игроки и боты используют один независимый источник drand. Подпись источника привязана к его раунду; кости вычисляются из подписанного значения и контекста партии. Подписанная сервером запись резервирования проверяется отдельным настроенным ключом.</p>
+        <details class="verify-preimage">
+          <summary data-verify-i18n="limitationsSummary">Границы проверки</summary>
+          <p data-verify-i18n="explanationLimits">Для старых записей совпадение строки, хеша и костей подтверждает только их соответствие. Для нового протокола подтверждаются подпись drand и подписанная запись резервирования, но не внешнее время её публикации или намерения игроков и оператора. Проверка законности перемещения шашек здесь не выполняется.</p>
+        </details>
       </section>
 
     </main>

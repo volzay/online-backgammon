@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const buildLongBotEngine = require("./build-long-bot-engine");
 const buildShortBotEngine = require("./build-short-bot-engine");
+const buildFairDiceCrypto = require("./build-fair-dice-crypto");
+const fairDiceBuildConfig = require("./fair-dice-build-config");
+// Validate pins before replacing dist or regenerating any assets.
+const FAIR_DICE_CONFIG = fairDiceBuildConfig();
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -31,6 +35,8 @@ const STATIC_FILES = [
   "rooms-client.js",
   "game.js",
   "game-controller.js",
+  "fair-dice.js",
+  "fair-dice-crypto.js",
   "game-verifier.js",
   "verify-game-ui.js",
   "roll-verification-ui.js",
@@ -84,6 +90,7 @@ function writeRuntimeConfig() {
     siteBaseUrl: process.env.SITE_BASE_URL || DEFAULT_SITE_BASE_URL,
     adminEmails: process.env.ADMIN_EMAILS || DEFAULT_ADMIN_EMAILS,
     deployTarget: "github-pages",
+    ...FAIR_DICE_CONFIG,
   };
   const body = `window.NARDU_ENV = ${JSON.stringify(config, null, 2)};\n`;
   fs.writeFileSync(path.join(DIST, "runtime-config.js"), body);
@@ -91,6 +98,7 @@ function writeRuntimeConfig() {
 
 buildLongBotEngine();
 buildShortBotEngine();
+buildFairDiceCrypto();
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 STATIC_FILES.forEach(copyFile);

@@ -20,6 +20,16 @@
     "test": "npm run test:bot-engine",
     "build": "node scripts/build-github-pages.js"
   },
-  "keywords": ["backgammon", "nardy", "long-backgammon"],
-  "license": "UNLICENSED"
+  "keywords": [
+    "backgammon",
+    "nardy",
+    "long-backgammon"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@noble/curves": "2.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
 }

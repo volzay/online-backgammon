@@ -18,6 +18,14 @@
 .roll-verify-status[data-status="verified"] { border-color: #478759; }
 .roll-verify-status[data-status="mismatch"] { border-color: #c55b57; }
 .roll-verify-status[data-status="incomplete"] { border-color: #a77c36; }
+.roll-verify-status[data-status="matched"] { border-color: var(--line); }
+.roll-proof-details { flex: 1 1 100%; min-width: 0; margin-top: 8px; font-size: 12px; line-height: 1.6; text-transform: none; letter-spacing: normal; }
+.roll-proof-details summary { cursor: pointer; color: var(--ink-2); }
+.roll-proof-details p { overflow-wrap: anywhere; }
+.roll-proof-details pre { max-height: 300px; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.roll-proof-details button { min-height: 36px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); background: var(--panel); font: inherit; cursor: pointer; }
+.roll-proof-details details { margin-top: 12px; }
+.roll-proof-limits { color: var(--ink-3); }
 .roll-verify-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .roll-verify-actions a { color: var(--ink-2); font-size: 12px; }
 .roll-verify-note { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
