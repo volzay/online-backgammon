@@ -406,6 +406,16 @@ snapshot отдельно записывает actual ID и actual source finger
 trainer/evaluator по-прежнему отвергают resume или новую оценку исходного
 saved448 artifact на иных training rules bytes. Для нового benchmark требуется
 отдельный явно оформленный переход provenance или исходный frozen runtime.
+
+Для обычного сложного бота также устранено копирование archive в каждом
+гипотетическом ходе native production `plan`: archive валидируется один раз,
+затем внутренний scratch state использует `history: []`. Публичные `rank`,
+`describe`, review и исходное состояние decision telemetry сохраняют полную
+историю. Произвольные game factories/custom adapters не включают эту
+оптимизацию по умолчанию; cycles, BigInt и некорректные JSON archives не
+становятся молча допустимыми планами. Этот wrapper имеет собственный reviewed
+SHA и новый truthful actual ID; learning alias по-прежнему разрешён только
+для точного полного source tuple, без изменения профилей, budgets или весов.
 Поле `rulesCompatibility: history-free-rule-search-v1` обозначает ограниченную
 совместимость этих двух конкретных исходников. Сборщик допускает только эти
 два SHA, проверяет соответствие публичного asset фактическому исходнику и

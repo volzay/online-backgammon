@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e';
-  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:09a8e00cc5893e3b2763a7dd553c530035a742691533f6fffbb7d47dcd993231","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}}, sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:09a8e00cc5893e3b2763a7dd553c530035a742691533f6fffbb7d47dcd993231","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}) });
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
+  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}}, sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}) });
 
 /* bot-engine/long/metrics.ts */
 
@@ -6822,11 +6822,20 @@ function createBrowserLongBotEngine(game, options = {}) {
 
   // Native rules/evaluation never read durable analysis/botMemory. Carrying it
   // through every JSON-cloned hypothetical board makes search cost grow with
-  // the complete game ledger. Strip ONLY that field at this native boundary;
+  // the complete game ledger. A production plan also needs no archived history:
+  // decisionRecord reads the ORIGINAL state, and returns compact board-only
+  // candidate telemetry. Public rank/review results still retain full history;
   // generic engines/custom adapters keep their original full-state contract.
-  const searchState = state => {
+  const searchState = (state, includeHistory = true) => {
     const projected = { ...state };
     delete projected.analysis;
+    // Only the installed native planner opts in; arbitrary game factories may
+    // implement history-dependent rules. Validate the archive once so cycles,
+    // BigInt and malformed toJSON results never become silently valid plans.
+    if (!includeHistory && options.historyFreePlanning === true && Array.isArray(state.history)) {
+      const archive = JSON.parse(JSON.stringify(state.history));
+      if (Array.isArray(archive)) projected.history = [];
+    }
     return projected;
   };
   const restoreRankMetadata = (state, ranked) => {
@@ -6854,7 +6863,7 @@ function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
-      const ranked = engine.rank(searchState(state), color, effectiveOptions);
+      const ranked = engine.rank(searchState(state, false), color, effectiveOptions);
       const recorded = decisionRecord(
         state,
         color,
@@ -7403,7 +7412,7 @@ function positionFingerprint(state, color) {
 function installBrowserLongBotEngine(root = globalThis) {
   const game = root?.NarduGame;
   if (!game) return null;
-  const api = createBrowserLongBotEngine(game);
+  const api = createBrowserLongBotEngine(game, { historyFreePlanning: true });
   root.NarduLongBotEngine = api;
   return api;
 }

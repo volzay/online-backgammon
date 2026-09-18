@@ -31,9 +31,9 @@ const AUDITED_NATIVE_CACHE_POLICY = Object.freeze({
 // Keep the original tuple and its namespaces unchanged; never mix its hashes
 // with this regenerated bundle or relabel historical rollout evidence.
 const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
-  policyImplementationId: 'ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e',
+  policyImplementationId: '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526',
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
-  runtimeBytesDigest: 'a6ac6f5c9eb3a1858d945cdcc91dd1682a4af8ee1135c8ae9253e6befed318cb',
+  runtimeBytesDigest: 'caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d',
 });
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([AUDITED_NATIVE_CACHE_POLICY, OPTIMIZED_NATIVE_CACHE_POLICY]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({

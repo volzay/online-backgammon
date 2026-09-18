@@ -58,11 +58,20 @@ export function createBrowserLongBotEngine(game, options = {}) {
 
   // Native rules/evaluation never read durable analysis/botMemory. Carrying it
   // through every JSON-cloned hypothetical board makes search cost grow with
-  // the complete game ledger. Strip ONLY that field at this native boundary;
+  // the complete game ledger. A production plan also needs no archived history:
+  // decisionRecord reads the ORIGINAL state, and returns compact board-only
+  // candidate telemetry. Public rank/review results still retain full history;
   // generic engines/custom adapters keep their original full-state contract.
-  const searchState = state => {
+  const searchState = (state, includeHistory = true) => {
     const projected = { ...state };
     delete projected.analysis;
+    // Only the installed native planner opts in; arbitrary game factories may
+    // implement history-dependent rules. Validate the archive once so cycles,
+    // BigInt and malformed toJSON results never become silently valid plans.
+    if (!includeHistory && options.historyFreePlanning === true && Array.isArray(state.history)) {
+      const archive = JSON.parse(JSON.stringify(state.history));
+      if (Array.isArray(archive)) projected.history = [];
+    }
     return projected;
   };
   const restoreRankMetadata = (state, ranked) => {
@@ -90,7 +99,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
       const color = state?.turn;
       if (!state || (state.variant && state.variant !== 'long') || !color) return [];
       const effectiveOptions = effectiveRuntimeOptions(runtimeOptions);
-      const ranked = engine.rank(searchState(state), color, effectiveOptions);
+      const ranked = engine.rank(searchState(state, false), color, effectiveOptions);
       const recorded = decisionRecord(
         state,
         color,
@@ -639,7 +648,7 @@ function positionFingerprint(state, color) {
 export function installBrowserLongBotEngine(root = globalThis) {
   const game = root?.NarduGame;
   if (!game) return null;
-  const api = createBrowserLongBotEngine(game);
+  const api = createBrowserLongBotEngine(game, { historyFreePlanning: true });
   root.NarduLongBotEngine = api;
   return api;
 }

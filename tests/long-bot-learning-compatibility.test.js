@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const builder = require('../scripts/build-long-bot-engine');
 const ROOT = path.join(__dirname, '..');
 const ORIGINAL = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
-const ACTUAL = 'ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e';
+const ACTUAL = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 function pattern(policyImplementationId = ORIGINAL) {

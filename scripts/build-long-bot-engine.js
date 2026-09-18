@@ -21,7 +21,7 @@ const HISTORY_FREE_LEARNING_SOURCES = Object.freeze({
   'bot-engine/long/analysis.ts': '24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932',
   'bot-engine/long/engine.ts': '2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b',
   'bot-engine/long/nardu-game-adapter.ts': 'f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08',
-  'bot-engine/long/browser.ts': '09a8e00cc5893e3b2763a7dd553c530035a742691533f6fffbb7d47dcd993231',
+  'bot-engine/long/browser.ts': 'c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4',
   'game.js': '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   'strong-bot.js': '49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573',
 });

@@ -20,7 +20,7 @@ function loadRuntime() {
     constructor(...args) { super(...(args.length ? args : [NOW])); }
     static now() { return NOW; }
   }
-  const copies = { count: 0, stateBytes: 0, analysisBytes: 0 };
+  const copies = { count: 0, stateBytes: 0, analysisBytes: 0, archivedHistoryRows: 0 };
   const trackedJSON = Object.create(JSON);
   trackedJSON.stringify = (value, ...args) => {
     const serialized = JSON.stringify(value, ...args);
@@ -28,6 +28,7 @@ function loadRuntime() {
       copies.count += 1;
       copies.stateBytes += serialized.length;
       copies.analysisBytes += JSON.stringify(value.analysis)?.length || 0;
+      copies.archivedHistoryRows += (value.history || []).filter(item => item?.durableArchive === true).length;
     }
     return serialized;
   };
@@ -49,10 +50,10 @@ function loadRuntime() {
   // Only the native browser boundary is allowed to omit durable telemetry.
   const legacy = helpers.createLongBotEngine(adapter);
   return {
-    helpers, adapter, copies,
-    engine: helpers.createBrowserLongBotEngine(context.window.NarduGame, { experienceStorage: null }),
+    helpers, adapter, copies, game: context.window.NarduGame,
+    engine: helpers.createBrowserLongBotEngine(context.window.NarduGame, { experienceStorage: null, historyFreePlanning: true }),
     legacy,
-    reset() { Object.assign(copies, { count: 0, stateBytes: 0, analysisBytes: 0 }); },
+    reset() { Object.assign(copies, { count: 0, stateBytes: 0, analysisBytes: 0, archivedHistoryRows: 0 }); },
   };
 }
 
@@ -162,6 +163,66 @@ test('native plan searches without durable metadata but records the ORIGINAL sta
   assert.deepEqual(plain(runtime.engine.consumeLastDecision()), plain(expectedDecision));
   assert.deepEqual(plain(input), original);
   assert.equal(runtime.copies.analysisBytes, 0);
+});
+
+test('production planning copies no archived history through tactical search but preserves original decision telemetry and public history', () => {
+  const runtime = loadRuntime();
+  const input = state({ 18: 6 }, { 6: 6 }, { dark: 9, white: 9 }, 8192);
+  input.history = Array.from({ length: 1200 }, (_, index) => ({ durableArchive: true, index,
+    fairDiceProof: { protocol: 'system-csprng-v1', request: { id: `completed-${index}` },
+      commitReveal: { serverSeed: 'a'.repeat(64), clientSeed: 'b'.repeat(64) } } }));
+  const original = plain(input);
+  const options = { strategyProfile: 'v25', maxCandidates: 1, analysisNodeBudget: 96 };
+  const legacy = runtime.legacy.rank(input, 'dark', options);
+  const previousCopies = { ...runtime.copies };
+  assert.ok(previousCopies.archivedHistoryRows > 80 * 1200, 'counter detects the old tactical clone cost');
+  const expected = runtime.helpers.decisionRecord(input, 'dark', legacy, undefined, 0,
+    runtime.engine.experienceSnapshot(), 1, options);
+  runtime.reset();
+  const plan = runtime.engine.plan(input, options);
+  assert.equal(runtime.copies.archivedHistoryRows, 0, 'no hypothetical node contains completed proof history');
+  assert.equal(runtime.copies.count, previousCopies.count, 'candidate and node work is unchanged');
+  assert.deepEqual(plain(plan), plain(legacy[0].sequence.map(({ from, die }) => ({ from, die }))));
+  assert.deepEqual(plain(runtime.engine.consumeLastDecision()), plain(expected));
+  assert.deepEqual(plain(input), original, 'live history and evidence remain untouched');
+
+  // The private plan projection must not narrow the public rank/review contract.
+  const ranked = runtime.engine.rank(input, options);
+  assert.deepEqual(plain(ranked), plain(legacy));
+  assert.notEqual(ranked[0].after.history, input.history);
+  const archived = ranked[0].after.history.filter(item => item.durableArchive);
+  assert.deepEqual(plain(archived), original.history);
+  archived[0].fairDiceProof.request.id = 'modified-result-only';
+  assert.deepEqual(plain(input), original, 'returned evidence is independently cloned');
+});
+
+test('a custom browser game factory keeps history-dependent rules unless it explicitly opts in', () => {
+  const runtime = loadRuntime();
+  const input = state({ 13: 15 }, { 24: 15 });
+  const seen = [];
+  const customGame = { ...runtime.game, applyMove(current, ...args) {
+    seen.push(current.history.some(item => item.type === 'durable-history'));
+    return runtime.game.applyMove(current, ...args);
+  } };
+  const engine = runtime.helpers.createBrowserLongBotEngine(customGame, { experienceStorage: null });
+  assert.ok(engine.plan(input, oneNode).length);
+  assert.ok(seen.length);
+  assert.ok(seen.every(Boolean), 'all custom rule transitions receive the original archive');
+});
+
+test('native history-free planning does not silently accept malformed or non-JSON archives', () => {
+  const runtime = loadRuntime();
+  for (const history of [1, { invalid: true }, [1n]]) {
+    const input = state({ 13: 15 }, { 24: 15 });
+    input.history = history;
+    assert.throws(() => runtime.engine.plan(input, oneNode));
+  }
+  const input = state({ 13: 15 }, { 24: 15 });
+  input.history.push(input.history);
+  assert.throws(() => runtime.engine.plan(input, oneNode));
+  input.history = [];
+  input.history.toJSON = () => 1;
+  assert.throws(() => runtime.engine.plan(input, oneNode));
 });
 
 test('native static review preserves every returned field and analysis independence; describe features do not change', () => {

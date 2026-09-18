@@ -54,7 +54,7 @@
     if (!/^[0-9a-f]{64}$/.test(current)) return false;
     if (value === current) return true;
     const compatibility = engine?.learningCompatibility;
-    return current === 'ca0e5738f16583c29dfb84867b159091df30cd1fb5cef2a75e0827a6810c6c8e'
+    return current === '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526'
       && !!compatibility && Object.isFrozen(compatibility) && Object.isFrozen(compatibility.sourceFingerprints)
       && compatibility.schema === 'long-v35-history-free-learning-compat-v1'
       && compatibility.policyImplementationId === current
