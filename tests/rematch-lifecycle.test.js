@@ -18,11 +18,16 @@ function memoryStorage() {
 
 // Policy reads have their own SELECT builder; they must not pollute the
 // mutation/CAS filters exercised by these legacy-room regression tests.
-function legacyRoomQuery(mutationBuilder, policyReads, code = "TEST-RM1") {
+function legacyRoomQuery(mutationBuilder, policyReads, code = "TEST-RM1", row = {
+  id: "legacy-room", variant: "long", game_state: null, game_version: 0,
+  status: "joined", fair_dice_required: false, fair_dice_game_id: null, fair_dice_protocol: null,
+}) {
+  const fullColumns = "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol";
+  const metadataColumns = "id,variant,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol";
   return {
     update(value) { return mutationBuilder.update(value); },
     select(columns) {
-      assert.equal(columns, "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol");
+      assert.ok(columns === fullColumns || columns === metadataColumns, `Unexpected room SELECT: ${columns}`);
       const filters = [];
       const policyBuilder = {
         eq(column, value) { filters.push([column, value]); return this; },
@@ -30,14 +35,42 @@ function legacyRoomQuery(mutationBuilder, policyReads, code = "TEST-RM1") {
         async maybeSingle() {
           assert.deepEqual(filters, [["code", code], ["status", "closed"]]);
           policyReads.push({ columns, filters });
-          return { data: { id: "legacy-room", game_state: null, game_version: 0,
-            status: "joined", fair_dice_required: false }, error: null };
+          // Prepare a schema-shaped mock row, not a runtime fallback to the
+          // archive. Metadata reads must not return game_state or its journal.
+          const prepared = { ...row, variant: row.variant ?? row.game_state?.variant };
+          return { data: Object.fromEntries(columns.split(",").map(column => [column, prepared[column]])), error: null };
         },
       };
       return policyBuilder;
     },
   };
 }
+
+test("legacy-room SELECT mock strictly separates complete recovery and bounded policy metadata", async () => {
+  const fullColumns = "id,game_state,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol";
+  const metadataColumns = "id,variant,game_version,status,fair_dice_required,fair_dice_game_id,fair_dice_protocol";
+  for (const topVariant of [undefined, "short"]) {
+    const row = { id: "mock-room", variant: topVariant, game_state: { variant: "long", history: [{ proof: "retained" }] },
+      game_version: 7, status: "joined", fair_dice_required: false, fair_dice_game_id: null, fair_dice_protocol: null };
+    const reads = [];
+    const query = legacyRoomQuery(null, reads, "TEST-RM1", row);
+    const read = columns => query.select(columns).eq("code", "TEST-RM1").neq("status", "closed").maybeSingle();
+    const full = await read(fullColumns);
+    const metadata = await read(metadataColumns);
+    assert.deepEqual(Object.keys(full.data), fullColumns.split(","));
+    assert.deepEqual(Object.keys(metadata.data), metadataColumns.split(","));
+    assert.equal(full.data.game_state, row.game_state);
+    assert.equal(metadata.data.variant, topVariant ?? row.game_state.variant);
+    assert.equal(Object.hasOwn(metadata.data, "game_state"), false);
+    for (const field of ["fair_dice_required", "fair_dice_game_id", "fair_dice_protocol"]) {
+      assert.equal(metadata.data[field], row[field]);
+    }
+    assert.equal(full.error, null);
+    assert.equal(metadata.error, null);
+    assert.equal(reads.length, 2);
+    assert.throws(() => query.select("id,variant,status"), /Unexpected room SELECT/);
+  }
+});
 
 function controllerContext() {
   const localStorage = memoryStorage();

@@ -79,7 +79,7 @@ test("the first player makes a separate roll after the opening result", () => {
   assert.match(transition, /NarduGame\.startOpeningTurn\(state\)/);
   assert.match(transition, /opening-complete:/);
   assert.match(transition, /publishRemoteState\(\)/);
-  assert.match(transition, /ensureAutoProgress\(650\)/);
+  assert.match(transition, /ensureAutoProgress\(200\)/);
   assert.doesNotMatch(transition, /animateDiceRoll/);
   assert.doesNotMatch(transition, /NarduSound\.dice/);
   assert.doesNotMatch(controller, /opening-turn:/);
