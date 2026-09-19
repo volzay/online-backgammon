@@ -64,6 +64,7 @@
   const roomIdCache = new Map();
   const neuralBotMetadataByRoom = new Map();
   const fairDicePolicies = new Map();
+  const fairDiceCommittedContexts = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
   const shortBotExperiencePromises = new Map();
@@ -963,6 +964,7 @@
   async function ensureBotAnalysisRoom(payload = {}) {
     const normalizedCode = normalizeCode(payload.code);
     fairDicePolicies.delete(normalizedCode);
+    fairDiceCommittedContexts.delete(normalizedCode);
     neuralBotMetadataByRoom.delete(normalizedCode);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
@@ -1403,6 +1405,9 @@
     const { signal, contextOnly = false } = options;
     throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
+    // A direct authoritative read supersedes any one-use context left by a
+    // preceding state acknowledgement.
+    fairDiceCommittedContexts.delete(normalizedCode);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
@@ -1520,9 +1525,20 @@
 
   async function requestFairDice(code, { label, color } = {}) {
     const normalizedCode = normalizeCode(code);
-    // Refresh the protected epoch after a rematch; it never comes from storage,
-    // URL parameters, a bot or the proof's self-declared public key.
-    const current = await getGameState(normalizedCode, { contextOnly: true });
+    // A successful /state checkpoint returns this one-use authoritative
+    // context. It removes a redundant metadata round trip while keeping epoch
+    // and variant bound to the server response. Without it, refresh normally.
+    const committed = fairDiceCommittedContexts.get(normalizedCode);
+    fairDiceCommittedContexts.delete(normalizedCode);
+    const cachedPolicy = fairDicePolicies.get(normalizedCode);
+    const canUseCommitted = committed
+      && cachedPolicy?.required === true
+      && committed.gameId === cachedPolicy.gameId
+      && committed.protocol === cachedPolicy.protocol
+      && ['long', 'short'].includes(committed.variant);
+    const current = canUseCommitted
+      ? { variant: committed.variant, fairDice: cachedPolicy }
+      : await getGameState(normalizedCode, { contextOnly: true });
     const policy = current.fairDice;
     if (!policy?.required) throw roomError("Эта партия использует прежний протокол бросков.", 422);
     if (!['long', 'short'].includes(current.variant)) throw roomError("Не удалось подтвердить вид нард этой комнаты.", 422);
@@ -1639,7 +1655,29 @@
     await assertPinnedNeuralRoom(normalizedCode, state);
     if ((await fairDicePolicy(normalizedCode))?.required) {
       const result = await fairDiceJson('state', { code: normalizedCode, state, version: Number(version) || 0 });
-      if (result.gameId) fairDicePolicies.set(normalizedCode, { ...fairDicePolicies.get(normalizedCode), required: true, gameId: result.gameId });
+      const previousPolicy = fairDicePolicies.get(normalizedCode) || {};
+      const gameId = typeof result.gameId === 'string' ? result.gameId : previousPolicy.gameId;
+      const protocol = typeof result.protocol === 'string' ? result.protocol : previousPolicy.protocol;
+      const committedVariant = typeof result.variant === 'string'
+        ? result.variant
+        : typeof result.state?.variant === 'string' ? result.state.variant : state?.variant;
+      const nextPolicy = { ...previousPolicy, required: true, gameId, ...(protocol ? { protocol } : {}) };
+      fairDicePolicies.set(normalizedCode, nextPolicy);
+      if (
+        ['opening', 'roll'].includes(state?.phase)
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(gameId || '')
+        && ['long', 'short'].includes(committedVariant)
+        && typeof protocol === 'string'
+      ) {
+        fairDiceCommittedContexts.set(normalizedCode, {
+          gameId,
+          protocol,
+          variant: committedVariant,
+          version: Number(result.version) || 0,
+        });
+      } else {
+        fairDiceCommittedContexts.delete(normalizedCode);
+      }
       return result;
     }
     const client = await supabase();

@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  PROGRESS_SCHEMA, productionDecisionIndexes, validateProductionProgress, advanceProductionProgress,
+  LEGACY_PROGRESS_SCHEMA, PROGRESS_SCHEMA, productionDecisionIndexes, normalizeProductionProgress,
+  validateProductionProgress, advanceProductionProgress,
   aggregateProductionResult, parseCli, runClaimedBatch, runtimeDigest,
   validateGameEnvelope, ENGINE_VERSION,
 } = require('../scripts/long-bot-causal-worker');
@@ -16,11 +17,16 @@ const game = {
     { id: 'human2', color: 'white' }, { id: 'bot-b', actor: 'bot' }],
 };
 const initial = () => ({ schema: PROGRESS_SCHEMA, finishedReviews: [], currentDecisionIndex: null,
-  currentTerminalOutcomes: 0, slices: 0, stalledSlices: 0 });
-const review = (decisionId, count = null) => ({ decisionId, positionId: 'synthetic-only',
+  currentTerminalOutcomes: 0, currentRolloutCheckpoint: null, slices: 0, stalledSlices: 0 });
+const checkpoint = (plies, overrides = {}) => ({ manifestId: 'a'.repeat(64), sampleIndex: 0,
+  candidateIndex: 0, candidateId: 'b'.repeat(64), plies, checkpointHash: String(plies).padStart(64, 'c').slice(-64),
+  stateHash: String(plies).padStart(64, 'd').slice(-64), ...overrides });
+const review = (decisionId, count = null, activeCheckpoint = null) => ({ decisionId, positionId: 'synthetic-only',
   status: count === null ? 'no-regret' : 'rejected', reason: count === null ? '' : 'rollout-time-limit',
   outcomeUsed: false, evidence: null, rollout: { coverage: { complete: count === null },
-    ...(count === null ? {} : { terminalJournalObservation: { completedTerminalOutcomes: count } }) } });
+    ...(count === null ? {} : { terminalJournalObservation: {
+      completedTerminalOutcomes: count, activeCheckpoint,
+    } }) } });
 
 test('production progress cursor refers to original indexes, never a truncated ledger', () => {
   assert.deepEqual(productionDecisionIndexes(game), [1, 3]);
@@ -39,6 +45,39 @@ test('normal incomplete slices accumulate fixed terminal progress without finish
   assert.equal(resumed.slices, 2);
   assert.equal(resumed.stalledSlices, 0);
   assert.throws(() => advanceProductionProgress(game, resumed, 1, review('bot-a', 28)), /monotonic/);
+});
+
+test('authenticated in-game checkpoint progress resets stalls without double-counting a terminal outcome', () => {
+  const first = advanceProductionProgress(game, initial(), 1, review('bot-a', 0, checkpoint(7)));
+  assert.equal(first.currentTerminalOutcomes, 0);
+  assert.equal(first.currentRolloutCheckpoint.plies, 7);
+  assert.equal(first.stalledSlices, 0);
+  const stalled = advanceProductionProgress(game, first, 1, review('bot-a', 0, checkpoint(7)));
+  assert.equal(stalled.stalledSlices, 1);
+  const resumed = advanceProductionProgress(game, stalled, 1, review('bot-a', 0, checkpoint(19)));
+  assert.equal(resumed.currentTerminalOutcomes, 0);
+  assert.equal(resumed.currentRolloutCheckpoint.plies, 19);
+  assert.equal(resumed.stalledSlices, 0);
+  assert.throws(() => advanceProductionProgress(game, resumed, 1,
+    review('bot-a', 0, checkpoint(20, { candidateId: 'e'.repeat(64) }))), /identity changed/);
+  assert.throws(() => advanceProductionProgress(game, resumed, 1,
+    review('bot-a', 0, checkpoint(18))), /regressed/);
+  const endpoint = advanceProductionProgress(game, resumed, 1, review('bot-a', 1));
+  assert.equal(endpoint.currentTerminalOutcomes, 1);
+  assert.equal(endpoint.currentRolloutCheckpoint, null);
+  assert.equal(endpoint.stalledSlices, 0);
+});
+
+test('legacy v1 progress is accepted only as a complete-endpoint boundary and normalized to v2', () => {
+  const legacy = { schema: LEGACY_PROGRESS_SCHEMA, finishedReviews: [], currentDecisionIndex: 1,
+    currentTerminalOutcomes: 12, slices: 3, stalledSlices: 2 };
+  const normalized = normalizeProductionProgress(game, legacy);
+  assert.equal(normalized.schema, PROGRESS_SCHEMA);
+  assert.equal(normalized.currentRolloutCheckpoint, null);
+  assert.equal(normalized.currentTerminalOutcomes, 12);
+  assert.deepEqual(validateProductionProgress(game, legacy), { indexes: [1, 3], next: 1 });
+  assert.throws(() => normalizeProductionProgress(game, { ...legacy, currentRolloutCheckpoint: checkpoint(1) }));
+  assert.throws(() => normalizeProductionProgress(game, { ...legacy, schema: 'long-server-causal-progress-v0' }));
 });
 
 test('a stalled slice is bounded separately from successful progress', () => {
@@ -84,6 +123,8 @@ test('malformed, non-prefix or unfinished saved progress fails closed', () => {
     { ...initial(), schema: 'legacy' }, { ...initial(), extra: true },
     { ...initial(), currentDecisionIndex: 3 }, { ...initial(), currentTerminalOutcomes: -1 },
     { ...initial(), currentTerminalOutcomes: 3073 }, { ...initial(), slices: 10241 },
+    { ...initial(), currentRolloutCheckpoint: checkpoint(0) },
+    { ...initial(), currentRolloutCheckpoint: checkpoint(600) },
     { ...valid, currentDecisionIndex: 1 },
     { ...valid, finishedReviews: [{ decisionIndex: 3, review: review('bot-b') }] },
     { ...valid, finishedReviews: [{ decisionIndex: 1, review: review('bot-a', 12) }] },
@@ -149,6 +190,31 @@ test('fresh schema includes the exact separately versioned resumable migration',
   const schema = fs.readFileSync(path.join(__dirname, '../supabase/schema.sql'), 'utf8');
   const migration = fs.readFileSync(path.join(__dirname, '../supabase/long-bot-causal-resume-v35.sql'), 'utf8');
   const marker = '-- v35 resumable causal queue: durable terminal cohorts, never partial evidence.\n';
-  assert.equal(schema.slice(schema.indexOf(marker) + marker.length, schema.indexOf("notify pgrst, 'reload schema';")).trim(),
+  const next = '-- v36 per-ply authenticated causal rollout checkpoint.\n';
+  assert.equal(schema.slice(schema.indexOf(marker) + marker.length, schema.indexOf(next)).trim(),
     migration.replace(/^begin;\s*/, '').replace(/\s*commit;\s*$/, '').trim());
+});
+
+test('v36 SQL upgrades only stopped v1 endpoint boundaries and authenticates per-ply progress', () => {
+  const schema = fs.readFileSync(path.join(__dirname, '../supabase/schema.sql'), 'utf8');
+  const migration = fs.readFileSync(path.join(__dirname,
+    '../supabase/long-bot-causal-ply-checkpoint-v36.sql'), 'utf8');
+  const marker = '-- v36 per-ply authenticated causal rollout checkpoint.\n';
+  assert.equal(schema.slice(schema.indexOf(marker) + marker.length,
+    schema.lastIndexOf("notify pgrst, 'reload schema';")).trim(),
+  migration.trim());
+  assert.match(migration, /lock table private\.long_bot_causal_review_jobs in share row exclusive mode/);
+  assert.match(migration, /status = 'leased'[\s\S]*Stop the causal worker/);
+  assert.ok(migration.indexOf('perform private.long_bot_causal_validate_progress(archived, queued.progress)')
+    < migration.indexOf("'schema', 'long-server-causal-progress-v2'"));
+  assert.match(migration, /currentRolloutCheckpoint[^\n]+null/);
+  assert.match(migration, /create or replace function private\.long_bot_causal_valid_rollout_checkpoint/);
+  for (const field of ['manifestId', 'sampleIndex', 'candidateIndex', 'candidateId', 'plies',
+    'checkpointHash', 'stateHash']) assert.match(migration, new RegExp(field));
+  assert.match(migration, /p_progress->'currentRolloutCheckpoint' is distinct from new_checkpoint/);
+  assert.match(migration, /checkpoint_advanced := \(new_checkpoint->>'plies'\)::integer >/);
+  assert.match(migration, /terminal_count > old_terminal_count or checkpoint_advanced/);
+  assert.match(migration, /Active rollout checkpoint disappeared without a completed endpoint/);
+  assert.match(migration, /new_checkpoint->'sampleIndex' is distinct from review->'rollout'->'coverage'->'sample'/);
+  assert.match(migration, /new_checkpoint->'candidateIndex' is distinct from review->'rollout'->'coverage'->'currentCandidateIndex'/);
 });

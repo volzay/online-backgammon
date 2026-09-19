@@ -165,6 +165,28 @@ test('dice policy and reservation refresh only bounded metadata; recovery still 
   client.assertProtected();
 });
 
+test('a successful roll-boundary checkpoint supplies one-use authoritative context without another metadata read', async () => {
+  const proof = proofFixture();
+  const readImpl = () => ({ data: {
+    id: 'room-1', variant: 'long', status: 'joined', game_state: null, game_version: 7,
+    fair_dice_required: true, fair_dice_game_id: GAME_ID, fair_dice_protocol: FairDice.PROTOCOL,
+  }, error: null });
+  const client = loadRooms({ readImpl, fetchImpl: request => {
+    if (request.url.endsWith('/state')) return response({
+      ok: true, version: 8, gameId: GAME_ID, variant: 'long', protocol: FairDice.PROTOCOL,
+    });
+    if (request.url.endsWith('/reserve')) return response({ receipt: receiptOf(proof) }, 202);
+    return response({ proof });
+  } });
+  client.state.phase = 'roll';
+  await client.rooms.putGameState(CODE, client.state, 7);
+  await client.rooms.requestFairDice(CODE, { label: 'opening', color: 'none' });
+  assert.equal(client.operations.filter(item => item.kind === 'read').length, 1,
+    'the accepted checkpoint already pins game epoch, protocol and variant');
+  assert.deepEqual(client.requests.map(item => item.url.split('/').at(-1)), ['state', 'reserve', 'result']);
+  client.assertProtected();
+});
+
 test('metadata variant cannot be missing or taken from a stale archived state before reservation', async () => {
   for (const variant of [undefined, null, 'unknown']) {
     const client = loadRooms({ readImpl: () => ({ data: { id: 'room-1', variant,

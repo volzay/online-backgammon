@@ -249,6 +249,29 @@ test('actual frozen v35 terminal rollouts complete a small exact late-race cohor
   assert.ok(outcomes.candidates.every(candidate => candidate.rolloutSamples === 32));
 });
 
+test('worker finishes a forced single-position decision without selection replay or terminal rollout', async () => {
+  const { game, decision, selected } = fixture();
+  let selectionCalls = 0;
+  let rolloutCalls = 0;
+  const result = await reviewTrustedDecision(game, decision, {
+    runtimeDigest: runtimeDigest(),
+    shadowReplayGenerator() {
+      return { ok: true, replay: {
+        coverage: { complete: true, legalSequenceCount: 1, expectedCandidates: 1 },
+        candidates: [selected],
+      } };
+    },
+    archivedSelectionReplay() { selectionCalls += 1; throw new Error('must not replay a forced action'); },
+    pairedOutcomeGenerator() { rolloutCalls += 1; throw new Error('must not start a terminal cohort'); },
+  });
+  assert.equal(result.status, 'rejected');
+  assert.equal(result.reason, 'rollout-alternatives-missing');
+  assert.equal(result.evidence, null);
+  assert.equal(result.outcomeUsed, false);
+  assert.equal(selectionCalls, 0);
+  assert.equal(rolloutCalls, 0);
+});
+
 test('worker ignores client/static regret and learns only its regenerated terminal-outcome evidence', async () => {
   const { game, decision, candidates, selected, recommended } = fixture();
   let regenerated = 0;
@@ -396,20 +419,20 @@ test('real client-chosen cold policy cannot enter production learning even when 
   assert.equal(rolloutReached, false);
 });
 
-test('real stable production dispatch policy reaches server replay but arbitrary weights do not', async () => {
+test('real stable production dispatch policy reaches legal replay and skips a forced terminal cohort', async () => {
   const { game, decision } = actualArchivedDecision(PRODUCTION_POLICY);
   assert.equal(regenerateArchivedSelection(game, decision).ok, true);
   let rolloutReached = false;
   const review = await reviewTrustedDecision(game, decision, {
     pairedOutcomeGenerator() { rolloutReached = true; return { ok: false, reason: 'smoke-terminal-not-generated' }; },
   });
-  assert.equal(rolloutReached, true, review.reason);
-  assert.equal(review.reason, 'smoke-terminal-not-generated');
+  assert.equal(rolloutReached, false, review.reason);
+  assert.equal(review.reason, 'rollout-alternatives-missing');
   decision.replayInput.runtime.weights.homeEntry += 1;
   assert.equal((await reviewTrustedDecision(game, decision)).reason, 'unapproved-production-policy');
 });
 
-test('real expanded doubles remain reviewable but mixed four-die encodings fail closed', async () => {
+test('real forced expanded doubles skip terminal cohorts but mixed four-die encodings fail closed', async () => {
   let game;
   let decision;
   for (const roll of [[1, 1], [1, 1, 1, 1]]) {
@@ -419,8 +442,8 @@ test('real expanded doubles remain reviewable but mixed four-die encodings fail 
     const review = await reviewTrustedDecision(game, decision, {
       pairedOutcomeGenerator() { rolloutReached = true; return { ok: false, reason: 'double-smoke-terminal-not-generated' }; },
     });
-    assert.equal(rolloutReached, true, review.reason);
-    assert.equal(review.reason, 'double-smoke-terminal-not-generated');
+    assert.equal(rolloutReached, false, review.reason);
+    assert.equal(review.reason, 'rollout-alternatives-missing');
   }
   for (const rolled of [[1, 2, 1, 2], [1, 1, 1, 2], [1, 1, 1], [1, 1, 1, 1, 1]]) {
     decision.stateSnapshotV2.rolled = rolled;

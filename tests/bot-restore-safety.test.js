@@ -24,6 +24,7 @@ function controllerHarness({
   localStorage = memoryStorage(),
   getGameState,
   ensureBotAnalysisRoom,
+  putGameState,
   finishRoomGame,
   restoreTimeoutMs = 10,
 } = {}) {
@@ -84,8 +85,9 @@ function controllerHarness({
         if (ensureBotAnalysisRoom) return ensureBotAnalysisRoom(payload);
         return { ok: true, existing: false, version: 0 };
       },
-      async putGameState() {
+      async putGameState(...args) {
         calls.put += 1;
+        if (putGameState) return putGameState(...args);
         return { ok: true, version: 8 };
       },
       async finishRoomGame() {
@@ -142,7 +144,7 @@ function controllerHarness({
     .replace('const BOT_GAME_EXIT_WAIT_MS = 12500;', 'const BOT_GAME_EXIT_WAIT_MS = 15;')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver },\n  };',
+      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver, fairDiceError: () => fairDiceError },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
 
@@ -270,6 +272,110 @@ test('a delayed CDN fallback can still complete the authoritative restore', asyn
   assert.equal(harness.controller.getState().selected, 24);
   assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
   assert.equal(harness.calls.put, 1);
+});
+
+test('rapid live bot checkpoints coalesce to the latest compact state instead of building a stale queue', async () => {
+  const harness = controllerHarness();
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  const payloads = [];
+  let releaseFirst;
+  let markFirstStarted;
+  const firstStarted = new Promise(resolve => { markFirstStarted = resolve; });
+  const firstGate = new Promise(resolve => { releaseFirst = resolve; });
+  harness.window.NarduRooms.putGameState = async (_code, payload) => {
+    payloads.push(JSON.parse(JSON.stringify(payload)));
+    if (payloads.length === 1) {
+      markFirstStarted();
+      await firstGate;
+    }
+    return { ok: true, version: payloads.length };
+  };
+
+  const state = harness.controller.getState();
+  state.phase = 'roll';
+  state.analysis = { marker: 1, botMemory: {
+    decisions: [{ alternatives: Array(200).fill({ score: 1 }) }],
+    replayExperience: { patterns: Array(200).fill({ value: 1 }) },
+  } };
+  const first = harness.controller.__restoreSafetyTest.publishBotAnalysisState();
+  await firstStarted;
+  state.analysis.marker = 2;
+  const superseded = harness.controller.__restoreSafetyTest.publishBotAnalysisState();
+  state.analysis.marker = 3;
+  const latest = harness.controller.__restoreSafetyTest.publishBotAnalysisState();
+  releaseFirst();
+
+  assert.deepEqual(await Promise.all([first, superseded, latest]), [true, true, true]);
+  assert.equal(payloads.length, 2, 'only the in-flight state and newest replacement are uploaded');
+  assert.equal(payloads[1].analysis.marker, 3);
+  assert.deepEqual(payloads[1].analysis.botMemory.decisions, []);
+  assert.equal(Object.hasOwn(payloads[1].analysis.botMemory, 'replayExperience'), false);
+});
+
+test('an in-flight checkpoint from an old game cannot settle or version a newly initialized game', async () => {
+  let releaseOld;
+  let oldStarted;
+  const oldGate = new Promise(resolve => { releaseOld = resolve; });
+  const started = new Promise(resolve => { oldStarted = resolve; });
+  const codes = [];
+  const harness = controllerHarness({
+    putGameState: async code => {
+      codes.push(code);
+      if (codes.length === 1) {
+        oldStarted();
+        await oldGate;
+        return { ok: true, version: 99 };
+      }
+      return { ok: true, version: 1 };
+    },
+  });
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+  harness.controller.getState().phase = 'roll';
+  const oldPublish = harness.controller.__restoreSafetyTest.publishBotAnalysisState();
+  await started;
+
+  harness.controller.init({ mode: 'bot', roomCode: 'NEXT-BOT', variant: 'long',
+    difficulty: 'hard', opponent: 'Hard bot', freshGame: true, skipAutoStart: true });
+  harness.controller.getState().phase = 'roll';
+  assert.equal(await oldPublish, false, 're-init explicitly cancels callers from the old generation');
+  let nextSettled = false;
+  const nextPublish = harness.controller.__restoreSafetyTest.publishBotAnalysisState()
+    .then(value => { nextSettled = true; return value; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(nextSettled, false, 'the old network reply cannot resolve the new waiter');
+
+  releaseOld();
+  assert.equal(await nextPublish, true);
+  assert.deepEqual(codes, ['SAFE-BOT', 'NEXT-BOT']);
+});
+
+test('a stale 409 recovery failure cannot pause the newly initialized game', async () => {
+  const conflict = Object.assign(new Error('old version'), { status: 409 });
+  const harness = controllerHarness({ putGameState: async () => { throw conflict; } });
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+  harness.controller.getState().phase = 'roll';
+
+  let rejectRecovery;
+  let recoveryStarted;
+  const recoveryGate = new Promise((_, reject) => { rejectRecovery = reject; });
+  const started = new Promise(resolve => { recoveryStarted = resolve; });
+  harness.window.NarduRooms.getGameState = async () => {
+    recoveryStarted();
+    return recoveryGate;
+  };
+  const stalePublish = harness.controller.__restoreSafetyTest.publishBotAnalysisState();
+  await started;
+
+  harness.controller.init({ mode: 'bot', roomCode: 'NEXT-BOT', variant: 'long',
+    difficulty: 'hard', opponent: 'Hard bot', freshGame: true, skipAutoStart: true });
+  rejectRecovery(new Error('old recovery unavailable'));
+  assert.equal(await stalePublish, false);
+  assert.equal(harness.controller.__restoreSafetyTest.fairDiceError(), '',
+    'an error from the old room must not pause protected dice in the new room');
 });
 
 test('production restore budget covers both Supabase CDN attempts', () => {

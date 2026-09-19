@@ -19,6 +19,21 @@ const BEACON = Object.freeze({ round: 1000,
   randomness: 'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd' });
 const clone = value => JSON.parse(JSON.stringify(value));
 
+function assertCompactStateAck(response, expected) {
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.data, {
+    ok: true,
+    version: expected.version,
+    gameId: expected.gameId ?? GAME_ID,
+    variant: 'long',
+    protocol: expected.protocol ?? FairDice.PROTOCOL,
+    ...(expected.unchanged ? { unchanged: true } : {}),
+    ...(expected.deferred ? { deferred: true } : {}),
+  });
+  assert.equal(Object.hasOwn(response.data, 'state'), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(response.data), 'utf8') < 256);
+}
+
 function fault(code = '42501', status = 403, message = 'private upstream details') {
   return Object.assign(new Error(message), { code, status });
 }
@@ -259,10 +274,10 @@ test('system coordinator accepts a first-checker undo without top-level policy m
   assert.equal(forged.data.code, 'fair_roll_history_changed');
   assert.equal(store.version, rejectedVersion);
   const undone = await save(rolled);
-  assert.equal(undone.status, 200, JSON.stringify(undone.data));
-  assert.deepEqual(undone.data.state, clone(rolled));
-  assert.deepEqual(undone.data.state.history[0].fairDiceProof, turnProof);
-  assert.deepEqual(undone.data.state.rolled, turnProof.dice);
+  assertCompactStateAck(undone, { version: store.version, protocol: FairDice.SYSTEM_PROTOCOL });
+  assert.deepEqual(store.state, clone(rolled));
+  assert.deepEqual(store.state.history[0].fairDiceProof, turnProof);
+  assert.deepEqual(store.state.rolled, turnProof.dice);
   assert.equal(store.allocations, 2);
   assert.equal(store.proofCommits, 2);
   assert.equal(h.calls.length, 0, 'system undo cannot fetch another random source');
@@ -394,8 +409,7 @@ test('state applies exactly the ledger proof, protects CAS and does not trust su
   assert.equal(forged.status, 409);
   assert.equal(h.store.commits, 0);
   const committed = await h.request('/state', { code: CODE, state: next, version: 0 });
-  assert.equal(committed.status, 200);
-  assert.equal(committed.data.version, 1);
+  assertCompactStateAck(committed, { version: 1 });
   assert.equal(h.store.records.get(proof.request.id).consumed, true);
   const conflict = await h.request('/state', { code: CODE, state: next, version: 0 });
   assert.equal(conflict.status, 409);
@@ -447,8 +461,7 @@ test('pending metadata is validated then deferred, never mutating its SQL snapsh
   snapshot.turnClock.white = 50;
   snapshot.analysis = { deferred: true };
   const checkpoint = await h.request('/state', { code: CODE, state: snapshot, version: 0 });
-  assert.equal(checkpoint.status, 200);
-  assert.equal(checkpoint.data.deferred, true);
+  assertCompactStateAck(checkpoint, { version: 0, deferred: true });
   assert.equal(h.store.commits, 0);
   assert.equal(h.store.state.turnClock.white, 0);
   release();
@@ -525,9 +538,7 @@ test('completed state retries ignore benign publish markers and stale CAS but re
   finished.gameOverPublishedAt = Date.now();
   finished.turnClock.white += 100;
   const repeated = await h.request('/state', { code: CODE, state: finished, version: 0 });
-  assert.equal(repeated.status, 200);
-  assert.equal(repeated.data.unchanged, true);
-  assert.equal(repeated.data.version, 1);
+  assertCompactStateAck(repeated, { version: 1, unchanged: true });
   assert.equal(h.store.commits, 1);
   const altered = clone(finished);
   altered.winner = 'white';
@@ -546,8 +557,8 @@ test('match restart capability is derived from recorded server result, never a c
   const fresh = initial();
   fresh.startedAt = store.state.startedAt + 10000;
   const restarted = await h.request('/state', { code: CODE, state: fresh, version: 1 });
-  assert.equal(restarted.status, 200);
-  assert.equal(restarted.data.state.matchScore.dark, 0);
+  assertCompactStateAck(restarted, { version: 2, gameId: h.store.gameId });
+  assert.equal(h.store.state.matchScore.dark, 0);
   assert.notEqual(restarted.data.gameId, GAME_ID);
   const unfinished = new MemoryStore();
   const u = await harness(t, { store: unfinished });

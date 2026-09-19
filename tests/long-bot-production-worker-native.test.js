@@ -43,7 +43,8 @@ const game={id:'fd57bdea-e4f4-488a-a128-cad346ba6ff1',room_code:'SYNTHETIC-ONLY'
 difficulty:'hard',bot_color:'dark',winner:'white',decisions:[decision,second],final_state:structuredClone(state)};
 assert.equal(w.validateGameEnvelope(game),'');
 const source=JSON.stringify(game),fingerprint=crypto.createHash('sha256').update(source).digest('hex');
-let progress={schema:w.PROGRESS_SCHEMA,finishedReviews:[],currentDecisionIndex:null,currentTerminalOutcomes:0,slices:0,stalledSlices:0};
+let progress={schema:w.PROGRESS_SCHEMA,finishedReviews:[],currentDecisionIndex:null,currentTerminalOutcomes:0,
+ currentRolloutCheckpoint:null,slices:0,stalledSlices:0};
 const calls=[],journalDirectory=path.join(directory,'terminal-journal');
 global.fetch=async(url,request)=>{
  const name=url.split('/').at(-1),args=JSON.parse(request.body);calls.push({name,args});

@@ -49,7 +49,8 @@ const ROOT = path.join(__dirname, '..');
 // options, browser telemetry and exported helpers cannot construct it.
 const PRODUCTION_SCOPE = Symbol('verified-production-review-slice');
 const VERIFIED_SCOPES = new WeakSet();
-const PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
+const LEGACY_PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
+const PROGRESS_SCHEMA = 'long-server-causal-progress-v2';
 const ENGINE_VERSION = 'long-analytic-v35';
 const WORKER_RELEASE = 'long-server-causal-review-v1';
 const EVIDENCE_SCHEMA = 'long-server-causal-evidence-v1';
@@ -580,6 +581,10 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   }
   const legalSelected = findExactShadowSelected(decision, shadow.replay.candidates);
   if (!legalSelected) return { ...base, reason: 'selected-shadow-identity-mismatch' };
+  const uniqueLegalPositions = new Set(shadow.replay.candidates.map(afterPositionKey));
+  if (uniqueLegalPositions.size < 2) {
+    return { ...base, reason: 'rollout-alternatives-missing' };
+  }
   let reproduced;
   try {
     reproduced = options.archivedSelectionReplay
@@ -887,20 +892,53 @@ function productionDecisionIndexes(game) {
   return trainingDecisions(game).flatMap((decision, index) => botDecision(decision, game) ? [index] : []);
 }
 
-function validateProductionProgress(game, progress) {
-  const keys = ['schema', 'finishedReviews', 'currentDecisionIndex', 'currentTerminalOutcomes', 'slices', 'stalledSlices'];
-  const indexes = productionDecisionIndexes(game);
-  if (!progress || typeof progress !== 'object' || Array.isArray(progress) || types.isProxy(progress)
-    || canonicalJson(Object.keys(progress).sort()) !== canonicalJson(keys.sort())
-    || progress.schema !== PROGRESS_SCHEMA || !Array.isArray(progress.finishedReviews)
-    || progress.finishedReviews.length > indexes.length
-    || !Number.isSafeInteger(progress.currentTerminalOutcomes) || progress.currentTerminalOutcomes < 0
-    || progress.currentTerminalOutcomes > 3072
-    || !Number.isSafeInteger(progress.slices) || progress.slices < 0 || progress.slices > 10240
-    || !Number.isSafeInteger(progress.stalledSlices) || progress.stalledSlices < 0 || progress.stalledSlices > 10) {
+function validProductionRolloutCheckpoint(value) {
+  if (value === null) return true;
+  const keys = ['manifestId', 'sampleIndex', 'candidateIndex', 'candidateId', 'plies', 'checkpointHash', 'stateHash'];
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && !types.isProxy(value)
+    && canonicalJson(Object.keys(value).sort()) === canonicalJson(keys.sort())
+    && /^[0-9a-f]{64}$/.test(String(value.manifestId || ''))
+    && /^[0-9a-f]{64}$/.test(String(value.candidateId || ''))
+    && /^[0-9a-f]{64}$/.test(String(value.checkpointHash || ''))
+    && /^[0-9a-f]{64}$/.test(String(value.stateHash || ''))
+    && Number.isSafeInteger(value.sampleIndex) && value.sampleIndex >= 0 && value.sampleIndex < 128
+    && Number.isSafeInteger(value.candidateIndex) && value.candidateIndex >= 0 && value.candidateIndex < 24
+    && Number.isSafeInteger(value.plies) && value.plies >= 1 && value.plies < 600);
+}
+
+function normalizeProductionProgress(game, progress) {
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress) || types.isProxy(progress)) {
     throw new Error('Malformed server causal progress');
   }
-  for (const [offset, item] of progress.finishedReviews.entries()) {
+  const legacyKeys = ['schema', 'finishedReviews', 'currentDecisionIndex', 'currentTerminalOutcomes', 'slices', 'stalledSlices'];
+  const currentKeys = [...legacyKeys, 'currentRolloutCheckpoint'];
+  if (progress.schema === LEGACY_PROGRESS_SCHEMA
+    && canonicalJson(Object.keys(progress).sort()) === canonicalJson(legacyKeys.sort())) {
+    // v1 could persist only complete terminal endpoints. Any computation after
+    // the last endpoint was uncommitted, so this is the sole safe migration
+    // boundary: resume from that endpoint with no invented mid-game state.
+    return { ...structuredClone(progress), schema: PROGRESS_SCHEMA, currentRolloutCheckpoint: null };
+  }
+  if (progress.schema !== PROGRESS_SCHEMA
+    || canonicalJson(Object.keys(progress).sort()) !== canonicalJson(currentKeys.sort())) {
+    throw new Error('Malformed server causal progress');
+  }
+  return structuredClone(progress);
+}
+
+function validateProductionProgress(game, progress) {
+  const normalized = normalizeProductionProgress(game, progress);
+  const indexes = productionDecisionIndexes(game);
+  if (!Array.isArray(normalized.finishedReviews)
+    || normalized.finishedReviews.length > indexes.length
+    || !Number.isSafeInteger(normalized.currentTerminalOutcomes) || normalized.currentTerminalOutcomes < 0
+    || normalized.currentTerminalOutcomes > 3072
+    || !Number.isSafeInteger(normalized.slices) || normalized.slices < 0 || normalized.slices > 10240
+    || !Number.isSafeInteger(normalized.stalledSlices) || normalized.stalledSlices < 0 || normalized.stalledSlices > 10
+    || !validProductionRolloutCheckpoint(normalized.currentRolloutCheckpoint)) {
+    throw new Error('Malformed server causal progress');
+  }
+  for (const [offset, item] of normalized.finishedReviews.entries()) {
     const review = item?.review;
     if (!item || canonicalJson(Object.keys(item).sort()) !== canonicalJson(['decisionIndex', 'review'])
       || item.decisionIndex !== indexes[offset] || !review || typeof review !== 'object'
@@ -913,36 +951,63 @@ function validateProductionProgress(game, progress) {
       throw new Error('Server causal progress is not an exact finished original-ledger prefix');
     }
   }
-  const next = indexes[progress.finishedReviews.length] ?? null;
-  if (progress.currentDecisionIndex !== next
-    && !(progress.slices === 0 && progress.finishedReviews.length === 0
-      && progress.currentDecisionIndex === null && progress.currentTerminalOutcomes === 0)) {
+  const next = indexes[normalized.finishedReviews.length] ?? null;
+  if (normalized.currentDecisionIndex !== next
+    && !(normalized.slices === 0 && normalized.finishedReviews.length === 0
+      && normalized.currentDecisionIndex === null && normalized.currentTerminalOutcomes === 0
+      && normalized.currentRolloutCheckpoint === null)) {
     throw new Error('Server causal progress cursor mismatch');
   }
-  if (next === null && progress.currentTerminalOutcomes !== 0) throw new Error('Completed progress retained partial outcomes');
+  if (next === null && (normalized.currentTerminalOutcomes !== 0
+    || normalized.currentRolloutCheckpoint !== null)) throw new Error('Completed progress retained partial outcomes');
   return { indexes, next };
 }
 
+function rolloutCheckpointAdvanced(previous, next) {
+  if (previous === null) return next !== null;
+  if (next === null) return false;
+  for (const key of ['manifestId', 'sampleIndex', 'candidateIndex', 'candidateId']) {
+    if (previous[key] !== next[key]) throw new Error('Current terminal rollout checkpoint identity changed without a completed endpoint');
+  }
+  if (next.plies < previous.plies) throw new Error('Current terminal rollout checkpoint regressed');
+  if (next.plies === previous.plies && (next.checkpointHash !== previous.checkpointHash
+    || next.stateHash !== previous.stateHash)) throw new Error('Current terminal rollout checkpoint conflicted at the same ply');
+  return next.plies > previous.plies;
+}
+
 function advanceProductionProgress(game, previous, decisionIndex, review) {
-  const { indexes, next } = validateProductionProgress(game, previous);
+  const normalizedPrevious = normalizeProductionProgress(game, previous);
+  const { indexes, next } = validateProductionProgress(game, normalizedPrevious);
   if (next === null || decisionIndex !== next || review?.decisionId !== String(trainingDecisions(game)[next].id || '')) {
     throw new Error('Production slice is not the next original decision');
   }
   if (review.reason === 'rollout-runtime-failed') throw new Error(`Native rollout failed: ${review.detail || review.reason}`);
   const partial = review.reason === 'rollout-time-limit';
   const count = partial ? review.rollout?.terminalJournalObservation?.completedTerminalOutcomes : 0;
+  const checkpoint = partial ? review.rollout?.terminalJournalObservation?.activeCheckpoint : null;
   if (partial && (review.status !== 'rejected' || review.evidence
     || review.rollout?.coverage?.complete !== false || !Number.isSafeInteger(count)
-    || count < previous.currentTerminalOutcomes || count > 3072)) {
+    || count < normalizedPrevious.currentTerminalOutcomes || count > 3072
+    || !validProductionRolloutCheckpoint(checkpoint))) {
     throw new Error('Partial production slice lacks authenticated monotonic terminal progress');
   }
-  const finishedReviews = previous.finishedReviews.map(item => structuredClone(item));
+  let checkpointProgress = false;
+  if (partial && count === normalizedPrevious.currentTerminalOutcomes) {
+    checkpointProgress = rolloutCheckpointAdvanced(normalizedPrevious.currentRolloutCheckpoint, checkpoint);
+    if (normalizedPrevious.currentRolloutCheckpoint !== null && checkpoint === null) {
+      throw new Error('Current terminal rollout checkpoint disappeared without a completed endpoint');
+    }
+  }
+  const finishedReviews = normalizedPrevious.finishedReviews.map(item => structuredClone(item));
   if (!partial) finishedReviews.push({ decisionIndex, review: structuredClone(review) });
   const progress = {
     schema: PROGRESS_SCHEMA, finishedReviews,
     currentDecisionIndex: indexes[finishedReviews.length] ?? null,
-    currentTerminalOutcomes: count, slices: previous.slices + 1,
-    stalledSlices: partial && count === previous.currentTerminalOutcomes ? previous.stalledSlices + 1 : 0,
+    currentTerminalOutcomes: count,
+    currentRolloutCheckpoint: partial ? structuredClone(checkpoint) : null,
+    slices: normalizedPrevious.slices + 1,
+    stalledSlices: partial && count === normalizedPrevious.currentTerminalOutcomes && !checkpointProgress
+      ? normalizedPrevious.stalledSlices + 1 : 0,
   };
   validateProductionProgress(game, progress);
   return progress;
@@ -1041,7 +1106,10 @@ async function runResumableClaimedBatch(options) {
   }), digest, implementationId);
   // Malformed identities/progress are not caught as job failures: they must
   // never consume someone else's release or source revision.
-  for (const job of jobs) validateProductionProgress(job.game, job.progress);
+  for (const job of jobs) {
+    validateProductionProgress(job.game, job.progress);
+    job.progress = normalizeProductionProgress(job.game, job.progress);
+  }
   const completed = [];
   for (const job of jobs) {
     try {
@@ -1095,7 +1163,7 @@ async function runResumableClaimedBatch(options) {
       completed.push({ jobId: job.jobId, accepted: false, reason: 'worker-error', detail: String(error?.message || error) });
     }
   }
-  return { workerId, claimed: jobs.length, lifecycle: 'long-server-resumable-slices-v1', completed };
+  return { workerId, claimed: jobs.length, lifecycle: 'long-server-resumable-slices-v2', completed };
 }
 
 async function runClaimedBatch(options = {}) {
@@ -1213,7 +1281,7 @@ function helpText() {
     '',
     'Production mode requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
     'The service-role secret must never be exposed to the browser.',
-    'Offline terminal journals preserve only validated complete slots; partial cohorts never create evidence.',
+    'Offline terminal journals preserve complete slots and authenticated in-game checkpoints; partial cohorts never create evidence.',
   ].join('\n');
 }
 
@@ -1277,8 +1345,10 @@ module.exports = {
   trainingDecisions,
   trustedReviewSelection,
   uniqueCausalEvidence,
+  LEGACY_PROGRESS_SCHEMA,
   PROGRESS_SCHEMA,
   productionDecisionIndexes,
+  normalizeProductionProgress,
   validateProductionProgress,
   advanceProductionProgress,
   aggregateProductionResult,

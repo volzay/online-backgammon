@@ -2,7 +2,8 @@
 
 // This primitive is an authenticated, server-owned OFFLINE progress store.
 // It never evaluates a position, accepts a client label or emits learning
-// evidence. Only the caller's already-validated terminal endpoints are stored.
+// evidence. It stores validated terminal endpoints plus one HMAC-authenticated
+// in-game continuation checkpoint; neither partial form is learning evidence.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -11,11 +12,14 @@ const { types } = require('node:util');
 const MANIFEST_SCHEMA = 'long-bot-terminal-cohort-manifest-v1';
 const JOURNAL_SCHEMA = 'long-bot-terminal-journal-v1';
 const SLOT_SCHEMA = 'long-bot-terminal-slot-v1';
+const CHECKPOINT_SCHEMA = 'long-bot-terminal-rollout-checkpoint-v1';
+const CHECKPOINT_ENVELOPE_SCHEMA = 'long-bot-terminal-checkpoint-envelope-v1';
 const KEY_NAME = 'terminal-journal.key';
 const LOCK_NAME = 'writer.lock';
 const MANIFEST_NAME = 'manifest.json';
 const MAX_MANIFEST_BYTES = 8388608;
 const MAX_SLOT_BYTES = 16384;
+const MAX_CHECKPOINT_BYTES = 131072;
 const HASH = /^[0-9a-f]{64}$/;
 const clone = value => JSON.parse(JSON.stringify(value));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -101,6 +105,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
   let rootIdentity, cohortIdentity, keyIdentity, lockIdentity, key, lockBytes;
   let closed = false, faulted = false, ignoredTemporaryFiles = 0;
   const records = new Map();
+  const checkpoints = new Map();
   const identity = stat => `${stat.dev}:${stat.ino}`;
 
   function noSymlinkComponents(target) {
@@ -182,8 +187,25 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
     checkpoint('after-directory-fsync');
   }
 
+  function atomicReplace(name, bytes, mode) {
+    const target = path.join(cohortDirectory, name);
+    const temporary = path.join(cohortDirectory, `.tmp-checkpoint-${crypto.randomBytes(16).toString('hex')}`);
+    createExclusive(temporary, bytes, mode);
+    checkpoint('after-checkpoint-temp-fsync');
+    if (!readRegular(temporary, mode, bytes.length).bytes.equals(bytes)) error('temporary-preimage-mismatch');
+    fs.renameSync(temporary, target);
+    checkpoint('after-checkpoint-rename-before-directory-fsync');
+    syncDirectory(cohortDirectory);
+    if (!readRegular(target, mode, bytes.length).bytes.equals(bytes)) error('committed-preimage-mismatch');
+    checkpoint('after-checkpoint-directory-fsync');
+  }
+
   function slotName(sampleIndex, candidateId) {
     return `slot-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`;
+  }
+
+  function checkpointName(sampleIndex, candidateId) {
+    return `checkpoint-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`;
   }
 
   function validateSlot(slot, sampleIndex, candidateId, seeds) {
@@ -218,6 +240,45 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
     if (slotName(envelope.payload.sampleIndex, envelope.payload.candidateId) !== name
       || canonical(envelope) !== bytes.toString('utf8')) error('slot-preimage-or-filename-mismatch');
     return envelope.payload;
+  }
+
+  function validateCheckpoint(value, sampleIndex, candidateId, seeds) {
+    if (!nativeJson(value) || !exactKeys(value,
+      ['schema', 'sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state', 'stateHash', 'manifestId'])
+      || value.schema !== CHECKPOINT_SCHEMA || value.manifestId !== manifestId
+      || !Number.isSafeInteger(value.sampleIndex) || value.sampleIndex < 0 || value.sampleIndex >= immutable.sampleCount
+      || typeof value.candidateId !== 'string' || !candidateIds.has(value.candidateId)
+      || !validSeeds(value.seeds) || canonical(value.seeds) !== canonical(immutable.seedsBySample[value.sampleIndex])
+      || !Number.isSafeInteger(value.plies) || value.plies < 1 || value.plies >= immutable.maxPlies
+      || !exactKeys(value.rolls, ['white', 'dark'])
+      || !['white', 'dark'].every(color => Number.isSafeInteger(value.rolls[color])
+        && value.rolls[color] >= 0 && value.rolls[color] <= immutable.maxPlies)
+      || value.rolls.white + value.rolls.dark !== value.plies
+      || !nativeJson(value.state) || !value.state || Array.isArray(value.state)
+      || typeof value.stateHash !== 'string' || !HASH.test(value.stateHash)
+      || value.stateHash !== sha256(canonical(value.state))
+      || sampleIndex !== undefined && value.sampleIndex !== sampleIndex
+      || candidateId !== undefined && value.candidateId !== candidateId
+      || seeds !== undefined && canonical(value.seeds) !== canonical(seeds)) error('checkpoint-invalid');
+  }
+
+  function readCheckpoint(name) {
+    const { bytes } = readRegular(path.join(cohortDirectory, name), 0o600, MAX_CHECKPOINT_BYTES);
+    let envelope;
+    try { envelope = JSON.parse(bytes); } catch { error('checkpoint-json-invalid'); }
+    if (!nativeJson(envelope) || !exactKeys(envelope, ['schema', 'payload', 'payloadHash', 'mac'])
+      || envelope.schema !== CHECKPOINT_ENVELOPE_SCHEMA
+      || typeof envelope.payloadHash !== 'string' || !HASH.test(envelope.payloadHash)
+      || typeof envelope.mac !== 'string' || !HASH.test(envelope.mac)) error('checkpoint-envelope-invalid');
+    const payload = canonical(envelope.payload), payloadHash = sha256(payload);
+    if (payloadHash !== envelope.payloadHash
+      || !crypto.timingSafeEqual(Buffer.from(envelope.mac, 'hex'), Buffer.from(mac(payload, payloadHash), 'hex'))) {
+      error('checkpoint-authentication-failed');
+    }
+    validateCheckpoint(envelope.payload);
+    if (checkpointName(envelope.payload.sampleIndex, envelope.payload.candidateId) !== name
+      || canonical(envelope) !== bytes.toString('utf8')) error('checkpoint-preimage-or-filename-mismatch');
+    return { payload: envelope.payload, checkpointHash: payloadHash };
   }
 
   function validateRequest(sampleIndex, candidateId, seeds) {
@@ -273,7 +334,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
     const names = fs.readdirSync(cohortDirectory);
     if (names.length > 40000) error('directory-entry-limit');
     for (const name of names) {
-      if (!/^\.tmp-(?:manifest|slot)-[0-9a-f]{32}$/.test(name)) continue;
+      if (!/^\.tmp-(?:manifest|slot|checkpoint)-[0-9a-f]{32}$/.test(name)) continue;
       const temporary = path.join(cohortDirectory, name), stat = fs.lstatSync(temporary);
       const expectedMode = name.startsWith('.tmp-manifest-') ? 0o444 : 0o600;
       if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== ownerUid
@@ -285,10 +346,22 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
     if (readRegular(manifestPath, 0o444, MAX_MANIFEST_BYTES).bytes.toString('utf8') !== preimage) error('manifest-preimage-mismatch');
     for (const name of fs.readdirSync(cohortDirectory)) {
       if (name === MANIFEST_NAME || name === LOCK_NAME) continue;
-      if (!/^slot-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) error('unexpected-file');
-      const slot = readSlot(name), id = `${slot.sampleIndex}:${slot.candidateId}`;
-      if (records.has(id)) error('duplicate-slot');
-      records.set(id, slot);
+      if (/^slot-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) {
+        const slot = readSlot(name), id = `${slot.sampleIndex}:${slot.candidateId}`;
+        if (records.has(id)) error('duplicate-slot');
+        records.set(id, slot);
+      } else if (/^checkpoint-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) {
+        const current = readCheckpoint(name), id = `${current.payload.sampleIndex}:${current.payload.candidateId}`;
+        if (checkpoints.has(id) || checkpoints.size > 0) error('duplicate-checkpoint');
+        checkpoints.set(id, current);
+      } else error('unexpected-file');
+    }
+    for (const [id, current] of checkpoints) {
+      if (!records.has(id)) continue;
+      fs.unlinkSync(path.join(cohortDirectory,
+        checkpointName(current.payload.sampleIndex, current.payload.candidateId)));
+      checkpoints.delete(id);
+      syncDirectory(cohortDirectory);
     }
     guard();
   } catch (cause) {
@@ -309,9 +382,73 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
     return clone(slot);
   }
 
+  function lookupCheckpoint(sampleIndex, candidateId, seeds) {
+    guard(); validateRequest(sampleIndex, candidateId, seeds);
+    const id = `${sampleIndex}:${candidateId}`, name = checkpointName(sampleIndex, candidateId);
+    if (!fs.existsSync(path.join(cohortDirectory, name))) {
+      if (checkpoints.has(id)) error('checkpoint-disappeared');
+      return null;
+    }
+    const current = readCheckpoint(name);
+    validateCheckpoint(current.payload, sampleIndex, candidateId, seeds);
+    checkpoints.set(id, current);
+    return { ...clone(current.payload), checkpointHash: current.checkpointHash };
+  }
+
+  function clearCheckpoint(sampleIndex, candidateId, seeds, expectedHash) {
+    guard(); validateRequest(sampleIndex, candidateId, seeds);
+    const id = `${sampleIndex}:${candidateId}`, name = checkpointName(sampleIndex, candidateId);
+    const target = path.join(cohortDirectory, name);
+    if (!fs.existsSync(target)) {
+      if (checkpoints.has(id)) error('checkpoint-disappeared');
+      return false;
+    }
+    const current = readCheckpoint(name);
+    validateCheckpoint(current.payload, sampleIndex, candidateId, seeds);
+    if (expectedHash !== undefined && current.checkpointHash !== expectedHash) error('checkpoint-hash-mismatch');
+    fs.unlinkSync(target);
+    syncDirectory(cohortDirectory);
+    checkpoints.delete(id);
+    return true;
+  }
+
   return Object.freeze({
     manifestId,
     lookup,
+    lookupCheckpoint,
+    saveCheckpoint(value) {
+      guard();
+      if (!nativeJson(value) || !exactKeys(value,
+        ['sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state'])) error('checkpoint-invalid');
+      validateRequest(value.sampleIndex, value.candidateId, value.seeds);
+      const payload = { schema: CHECKPOINT_SCHEMA, sampleIndex: value.sampleIndex,
+        candidateId: value.candidateId, seeds: clone(value.seeds), plies: value.plies,
+        rolls: clone(value.rolls), state: clone(value.state), stateHash: sha256(canonical(value.state)), manifestId };
+      validateCheckpoint(payload);
+      const id = `${payload.sampleIndex}:${payload.candidateId}`;
+      if (checkpoints.size > 0 && !checkpoints.has(id)) error('checkpoint-slot-conflict');
+      const existing = lookupCheckpoint(payload.sampleIndex, payload.candidateId, payload.seeds);
+      if (existing) {
+        const current = checkpoints.get(id);
+        if (payload.plies < existing.plies) error('checkpoint-regression');
+        if (payload.plies === existing.plies) {
+          if (canonical(current.payload) !== canonical(payload)) error('checkpoint-conflict');
+          return { committed: false, duplicate: true, checkpoint: clone(existing) };
+        }
+      }
+      const payloadText = canonical(payload), payloadHash = sha256(payloadText);
+      const bytes = Buffer.from(canonical({ schema: CHECKPOINT_ENVELOPE_SCHEMA, payload,
+        payloadHash, mac: mac(payloadText, payloadHash) }));
+      if (bytes.length > MAX_CHECKPOINT_BYTES) error('checkpoint-too-large');
+      try {
+        atomicReplace(checkpointName(payload.sampleIndex, payload.candidateId), bytes, 0o600);
+        guard();
+        checkpoints.set(id, { payload, checkpointHash: payloadHash });
+      } catch (cause) { faulted = true; throw cause; }
+      return { committed: true, duplicate: false,
+        checkpoint: { ...clone(payload), checkpointHash: payloadHash } };
+    },
+    clearCheckpoint,
     commit(outcome) {
       guard();
       if (!nativeJson(outcome) || !exactKeys(outcome, Object.prototype.hasOwnProperty.call(outcome || {}, 'manifestId')
@@ -323,6 +460,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
       const existing = lookup(slot.sampleIndex, slot.candidateId, slot.seeds);
       if (existing) {
         if (canonical(existing) !== canonical(slot)) error('slot-conflict');
+        clearCheckpoint(slot.sampleIndex, slot.candidateId, slot.seeds);
         return { committed: false, duplicate: true, slot: clone(existing) };
       }
       const payload = canonical(slot), payloadHash = sha256(payload);
@@ -332,6 +470,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
         atomicCommit(slotName(slot.sampleIndex, slot.candidateId), bytes, 0o600);
         guard();
         records.set(`${slot.sampleIndex}:${slot.candidateId}`, slot);
+        clearCheckpoint(slot.sampleIndex, slot.candidateId, slot.seeds);
       } catch (cause) { faulted = true; throw cause; }
       return { committed: true, duplicate: false, slot: clone(slot) };
     },
@@ -341,10 +480,19 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
         const current = readSlot(slotName(slot.sampleIndex, slot.candidateId));
         if (canonical(current) !== canonical(slot)) error('slot-drift');
       }
+      for (const current of checkpoints.values()) {
+        const reread = readCheckpoint(checkpointName(current.payload.sampleIndex, current.payload.candidateId));
+        if (canonical(reread) !== canonical(current)) error('checkpoint-drift');
+      }
+      const active = checkpoints.size === 1 ? [...checkpoints.values()][0] : null;
       return { schema: JOURNAL_SCHEMA, manifestId, completedTerminalOutcomes: records.size,
         requiredTerminalOutcomes: immutable.sampleCount * immutable.candidateIds.length,
         sampleCount: immutable.sampleCount, candidateCount: immutable.candidateIds.length,
         complete: records.size === immutable.sampleCount * immutable.candidateIds.length,
+        activeCheckpoint: active ? { manifestId, sampleIndex: active.payload.sampleIndex,
+          candidateIndex: immutable.candidateIds.indexOf(active.payload.candidateId),
+          candidateId: active.payload.candidateId, plies: active.payload.plies,
+          checkpointHash: active.checkpointHash, stateHash: active.payload.stateHash } : null,
         ignoredTemporaryFiles, learningEvidence: false };
     },
     close() {
@@ -354,4 +502,5 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
   });
 }
 
-module.exports = { MANIFEST_SCHEMA, JOURNAL_SCHEMA, SLOT_SCHEMA, canonicalManifest, createTerminalJournal };
+module.exports = { MANIFEST_SCHEMA, JOURNAL_SCHEMA, SLOT_SCHEMA, CHECKPOINT_SCHEMA,
+  CHECKPOINT_ENVELOPE_SCHEMA, canonicalManifest, createTerminalJournal };

@@ -56,6 +56,16 @@ function cohort(directory, journal) { return path.join(directory, journal.manife
 function slotPath(directory, journal, sampleIndex = 0, candidateId = CANDIDATES[0]) {
   return path.join(cohort(directory, journal), `slot-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`);
 }
+function checkpointPath(directory, journal, sampleIndex = 0, candidateId = CANDIDATES[0]) {
+  return path.join(cohort(directory, journal), `checkpoint-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`);
+}
+function rolloutCheckpoint(manifest, plies = 3, overrides = {}) {
+  return { sampleIndex: 0, candidateId: manifest.candidateIds[0], seeds: clone(manifest.seedsBySample[0]),
+    plies, rolls: { white: Math.ceil(plies / 2), dark: Math.floor(plies / 2) },
+    state: { variant: 'long', phase: 'roll', turn: plies % 2 ? 'dark' : 'white',
+      points: { 24: { color: 'white', count: 15 }, 12: { color: 'dark', count: 15 } },
+      off: { white: 0, dark: 0 }, score: { ply: plies } }, ...overrides };
+}
 
 function signedSlot(payload, directory) {
   const payloadHash = hash(stable(payload));
@@ -107,6 +117,87 @@ test('identical slot commits are idempotent; conflicting winners, plies or manif
   assert.deepEqual(fs.readFileSync(slotPath(directory, journal)), saved);
   assert.equal(journal.observation().completedTerminalOutcomes, 1);
   journal.close();
+});
+
+test('one authenticated in-game checkpoint advances monotonically and a terminal slot clears it exactly once', t => {
+  const { directory } = sandbox(t), manifest = fixture();
+  const journal = createTerminalJournal({ directory, manifest });
+  const first = rolloutCheckpoint(manifest, 3);
+  assert.equal(journal.saveCheckpoint(first).committed, true);
+  const observation = journal.observation();
+  assert.equal(observation.completedTerminalOutcomes, 0);
+  assert.equal(observation.activeCheckpoint.sampleIndex, 0);
+  assert.equal(observation.activeCheckpoint.candidateIndex, 0);
+  assert.equal(observation.activeCheckpoint.plies, 3);
+  assert.match(observation.activeCheckpoint.checkpointHash, /^[0-9a-f]{64}$/);
+  assert.equal(journal.saveCheckpoint(clone(first)).duplicate, true);
+  assert.throws(() => journal.saveCheckpoint(rolloutCheckpoint(manifest, 3,
+    { state: { ...first.state, turn: 'white' } })), /checkpoint-conflict/);
+  assert.throws(() => journal.saveCheckpoint(rolloutCheckpoint(manifest, 2)), /checkpoint-regression/);
+  assert.equal(journal.saveCheckpoint(rolloutCheckpoint(manifest, 7)).committed, true);
+  assert.equal(journal.lookupCheckpoint(0, CANDIDATES[0], manifest.seedsBySample[0]).plies, 7);
+  assert.equal(journal.commit(outcome(manifest)).committed, true);
+  assert.equal(journal.observation().activeCheckpoint, null);
+  assert.equal(journal.observation().completedTerminalOutcomes, 1);
+  assert.equal(journal.commit(outcome(manifest)).duplicate, true);
+  assert.equal(journal.observation().completedTerminalOutcomes, 1);
+  journal.close();
+});
+
+test('checkpoint tamper with a recomputed public hash fails its private MAC before resume', t => {
+  const { directory } = sandbox(t), manifest = fixture();
+  const journal = createTerminalJournal({ directory, manifest });
+  journal.saveCheckpoint(rolloutCheckpoint(manifest, 5));
+  const file = checkpointPath(directory, journal), original = fs.readFileSync(file);
+  const envelope = JSON.parse(original);
+  envelope.payload.state.score.ply = 999;
+  envelope.payload.stateHash = hash(stable(envelope.payload.state));
+  envelope.payloadHash = hash(stable(envelope.payload));
+  fs.writeFileSync(file, stable(envelope));
+  assert.throws(() => journal.lookupCheckpoint(0, CANDIDATES[0], manifest.seedsBySample[0]),
+    /checkpoint-authentication-failed/);
+  fs.writeFileSync(file, original);
+  assert.equal(journal.lookupCheckpoint(0, CANDIDATES[0], manifest.seedsBySample[0]).plies, 5);
+  journal.close();
+});
+
+for (const [stage, expectedPly, temporaryCount] of [
+  ['after-checkpoint-temp-fsync', 3, 1],
+  ['after-checkpoint-rename-before-directory-fsync', 7, 0],
+  ['after-checkpoint-directory-fsync', 7, 0],
+]) {
+  test(`checkpoint mock crash at ${stage} resumes one authenticated boundary`, t => {
+    const { directory } = sandbox(t), manifest = fixture();
+    let armed = false;
+    const journal = createTerminalJournal({ directory, manifest,
+      _testHooks: { crash(current) { if (armed && current === stage) throw new Error('mock-checkpoint-crash'); } } });
+    journal.saveCheckpoint(rolloutCheckpoint(manifest, 3));
+    armed = true;
+    assert.throws(() => journal.saveCheckpoint(rolloutCheckpoint(manifest, 7)), /mock-checkpoint-crash/);
+    assert.throws(() => journal.observation(), /faulted/);
+    journal.close();
+    const resumed = createTerminalJournal({ directory, manifest });
+    assert.equal(resumed.lookupCheckpoint(0, CANDIDATES[0], manifest.seedsBySample[0]).plies, expectedPly);
+    assert.equal(resumed.observation().ignoredTemporaryFiles, temporaryCount);
+    assert.equal(resumed.observation().completedTerminalOutcomes, 0);
+    resumed.close();
+  });
+}
+
+test('crash after a terminal slot is durable discards its older checkpoint on reopen', t => {
+  const { directory } = sandbox(t), manifest = fixture();
+  let armed = false;
+  const journal = createTerminalJournal({ directory, manifest,
+    _testHooks: { crash(stage) { if (armed && stage === 'after-directory-fsync') throw new Error('mock-terminal-crash'); } } });
+  journal.saveCheckpoint(rolloutCheckpoint(manifest, 5));
+  armed = true;
+  assert.throws(() => journal.commit(outcome(manifest)), /mock-terminal-crash/);
+  journal.close();
+  const resumed = createTerminalJournal({ directory, manifest });
+  assert.equal(resumed.observation().completedTerminalOutcomes, 1);
+  assert.equal(resumed.observation().activeCheckpoint, null);
+  assert.equal(resumed.lookupCheckpoint(0, CANDIDATES[0], manifest.seedsBySample[0]), null);
+  resumed.close();
 });
 
 test('manifest and lookup/commit return values cannot mutate the captured cohort', t => {

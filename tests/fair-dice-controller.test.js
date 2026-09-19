@@ -198,7 +198,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
       isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
       isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
       autoRoll() {}, openingRoll() {}, playBotTurn() {}, maybeScheduleAutoEndTurn() {},
-      scheduleOpeningTurnRoll() {}, console,
+      scheduleOpeningTurnRoll() {}, persistRoomSnapshot() {}, console,
       schedule(callback, ms) { scheduled.push({ callback, ms }); return scheduled.length; } };
     vm.createContext(context);
     vm.runInContext(source, context);
@@ -228,16 +228,80 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
   }
 });
 
-test('latency changes preserve the existing player auto-end undo opportunity', () => {
+test('bot player auto-end keeps a brief undo opportunity inside the 1.5 second roll budget', () => {
   const scheduled = [];
   const context = { state: { phase: 'move', dice: [] }, autoEndTimer: null,
     mode: 'bot', isMyTurn: () => true, clearTimeout() {},
+    PLAYER_AUTO_END_UNDO_MS: 550,
     NarduGame: { hasAnyMoves: () => false },
     schedule(callback, ms) { scheduled.push(ms); return scheduled.length; }, endTurnUser() {} };
   vm.createContext(context);
   vm.runInContext(extractFunction('function maybeScheduleAutoEndTurn('), context);
   context.maybeScheduleAutoEndTurn();
-  assert.equal(scheduled.at(-1), 1200);
+  assert.equal(scheduled.at(-1), 550);
+  assert.ok(scheduled.at(-1) < 1500);
+});
+
+test('live bot checkpoints retain the proof journal but exclude heavyweight training decisions', () => {
+  const nativeJson = JSON;
+  let serializedHeavyArchive = false;
+  const guardedJson = {
+    parse: nativeJson.parse,
+    stringify(value, ...args) {
+      if (Array.isArray(value?.analysis?.botMemory?.decisions)
+        && value.analysis.botMemory.decisions.length > 0) {
+        serializedHeavyArchive = true;
+        throw new Error('live checkpoint serialized the training archive');
+      }
+      return nativeJson.stringify(value, ...args);
+    },
+  };
+  const context = {
+    state: {
+      phase: 'roll', variant: 'long', history: [{ fairDiceProof: { request: { id: 'proof-1' } } }],
+      analysis: { botMemory: { decisions: [{ alternatives: Array(100).fill({ score: 1 }) }],
+        replayExperience: { patterns: Array(100).fill({ value: 1 }) }, coverage: { complete: false } } },
+    },
+    mode: 'bot', variant: 'long', remoteCode: 'TEST-ROOM', botDifficulty: 'hard',
+    opponentName: 'Сложный бот', playerColor: 'white', JSON: guardedJson, Date, window: {},
+  };
+  vm.createContext(context);
+  vm.runInContext([
+    'function remoteStatePayload(', 'function stampBotAnalysisPayload(',
+    'function botAnalysisPayload(', 'function botLiveStatePayload(',
+  ].map(extractFunction).join('\n'), context);
+  const payload = context.botLiveStatePayload();
+  assert.equal(serializedHeavyArchive, false, 'large decisions are removed before JSON cloning');
+  assert.equal(payload.history.length, 1, 'fair-dice evidence remains authoritative');
+  assert.deepEqual(JSON.parse(JSON.stringify(payload.analysis.botMemory.decisions)), []);
+  assert.equal(Object.hasOwn(payload.analysis.botMemory, 'replayExperience'), false);
+  assert.equal(context.state.analysis.botMemory.decisions.length, 1, 'local training evidence is untouched');
+  assert.ok(JSON.stringify(payload).length < JSON.stringify(context.state).length / 2);
+});
+
+test('last bot-room checker to protected dice animation stays inside the 1.5 second budget', async () => {
+  const undoMs = Number(controller.match(/PLAYER_AUTO_END_UNDO_MS = (\d+)/)?.[1]);
+  const nextRollMs = Number(controller.match(/NEXT_ROLL_DELAY_MS = (\d+)/)?.[1]);
+  let elapsed = undoMs + nextRollMs;
+  let animationStartedAt = null;
+  const r = rig('autoRoll');
+  r.context.publishRemoteState = async () => {
+    elapsed += 240; // conservative state checkpoint/receipt persistence budget
+    return true;
+  };
+  r.context.window.NarduRooms.requestFairDice = async () => {
+    elapsed += 280; // reservation + browser contribution + signed proof
+    return clone({ ...proof, protocol: 'system-csprng-v1' });
+  };
+  r.context.NarduBoardEngine.animateDiceRoll = async () => {
+    animationStartedAt = elapsed;
+    r.calls.push('animate-roll');
+  };
+  await r.run();
+  await flush();
+  assert.equal(animationStartedAt, 1330);
+  assert.ok(animationStartedAt <= 1500);
+  assert.equal(count(r.calls, 'animate-roll'), 1);
 });
 
 for (const method of ['openingRoll', 'autoRoll']) {

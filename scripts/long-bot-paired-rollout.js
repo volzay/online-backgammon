@@ -11,7 +11,7 @@ const {
   stateFromSnapshot,
 } = require('./generate-long-bot-shadow-replay');
 const { createDiceStream } = require('./simulate-long-bot-regression');
-const { createTerminalJournal } = require('./long-bot-terminal-journal');
+const { CHECKPOINT_SCHEMA, createTerminalJournal } = require('./long-bot-terminal-journal');
 
 const SCORE_SEMANTICS = 'long-paired-terminal-win-probability-v1';
 const NATIVE_CACHE_VERSION = 'native-cold-v1';
@@ -138,6 +138,44 @@ function nativeCacheCheckpoint(state) {
   for (const key of ['variant', 'phase', 'turn', 'winner', 'resultType', 'points', 'off', 'bar', 'dice', 'rolled',
     'firstMoveDone', 'headPlayedThisTurn', 'turnMoves']) checkpoint[key] = state[key];
   return clone(checkpoint);
+}
+
+function durableRolloutCheckpointState(state) {
+  if (canonicalNativeState(state) === null) return null;
+  const checkpoint = clone(state);
+  checkpoint.history = [];
+  delete checkpoint.analysis;
+  return checkpoint;
+}
+
+function resumeTerminalRollout(checkpoint, afterState, seeds, limits) {
+  if (checkpoint === undefined || checkpoint === null) {
+    return { state: clone(afterState), plies: 0, rolls: { white: 0, dark: 0 } };
+  }
+  const exact = ['schema', 'sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state',
+    'stateHash', 'manifestId', 'checkpointHash'];
+  if (!nativeData(checkpoint) || !checkpoint || Array.isArray(checkpoint)
+    || stableStringify(Object.keys(checkpoint).sort()) !== stableStringify(exact.sort())
+    || checkpoint.schema !== CHECKPOINT_SCHEMA
+    || !/^[0-9a-f]{64}$/.test(String(checkpoint.manifestId || ''))
+    || !/^[0-9a-f]{64}$/.test(String(checkpoint.checkpointHash || ''))
+    || !/^[0-9a-f]{64}$/.test(String(checkpoint.stateHash || ''))
+    || stableStringify(checkpoint.seeds) !== stableStringify(seeds)
+    || !Number.isSafeInteger(checkpoint.plies) || checkpoint.plies < 1 || checkpoint.plies >= limits.maxPlies
+    || !checkpoint.rolls || Object.keys(checkpoint.rolls).sort().join(',') !== 'dark,white'
+    || !['white', 'dark'].every(color => Number.isSafeInteger(checkpoint.rolls[color])
+      && checkpoint.rolls[color] >= 0 && checkpoint.rolls[color] <= limits.maxPlies)
+    || checkpoint.rolls.white + checkpoint.rolls.dark !== checkpoint.plies
+    || canonicalNativeState(checkpoint.state) === null
+    || digest(stableStringify(checkpoint.state)) !== checkpoint.stateHash
+    || checkpoint.state.phase !== 'roll' || checkpoint.state.winner !== null
+    || checkpoint.state.resultType !== null || checkpoint.state.dice.length !== 0
+    || checkpoint.state.rolled.length !== 0 || checkpoint.state.turnMoves.length !== 0
+    || checkpoint.state.headPlayedThisTurn.white !== false
+    || checkpoint.state.headPlayedThisTurn.dark !== false) {
+    throw new Error('Authenticated terminal rollout checkpoint is invalid');
+  }
+  return { state: clone(checkpoint.state), plies: checkpoint.plies, rolls: clone(checkpoint.rolls) };
 }
 
 function createNativeColdCohortCache(runtime, limits, attestation = {}, hashKey = digest) {
@@ -282,13 +320,17 @@ function applyCompleteAction(runtime, decision, candidate) {
 }
 
 function playTerminalRollout(runtime, afterState, botColor, seeds, limits, startedAt, metadata = {}) {
-  const state = clone(afterState);
+  const resumed = resumeTerminalRollout(metadata.resumeCheckpoint, afterState, seeds, limits);
+  const state = resumed.state;
   const streams = {
     white: createDiceStream(seeds.white),
     dark: createDiceStream(seeds.dark),
   };
-  let plies = 0;
-  const rolls = { white: 0, dark: 0 };
+  let plies = resumed.plies;
+  const rolls = resumed.rolls;
+  for (const color of ['white', 'dark']) {
+    for (let index = 0; index < rolls[color]; index += 1) streams[color].roll();
+  }
   const visited = [];
   const cache = metadata.nativeCache;
   // Winner/total-plies is the ONLY rollout result contract. Under the exact
@@ -338,6 +380,13 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
     }
     if (beforePlan && !cachedPlan && Array.isArray(plan) && appliedPlanMoves === plan.length) cache.putValidatedPlan(beforePlan, plan);
     if (!state.winner) runtime.game.endTurn(state);
+    if (!state.winner && plies < limits.maxPlies && typeof metadata.saveCheckpoint === 'function') {
+      const durableState = durableRolloutCheckpointState(state);
+      if (!durableState || durableState.phase !== 'roll') {
+        return { complete: false, reason: 'rollout-checkpoint-state-invalid' };
+      }
+      metadata.saveCheckpoint({ state: durableState, plies, rolls: { ...rolls } });
+    }
   }
   if (!state.winner) return { complete: false, reason: 'rollout-ply-limit' };
   sealVisited(state.winner, plies);
@@ -473,7 +522,12 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
     namespaceFingerprint: null, planHits: 0, planMisses: 0, suffixHits: 0, suffixMisses: 0,
     evictions: 0, entries: 0, bytes: 0,
   };
-  const startedAt = Date.now();
+  // The slice budget belongs to NEW terminal simulation, not authenticated
+  // journal recovery. Opening a large durable cohort and replaying its saved
+  // prefix are bounded I/O, but charging them can make every retry expire at
+  // the same active checkpoint forever. Start this clock lazily at the first
+  // unfinished slot reached after the saved prefix.
+  let startedAt = null;
   const accumulators = candidates.map(candidate => ({
     candidate,
     afterState: applyCompleteAction(runtime, decision, candidate),
@@ -521,26 +575,33 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
     for (let sample = 0; sample < limits.samples; sample += 1) {
       const seeds = seedsBySample[sample];
       for (const [currentCandidateIndex, accumulator] of accumulators.entries()) {
-        if (Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
+        const candidateId = candidateIds[currentCandidateIndex];
+        const saved = journal?.lookup(sample, candidateId, seeds);
+        // Authenticated terminal endpoints are already-completed work. Replay
+        // their bounded metadata even after this slice's compute deadline so
+        // we always reach the one active checkpoint (or first unfinished
+        // slot). Otherwise a timeout while scanning an earlier saved slot can
+        // report a cursor that contradicts the later authenticated checkpoint
+        // and make a normal resume fail closed in PostgreSQL.
+        if (!saved && startedAt === null) startedAt = Date.now();
+        if (!saved && Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
           coverage: { complete: false, sample, evaluatedCandidates: accumulator.outcomes.length,
             completedTerminalOutcomes, requiredTerminalOutcomes, samplesPerCandidate: limits.samples,
             candidateCount: candidates.length, currentCandidateIndex },
           cacheObservation: cacheObservation(),
           ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
         });
-        const saved = journal?.lookup(sample, candidateIds[currentCandidateIndex], seeds);
-        if (Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
-          coverage: { complete: false, sample, evaluatedCandidates: accumulator.outcomes.length,
-            completedTerminalOutcomes, requiredTerminalOutcomes, samplesPerCandidate: limits.samples,
-            candidateCount: candidates.length, currentCandidateIndex },
-          cacheObservation: cacheObservation(),
-          ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
-        });
+        if (saved) journal?.clearCheckpoint(sample, candidateId, seeds);
+        const resumeCheckpoint = saved ? null : journal?.lookupCheckpoint(sample, candidateId, seeds);
         const runner = options.outcomeRunner || playTerminalRollout;
         const outcome = saved ? { ...saved, botWon: saved.winner === botColor } : await runner(
           runtime, accumulator.afterState, botColor,
           seeds, limits, startedAt, { sample, candidate: accumulator.candidate, nativeCache,
-            nativeHistoryProjection: !bypass && nativeCache?.enabled() === true },
+            nativeHistoryProjection: !bypass && nativeCache?.enabled() === true,
+            ...(journal ? { resumeCheckpoint,
+              saveCheckpoint: checkpoint => journal.saveCheckpoint({
+                sampleIndex: sample, candidateId, seeds, ...checkpoint,
+              }) } : {}) },
         );
         if (
           !outcome?.complete
@@ -556,7 +617,7 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
           ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
         });
         if (saved) resumedTerminalOutcomes += 1;
-        else if (journal) journal.commit({ sampleIndex: sample, candidateId: candidateIds[currentCandidateIndex],
+        else if (journal) journal.commit({ sampleIndex: sample, candidateId,
           seeds, winner: outcome.winner, plies: outcome.plies, complete: true });
         accumulator.outcomes.push(outcome.botWon ? 1 : 0);
         completedTerminalOutcomes += 1;

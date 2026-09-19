@@ -345,6 +345,11 @@ test('system opening proof passes authoritative transition and is consumed exact
   });
   const applied = await h.request('/state', { code: CODE, state: next, version: 0 });
   assert.equal(applied.status, 200);
+  assert.deepEqual(applied.data, {
+    ok: true, version: 1, gameId: GAME, variant: 'long', protocol: FairDice.SYSTEM_PROTOCOL,
+  });
+  assert.equal(Object.hasOwn(applied.data, 'state'), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(applied.data), 'utf8') < 256);
   assert.equal(h.store.record.consumed, true);
   assert.equal((await h.request('/challenge', challenge(receipt))).status, 409);
 });

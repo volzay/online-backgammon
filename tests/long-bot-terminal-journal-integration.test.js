@@ -9,8 +9,10 @@ const {
   afterPositionKey, loadRuntime, clearRuntimeCache,
 } = require('../scripts/generate-long-bot-shadow-replay');
 const {
-  generatePairedPolicyOutcomes, validatePairedOutcomeEvidence,
+  DEFAULT_ROLLOUT_LIMITS, derivePairedSeeds, generatePairedPolicyOutcomes,
+  playTerminalRollout, validatePairedOutcomeEvidence,
 } = require('../scripts/long-bot-paired-rollout');
+const { createTerminalJournal } = require('../scripts/long-bot-terminal-journal');
 const {
   PRODUCTION_POLICY, ENGINE_VERSION, analyzeTrainingGame, parseCli, runClaimedBatch,
   runtimeDigest, policyImplementationId, validateGameEnvelope,
@@ -74,6 +76,60 @@ function offlineOptions(directory) {
   };
 }
 
+function longCheckpointFixture(targetPlies = 80) {
+  const runtime = {
+    engine: {
+      plan(position) {
+        return [{ from: position.turn === 'white' ? 24 : 12, die: position.dice[0] }];
+      },
+    },
+    game: {
+      applyRoll(position, dice) {
+        position.dice = [...dice]; position.rolled = [...dice]; position.phase = 'move';
+        position.turnMoves = []; position.headPlayedThisTurn = { white: false, dark: false };
+      },
+      applyMove(position, from, die) {
+        if (position.phase !== 'move' || !position.dice.includes(die)) return false;
+        position.score.ply += 1;
+        position.dice = [];
+        position.turnMoves.push({ color: position.turn, from, to: from, die, bearOff: false });
+        if (position.score.ply >= targetPlies) {
+          position.winner = position.turn; position.resultType = 'normal'; position.phase = 'over';
+        }
+        return true;
+      },
+      hasAnyMoves() { return false; },
+      endTurn(position) {
+        position.firstMoveDone[position.turn] = true;
+        position.turn = position.turn === 'white' ? 'dark' : 'white';
+        position.phase = 'roll'; position.dice = []; position.rolled = []; position.turnMoves = [];
+        position.headPlayedThisTurn = { white: false, dark: false };
+      },
+    },
+  };
+  const state = {
+    variant: 'long', phase: 'roll', turn: 'white', winner: null, resultType: null,
+    points: { 24: { color: 'white', count: 15 }, 12: { color: 'dark', count: 15 } },
+    off: { white: 0, dark: 0 }, bar: { white: 0, dark: 0 }, dice: [], rolled: [],
+    firstMoveDone: { white: true, dark: true }, headPlayedThisTurn: { white: false, dark: false },
+    turnMoves: [], history: [], score: { white: 0, dark: 0, ply: 0 },
+    turnClock: { white: 0, dark: 0, active: null, startedAt: null },
+    matchScore: { white: 0, dark: 0, target: 5, recordedWinner: null },
+    startedAt: 0, finishedAt: null, openingRoll: null,
+  };
+  return { runtime, state };
+}
+
+function checkpointManifest() {
+  const stateId = '9'.repeat(64);
+  const seedsBySample = Array.from({ length: 32 }, (_, sample) => derivePairedSeeds(stateId, sample));
+  return {
+    schema: 'long-bot-terminal-cohort-manifest-v1', sampleCount: 32,
+    candidateIds: ['a'.repeat(64), 'b'.repeat(64)], seedsBySample,
+    botColor: 'white', maxPlies: 120, bindings: { fixture: 'krbs-like-long-rollout' },
+  };
+}
+
 test('native fixed cohort resumes every committed slot with identical seeds, terminal bits and confidence', async () => {
   const temporary = scratch();
   try {
@@ -122,6 +178,152 @@ test('normal budget timeout commits only completed native endpoints and a later 
     assert.equal(validatePairedOutcomeEvidence(resumed, decision, candidates), '');
     const original = await generatePairedPolicyOutcomes(decision, candidates, { rolloutLimits: options.rolloutLimits });
     assert.deepEqual(semantics(resumed), semantics(original));
+  } finally { Date.now = realNow; temporary.close(); }
+});
+
+test('native policy resumes an interrupted first terminal game from a durable in-game checkpoint', async () => {
+  const temporary = scratch();
+  const realNow = Date.now;
+  try {
+    const { decision, candidates } = nativeFixture();
+    const options = offlineOptions(temporary.journal);
+    const hasCheckpoint = () => {
+      if (!fs.existsSync(temporary.journal)) return false;
+      for (const name of fs.readdirSync(temporary.journal)) {
+        const root = path.join(temporary.journal, name);
+        if (!fs.statSync(root).isDirectory()) continue;
+        if (fs.readdirSync(root).some(file => file.startsWith('checkpoint-'))) return true;
+      }
+      return false;
+    };
+    Date.now = () => hasCheckpoint() ? 100000000 : 1000;
+    const interrupted = await generatePairedPolicyOutcomes(decision, candidates, options);
+    Date.now = realNow;
+    assert.equal(interrupted.ok, false);
+    assert.equal(interrupted.reason, 'rollout-time-limit');
+    const completedBeforeCheckpoint = interrupted.coverage.completedTerminalOutcomes;
+    assert.ok(completedBeforeCheckpoint < candidates.length * 32);
+    assert.ok(interrupted.terminalJournalObservation.activeCheckpoint.plies > 0);
+    const resumed = await generatePairedPolicyOutcomes(decision, candidates, options);
+    const original = await generatePairedPolicyOutcomes(decision, candidates,
+      { rolloutLimits: options.rolloutLimits });
+    assert.equal(resumed.ok, true, resumed.reason);
+    assert.equal(resumed.terminalJournalObservation.resumedTerminalOutcomes, completedBeforeCheckpoint);
+    assert.equal(resumed.terminalJournalObservation.activeCheckpoint, null);
+    assert.equal(resumed.terminalJournalObservation.completedTerminalOutcomes, candidates.length * 32);
+    assert.deepEqual(semantics(resumed), semantics(original));
+  } finally { Date.now = realNow; temporary.close(); }
+});
+
+test('expensive saved-prefix replay is excluded from compute time and advances the active checkpoint', async () => {
+  const temporary = scratch();
+  const realNow = Date.now;
+  const realReadFileSync = fs.readFileSync;
+  try {
+    const { decision, candidates } = nativeFixture();
+    const options = offlineOptions(temporary.journal);
+    const durableKinds = () => {
+      let slots = 0, checkpoints = 0;
+      if (!fs.existsSync(temporary.journal)) return { slots, checkpoints };
+      for (const name of fs.readdirSync(temporary.journal)) {
+        const root = path.join(temporary.journal, name);
+        if (!fs.statSync(root).isDirectory()) continue;
+        for (const file of fs.readdirSync(root)) {
+          if (file.startsWith('slot-')) slots += 1;
+          if (file.startsWith('checkpoint-')) checkpoints += 1;
+        }
+      }
+      return { slots, checkpoints };
+    };
+    Date.now = () => {
+      const durable = durableKinds();
+      return durable.slots > 0 && durable.checkpoints > 0 ? 100000000 : 1000;
+    };
+    const seeded = await generatePairedPolicyOutcomes(decision, candidates, options);
+    assert.equal(seeded.reason, 'rollout-time-limit');
+    assert.ok(seeded.terminalJournalObservation.completedTerminalOutcomes > 0);
+    assert.ok(seeded.terminalJournalObservation.activeCheckpoint);
+
+    let replayedSavedSlot = false, computeClockCalls = 0;
+    fs.readFileSync = function readWithExpensiveReplay(target, ...args) {
+      const bytes = realReadFileSync.call(this, target, ...args);
+      if (path.basename(String(target)).startsWith('slot-')) replayedSavedSlot = true;
+      return bytes;
+    };
+    Date.now = () => {
+      if (!replayedSavedSlot) return 1000;
+      computeClockCalls += 1;
+      return computeClockCalls > 50 ? 200000000 : 100000000;
+    };
+    const resumed = await generatePairedPolicyOutcomes(decision, candidates, options);
+    Date.now = realNow;
+    fs.readFileSync = realReadFileSync;
+    assert.ok(resumed.ok === true || resumed.reason === 'rollout-time-limit', resumed.reason);
+    const before = seeded.terminalJournalObservation.activeCheckpoint;
+    const after = resumed.terminalJournalObservation.activeCheckpoint;
+    const endpointAdvanced = resumed.terminalJournalObservation.completedTerminalOutcomes
+      > seeded.terminalJournalObservation.completedTerminalOutcomes;
+    const checkpointAdvanced = after && after.sampleIndex === before.sampleIndex
+      && after.candidateIndex === before.candidateIndex && after.plies > before.plies;
+    assert.ok(endpointAdvanced || checkpointAdvanced,
+      `resume made no durable progress from ${before.plies} plies`);
+    if (after) {
+      assert.equal(resumed.coverage.sample, after.sampleIndex);
+      assert.equal(resumed.coverage.currentCandidateIndex, after.candidateIndex);
+    }
+  } finally {
+    Date.now = realNow;
+    fs.readFileSync = realReadFileSync;
+    temporary.close();
+  }
+});
+
+test('KRBS-like long terminal game resumes from an authenticated ply checkpoint without recounting an endpoint', () => {
+  const temporary = scratch();
+  const realNow = Date.now;
+  const manifest = checkpointManifest();
+  const sampleIndex = 0, candidateId = manifest.candidateIds[0], seeds = manifest.seedsBySample[0];
+  const limits = { ...DEFAULT_ROLLOUT_LIMITS, maxElapsedMs: 18, maxPlies: manifest.maxPlies };
+  try {
+    let journal = createTerminalJournal({ directory: temporary.journal, manifest });
+    const firstFixture = longCheckpointFixture();
+    let tick = 0;
+    Date.now = () => tick++;
+    const interrupted = playTerminalRollout(firstFixture.runtime, firstFixture.state, 'white', seeds, limits, 0, {
+      saveCheckpoint: value => journal.saveCheckpoint({ sampleIndex, candidateId, seeds, ...value }),
+    });
+    Date.now = realNow;
+    assert.deepEqual(interrupted, { complete: false, reason: 'rollout-time-limit' });
+    const firstObservation = journal.observation();
+    assert.equal(firstObservation.completedTerminalOutcomes, 0);
+    assert.ok(firstObservation.activeCheckpoint.plies > 0 && firstObservation.activeCheckpoint.plies < 80);
+    const savedPly = firstObservation.activeCheckpoint.plies;
+    journal.close();
+
+    journal = createTerminalJournal({ directory: temporary.journal, manifest });
+    const authenticated = journal.lookupCheckpoint(sampleIndex, candidateId, seeds);
+    assert.equal(authenticated.plies, savedPly);
+    const resumedFixture = longCheckpointFixture();
+    const resumed = playTerminalRollout(resumedFixture.runtime, resumedFixture.state, 'white', seeds,
+      { ...limits, maxElapsedMs: 60000 }, Date.now(), {
+        resumeCheckpoint: authenticated,
+        saveCheckpoint: value => journal.saveCheckpoint({ sampleIndex, candidateId, seeds, ...value }),
+      });
+    assert.equal(resumed.complete, true);
+    assert.equal(resumed.plies, 80);
+    journal.commit({ sampleIndex, candidateId, seeds, winner: resumed.winner, plies: resumed.plies, complete: true });
+    assert.equal(journal.observation().completedTerminalOutcomes, 1);
+    assert.equal(journal.observation().activeCheckpoint, null);
+    const duplicate = journal.commit({ sampleIndex, candidateId, seeds,
+      winner: resumed.winner, plies: resumed.plies, complete: true });
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(journal.observation().completedTerminalOutcomes, 1);
+    journal.close();
+
+    const uninterruptedFixture = longCheckpointFixture();
+    const uninterrupted = playTerminalRollout(uninterruptedFixture.runtime, uninterruptedFixture.state,
+      'white', seeds, { ...limits, maxElapsedMs: 60000 }, Date.now());
+    assert.deepEqual(resumed, uninterrupted);
   } finally { Date.now = realNow; temporary.close(); }
 });
 

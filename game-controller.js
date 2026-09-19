@@ -48,6 +48,10 @@ window.NarduController = (function () {
   let botAnalysisEnsurePromise = null;
   let botAnalysisEnsureGeneration = 0;
   let botAnalysisPublishQueue = Promise.resolve();
+  let botAnalysisPublishActive = false;
+  let botAnalysisPendingPublish = null;
+  let botAnalysisPublishSerial = 0;
+  let botAnalysisPublishWaiters = [];
   let botAnalysisStartupPromise = null;
   let botAnalysisStartupRetry = null;
   let botAnalysisStartupGeneration = 0;
@@ -106,6 +110,8 @@ window.NarduController = (function () {
   // Covers drain + ownership confirmation + the first authoritative final write.
   const BOT_GAME_EXIT_WAIT_MS = 12500;
   const BOT_ANALYSIS_DRAIN_TIMEOUT_MS = 1200;
+  const PLAYER_AUTO_END_UNDO_MS = 550;
+  const NEXT_ROLL_DELAY_MS = 20;
   let gameplaySoundBusyUntil = 0;
   const UI_TEXT = {
     ru: {
@@ -689,7 +695,13 @@ window.NarduController = (function () {
     botAnalysisConflictRedirected = false;
     botAnalysisVersion = 0;
     invalidateBotAnalysisEnsureAttempt();
-    botAnalysisPublishQueue = Promise.resolve();
+    // An older request may still be awaiting the network while a new game is
+    // initialized in the same document. Do not make that old drain look idle
+    // or recycle its serial numbers: resolve its callers and let the generation
+    // checks below discard its result without touching the new game's version.
+    for (const waiter of botAnalysisPublishWaiters) waiter.resolve(false);
+    botAnalysisPendingPublish = null;
+    botAnalysisPublishWaiters = [];
     botAnalysisStartupPromise = null;
     botAnalysisStartupRetry = null;
     botRatingPersistenceKey = null;
@@ -1190,8 +1202,7 @@ window.NarduController = (function () {
     }));
   }
 
-  function botAnalysisPayload() {
-    const payload = remoteStatePayload();
+  function stampBotAnalysisPayload(payload) {
     payload.mode = 'bot';
     payload.variant = variant;
     payload.roomCode = remoteCode;
@@ -1210,6 +1221,39 @@ window.NarduController = (function () {
       payload.analysis.neuralModel = { ...window.NarduNeuralBot.getModelMetadata() };
     }
     return payload;
+  }
+
+  function botAnalysisPayload() {
+    return stampBotAnalysisPayload(remoteStatePayload());
+  }
+
+  function botLiveStatePayload() {
+    const sourceAnalysis = state.analysis && typeof state.analysis === 'object' && !Array.isArray(state.analysis)
+      ? state.analysis
+      : {};
+    const memory = sourceAnalysis.botMemory;
+    const analysis = { ...sourceAnalysis };
+    if (memory && typeof memory === 'object') {
+      // Full alternatives, snapshots and replay inputs are the durable training
+      // artifact, not live room state. In KRBS-J4UU they grew the payload to
+      // megabytes. Remove them BEFORE the deep clone so the hot roll path never
+      // serializes the archive merely to throw it away afterwards.
+      analysis.botMemory = {
+        ...memory,
+        decisions: [],
+      };
+      delete analysis.botMemory.replayExperience;
+    }
+    const payload = JSON.parse(JSON.stringify({
+      ...state,
+      analysis,
+      selected: null,
+      hints: [],
+      fullHints: [],
+      playerColor: undefined,
+      viewColor: undefined,
+    }));
+    return stampBotAnalysisPayload(payload);
   }
 
   function botFinalStatePayload() {
@@ -1415,6 +1459,85 @@ window.NarduController = (function () {
     window.setTimeout(() => publishBotAnalysisState(), Math.max(0, Number(delay) || 0));
   }
 
+  function settleBotAnalysisPublishWaiters(serial, result) {
+    const settled = [];
+    const pending = [];
+    for (const waiter of botAnalysisPublishWaiters) {
+      (waiter.serial <= serial ? settled : pending).push(waiter);
+    }
+    botAnalysisPublishWaiters = pending;
+    for (const waiter of settled) waiter.resolve(result);
+  }
+
+  async function writeBotAnalysisPayload(current) {
+    const { payload, generation, code } = current;
+    const currentGame = () => generation === botAnalysisStartupGeneration && code === remoteCode;
+    if (!currentGame()) return false;
+    if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
+    const ready = await ensureBotAnalysisRoomReady(payload);
+    if (!ready || !currentGame()) return false;
+    if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
+    try {
+      const data = await window.NarduRooms.putGameState(code, payload, botAnalysisVersion);
+      if (!currentGame()) return false;
+      if (Number.isFinite(data?.version)) botAnalysisVersion = data.version;
+      return true;
+    } catch (error) {
+      if (!currentGame()) return false;
+      if (error?.status !== 409) {
+        console.warn('Could not save bot analysis state', error?.message || error);
+        await handleFairDiceFailure(error);
+        return false;
+      }
+      if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
+      try {
+        const savedState = await window.NarduRooms.getGameState(code);
+        if (!currentGame()) return false;
+        if (Number.isFinite(savedState?.version)) botAnalysisVersion = savedState.version;
+        if (
+          savedState?.state?.phase === 'over' ||
+          savedState?.state?.winner ||
+          gameOverPublishPromise ||
+          state.phase === 'over' ||
+          state.winner
+        ) return false;
+        const saved = await window.NarduRooms.putGameState(code, payload, botAnalysisVersion);
+        if (!currentGame()) return false;
+        if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
+        return true;
+      } catch (retryError) {
+        if (!currentGame()) return false;
+        console.warn('Could not recover bot analysis sync', retryError?.message || retryError);
+        await handleFairDiceFailure(retryError);
+        return false;
+      }
+    }
+  }
+
+  function drainBotAnalysisPublishes() {
+    if (botAnalysisPublishActive) return botAnalysisPublishQueue;
+    botAnalysisPublishActive = true;
+    botAnalysisPublishQueue = (async () => {
+      let lastResult = false;
+      while (botAnalysisPendingPublish) {
+        const current = botAnalysisPendingPublish;
+        botAnalysisPendingPublish = null;
+        lastResult = await writeBotAnalysisPayload(current);
+        settleBotAnalysisPublishWaiters(current.serial, lastResult);
+      }
+      return lastResult;
+    })().catch(error => {
+      const serial = botAnalysisPublishSerial;
+      settleBotAnalysisPublishWaiters(serial, false);
+      console.warn('Could not drain bot analysis sync', error?.message || error);
+      return false;
+    }).finally(() => {
+      botAnalysisPublishActive = false;
+      if (botAnalysisPendingPublish) drainBotAnalysisPublishes();
+    });
+    return botAnalysisPublishQueue;
+  }
+
   async function publishBotAnalysisState(options = {}) {
     const force = options.force === true;
     if (
@@ -1428,47 +1551,22 @@ window.NarduController = (function () {
     ) return false;
     if (force) botAnalysisDisabled = false;
     syncTurnClock();
-    persistRoomSnapshot();
-    const payload = botAnalysisPayload();
-    botAnalysisPublishQueue = botAnalysisPublishQueue
-      .catch(() => {})
-      .then(async () => {
-        if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
-        const ready = await ensureBotAnalysisRoomReady(payload);
-        if (!ready) return;
-        if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
-        try {
-          const data = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
-          if (Number.isFinite(data?.version)) botAnalysisVersion = data.version;
-          return true;
-        } catch (error) {
-          if (error?.status !== 409) {
-            console.warn('Could not save bot analysis state', error?.message || error);
-            await handleFairDiceFailure(error);
-            return false;
-          }
-          if (gameOverPublishPromise || state.phase === 'over' || state.winner) return false;
-          try {
-            const current = await window.NarduRooms.getGameState(remoteCode);
-            if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
-            if (
-              current?.state?.phase === 'over' ||
-              current?.state?.winner ||
-              gameOverPublishPromise ||
-              state.phase === 'over' ||
-              state.winner
-            ) return false;
-            const saved = await window.NarduRooms.putGameState(remoteCode, payload, botAnalysisVersion);
-            if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
-            return true;
-          } catch (retryError) {
-            console.warn('Could not recover bot analysis sync', retryError?.message || retryError);
-            await handleFairDiceFailure(retryError);
-            return false;
-          }
-        }
-      });
-    return botAnalysisPublishQueue;
+    const serial = ++botAnalysisPublishSerial;
+    const payload = botLiveStatePayload();
+    const result = new Promise(resolve => {
+      botAnalysisPublishWaiters.push({ serial, resolve });
+    });
+    // Only the newest state which has not started uploading matters. Calls
+    // already in flight stay immutable; all superseded callers resolve when
+    // the latest replacement has been accepted.
+    botAnalysisPendingPublish = {
+      serial,
+      payload,
+      generation: botAnalysisStartupGeneration,
+      code: remoteCode,
+    };
+    drainBotAnalysisPublishes();
+    return result;
   }
 
   function wait(ms) {
@@ -1603,8 +1701,8 @@ window.NarduController = (function () {
     return gameOverPublishPromise;
   }
 
-  async function publishRemoteState() {
-    if (mode === 'bot') return publishBotAnalysisState();
+  async function publishRemoteState(options = {}) {
+    if (mode === 'bot') return publishBotAnalysisState(options);
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
     persistRoomSnapshot();
@@ -1613,6 +1711,13 @@ window.NarduController = (function () {
       .catch(() => {})
       .then(() => publishRemoteStateNow(payload));
     return remotePublishQueue;
+  }
+
+  function persistIntermediateMove() {
+    // Human-vs-human needs each checker for the other browser. A bot room is
+    // checkpointed once at the turn boundary immediately before reserving its
+    // next protected roll, so intermediate uploads only create stale work.
+    if (mode === 'remote') publishRemoteState();
   }
 
   async function publishRemoteStateNow(payload) {
@@ -2801,6 +2906,7 @@ window.NarduController = (function () {
     if (error) console.warn('Opening roll animation failed', error?.message || error);
     isRolling = false;
     render();
+    if (mode === 'bot') persistRoomSnapshot();
     scheduleOpeningTurnRoll(OPENING_RESULT_PAUSE_MS);
   }
 
@@ -2808,6 +2914,10 @@ window.NarduController = (function () {
     if (error) console.warn('Dice animation failed', error?.message || error);
     isRolling = false;
     render();
+    // The complete local training ledger is deliberately written only after
+    // the dice are visible. It remains available for reload/pagehide, but can
+    // no longer consume the 1.5 second move-to-roll budget on mobile devices.
+    if (mode === 'bot') persistRoomSnapshot();
     if (state.winner) { onGameOver(); return; }
     if (state.phase === 'roll') {
       scheduleAutoRoll(200);
@@ -2927,9 +3037,9 @@ window.NarduController = (function () {
     const openingHash = state.openingRoll?.sha256 || '';
     state.rollToken = `opening-complete:${openingHash.slice(0, 16) || Date.now()}`;
     undoStack = [];
-    publishRemoteState();
+    if (mode === 'remote') publishRemoteState();
     render();
-    ensureAutoProgress(200);
+    ensureAutoProgress(mode === 'bot' ? NEXT_ROLL_DELAY_MS : 200);
   }
 
   async function autoRoll() {
@@ -3002,16 +3112,15 @@ window.NarduController = (function () {
     undoStack = [];
     clearSelection();
     NarduGame.endTurn(state);
-    publishRemoteState();
+    if (mode === 'remote') publishRemoteState();
     afterTurn();
   }
 
   function afterTurn() {
     render();
-    persistRoomSnapshot();
+    if (mode !== 'bot') persistRoomSnapshot();
     if (state.winner) { onGameOver(); return; }
-    if (mode === 'bot') queueBotAnalysisPublish(120);
-    ensureAutoProgress(200);
+    ensureAutoProgress(mode === 'bot' ? NEXT_ROLL_DELAY_MS : 200);
   }
 
   /* ── point click — select source or apply move ── */
@@ -3401,7 +3510,7 @@ window.NarduController = (function () {
         releaseCommittedDragClone(options.dragClone);
         return;
       }
-      publishRemoteState();
+      persistIntermediateMove();
       playMoveSound(dest);
       render();
       releaseCommittedDragClone(options.dragClone);
@@ -3417,7 +3526,7 @@ window.NarduController = (function () {
         render();
         return;
       }
-      publishRemoteState();
+      persistIntermediateMove();
       playMoveSound(dest);
       render();
       if (state.winner) { onGameOver(); return; }
@@ -3452,7 +3561,7 @@ window.NarduController = (function () {
       }
 
       if (appliedAll) {
-        publishRemoteState();
+        persistIntermediateMove();
         playMoveSound(finalMove);
       }
       render();
@@ -3487,7 +3596,7 @@ window.NarduController = (function () {
         }
 
         if (appliedAll) {
-          publishRemoteState();
+          persistIntermediateMove();
           playMoveSound(finalMove);
         }
         render();
@@ -3511,7 +3620,7 @@ window.NarduController = (function () {
         if (state.winner) onGameOver();
         return;
       }
-      publishRemoteState();
+      persistIntermediateMove();
       playMoveSound(finalMove);
       afterUserSequence();
     }
@@ -3568,7 +3677,7 @@ window.NarduController = (function () {
       if (state.phase !== 'move' || state.winner || !canFinalizeNow) return;
       if (state.dice.length > 0 && NarduGame.hasAnyMoves(state)) return;
       endTurnUser();
-    }, isMyTurn() ? 1200 : 1800);
+    }, isMyTurn() && mode === 'bot' ? PLAYER_AUTO_END_UNDO_MS : isMyTurn() ? 1200 : 1800);
   }
 
   function pushUndoSnapshot() {
@@ -3730,7 +3839,7 @@ window.NarduController = (function () {
     clearSelection();
     NarduSound.click();
     render();
-    publishRemoteState();
+    persistIntermediateMove();
   }
 
   function resignGame() {
