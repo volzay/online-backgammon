@@ -24,16 +24,45 @@
   const BOT_ANALYSIS_OWNER_STORAGE_VERSION = 1;
   const BOT_ANALYSIS_OWNER_STORAGE_PREFIX = "narduh-bot-analysis-owner-v2:";
   const NEURAL_BOT_DIFFICULTY = "hard-neuro";
-  const NEURAL_BOT_METADATA = Object.freeze({
+  const NEURAL_BOT_POLICY_OPTIONS = Object.freeze({
+    maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35,
+  });
+  const NEURAL_BOT_DEVELOPMENT_EVALUATION = Object.freeze({
+    reportFingerprint: "sha256:4323d15452f7541de410ff828af46c50b0d2e6cd1933fc0f87807d17f53ad98e",
+    protocolFingerprint: "sha256:4ecdda3b0bc8563bd4d6b5737f144633e495c07cf50ab99a554bc3e554139565",
+    purpose: "development-validation", requestedGames: 6, completedGames: 5, wins: 3,
+    censoredOrNotRunGames: 1, complete: false, strongPoolMilestonePassed: false,
+    scope: "predeclared-offline-opponent-pool-not-human-or-production-win-rate",
+  });
+  const LEGACY_NEURAL_BOT_METADATA = Object.freeze({
     id: "hard-neuro-448-v1", name: "Сложный бот-нейро", variant: "long", mode: "experimental-frozen",
     modelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
     inferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
     rulesFingerprint: "sha256:769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b",
     runtimeRulesFingerprint: "sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
-    rulesCompatibility: "history-free-rule-search-v1",
-    trainingGames: 448, trainingSteps: 35147, inputSize: 127, hiddenSize: 32, maxCandidates: 16, epsilon: 0,
+    rulesCompatibility: "history-free-rule-search-v1", trainingGames: 448, trainingSteps: 35147,
+    inputSize: 127, hiddenSize: 32, maxCandidates: 16, epsilon: 0,
+  });
+  const NEURAL_BOT_METADATA = Object.freeze({
+    id: "hard-neuro-search-v2-32games-v1", name: "Сложный бот-нейро", variant: "long",
+    mode: "experimental-player-testing-frozen", releaseChannel: "experimental-player-testing",
+    modelFingerprint: "sha256:6484d2e9e489c63c0844b98a4bbcf616a62e48ce0f162c546fd66eb951f09c5e",
+    coreInferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
+    searchPolicyCodeFingerprint: "sha256:022664ae69e55f4b659b9755c63a0c82718db4972c53a52213ca75dfee361d81",
+    rulesFingerprint: "sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    policySchema: "long-neural-search-v2", policyOptions: NEURAL_BOT_POLICY_OPTIONS,
+    historicalWarmStartModelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
+    historicalWarmStartGames: 448, historicalWarmStartUpdates: 35147,
+    v2CompletedTrainingGames: 32, v2TrainingUpdates: 3893, modelTrainingSteps: 39040,
+    inputSize: 127, hiddenSize: 32,
+    trainingArtifactFingerprint: "sha256:1885fced2b223f12eb22bfb1db6f4e7448175841031ed5f5b21a3a79216b7bc9",
+    benchmarkProtocolFingerprint: "sha256:4ecdda3b0bc8563bd4d6b5737f144633e495c07cf50ab99a554bc3e554139565",
+    developmentEvaluation: NEURAL_BOT_DEVELOPMENT_EVALUATION,
+    strengthGatePassed: false, productionEligible: false, playerTestingEnabled: true,
+    onlineLearning: false, noHumanOrProductionWinRateClaim: true,
   });
   const roomIdCache = new Map();
+  const neuralBotMetadataByRoom = new Map();
   const fairDicePolicies = new Map();
   const profileHeartbeatAt = new Map();
   const longBotExperiencePromises = new Map();
@@ -934,6 +963,7 @@
   async function ensureBotAnalysisRoom(payload = {}) {
     const normalizedCode = normalizeCode(payload.code);
     fairDicePolicies.delete(normalizedCode);
+    neuralBotMetadataByRoom.delete(normalizedCode);
     if (!normalizedCode) throw roomError("Не указан код партии для анализа.", 400);
 
     const neuralBot = payload.difficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(payload.state);
@@ -948,6 +978,10 @@
     const state = payload.state && typeof payload.state === "object"
       ? JSON.parse(JSON.stringify(payload.state))
       : {};
+    const requestedNeuralMetadata = neuralBot ? neuralBotMetadata(state) : null;
+    if (neuralBot && requestedNeuralMetadata === false) {
+      throw roomError("Версия нейробота в состоянии партии не поддерживается.", 422);
+    }
     state.mode = "bot";
     state.variant = variant;
     state.roomCode = normalizedCode;
@@ -960,7 +994,7 @@
       playerColor: payload.playerColor === "dark" ? "dark" : "white",
       updatedAt: new Date().toISOString(),
     };
-    if (neuralBot) canonicalNeuralBotState(state);
+    if (neuralBot) canonicalNeuralBotState(state, requestedNeuralMetadata || NEURAL_BOT_METADATA);
 
     if (!configured()) {
       const localUser = window.NarduApp?.getUser?.() || {};
@@ -1006,6 +1040,14 @@
       if (neuralBot !== isNeuralBotState(existing.game_state)) {
         throw roomError("Нельзя менять тип уже созданной бот-партии.", 409);
       }
+      if (neuralBot) {
+        const existingMetadata = neuralBotMetadata(existing.game_state);
+        if (!existingMetadata || (requestedNeuralMetadata
+          && requestedNeuralMetadata.id !== existingMetadata.id)) {
+          throw roomError("Нельзя менять версию уже начатой нейро-партии.", 409);
+        }
+        neuralBotMetadataByRoom.set(normalizedCode, existingMetadata);
+      }
       roomIdCache.set(normalizedCode, existing.id);
       if (!isBotAnalysisRow(existing)) throw roomError("Код партии уже занят онлайн-комнатой.", 409);
       return {
@@ -1013,6 +1055,14 @@
         existing: true,
         version: Number(existing.game_version || 0),
       };
+    }
+
+    // V1 is accepted only as the immutable identity of a room that already
+    // existed before the V2 rollout.  Never let an old open tab create a new
+    // V1 room after deployment: that would make the room version depend on
+    // which browser bundle happened to win the insert race.
+    if (requestedNeuralMetadata === LEGACY_NEURAL_BOT_METADATA) {
+      throw roomError("Новую партию нельзя создавать на устаревшей версии нейробота.", 409);
     }
 
     const activeRoom = await findActiveRoomFor(client, identity, { excludeCode: normalizedCode });
@@ -1057,6 +1107,7 @@
       throw supabaseError(error, "Could not create bot analysis room.");
     }
     if (data?.id) roomIdCache.set(normalizedCode, data.id);
+    if (neuralBot) neuralBotMetadataByRoom.set(normalizedCode, requestedNeuralMetadata || NEURAL_BOT_METADATA);
     return { ok: true, existing: false, version: Number(data?.game_version || 0) };
   }
 
@@ -1304,17 +1355,35 @@
       || state?.analysis?.difficulty === NEURAL_BOT_DIFFICULTY;
   }
 
-  function canonicalNeuralBotState(state) {
+  function exactMetadata(value, expected) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const actualKeys = Object.keys(value);
+    const expectedKeys = Object.keys(expected);
+    if (actualKeys.length !== expectedKeys.length || !expectedKeys.every(key => Object.hasOwn(value, key))) return false;
+    return expectedKeys.every(key => {
+      const actual = value[key];
+      const wanted = expected[key];
+      if (wanted && typeof wanted === "object") return exactMetadata(actual, wanted);
+      return actual === wanted;
+    });
+  }
+
+  function neuralBotMetadata(state) {
+    const metadata = state?.analysis?.neuralModel;
+    if (metadata == null) return null;
+    if (exactMetadata(metadata, NEURAL_BOT_METADATA)) return NEURAL_BOT_METADATA;
+    if (exactMetadata(metadata, LEGACY_NEURAL_BOT_METADATA)) return LEGACY_NEURAL_BOT_METADATA;
+    return false;
+  }
+
+  function canonicalNeuralBotState(state, metadata = NEURAL_BOT_METADATA) {
     state.mode = "bot";
     state.opponent = "bot";
     state.variant = "long";
     state.botDifficulty = NEURAL_BOT_DIFFICULTY;
     state.analysis = {
       ...(state.analysis || {}), mode: "bot", opponent: "bot", difficulty: NEURAL_BOT_DIFFICULTY,
-      botName: NEURAL_BOT_METADATA.name, neuralModel: {
-        ...(state.analysis?.neuralModel && typeof state.analysis.neuralModel === "object"
-          && !Array.isArray(state.analysis.neuralModel) ? state.analysis.neuralModel : {}), ...NEURAL_BOT_METADATA,
-      },
+      botName: metadata.name, neuralModel: JSON.parse(JSON.stringify(metadata)),
     };
     return state;
   }
@@ -1325,7 +1394,9 @@
       || (state.analysis?.difficulty && state.analysis.difficulty !== NEURAL_BOT_DIFFICULTY)) {
       throw roomError("Нельзя менять тип или вид нард нейро-партии.", 422);
     }
-    return canonicalNeuralBotState(JSON.parse(JSON.stringify(state)));
+    const metadata = neuralBotMetadata(state);
+    if (!metadata) throw roomError("Версия нейробота в состоянии партии не поддерживается.", 409);
+    return canonicalNeuralBotState(JSON.parse(JSON.stringify(state)), metadata);
   }
 
   async function getGameState(code, options = {}) {
@@ -1378,6 +1449,11 @@
       required: data.fair_dice_required === true, gameId: data.fair_dice_game_id,
       ...(typeof data.fair_dice_protocol === 'string' ? { protocol: data.fair_dice_protocol } : {}),
     });
+    if (!contextOnly && isNeuralBotState(data.game_state)) {
+      const metadata = neuralBotMetadata(data.game_state);
+      if (!metadata) throw roomError("Версия нейробота в сохранённой партии не поддерживается.", 409);
+      neuralBotMetadataByRoom.set(normalizedCode, metadata);
+    }
     return { state: contextOnly ? null : data.game_state || null, version: Number(data.game_version || 0),
       ...(contextOnly ? { variant: data.variant } : {}),
       fairDice: fairDicePolicies.get(normalizedCode) || { required: false } };
@@ -1536,9 +1612,23 @@
     throw roomError("Источник броска задерживается. Повторный запрос продолжит тот же бросок.", 503);
   }
 
+  async function assertPinnedNeuralRoom(normalizedCode, state) {
+    if (!isNeuralBotState(state)) return;
+    const incomingMetadata = neuralBotMetadata(state);
+    if (!incomingMetadata) throw roomError("Версия нейробота в состоянии партии не поддерживается.", 409);
+    let roomMetadata = neuralBotMetadataByRoom.get(normalizedCode);
+    if (!roomMetadata) {
+      const current = await getGameState(normalizedCode);
+      roomMetadata = neuralBotMetadata(current.state);
+    }
+    if (!roomMetadata || roomMetadata.id !== incomingMetadata.id) {
+      throw roomError("Нельзя менять версию уже начатой нейро-партии.", 409);
+    }
+  }
+
   async function putGameState(code, state, version = 0) {
-    state = publishedBotState(state);
     const normalizedCode = normalizeCode(code);
+    state = publishedBotState(state);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
@@ -1546,6 +1636,7 @@
         body: JSON.stringify({ state, version, ownerToken }),
       });
     }
+    await assertPinnedNeuralRoom(normalizedCode, state);
     if ((await fairDicePolicy(normalizedCode))?.required) {
       const result = await fairDiceJson('state', { code: normalizedCode, state, version: Number(version) || 0 });
       if (result.gameId) fairDicePolicies.set(normalizedCode, { ...fairDicePolicies.get(normalizedCode), required: true, gameId: result.gameId });
@@ -1582,8 +1673,8 @@
   }
 
   async function finishRoomGame(code, finalState, version = 0, trainingState = null) {
-    finalState = publishedBotState(finalState);
     const normalizedCode = normalizeCode(code);
+    finalState = publishedBotState(finalState);
     if (!configured()) {
       const ownerToken = botAnalysisOwnerToken(normalizedCode);
       return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/game`, {
@@ -1591,6 +1682,7 @@
         body: JSON.stringify({ state: finalState, version: Number(version) || 0, ownerToken }),
       });
     }
+    await assertPinnedNeuralRoom(normalizedCode, finalState);
     const { client, authUser, guest } = await roomClientContext();
     const payload = JSON.parse(JSON.stringify(finalState || {}));
     let fairSaved = null;

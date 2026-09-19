@@ -304,13 +304,16 @@ test("production entry points cache-bust every current bot dependency", () => {
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
-  assert.match(room, new RegExp(`rooms-client\\.js\\?v=${version}`));
+  assert.match(room, /rooms-client\.js\?v=20260919-neuro-v2-player-test/);
   assert.match(room, new RegExp(`supabase-client\\.js\\?v=${version}`));
-  assert.match(room, /game-controller\.js\?v=20260918-neuro-448-v1/);
-  assert.match(room, /lib\/long-bot-neural\.js\?v=20260918-neuro-448-v1/);
-  assert.match(room, /vendor\/long-neural\/model\.js\?v=20260918-neuro-448-v1/);
-  assert.match(room, /long-neural-bot\.js\?v=20260918-neuro-448-v1/);
-  assert.match(lobby, new RegExp(`rooms-client\\.js\\?v=${version}`));
+  assert.match(room, /game-controller\.js\?v=20260919-neuro-v2-player-test/);
+  const neuralVersion = "20260919-neuro-v2-player-test";
+  assert.match(room, new RegExp(`lib/long-bot-neural\\.js\\?v=${neuralVersion}`));
+  assert.match(room, new RegExp(`lib/long-bot-neural-v2\\.js\\?v=${neuralVersion}`));
+  assert.match(room, new RegExp(`vendor/long-neural/model-v2\\.js\\?v=${neuralVersion}`));
+  assert.match(room, new RegExp(`long-neural-bot\\.js\\?v=${neuralVersion}`));
+  assert.doesNotMatch(room, /vendor\/long-neural\/model\.js/);
+  assert.match(lobby, /rooms-client\.js\?v=20260919-neuro-v2-player-test/);
   assert.match(lobby, new RegExp(`supabase-client\\.js\\?v=${version}`));
   [login, register, settings, homegate].forEach(source => {
     assert.match(source, new RegExp(`supabase-client\\.js\\?v=${version}`));

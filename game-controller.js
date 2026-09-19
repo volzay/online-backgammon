@@ -3802,9 +3802,13 @@ window.NarduController = (function () {
 
   /* ── bot ─────────────────────────────────── */
   function pauseNeuralBot(error) {
-    botPlannerError = lang() === 'en'
-      ? 'Neural bot unavailable. Refresh the page. The game is paused without replacing the bot.'
-      : 'Нейробот недоступен. Обновите страницу. Игра приостановлена без замены бота.';
+    botPlannerError = error?.code === 'NEURAL_MODEL_VERSION_CHANGED'
+      ? (lang() === 'en'
+        ? 'The neural bot version was updated. Finish the old room and create a new one.'
+        : 'Версия нейробота обновлена. Завершите старую комнату и создайте новую.')
+      : (lang() === 'en'
+        ? 'Neural bot unavailable. Refresh the page. The game is paused without replacing the bot.'
+        : 'Нейробот недоступен. Обновите страницу. Игра приостановлена без замены бота.');
     if (variant !== 'long' || state?.variant !== 'long') {
       botPlannerError = lang() === 'en'
         ? 'Hard neural bot supports long narde only. Return to the lobby.'
@@ -3825,7 +3829,17 @@ window.NarduController = (function () {
       if (variant !== 'long' || state?.variant !== 'long') throw new Error('Unsupported short-neuro room');
       if (!window.NarduNeuralBot?.getModelMetadata) throw new Error('Neural model assets missing');
       state.analysis ||= {};
-      state.analysis.neuralModel = { ...window.NarduNeuralBot.getModelMetadata() };
+      const current = window.NarduNeuralBot.getModelMetadata();
+      const saved = state.analysis.neuralModel;
+      if (saved !== null && saved !== undefined
+        && (typeof saved !== 'object' || Array.isArray(saved)
+          || saved.id !== current.id
+          || saved.modelFingerprint !== current.modelFingerprint)) {
+        const error = new Error('A started neural room belongs to a different frozen model');
+        error.code = 'NEURAL_MODEL_VERSION_CHANGED';
+        throw error;
+      }
+      state.analysis.neuralModel = { ...current };
       botPlannerError = '';
       return true;
     } catch (error) {
@@ -4728,6 +4742,15 @@ window.NarduController = (function () {
       }
 
       const didWin = state.winner === playerColor;
+      // The V2 neural opponent is available only for explicitly labelled
+      // player testing. Until its strength gate is passed, a nominal bot
+      // rating must not change a player's real rating or appear as a delta.
+      const unratedNeuralPlayerTest = mode === 'bot' && botDifficulty === 'hard-neuro';
+      if (unratedNeuralPlayerTest) {
+        lastRatingResult = null;
+        ratingRetryKey = null;
+        ratingRetryCount = 0;
+      }
       const recordRating = () => {
         if (localRatingRecordedKey === resultKey || resultKey !== gameResultKey()) return;
         const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
@@ -4781,7 +4804,7 @@ window.NarduController = (function () {
       };
       if (mode === 'remote') {
         recordRating();
-      } else if (mode === 'bot' && botRatingPersistenceKey !== resultKey) {
+      } else if (mode === 'bot' && !unratedNeuralPlayerTest && botRatingPersistenceKey !== resultKey) {
         // record_rating_result can also finalize a bot room. Do not invoke it
         // until this exact room code has been restored or created safely.
         botRatingPersistenceKey = resultKey;

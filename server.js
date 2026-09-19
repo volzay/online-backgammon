@@ -28,7 +28,25 @@ const DEFAULT_RATING = 1000;
 const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
 const NEURAL_BOT_DIFFICULTY = "hard-neuro";
 const NEURAL_BOT_RATING = 1500;
-const NEURAL_BOT_METADATA = Object.freeze({
+const NEURAL_BOT_POLICY_OPTIONS = Object.freeze({
+  maxCandidates: 32,
+  replyTopCandidates: 2,
+  replyCandidates: 4,
+  replyWeight: 0.35,
+});
+const NEURAL_BOT_DEVELOPMENT_EVALUATION = Object.freeze({
+  reportFingerprint: "sha256:4323d15452f7541de410ff828af46c50b0d2e6cd1933fc0f87807d17f53ad98e",
+  protocolFingerprint: "sha256:4ecdda3b0bc8563bd4d6b5737f144633e495c07cf50ab99a554bc3e554139565",
+  purpose: "development-validation",
+  requestedGames: 6,
+  completedGames: 5,
+  wins: 3,
+  censoredOrNotRunGames: 1,
+  complete: false,
+  strongPoolMilestonePassed: false,
+  scope: "predeclared-offline-opponent-pool-not-human-or-production-win-rate",
+});
+const LEGACY_NEURAL_BOT_METADATA = Object.freeze({
   id: "hard-neuro-448-v1",
   name: "Сложный бот-нейро",
   variant: "long",
@@ -44,6 +62,35 @@ const NEURAL_BOT_METADATA = Object.freeze({
   hiddenSize: 32,
   maxCandidates: 16,
   epsilon: 0,
+});
+const NEURAL_BOT_METADATA = Object.freeze({
+  id: "hard-neuro-search-v2-32games-v1",
+  name: "Сложный бот-нейро",
+  variant: "long",
+  mode: "experimental-player-testing-frozen",
+  releaseChannel: "experimental-player-testing",
+  modelFingerprint: "sha256:6484d2e9e489c63c0844b98a4bbcf616a62e48ce0f162c546fd66eb951f09c5e",
+  coreInferenceCodeFingerprint: "sha256:a46b184302d4b9bb2f8477d6f454b0cd2ceff0f06ff933d4ea59f28ae8976e3e",
+  searchPolicyCodeFingerprint: "sha256:022664ae69e55f4b659b9755c63a0c82718db4972c53a52213ca75dfee361d81",
+  rulesFingerprint: "sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+  policySchema: "long-neural-search-v2",
+  policyOptions: NEURAL_BOT_POLICY_OPTIONS,
+  historicalWarmStartModelFingerprint: "sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155",
+  historicalWarmStartGames: 448,
+  historicalWarmStartUpdates: 35147,
+  v2CompletedTrainingGames: 32,
+  v2TrainingUpdates: 3893,
+  modelTrainingSteps: 39040,
+  inputSize: 127,
+  hiddenSize: 32,
+  trainingArtifactFingerprint: "sha256:1885fced2b223f12eb22bfb1db6f4e7448175841031ed5f5b21a3a79216b7bc9",
+  benchmarkProtocolFingerprint: "sha256:4ecdda3b0bc8563bd4d6b5737f144633e495c07cf50ab99a554bc3e554139565",
+  developmentEvaluation: NEURAL_BOT_DEVELOPMENT_EVALUATION,
+  strengthGatePassed: false,
+  productionEligible: false,
+  playerTestingEnabled: true,
+  onlineLearning: false,
+  noHumanOrProductionWinRateClaim: true,
 });
 const MAX_VOICE_DATA_URL_CHARS = 6 * 1024 * 1024;
 const GUEST_PROOF_DOMAIN = "nardu/guest/v1";
@@ -1156,7 +1203,28 @@ function isNeuralBotState(state) {
     || state?.analysis?.difficulty === NEURAL_BOT_DIFFICULTY;
 }
 
-function canonicalNeuralBotState(state) {
+function exactMetadata(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actualKeys = Object.keys(value);
+  const expectedKeys = Object.keys(expected);
+  if (actualKeys.length !== expectedKeys.length || !expectedKeys.every(key => Object.hasOwn(value, key))) return false;
+  return expectedKeys.every(key => {
+    const actual = value[key];
+    const wanted = expected[key];
+    if (wanted && typeof wanted === "object") return exactMetadata(actual, wanted);
+    return actual === wanted;
+  });
+}
+
+function neuralBotMetadata(state) {
+  const metadata = state?.analysis?.neuralModel;
+  if (metadata == null) return null;
+  if (exactMetadata(metadata, NEURAL_BOT_METADATA)) return NEURAL_BOT_METADATA;
+  if (exactMetadata(metadata, LEGACY_NEURAL_BOT_METADATA)) return LEGACY_NEURAL_BOT_METADATA;
+  return false;
+}
+
+function canonicalNeuralBotState(state, metadata = NEURAL_BOT_METADATA) {
   state.mode = "bot";
   state.opponent = "bot";
   state.variant = "long";
@@ -1166,9 +1234,8 @@ function canonicalNeuralBotState(state) {
     mode: "bot",
     opponent: "bot",
     difficulty: NEURAL_BOT_DIFFICULTY,
-    botName: NEURAL_BOT_METADATA.name,
-    neuralModel: { ...(state.analysis?.neuralModel && typeof state.analysis.neuralModel === "object"
-      && !Array.isArray(state.analysis.neuralModel) ? state.analysis.neuralModel : {}), ...NEURAL_BOT_METADATA },
+    botName: metadata.name,
+    neuralModel: deepClone(metadata),
   };
   return state;
 }
@@ -2437,6 +2504,11 @@ async function handleApi(req, res, url) {
     if (method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "rooms" && parts[2] === "bot-analysis") {
       const body = await readJsonBody(req);
       const neuralBot = body.difficulty === NEURAL_BOT_DIFFICULTY || isNeuralBotState(body.state);
+      const requestedNeuralMetadata = neuralBot ? neuralBotMetadata(body.state) : null;
+      if (neuralBot && requestedNeuralMetadata === false) {
+        sendJson(res, 422, { error: "Версия нейробота в состоянии партии не поддерживается." });
+        return;
+      }
       if (neuralBot && ((body.variant != null && body.variant !== "long")
         || (body.state?.variant != null && body.state.variant !== "long"))) {
         sendJson(res, 422, { error: "Сложный бот-нейро доступен только для длинных нард." });
@@ -2468,6 +2540,14 @@ async function handleApi(req, res, url) {
           sendJson(res, 409, { error: "Нельзя менять тип уже созданной бот-партии." });
           return;
         }
+        if (existingNeuralBot) {
+          const existingMetadata = neuralBotMetadata(existing.gameState);
+          if (!existingMetadata || (requestedNeuralMetadata
+            && requestedNeuralMetadata.id !== existingMetadata.id)) {
+            sendJson(res, 409, { error: "Нельзя менять версию уже начатой нейро-партии." });
+            return;
+          }
+        }
         if (
           !isBotAnalysisRoom(existing)
           || String(existing.hostUserId || "") !== actor.id
@@ -2493,6 +2573,11 @@ async function handleApi(req, res, url) {
         return;
       }
 
+      if (requestedNeuralMetadata === LEGACY_NEURAL_BOT_METADATA) {
+        sendJson(res, 409, { error: "Новую партию нельзя создавать на устаревшей версии нейробота." });
+        return;
+      }
+
       const state = deepClone(body.state || {});
       state.mode = "bot";
       state.opponent = "bot";
@@ -2508,7 +2593,7 @@ async function handleApi(req, res, url) {
         playerColor: body.playerColor === "dark" ? "dark" : "white",
         updatedAt: now(),
       };
-      if (neuralBot) canonicalNeuralBotState(state);
+      if (neuralBot) canonicalNeuralBotState(state, requestedNeuralMetadata || NEURAL_BOT_METADATA);
       const stateError = validatePublishedGameState(state);
       if (stateError) {
         sendJson(res, 422, { error: stateError });
@@ -2698,7 +2783,13 @@ async function handleApi(req, res, url) {
           sendJson(res, 422, { error: "Нельзя менять тип или вид нард нейро-партии.", version: currentVersion });
           return;
         }
-        canonicalNeuralBotState(body.state);
+        const roomMetadata = neuralBotMetadata(room.gameState);
+        const incomingMetadata = neuralBotMetadata(body.state);
+        if (!roomMetadata || !incomingMetadata || roomMetadata.id !== incomingMetadata.id) {
+          sendJson(res, 409, { error: "Нельзя менять версию уже начатой нейро-партии.", version: currentVersion });
+          return;
+        }
+        canonicalNeuralBotState(body.state, roomMetadata);
         body.state.roomCode = room.code;
       }
       room.gameState = body.state;

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
@@ -21,6 +22,7 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
   const math = Object.create(Math); math.random = () => { throw new Error('Unexpected RNG in neural turn'); };
   const window = {
     addEventListener() {}, setTimeout: setTimer,
+    NarduFairDiceCrypto: { hash(value) { return crypto.createHash('sha256').update(value).digest('hex'); } },
     NarduApp: { getUser: () => ({ id: 'neural-controller-user', name: 'Tester', guest: false }), paintUser() {}, formatRating: () => '1500' },
     NarduSound: { prime() {}, move() {}, bearOff() {}, click() {}, dice() {}, win() {}, lose() {} },
     NarduBoardEngine: { animateCheckerMove: async input => { calls.animations.push(plain(input)); } },
@@ -38,7 +40,8 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
       pathname: '/room.html', search: `?mode=bot&game=NEUR-TEST&variant=${variant}&difficulty=${difficulty}`, hostname: 'example.test' },
     history: { replaceState() {} } };
   window.window = window; vm.createContext(context);
-  for (const file of ['game.js', 'lib/long-bot-neural.js', ...(model ? ['vendor/long-neural/model.js'] : []), 'long-neural-bot.js', 'bot.js']) {
+  for (const file of ['game.js', 'lib/long-bot-neural.js', 'lib/long-bot-neural-v2.js',
+    ...(model ? ['vendor/long-neural/model-v2.js'] : []), 'long-neural-bot.js', 'bot.js']) {
     vm.runInContext(read(file), context, { filename: file });
   }
   context.NarduGame = window.NarduGame; context.NarduBot = window.NarduBot;
@@ -84,6 +87,16 @@ test('controller keeps hard-neuro identity despite an old hard name and 1500 rat
   }
 });
 
+test('experimental hard-neuro games remain unrated until the strength gate passes', () => {
+  const source = read('game-controller.js');
+  assert.match(source,
+    /const unratedNeuralPlayerTest = mode === 'bot' && botDifficulty === 'hard-neuro';/);
+  assert.match(source,
+    /mode === 'bot' && !unratedNeuralPlayerTest && botRatingPersistenceKey !== resultKey/);
+  assert.match(source,
+    /if \(unratedNeuralPlayerTest\) \{[\s\S]*?lastRatingResult = null;/);
+});
+
 test('unsupported short neural room pauses during initialization before any automatic turn', () => {
   const h = harness({ variant: 'short' });
   assert.equal(h.api.status().botDifficulty, 'hard-neuro');
@@ -112,6 +125,33 @@ test('authoritative ordinary room identity cannot be upgraded by stale neural UR
   assert.equal(h.api.status().opponentName, 'Бот сложный');
 });
 
+test('a restored V1 neural room pauses instead of switching models during an unfinished game', () => {
+  const h = harness();
+  const state = h.controller.getState();
+  const legacy = {
+    id: 'hard-neuro-448-v1',
+    modelFingerprint: 'sha256:4254bfa9f4afccbeb73657f11e37ff39a7fcd9162e7887f1aae28eaa7fbe0155',
+  };
+  state.analysis = { ...(state.analysis || {}), neuralModel: legacy };
+  assert.equal(h.api.validateNeuralBotAvailability(), false);
+  assert.match(h.api.status().botPlannerError, /Версия нейробота обновлена/);
+  assert.deepEqual(plain(state.analysis.neuralModel), legacy, 'old room identity remains available for an explicit restart');
+  assert.equal(h.calls.fallback, 0);
+});
+
+test('partial neural metadata cannot be silently relabelled as the current model', () => {
+  for (const partial of [{}, { id: 'hard-neuro-search-v2-32games-v1' },
+    { modelFingerprint: 'sha256:6484d2e9e489c63c0844b98a4bbcf616a62e48ce0f162c546fd66eb951f09c5e' }]) {
+    const h = harness();
+    const state = h.controller.getState();
+    state.analysis = { ...(state.analysis || {}), neuralModel: partial };
+    assert.equal(h.api.validateNeuralBotAvailability(), false);
+    assert.match(h.api.status().botPlannerError, /Версия нейробота обновлена/);
+    assert.deepEqual(plain(state.analysis.neuralModel), partial);
+    assert.equal(h.calls.fallback, 0);
+  }
+});
+
 test('a human opponent name or query hint containing neural cannot change a remote game into a neural bot room', () => {
   const h = harness();
   h.controller.init({ mode: 'remote', roomCode: 'NEUR-TEST', variant: 'long',
@@ -133,7 +173,9 @@ test('controller restore retains neural ledger/model and restores the correct he
   assert.deepEqual(plain(restored.analysis.neuralDecisions), saved.analysis.neuralDecisions);
   assert.deepEqual(plain(restored.firstMoveDone), saved.firstMoveDone);
   assert.deepEqual(plain(restored.headPlayedThisTurn), saved.headPlayedThisTurn);
-  assert.equal(restored.analysis.neuralModel.trainingSteps, 35147);
+  assert.equal(restored.analysis.neuralModel.id, 'hard-neuro-search-v2-32games-v1');
+  assert.equal(restored.analysis.neuralModel.modelTrainingSteps, 39040);
+  assert.equal(restored.analysis.neuralModel.v2CompletedTrainingGames, 32);
 });
 
 test('safe neural plan archives exact selected moves and no old hard botMemory/XP', () => {
@@ -141,8 +183,14 @@ test('safe neural plan archives exact selected moves and no old hard botMemory/X
   const before = plain(state); const moves = plain(h.api.safeBotPlan());
   const decision = state.analysis.neuralDecisions.at(-1);
   assert.deepEqual(plain(decision.selected), moves);
-  assert.equal(decision.diagnostics.modelId, 'hard-neuro-448-v1');
-  assert.equal(decision.diagnostics.trainingGames, 448); assert.equal(decision.diagnostics.maxCandidates, 16);
+  assert.equal(decision.diagnostics.modelId, 'hard-neuro-search-v2-32games-v1');
+  assert.equal(decision.diagnostics.v2CompletedTrainingGames, 32);
+  assert.deepEqual(plain(decision.diagnostics.policyOptions), {
+    maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35,
+  });
+  assert.equal(decision.diagnostics.evaluatedPositions, decision.diagnostics.uniqueLegalPositions);
+  assert.equal(decision.diagnostics.scoreKind, 'bounded-search-utility-not-calibrated-probability');
+  assert.equal(decision.diagnostics.productionEligible, false);
   assert.equal(decision.execution.complete, false); assert.equal(state.analysis.botMemory, undefined);
   assert.deepEqual(plain(decision.before.firstMoveDone), before.firstMoveDone);
   assert.deepEqual(plain(decision.before.headPlayedThisTurn), before.headPlayedThisTurn);
@@ -310,7 +358,7 @@ test('neural final bear-off ledger records exact zero destination and completed 
 test('neural ledger retains a bounded 180-decision window with unique ids', () => {
   const h = harness(); const state = h.setRolled();
   for (let index = 0; index < 190; index += 1) h.api.rememberNeuralDecision([{ from: 12, die: 2 }],
-    { difficulty: 'hard-neuro', modelId: 'hard-neuro-448-v1', ordinal: index });
+    { difficulty: 'hard-neuro', modelId: 'hard-neuro-search-v2-32games-v1', ordinal: index });
   assert.equal(state.analysis.neuralDecisions.length, 180);
   assert.equal(state.analysis.neuralDecisions[0].diagnostics.ordinal, 10);
   assert.equal(state.analysis.neuralDecisions.at(-1).diagnostics.ordinal, 189);

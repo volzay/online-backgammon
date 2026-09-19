@@ -6,27 +6,37 @@ const vm = require('node:vm');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const neural = require('../lib/long-bot-neural');
+const neuralV2 = require('../lib/long-bot-neural-v2');
 const buildModel = require('../scripts/build-long-neural-model');
+const buildV2Model = require('../scripts/build-long-neural-v2-public-model');
 const { fingerprint } = require('../lib/long-neural-artifact');
 const ROOT = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function environment({ model = true, core = true, adapter = true, payload } = {}) {
+function environment({ model = true, core = true, adapter = true, integrity = true, payload } = {}) {
   const guardedMath = Object.create(Math);
   guardedMath.random = () => { throw new Error('Neuro must not call any RNG'); };
-  const context = vm.createContext({ window: {}, Math: guardedMath, Date,
+  const window = {};
+  const context = vm.createContext({ window, Math: guardedMath, Date, TextEncoder, Uint8Array,
     console: { warn() { throw new Error('Neuro must not fall back'); } } });
+  if (integrity) {
+    vm.runInContext(read('fair-dice-crypto.js'), context);
+    window.NarduFairDiceCrypto = context.NarduFairDiceCrypto;
+  }
   vm.runInContext(read('game.js'), context);
   context.NarduGame = context.window.NarduGame;
-  if (core) vm.runInContext(read('lib/long-bot-neural.js'), context);
-  if (model) vm.runInContext(read('vendor/long-neural/model.js'), context);
-  if (payload) context.window.NarduLongNeuralModel = payload;
+  if (core) {
+    vm.runInContext(read('lib/long-bot-neural.js'), context);
+    vm.runInContext(read('lib/long-bot-neural-v2.js'), context);
+  }
+  if (model) vm.runInContext(read('vendor/long-neural/model-v2.js'), context);
+  if (payload) context.window.NarduLongNeuralV2Model = payload;
   if (adapter) vm.runInContext(read('long-neural-bot.js'), context);
   context.window.NarduStrongBot = { plan() { throw new Error('Neuro must not call strong heuristic'); } };
   vm.runInContext(read('bot.js'), context);
   return { context, game: context.window.NarduGame, bot: context.window.NarduBot,
-    neuro: context.window.NarduNeuralBot, payload: context.window.NarduLongNeuralModel };
+    neuro: context.window.NarduNeuralBot, payload: context.window.NarduLongNeuralV2Model };
 }
 function rolled(game, dice = [2, 4]) {
   const state = game.initialState('long');
@@ -34,7 +44,7 @@ function rolled(game, dice = [2, 4]) {
   return state;
 }
 
-test('shipped public weights have the actual evaluated model hash, counters and frozen shape', () => {
+test('the retired V1 rollback asset remains pinned and reproducible but is not the runtime model', () => {
   const payload = JSON.parse(read('vendor/long-neural/model.json'));
   assert.equal(buildModel.validatePublicModel(payload), payload);
   assert.equal(fingerprint(payload.model), buildModel.PIN.modelFingerprint);
@@ -45,10 +55,28 @@ test('shipped public weights have the actual evaluated model hash, counters and 
   assert.equal(payload.metadata.runtimeRulesFingerprint, 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623');
   assert.deepEqual(Object.keys(payload).sort(), ['metadata', 'model', 'schema']);
   assert.equal(read('vendor/long-neural/model.js'), buildModel.assetSource(payload));
+});
+
+test('shipped V2 player-test weights have exact evidence, policy and recursively frozen shape', () => {
+  const payload = JSON.parse(read('vendor/long-neural/model-v2.json'));
+  assert.equal(buildV2Model.validatePublicModel(payload), payload);
+  assert.equal(fingerprint(payload.model), buildV2Model.PIN.modelFingerprint);
+  assert.equal(payload.model.trainingSteps, 39040);
+  assert.equal(payload.metadata.v2CompletedTrainingGames, 32);
+  assert.equal(payload.metadata.v2TrainingUpdates, 3893);
+  assert.deepEqual(payload.metadata.policyOptions,
+    { maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35 });
+  assert.equal(payload.metadata.productionEligible, false);
+  assert.equal(payload.metadata.playerTestingEnabled, true);
+  assert.equal(payload.metadata.strengthGatePassed, false);
+  assert.equal(payload.metadata.noHumanOrProductionWinRateClaim, true);
+  assert.equal(read('vendor/long-neural/model-v2.js'), buildV2Model.assetSource(payload));
   const { payload: browserPayload, neuro } = environment();
   for (const value of [browserPayload, browserPayload.metadata, browserPayload.model,
-    browserPayload.model.inputWeights, browserPayload.model.hiddenBias, browserPayload.model.outputWeights]) assert(Object.isFrozen(value));
-  assert.equal(neuro.getModelMetadata().id, 'hard-neuro-448-v1');
+    browserPayload.metadata.policyOptions, browserPayload.metadata.developmentEvaluation,
+    browserPayload.model.inputWeights, browserPayload.model.hiddenBias,
+    browserPayload.model.outputWeights]) assert(Object.isFrozen(value));
+  assert.equal(neuro.getModelMetadata().id, 'hard-neuro-search-v2-32games-v1');
 });
 
 test('public model builder runs from committed weights without ignored training data', () => {
@@ -116,7 +144,8 @@ test('hard-neuro uses only saved network, obeys the full first-double turn and n
   const state = rolled(game, [3, 3, 3, 3]);
   const before = JSON.stringify(state); const weights = JSON.stringify(payload.model);
   const plan = plain(bot.plan(state, { difficulty: 'hard-neuro' }));
-  const reference = neural.createNeuralBot(game, plain(payload.model), { epsilon: 0, maxCandidates: 16 });
+  const reference = neuralV2.createNeuralBot(game, plain(payload.model),
+    { maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35 });
   assert.deepEqual(plan, plain(reference.plan(state)));
   assert.equal(plan.filter(move => move.from === 24).length, 2);
   assert.equal(plan.length, 4);
@@ -128,13 +157,18 @@ test('hard-neuro uses only saved network, obeys the full first-double turn and n
   assert.equal(JSON.stringify(state), before);
   assert.equal(JSON.stringify(payload.model), weights);
   const decision = neuro.getLastDecision();
-  assert.equal(decision.modelFingerprint, buildModel.PIN.modelFingerprint);
-  assert.equal(decision.maxCandidates, 16);
-  assert.equal(decision.trainingSteps, 35147);
+  assert.equal(decision.modelFingerprint, buildV2Model.PIN.modelFingerprint);
+  assert.deepEqual(plain(decision.policyOptions), plain(buildV2Model.PIN.policyOptions));
+  assert.equal(decision.modelTrainingSteps, 39040);
+  assert.equal(decision.v2CompletedTrainingGames, 32);
+  assert.equal(decision.evaluatedPositions, decision.uniqueLegalPositions);
+  assert.equal(decision.replyRolls, 21);
+  assert.equal(decision.scoreKind, 'bounded-search-utility-not-calibrated-probability');
   assert.equal(decision.onlineLearning, false);
   assert.equal(decision.exploration, 0);
-  assert.equal(decision.evaluatedRulesFingerprint, buildModel.PIN.rulesFingerprint);
-  assert.equal(decision.runtimeRulesFingerprint, buildModel.PIN.runtimeRulesFingerprint);
+  assert.equal(decision.rulesFingerprint, buildV2Model.PIN.rulesFingerprint);
+  assert.equal(decision.searchPolicyCodeFingerprint, buildV2Model.PIN.searchPolicyCodeFingerprint);
+  assert.equal(decision.productionEligible, false);
   assert(decision.selectedValue >= 0 && decision.selectedValue <= 1);
 });
 
@@ -168,23 +202,26 @@ test('hard-neuro never reads future dice, account identities or supplied analysi
   assert.deepEqual(plain(bot.plan(state, { difficulty: 'hard-neuro' })), expected);
 });
 
-test('missing model, core or adapter fails closed without a heuristic fallback', () => {
-  for (const options of [{ model: false }, { core: false }, { adapter: false }]) {
+test('missing model, core, integrity verifier or adapter fails closed without a heuristic fallback', () => {
+  for (const options of [{ model: false }, { core: false }, { integrity: false }, { adapter: false }]) {
     const { game, bot } = environment(options);
     assert.throws(() => bot.plan(rolled(game), { difficulty: 'hard-neuro' }), /unavailable|not loaded/);
   }
 });
 
-test('wrong or mutable public model metadata cannot masquerade as the trained network', () => {
-  const baseline = JSON.parse(read('vendor/long-neural/model.json'));
+test('wrong or mutable public model metadata cannot masquerade as the trained V2 network', () => {
+  const baseline = JSON.parse(read('vendor/long-neural/model-v2.json'));
   for (const mutate of [p => { p.metadata.modelFingerprint = 'sha256:' + '0'.repeat(64); },
-    p => { p.metadata.trainingSteps = 0; }, p => { p.metadata.rulesFingerprint = 'sha256:' + '0'.repeat(64); },
-    p => { p.metadata.runtimeRulesFingerprint = 'sha256:' + '0'.repeat(64); },
-    p => { p.metadata.rulesCompatibility = 'all-future-rules'; },
-    p => { p.metadata.maxCandidates = 64; }, p => { p.model.trainingSteps = 0; }]) {
+    p => { p.metadata.modelTrainingSteps = 0; }, p => { p.metadata.rulesFingerprint = 'sha256:' + '0'.repeat(64); },
+    p => { p.metadata.searchPolicyCodeFingerprint = 'sha256:' + '0'.repeat(64); },
+    p => { p.metadata.policyOptions.replyCandidates = 8; },
+    p => { p.metadata.productionEligible = true; }, p => { p.model.trainingSteps = 0; },
+    p => { p.model.inputWeights[0] += 0.125; }]) {
     const payload = plain(baseline); mutate(payload);
-    for (const key of ['inputWeights', 'hiddenBias', 'outputWeights']) Object.freeze(payload.model[key]);
-    Object.freeze(payload.metadata); Object.freeze(payload.model); Object.freeze(payload);
+    const freeze = value => { if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.values(value).forEach(freeze); Object.freeze(value);
+    } };
+    freeze(payload);
     const { game, bot } = environment({ model: false, payload });
     assert.throws(() => bot.plan(rolled(game), { difficulty: 'hard-neuro' }));
   }
@@ -195,7 +232,7 @@ test('wrong or mutable public model metadata cannot masquerade as the trained ne
 test('neuro rejects short and unrolled games instead of becoming the old hard bot', () => {
   const { game, bot } = environment();
   assert.throws(() => bot.plan(game.initialState('short'), { difficulty: 'hard-neuro' }), /only long/);
-  assert.throws(() => bot.plan(game.initialState('long'), { difficulty: 'hard-neuro' }), /already rolled/);
+  assert.throws(() => bot.plan(game.initialState('long'), { difficulty: 'hard-neuro' }), /rolled move phase/);
 });
 
 test('existing medium and hard planners retain their previous branches', () => {

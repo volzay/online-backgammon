@@ -219,7 +219,11 @@
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard" aria-pressed="false" data-i18n="difficulty_hard">Сложный</button>
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard-neuro" aria-pressed="false" data-i18n="difficulty_hard_neuro" style="grid-column: 1 / -1;">Сложный бот-нейро</button>
         </div>
-        <p data-neuro-note data-i18n="bot_neuro_experimental" hidden>Экспериментальная нейросеть для длинных нард. Обучение продолжается; сила игры против игроков ещё не подтверждена.</p>
+        <div data-neuro-note hidden>
+          <p><strong>V2 · PLAYER TEST</strong></p>
+          <p data-i18n="bot_neuro_experimental">Экспериментальная нейросеть для длинных нард. Обучение продолжается; сила игры против игроков ещё не подтверждена.</p>
+          <p><small>V2 frozen · самообучение / online learning: off · проверка силы / strength gate: incomplete</small></p>
+        </div>
       </div>
 
       <div class="create-field">
@@ -330,7 +334,7 @@
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
 <script src="app.js?v=20260918-neuro-448-v1"></script>
-<script src="rooms-client.js?v=20260916-long-bot-v35-v37"></script>
+<script src="rooms-client.js?v=20260919-neuro-v2-player-test"></script>
 <script>
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
