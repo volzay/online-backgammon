@@ -24,6 +24,8 @@
   const BOT_ANALYSIS_OWNER_STORAGE_VERSION = 1;
   const BOT_ANALYSIS_OWNER_STORAGE_PREFIX = "narduh-bot-analysis-owner-v2:";
   const NEURAL_BOT_DIFFICULTY = "hard-neuro";
+  const NEURAL_TEACHER_GUARD_SCHEMA = "long-neural-hard-teacher-guard-v1";
+  const NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID = "4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526";
   const NEURAL_BOT_POLICY_OPTIONS = Object.freeze({
     maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35,
   });
@@ -1066,6 +1068,9 @@
     if (requestedNeuralMetadata === LEGACY_NEURAL_BOT_METADATA) {
       throw roomError("Новую партию нельзя создавать на устаревшей версии нейробота.", 409);
     }
+    if (neuralBot && NEURAL_BOT_METADATA.strengthGatePassed !== true) {
+      throw roomError("Новые партии с нейроботом временно недоступны до прохождения проверки силы.", 409);
+    }
 
     const activeRoom = await findActiveRoomFor(client, identity, { excludeCode: normalizedCode });
     if (activeRoom) throw activeRoomError(activeRoom);
@@ -1398,6 +1403,12 @@
     }
     const metadata = neuralBotMetadata(state);
     if (!metadata) throw roomError("Версия нейробота в состоянии партии не поддерживается.", 409);
+    if (metadata === NEURAL_BOT_METADATA
+      && (state.analysis?.neuralExecutionPolicy !== NEURAL_TEACHER_GUARD_SCHEMA
+        || state.analysis?.neuralTeacherPolicyImplementationId
+          !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID)) {
+      throw roomError("Обновите страницу: для этой партии требуется защитная стратегия сложного бота.", 409);
+    }
     return canonicalNeuralBotState(JSON.parse(JSON.stringify(state)), metadata);
   }
 

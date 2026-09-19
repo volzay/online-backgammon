@@ -7,6 +7,9 @@ window.NarduNeuralBot = (function () {
   const POLICY_FINGERPRINT = 'sha256:022664ae69e55f4b659b9755c63a0c82718db4972c53a52213ca75dfee361d81';
   const RULES_FINGERPRINT = 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623';
   const POLICY_SCHEMA = 'long-neural-search-v2';
+  const TEACHER_GUARD_SCHEMA = 'long-neural-hard-teacher-guard-v1';
+  const TEACHER_ENGINE_VERSION = 'long-analytic-v35';
+  const TEACHER_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
   const POLICY_OPTIONS = Object.freeze({ maxCandidates: 32, replyTopCandidates: 2,
     replyCandidates: 4, replyWeight: 0.35 });
   const DEVELOPMENT_EVALUATION = Object.freeze({
@@ -86,17 +89,98 @@ window.NarduNeuralBot = (function () {
     }
     return planner;
   }
+  function teacherRuleState(source) {
+    return JSON.parse(JSON.stringify({
+      variant: source.variant,
+      points: source.points,
+      bar: source.bar,
+      off: source.off,
+      score: source.score,
+      matchScore: source.matchScore,
+      turn: source.turn,
+      phase: source.phase,
+      winner: source.winner,
+      resultType: source.resultType,
+      dice: source.dice,
+      rolled: source.rolled,
+      firstMoveDone: source.firstMoveDone,
+      headPlayedThisTurn: source.headPlayedThisTurn,
+      turnMoves: source.turnMoves,
+      history: [],
+    }));
+  }
+  function moveKey(moves) {
+    return JSON.stringify((moves || []).map(move => ({
+      from: Number(move.from),
+      die: Number(move.die),
+    })));
+  }
+  function teacherPlan(state) {
+    const game = window.NarduGame;
+    const engine = window.NarduLongBotEngine;
+    const teacher = window.NarduStrongBot;
+    const publicBot = window.NarduBot;
+    if (!engine || engine.version !== TEACHER_ENGINE_VERSION
+      || engine.policyImplementationId !== TEACHER_POLICY_IMPLEMENTATION_ID
+      || typeof engine.consumeLastDecision !== 'function'
+      || typeof teacher?.plan !== 'function'
+      || typeof publicBot?.plan !== 'function') {
+      fail(`verified ${TEACHER_ENGINE_VERSION} teacher is unavailable`);
+    }
+
+    // Do not let telemetry from an earlier hard-bot call masquerade as the
+    // teacher decision for this position. The neural model still evaluates the
+    // position independently; until it passes its strength gate, only the
+    // production hard policy is allowed to choose the live move.
+    engine.consumeLastDecision();
+    teacher.consumeLastFallbackDecision?.();
+    const detached = teacherRuleState(state);
+    const planned = publicBot.plan(detached, { difficulty: 'hard' });
+    if (!Array.isArray(planned)) fail('hard teacher returned an invalid plan');
+    const moves = planned.map(move => ({ from: Number(move.from), die: Number(move.die) }));
+    const legal = game.bestMoveSequences(teacherRuleState(state), state.turn);
+    if (legal.length) {
+      const expected = moveKey(moves);
+      if (!legal.some(sequence => moveKey(sequence) === expected)) {
+        fail('hard teacher returned an illegal or incomplete plan');
+      }
+    } else if (moves.length || game.hasAnyMoves(teacherRuleState(state))) {
+      fail('hard teacher returned an invalid pass');
+    }
+    const engineDecision = engine.consumeLastDecision();
+    const fallbackDecision = teacher.consumeLastFallbackDecision?.() || null;
+    const experience = engine.experienceSnapshot?.() || {};
+    if (experience.frozen !== true || !String(experience.fingerprint || '')) {
+      fail('hard teacher experience is not frozen');
+    }
+    return {
+      moves,
+      source: engineDecision ? 'long-analytic-engine'
+        : fallbackDecision ? 'long-hard-certified-fallback'
+          : moves.length ? 'long-hard-game-fallback' : 'rules-certified-pass',
+      decision: engineDecision || fallbackDecision || null,
+      experience: {
+        fingerprint: String(experience.fingerprint || ''),
+        size: Math.max(0, Number(experience.size) || 0),
+        frozen: experience.frozen === true,
+      },
+    };
+  }
   function plan(state) {
     lastDecision = null;
     if (state?.variant !== 'long') fail('only long narde is supported');
     const bot = initialize();
     const rows = bot.rank(state);
-    const selected = rows[0];
+    const neuralSelected = rows[0];
     const diagnostics = bot.getLastDecision();
     if (!diagnostics || diagnostics.policySchema !== POLICY_SCHEMA
       || canonical(diagnostics.policyOptions) !== canonical(POLICY_OPTIONS)) {
       fail('V2 search diagnostics are missing or mismatched');
     }
+    const guarded = teacherPlan(state);
+    const teacherSelected = guarded.decision?.selected || null;
+    const neuralMoves = neuralSelected
+      ? neuralSelected.moves.map(({ from, die }) => ({ from, die })) : [];
     lastDecision = Object.freeze({ ...diagnostics,
       policy: 'hard-neuro', difficulty: 'hard-neuro', modelId: MODEL_ID, modelVersion: MODEL_ID,
       modelFingerprint: MODEL_FINGERPRINT, modelTrainingSteps: EXPECTED_METADATA.modelTrainingSteps,
@@ -109,11 +193,26 @@ window.NarduNeuralBot = (function () {
       benchmarkProtocolFingerprint: EXPECTED_METADATA.benchmarkProtocolFingerprint,
       strengthGatePassed: false, productionEligible: false, playerTestingEnabled: true,
       noHumanOrProductionWinRateClaim: true, exploration: 0, onlineLearning: false,
-      value: selected ? selected.value : null, selectedValue: selected ? selected.value : null,
-      score: selected ? selected.score : null, replyScore: selected ? selected.replyScore : null,
-      plannedMoves: selected ? selected.moves.length : 0,
+      value: neuralSelected ? neuralSelected.value : null,
+      selectedValue: neuralSelected ? neuralSelected.value : null,
+      score: neuralSelected ? neuralSelected.score : null,
+      replyScore: neuralSelected ? neuralSelected.replyScore : null,
+      neuralProposedMoves: neuralMoves,
+      neuralTeacherAgreement: moveKey(neuralMoves) === moveKey(guarded.moves),
+      executionPolicy: TEACHER_GUARD_SCHEMA,
+      teacherGuardActive: true,
+      teacherEngineVersion: TEACHER_ENGINE_VERSION,
+      teacherPolicyImplementationId: TEACHER_POLICY_IMPLEMENTATION_ID,
+      teacherChoiceSource: guarded.source,
+      teacherExperienceFingerprint: guarded.experience.fingerprint,
+      teacherExperienceSize: guarded.experience.size,
+      teacherExperienceFrozen: guarded.experience.frozen,
+      teacherPositionId: String(guarded.decision?.positionId || ''),
+      teacherScore: Number.isFinite(Number(teacherSelected?.score))
+        ? Number(teacherSelected.score) : null,
+      plannedMoves: guarded.moves.length,
     });
-    return selected ? selected.moves.map(({ from, die }) => ({ from, die })) : [];
+    return guarded.moves;
   }
   function consumeLastDecision() { const decision = lastDecision; lastDecision = null; return decision; }
   return Object.freeze({ plan, getLastDecision: () => lastDecision, consumeLastDecision,

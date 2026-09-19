@@ -75,7 +75,9 @@ function harness({ cleanup } = {}) {
     window: { addEventListener() {} },
     location: { href: '', search: '' },
     tt(key) {
-      return ({ bot_hard_neuro: 'Сложный бот-нейро', difficulty_hard_neuro: 'Сложный бот-нейро', bot_neuro_long_only: 'Сложный бот-нейро доступен только в длинных нардах.' })[key] || key;
+      return ({ bot_hard_neuro: 'Сложный бот-нейро', difficulty_hard_neuro: 'Сложный бот-нейро',
+        bot_neuro_long_only: 'Сложный бот-нейро доступен только в длинных нардах.',
+        bot_neuro_gate_closed: 'Новые партии с нейроботом временно недоступны до прохождения проверки силы.' })[key] || key;
     },
     NarduApp: { persistBotGameConfig(config) { persisted.push(JSON.parse(JSON.stringify(config))); } },
     ensureLobbyCleanup: async () => { cleanupCalls += 1; return cleanup ? cleanup() : { ok: true }; },
@@ -91,7 +93,9 @@ function harness({ cleanup } = {}) {
   const end = lobby.indexOf('\n  syncCreatePanel();', start) + '\n  syncCreatePanel();'.length;
   vm.runInContext([
     ...maps,
+    'const NEURAL_NEW_GAME_ENABLED = false;',
     extractFunction('function isSupportedBotVariant'),
+    extractFunction('function canCreateBotDifficulty'),
     extractFunction('function labelFor'),
     lobby.slice(start, end),
     extractFunction('function goToExistingBotRoom'),
@@ -107,36 +111,39 @@ function harness({ cleanup } = {}) {
   };
 }
 
-test('portal offers a separate localized neural difficulty without replacing existing bots', () => {
+test('portal keeps the neural identity but hides new-game selection until its strength gate passes', () => {
   for (const difficulty of ['easy', 'medium', 'hard', 'hard-neuro']) {
     assert.match(lobby, new RegExp(`data-create-option="difficulty" data-value="${difficulty}"`));
   }
-  assert.match(lobby, /data-value="hard-neuro"[^>]*style="grid-column: 1 \/ -1;"[^>]*>Сложный бот-нейро<\/button>/);
+  assert.match(lobby, /data-value="hard-neuro"[^>]*hidden disabled>Сложный бот-нейро<\/button>/);
+  assert.match(lobby, /const NEURAL_NEW_GAME_ENABLED = false;/);
   for (const key of ['difficulty_hard_neuro', 'bot_hard_neuro']) {
     assert.match(app, new RegExp(`${key}: 'Сложный бот-нейро'`));
     assert.match(app, new RegExp(`${key}: 'Hard neural bot'`));
   }
   assert.match(app, /сила игры против игроков ещё не подтверждена/);
+  assert.match(app, /bot_neuro_gate_closed: 'Новые партии с нейроботом временно недоступны/);
   assert.doesNotMatch(lobby, /62[.,]2\s*%|65\s*%|50\s*%/);
 });
 
-test('selecting the neural bot shows an experimental note and preserves the separate summary identity', () => {
+test('hidden neural option cannot be selected for a new long game', () => {
   const h = harness();
   h.click('opponent', 'bot');
   h.click('difficulty', 'hard-neuro');
-  assert.equal(h.context.state.difficulty, 'hard-neuro');
-  assert.equal(h.selectors.get('[data-neuro-note]').hidden, false);
-  assert.match(h.ids.get('create-game-summary').textContent, /Сложный бот-нейро/);
+  assert.equal(h.context.state.difficulty, 'easy');
+  assert.equal(h.selectors.get('[data-neuro-note]').hidden, true);
+  assert.doesNotMatch(h.ids.get('create-game-summary').textContent, /Сложный бот-нейро/);
   const button = h.options.find(btn => btn.dataset.value === 'hard-neuro');
-  assert.equal(button.disabled, false);
-  assert.equal(button.hidden, false);
-  assert.equal(button.getAttribute('aria-pressed'), 'true');
+  assert.equal(button.disabled, true);
+  assert.equal(button.hidden, true);
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
 });
 
-test('switching to short hides the neural option and note, resets to hard and restores the option for long', () => {
+test('neural creation remains hidden across long and short variant switches', () => {
   const h = harness();
   h.click('opponent', 'bot');
-  h.click('difficulty', 'hard-neuro');
+  h.click('difficulty', 'hard');
   h.click('variant', 'short');
   assert.equal(h.context.state.difficulty, 'hard');
   assert.equal(h.selectors.get('[data-neuro-note]').hidden, true);
@@ -153,13 +160,11 @@ test('switching to short hides the neural option and note, resets to hard and re
   h.click('difficulty', 'hard-neuro');
   assert.equal(h.context.state.difficulty, 'hard', 'even a synthetic disabled click cannot select an unsupported bot');
   h.click('variant', 'long');
-  assert.equal(button.disabled, false);
-  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, true);
+  assert.equal(button.hidden, true);
   assert.equal(h.context.state.difficulty, 'hard', 'returning to long does not silently change the selected difficulty');
   h.click('difficulty', 'hard-neuro');
-  assert.equal(h.selectors.get('[data-neuro-note]').hidden, false);
-  h.click('variant', 'short');
-  assert.equal(button.hidden, true, 'repeated switches keep the unsupported option hidden');
+  assert.equal(h.selectors.get('[data-neuro-note]').hidden, true);
 });
 
 test('short selection hides the neural option before choosing a bot and when reopening the panel', () => {
@@ -172,48 +177,36 @@ test('short selection hides the neural option before choosing a bot and when reo
   assert.equal(h.context.state.difficulty, 'easy');
 });
 
-test('direct short neural creation is rejected before cleanup, room writes or navigation', async () => {
+test('direct neural creation is rejected before cleanup, room writes or navigation', async () => {
   const h = harness();
-  Object.assign(h.context.state, { opponent: 'bot', difficulty: 'hard-neuro', variant: 'short' });
+  Object.assign(h.context.state, { opponent: 'bot', difficulty: 'hard-neuro', variant: 'long' });
   await h.create();
   assert.equal(h.cleanupCalls, 0);
   assert.equal(h.activeCalls, 0);
   assert.equal(h.persisted.length, 0);
   assert.equal(h.context.location.href, '');
-  assert.match(h.ids.get('create-game-error').textContent, /только в длинных/);
+  assert.match(h.ids.get('create-game-error').textContent, /временно недоступны/);
   assert.equal(h.submit.disabled, false);
 });
 
-test('long neural creation persists its identifier and launches the correct named room', async () => {
+test('long neural creation cannot bypass the closed strength gate', async () => {
   const h = harness();
-  h.click('opponent', 'bot');
-  h.click('difficulty', 'hard-neuro');
+  Object.assign(h.context.state, { opponent: 'bot', difficulty: 'hard-neuro', variant: 'long' });
   await h.create();
-  assert.equal(h.cleanupCalls, 1);
-  assert.equal(h.activeCalls, 1);
-  assert.equal(h.persisted.length, 1);
-  assert.equal(h.persisted[0].difficulty, 'hard-neuro');
-  assert.equal(h.persisted[0].variant, 'long');
-  const url = new URL(h.context.location.href, 'https://portal.example/');
-  assert.equal(url.pathname, '/room.html');
-  assert.equal(url.searchParams.get('difficulty'), 'hard-neuro');
-  assert.equal(url.searchParams.get('variant'), 'long');
-  assert.equal(url.searchParams.get('opp'), 'Сложный бот-нейро');
-  assert.equal(url.searchParams.get('oppR'), '1500');
-});
-
-test('unsupported neural variant introduced during async cleanup is rejected before persistence', async () => {
-  let release;
-  const h = harness({ cleanup: () => new Promise(resolve => { release = resolve; }) });
-  h.click('opponent', 'bot');
-  h.click('difficulty', 'hard-neuro');
-  const creating = h.create();
-  h.context.state.variant = 'short';
-  release({ ok: true });
-  await creating;
+  assert.equal(h.cleanupCalls, 0);
+  assert.equal(h.activeCalls, 0);
   assert.equal(h.persisted.length, 0);
   assert.equal(h.context.location.href, '');
-  assert.match(h.ids.get('create-game-error').textContent, /только в длинных/);
+  assert.match(h.ids.get('create-game-error').textContent, /временно недоступны/);
+});
+
+test('synthetic short neural creation is also rejected by the closed gate', async () => {
+  const h = harness();
+  Object.assign(h.context.state, { opponent: 'bot', difficulty: 'hard-neuro', variant: 'short' });
+  await h.create();
+  assert.equal(h.persisted.length, 0);
+  assert.equal(h.context.location.href, '');
+  assert.match(h.ids.get('create-game-error').textContent, /временно недоступны/);
   assert.equal(h.submit.disabled, false);
   assert.equal(h.ids.get('create-game-form').getAttribute('aria-busy'), undefined);
 });

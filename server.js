@@ -28,6 +28,8 @@ const DEFAULT_RATING = 1000;
 const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
 const NEURAL_BOT_DIFFICULTY = "hard-neuro";
 const NEURAL_BOT_RATING = 1500;
+const NEURAL_TEACHER_GUARD_SCHEMA = "long-neural-hard-teacher-guard-v1";
+const NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID = "4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526";
 const NEURAL_BOT_POLICY_OPTIONS = Object.freeze({
   maxCandidates: 32,
   replyTopCandidates: 2,
@@ -1238,6 +1240,17 @@ function canonicalNeuralBotState(state, metadata = NEURAL_BOT_METADATA) {
     neuralModel: deepClone(metadata),
   };
   return state;
+}
+
+function requireNeuralTeacherGuard(state, metadata) {
+  if (metadata !== NEURAL_BOT_METADATA) return;
+  if (state?.analysis?.neuralExecutionPolicy !== NEURAL_TEACHER_GUARD_SCHEMA
+    || state?.analysis?.neuralTeacherPolicyImplementationId
+      !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID) {
+    const error = new Error("Обновите страницу: для этой партии требуется защитная стратегия сложного бота.");
+    error.status = 409;
+    throw error;
+  }
 }
 
 function isRoomActiveForPlayer(room, playerName, playerUserId = "") {
@@ -2577,6 +2590,12 @@ async function handleApi(req, res, url) {
         sendJson(res, 409, { error: "Новую партию нельзя создавать на устаревшей версии нейробота." });
         return;
       }
+      if (neuralBot && NEURAL_BOT_METADATA.strengthGatePassed !== true) {
+        sendJson(res, 409, {
+          error: "Новые партии с нейроботом временно недоступны до прохождения проверки силы.",
+        });
+        return;
+      }
 
       const state = deepClone(body.state || {});
       state.mode = "bot";
@@ -2787,6 +2806,12 @@ async function handleApi(req, res, url) {
         const incomingMetadata = neuralBotMetadata(body.state);
         if (!roomMetadata || !incomingMetadata || roomMetadata.id !== incomingMetadata.id) {
           sendJson(res, 409, { error: "Нельзя менять версию уже начатой нейро-партии.", version: currentVersion });
+          return;
+        }
+        try {
+          requireNeuralTeacherGuard(body.state, incomingMetadata);
+        } catch (error) {
+          sendJson(res, Number(error?.status) || 409, { error: error?.message, version: currentVersion });
           return;
         }
         canonicalNeuralBotState(body.state, roomMetadata);

@@ -15,6 +15,7 @@ const LEGACY_V1_PIN = JSON.parse(fs.readFileSync(path.join(ROOT, 'vendor/long-ne
 const NAME = PUBLIC_V2_PIN.name;
 const MODEL_FP = PUBLIC_V2_PIN.modelFingerprint;
 const OWNER = 'neuro-test-owner-token-32-characters-long';
+const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const copy = value => JSON.parse(JSON.stringify(value));
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 let server;
@@ -33,6 +34,10 @@ function initialState(difficulty = 'hard-neuro', variant = 'long') {
   state.mode = 'bot';
   state.botDifficulty = difficulty;
   state.analysis = { mode: 'bot', difficulty, playerColor: 'white' };
+  if (difficulty === 'hard-neuro') {
+    state.analysis.neuralExecutionPolicy = 'long-neural-hard-teacher-guard-v1';
+    state.analysis.neuralTeacherPolicyImplementationId = TEACHER_POLICY_ID;
+  }
   return state;
 }
 
@@ -104,7 +109,14 @@ function loadRooms({ configured = false, client = mockSupabase() } = {}) {
     },
     console, Date, Math, JSON, Map, Set, TextEncoder, Uint8Array,
     fetch: async (url, options) => {
-      requests.push({ url, body: options?.body && JSON.parse(options.body) });
+      const body = options?.body && JSON.parse(options.body);
+      requests.push({ url, body });
+      if (String(url).endsWith('/api/rooms/bot-analysis')
+        && (body?.difficulty === 'hard-neuro' || body?.state?.botDifficulty === 'hard-neuro')) {
+        return { ok: false, status: 409, statusText: 'Conflict', json: async () => ({
+          error: 'Новые партии с нейроботом временно недоступны до прохождения проверки силы.',
+        }) };
+      }
       return { ok: true, json: async () => ({ ok: true, version: 1 }) };
     },
   };
@@ -169,14 +181,17 @@ function assertPinned(state) {
   assert.equal(state.analysis.neuralModel.playerTestingEnabled, true);
   assert.equal(state.analysis.neuralModel.onlineLearning, false);
   assert.equal(state.analysis.neuralModel.noHumanOrProductionWinRateClaim, true);
+  assert.equal(state.analysis.neuralExecutionPolicy, 'long-neural-hard-teacher-guard-v1');
+  assert.equal(state.analysis.neuralTeacherPolicyImplementationId, TEACHER_POLICY_ID);
 }
 
-test('local API rejects short neuro games before creating a room, including a conflicting embedded variant', async () => {
+test('local API rejects short neuro games and keeps the strength gate closed for a valid long request', async () => {
   const player = guest('Short');
   assert.equal((await createRoom(player, 'NSHR-2222', { variant: 'short' })).status, 422);
   assert.equal((await createRoom(player, 'NSHR-2222', { state: initialState('hard-neuro', 'short') })).status, 422);
   const created = await createRoom(player, 'NSHR-2222');
-  assert.equal(created.status, 201, created.body.error);
+  assert.equal(created.status, 409, created.body.error);
+  assert.match(created.body.error, /временно недоступны/);
 });
 
 test('local API rejects a brand-new V1 room and unknown neural metadata', async () => {
@@ -192,68 +207,17 @@ test('local API rejects a brand-new V1 room and unknown neural metadata', async 
   assert.equal((await createRoom(guest('UnknownVersion'), 'BADN-2222', { state: unknown })).status, 422);
 });
 
-test('a V2 room rejects a legacy V1 update instead of mixing its decisions and metadata', async () => {
-  const player = guest('CrossVersion');
-  assert.equal((await createRoom(player, 'NEWN-2222')).status, 201);
-  const saved = await request(player, '/api/rooms/NEWN-2222/game');
-  assertPinned(saved.body.state);
-  saved.body.state.analysis.neuralModel = copy(LEGACY_V1_PIN);
-  const rejected = await request(player, '/api/rooms/NEWN-2222/game', 'PUT', {
-    state: saved.body.state, version: 0, ownerToken: OWNER,
-  });
-  assert.equal(rejected.status, 409);
-  const unchanged = await request(player, '/api/rooms/NEWN-2222/game');
-  assert.equal(unchanged.body.version, 0);
-  assertPinned(unchanged.body.state);
-});
-
-test('local API pins neural identity and archives final model metadata, decisions and complete history', async () => {
+test('local API refuses a new pinned V2 room without writing or archiving it', async () => {
   const player = guest('Archive');
   const created = await createRoom(player, 'NEUR-2222');
-  assert.equal(created.status, 201, created.body.error);
-  assert.equal(created.body.room.guestName, NAME);
-  const saved = await request(player, '/api/rooms/NEUR-2222/game');
-  assertPinned(saved.body.state);
-  const state = saved.body.state;
-  const forged = copy(state);
-  forged.analysis.neuralModel = { id: 'arbitrary', modelFingerprint: 'forged', serverSeed: 'must-not-survive',
-    authToken: 'must-not-survive', privateTrainingReport: { games: [1, 2, 3] } };
-  const rejected = await request(player, '/api/rooms/NEUR-2222/game', 'PUT', { state: forged, version: 0, ownerToken: OWNER });
-  assert.equal(rejected.status, 409);
-  state.phase = 'move';
-  state.analysis.neuralDecisions = [{ policy: 'hard-neuro', modelFingerprint: MODEL_FP, roll: '2:4', value: 0.55 }];
-  state.history = [{ roll: '2:4', color: 'dark', at: new Date().toISOString() }];
-  const update = await request(player, '/api/rooms/NEUR-2222/game', 'PUT', { state, version: 0, ownerToken: OWNER });
-  assert.equal(update.status, 200, update.body.error);
-  const refreshed = await request(player, '/api/rooms/NEUR-2222/game');
-  assertPinned(refreshed.body.state);
-  assert.equal(refreshed.body.state.analysis.neuralDecisions.length, 1);
-  state.phase = 'over';
-  state.winner = 'dark';
-  state.resultType = 'normal';
-  state.history.unshift({ resign: true, color: 'white', at: new Date().toISOString() });
-  const finish = await request(player, '/api/rooms/NEUR-2222/game', 'PUT', { state, version: 1, ownerToken: OWNER });
-  assert.equal(finish.status, 200, finish.body.error);
-  const archive = JSON.parse(fs.readFileSync(path.join(dataDir, 'admin-state.json'), 'utf8')).archive.find(row => row.code === 'NEUR-2222');
-  assert.ok(archive);
-  assertPinned(archive.session.game);
-  assert.equal(archive.session.game.history.length, 2);
-  assert.equal(archive.session.game.analysis.neuralDecisions[0].modelFingerprint, MODEL_FP);
-  assert.equal(archive.session.players.find(row => row.color === 'dark').name, NAME);
-});
-
-test('local API rejects changing an existing neuro game into short narde or another bot', async () => {
-  const player = guest('Immutable');
-  assert.equal((await createRoom(player, 'NNMM-2222')).status, 201);
-  for (const state of [initialState('hard-neuro', 'short'), initialState('hard', 'long')]) {
-    const update = await request(player, '/api/rooms/NNMM-2222/game', 'PUT', { state, version: 0, ownerToken: OWNER });
-    assert.equal(update.status, 422);
+  assert.equal(created.status, 409, created.body.error);
+  assert.match(created.body.error, /временно недоступны/);
+  const missing = await request(player, '/api/rooms/NEUR-2222/game');
+  assert.equal(missing.status, 404);
+  if (fs.existsSync(path.join(dataDir, 'admin-state.json'))) {
+    const archive = JSON.parse(fs.readFileSync(path.join(dataDir, 'admin-state.json'), 'utf8')).archive || [];
+    assert.equal(archive.some(row => row.code === 'NEUR-2222'), false);
   }
-  const current = await request(player, '/api/rooms/NNMM-2222/game');
-  assert.equal(current.body.version, 0);
-  assertPinned(current.body.state);
-  assert.equal((await createRoom(player, 'NNMM-2222', { difficulty: 'hard', state: initialState('hard') })).status, 409);
-  assert.equal((await createRoom(player, 'NNMM-2222')).status, 200);
 });
 
 test('local API preserves existing hard identity and forbids upgrading that room into the neural policy', async () => {
@@ -285,7 +249,7 @@ test('room client blocks short / malformed neuro variants before auth, RPC or AP
   }
 });
 
-test('room client rejects unpinned metadata, then preserves the exact V2 bot name, rating and metadata', async () => {
+test('room client rejects unpinned metadata and a new pinned V2 room while the gate is closed', async () => {
   for (const configured of [false, true]) {
     const fixture = loadRooms({ configured });
     const malformed = initialState();
@@ -298,14 +262,11 @@ test('room client rejects unpinned metadata, then preserves the exact V2 bot nam
     const state = initialState();
     state.analysis.neuralDecisions = [{ policy: 'hard-neuro', value: 0.44 }];
     const inputBefore = JSON.stringify(state);
-    await fixture.rooms.ensureBotAnalysisRoom({ code: 'NNNS-3333', difficulty: 'hard-neuro', variant: 'long', botName: 'Spoof', botRating: 9999, state });
+    await assert.rejects(fixture.rooms.ensureBotAnalysisRoom({ code: 'NNNS-3333', difficulty: 'hard-neuro',
+      variant: 'long', botName: 'Spoof', botRating: 9999, state }), error =>
+      error.status === 409 && /временно недоступны/.test(error.message));
     assert.equal(JSON.stringify(state), inputBefore, 'caller state stays unchanged');
-    const row = configured ? fixture.client.inserts[0] : fixture.requests[0].body;
-    assert.equal(configured ? row.guest_name : row.botName, NAME);
-    assert.equal(configured ? row.guest_rating : row.botRating, 1500);
-    const persisted = configured ? row.game_state : row.state;
-    assertPinned(persisted);
-    assert.equal(persisted.analysis.neuralDecisions.length, 1);
+    assert.equal(fixture.client.inserts.length, 0);
   }
 });
 
@@ -356,13 +317,21 @@ test('Supabase client preserves an existing V1 room through update and finish, b
   assert.deepEqual(finalCall.args.p_final_state.analysis.neuralModel, LEGACY_V1_PIN);
 });
 
-test('Supabase client pins a new V2 room and rejects legacy V1 state before writing', async () => {
-  const fixture = loadRooms({ configured: true });
+test('Supabase client resumes an existing V2 room but rejects legacy V1 state before writing', async () => {
   const current = initialState();
-  await fixture.rooms.ensureBotAnalysisRoom({ code: 'V2SB-3333', difficulty: 'hard-neuro',
+  current.opponent = 'bot';
+  current.analysis.neuralModel = copy(PUBLIC_V2_PIN);
+  const client = mockSupabase({ room: {
+    id: 'current-neural-room-id', code: 'V2SB-3333', status: 'joined',
+    host_user_id: 'test-neural-user', host_guest_id: null,
+    game_state: copy(current), game_version: 0, variant: 'long',
+  } });
+  const fixture = loadRooms({ configured: true, client });
+  const ensured = await fixture.rooms.ensureBotAnalysisRoom({ code: 'V2SB-3333', difficulty: 'hard-neuro',
     variant: 'long', state: current });
-  assertPinned(fixture.client.inserts[0].game_state);
-  const legacy = copy(fixture.client.inserts[0].game_state);
+  assert.equal(ensured.existing, true);
+  assert.equal(fixture.client.inserts.length, 0);
+  const legacy = copy(current);
   legacy.analysis.neuralModel = copy(LEGACY_V1_PIN);
   const updatesBefore = fixture.client.updates.length;
   await assert.rejects(fixture.rooms.putGameState('V2SB-3333', legacy, 0), error =>
@@ -370,11 +339,40 @@ test('Supabase client pins a new V2 room and rejects legacy V1 state before writ
   assert.equal(fixture.client.updates.length, updatesBefore);
 });
 
+test('an already-open stale V2 client cannot publish another neural-only move', async () => {
+  const current = initialState();
+  current.opponent = 'bot';
+  current.analysis.neuralModel = copy(PUBLIC_V2_PIN);
+  const client = mockSupabase({ room: {
+    id: 'guarded-neural-room-id', code: 'GV2S-3333', status: 'joined',
+    host_user_id: 'test-neural-user', host_guest_id: null,
+    game_state: copy(current), game_version: 0, variant: 'long',
+  } });
+  const fixture = loadRooms({ configured: true, client });
+  await fixture.rooms.ensureBotAnalysisRoom({ code: 'GV2S-3333', difficulty: 'hard-neuro',
+    variant: 'long', state: current });
+  const updatesBefore = fixture.client.updates.length;
+  const stale = copy(current);
+  delete stale.analysis.neuralExecutionPolicy;
+  delete stale.analysis.neuralTeacherPolicyImplementationId;
+  await assert.rejects(fixture.rooms.putGameState('GV2S-3333', stale, 0), error =>
+    error.status === 409 && /Обновите страницу/.test(error.message));
+  assert.equal(fixture.client.updates.length, updatesBefore);
+});
+
 test('neural completion omits legacy hard training-state RPC and skips legacy XP ingestion', async () => {
-  const fixture = loadRooms({ configured: true });
+  const current = initialState();
+  current.opponent = 'bot';
+  current.analysis.neuralModel = copy(PUBLIC_V2_PIN);
+  const client = mockSupabase({ room: {
+    id: 'finish-neural-room-id', code: 'NFNN-3333', status: 'joined',
+    host_user_id: 'test-neural-user', host_guest_id: null,
+    game_state: copy(current), game_version: 0, variant: 'long',
+  } });
+  const fixture = loadRooms({ configured: true, client });
   await fixture.rooms.ensureBotAnalysisRoom({ code: 'NFNN-3333', difficulty: 'hard-neuro',
-    variant: 'long', state: initialState() });
-  const state = copy(fixture.client.inserts[0].game_state);
+    variant: 'long', state: current });
+  const state = copy(current);
   state.phase = 'over';
   state.winner = 'dark';
   state.history = [{ resign: true, color: 'white' }];
@@ -405,15 +403,40 @@ test('legacy hard completion still passes its unchanged training payload', async
 
 test('existing SQL archives all completed final-state JSON while legacy bot-training remains hard-only', () => {
   const schema = fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8');
-  const functionBody = name => {
-    const start = schema.lastIndexOf(`create or replace function public.${name}(`);
+  const gateMigration = fs.readFileSync(path.join(ROOT, 'supabase/neural-strength-gate-v38.sql'), 'utf8');
+  const gateSmoke = fs.readFileSync(path.join(ROOT, 'supabase/tests/neural-strength-gate-v38-rollback-smoke.sql'), 'utf8');
+  const roomClientSource = fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8');
+  const localServerSource = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const functionBody = (name, source = schema) => {
+    const start = source.lastIndexOf(`create or replace function public.${name}(`);
     assert.ok(start >= 0, name);
-    return schema.slice(start, schema.indexOf('\n$$;', start));
+    return source.slice(start, source.indexOf('\n$$;', start));
   };
   const archive = functionBody('archive_finished_room_game');
   assert.match(archive, /final_state/);
   assert.match(archive, /\n\s+gs,/);
   assert.doesNotMatch(archive, /botDifficulty|difficulty/);
   assert.match(functionBody('archive_finished_bot_training_game'), /botDifficulty[^\n]*<> 'hard'/);
+  const gate = functionBody('enforce_neural_strength_gate');
+  assert.match(gate, /request_role in \('anon', 'authenticated'\)/);
+  assert.match(gate, /requested_difficulty = 'hard-neuro'/);
+  assert.match(gate, /analysis,neuralModel/);
+  assert.match(gate, /old_is_neural is distinct from new_is_neural/);
+  assert.match(gate, /rooms_neural_teacher_guard_required/);
+  assert.match(gate, /long-neural-hard-teacher-guard-v1/);
+  assert.match(gate, new RegExp(TEACHER_POLICY_ID));
+  assert.match(schema, /before insert or update of game_state on public\.rooms[\s\S]*enforce_neural_strength_gate/);
+  assert.match(gateMigration, /^begin;/m);
+  assert.match(gateMigration, /^commit;/m);
+  assert.match(gateMigration, /before insert or update of game_state on public\.rooms/);
+  assert.match(gateMigration, /constraint = 'rooms_neural_strength_gate'/);
+  assert.match(gateMigration, /constraint = 'rooms_neural_identity_immutable'/);
+  assert.match(gateSmoke, /rooms_neural_strength_gate/);
+  assert.match(gateSmoke, /rooms_neural_identity_immutable/);
+  assert.match(gateSmoke, /rooms_neural_teacher_guard_required/);
+  assert.match(gateSmoke, /^rollback;/m);
+  assert.equal(gate, functionBody('enforce_neural_strength_gate', gateMigration));
+  assert.match(roomClientSource, /neuralExecutionPolicy !== NEURAL_TEACHER_GUARD_SCHEMA/);
+  assert.match(localServerSource, /requireNeuralTeacherGuard\(body\.state, incomingMetadata\)/);
   assert.equal(PUBLIC_V2_PIN.modelFingerprint, MODEL_FP);
 });

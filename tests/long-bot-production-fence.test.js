@@ -68,7 +68,7 @@ test('systemd worker uses no-fork real flock, private persistent writable state 
   const service = fs.readFileSync(path.join(ROOT, 'ops/timeweb/long-bot-causal-worker.service'), 'utf8');
   const timer = fs.readFileSync(path.join(ROOT, 'ops/timeweb/long-bot-causal-worker.timer'), 'utf8');
   for (const setting of ['User=nardy-worker', 'Group=nardy-worker', 'StateDirectory=online-backgammon-causal-worker',
-    'StateDirectoryMode=0700', 'UMask=0077', 'TimeoutStartSec=8min', 'TimeoutStopSec=30s', 'MemoryMax=768M',
+    'StateDirectoryMode=0700', 'UMask=0077', 'TimeoutStartSec=14min', 'TimeoutStopSec=30s', 'MemoryMax=768M',
     'CPUQuota=100%', 'NoNewPrivileges=true', 'ProtectSystem=strict', 'PrivateTmp=true', 'KillMode=control-group',
     'ReadWritePaths=/var/lib/online-backgammon-causal-worker']) assert.ok(service.includes(setting), setting);
   assert.ok(service.includes('ExecStart=/usr/bin/flock --exclusive --nonblock --no-fork /var/lib/online-backgammon-causal-worker/worker.flock /usr/bin/node scripts/long-bot-causal-worker.js --once --limit 1 --production-journal-dir /var/lib/online-backgammon-causal-worker/terminal-journal'));

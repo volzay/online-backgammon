@@ -97,6 +97,9 @@ window.NarduController = (function () {
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
   const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
+  const NEURAL_TEACHER_EXPERIENCE_WAIT_MS = 900;
+  const NEURAL_TEACHER_GUARD_SCHEMA = 'long-neural-hard-teacher-guard-v1';
+  const NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -676,7 +679,8 @@ window.NarduController = (function () {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     attachRuntimeStateFields(roomCode);
-    if (mode === 'bot' && variant === 'long' && botDifficulty === 'hard') {
+    if (mode === 'bot' && variant === 'long'
+      && (botDifficulty === 'hard' || botDifficulty === 'hard-neuro')) {
       window.NarduLongBotEngine?.beginExperienceSession?.(
         longBotExperienceSessionKey(roomCode),
       );
@@ -826,7 +830,7 @@ window.NarduController = (function () {
         adoptBotIdentity(state, true);
         attachRuntimeStateFields(roomCode);
         validateNeuralBotAvailability();
-        if (variant === 'long' && botDifficulty === 'hard') {
+        if (variant === 'long' && (botDifficulty === 'hard' || botDifficulty === 'hard-neuro')) {
           window.NarduLongBotEngine?.beginExperienceSession?.(
             longBotExperienceSessionKey(roomCode),
           );
@@ -867,7 +871,7 @@ window.NarduController = (function () {
   }
 
   function ensureAutoProgressAfterExperience(delay, maxExperienceWaitMs = LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS) {
-    if (mode !== 'bot' || botDifficulty !== 'hard') {
+    if (mode !== 'bot' || (botDifficulty !== 'hard' && botDifficulty !== 'hard-neuro')) {
       ensureAutoProgress(delay);
       return;
     }
@@ -899,7 +903,9 @@ window.NarduController = (function () {
       }
       Promise.race([
         loadExperience,
-        new Promise(resolve => setTimeout(resolve, Math.max(0, Number(maxExperienceWaitMs) || 0))),
+        new Promise(resolve => setTimeout(resolve, botDifficulty === 'hard-neuro'
+          ? NEURAL_TEACHER_EXPERIENCE_WAIT_MS
+          : Math.max(0, Number(maxExperienceWaitMs) || 0))),
       ]).finally(startWithFrozenExperience);
       return;
     }
@@ -1007,8 +1013,18 @@ window.NarduController = (function () {
   }
 
   function recordLongBotExperienceLoad(update) {
-    if (variant !== 'long' || mode !== 'bot' || botDifficulty !== 'hard' || !state) return;
+    if (variant !== 'long' || mode !== 'bot'
+      || (botDifficulty !== 'hard' && botDifficulty !== 'hard-neuro') || !state) return;
     state.analysis ||= {};
+    if (botDifficulty === 'hard-neuro') {
+      state.analysis.neuralTeacherExperience = {
+        ...(state.analysis.neuralTeacherExperience || {}),
+        ...update,
+        engineVersion: String(window.NarduLongBotEngine?.version || ''),
+        updatedAt: new Date().toISOString(),
+      };
+      return;
+    }
     const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
       ? state.analysis.botMemory
       : {};
@@ -3937,6 +3953,11 @@ window.NarduController = (function () {
     try {
       if (variant !== 'long' || state?.variant !== 'long') throw new Error('Unsupported short-neuro room');
       if (!window.NarduNeuralBot?.getModelMetadata) throw new Error('Neural model assets missing');
+      if (window.NarduLongBotEngine?.version !== 'long-analytic-v35'
+        || window.NarduLongBotEngine?.policyImplementationId !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID
+        || typeof window.NarduStrongBot?.plan !== 'function') {
+        throw new Error('Verified long-analytic-v35 teacher assets missing');
+      }
       state.analysis ||= {};
       const current = window.NarduNeuralBot.getModelMetadata();
       const saved = state.analysis.neuralModel;
@@ -3949,6 +3970,8 @@ window.NarduController = (function () {
         throw error;
       }
       state.analysis.neuralModel = { ...current };
+      state.analysis.neuralExecutionPolicy = NEURAL_TEACHER_GUARD_SCHEMA;
+      state.analysis.neuralTeacherPolicyImplementationId = NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID;
       botPlannerError = '';
       return true;
     } catch (error) {

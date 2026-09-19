@@ -217,7 +217,7 @@
           <button class="choice-btn active" type="button" data-create-option="difficulty" data-value="easy" aria-pressed="true" data-i18n="difficulty_easy">Лёгкий</button>
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="medium" aria-pressed="false" data-i18n="difficulty_medium">Средний</button>
           <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard" aria-pressed="false" data-i18n="difficulty_hard">Сложный</button>
-          <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard-neuro" aria-pressed="false" data-i18n="difficulty_hard_neuro" style="grid-column: 1 / -1;">Сложный бот-нейро</button>
+          <button class="choice-btn" type="button" data-create-option="difficulty" data-value="hard-neuro" aria-pressed="false" aria-disabled="true" data-i18n="difficulty_hard_neuro" style="grid-column: 1 / -1;" hidden disabled>Сложный бот-нейро</button>
         </div>
         <div data-neuro-note hidden>
           <p><strong>V2 · PLAYER TEST</strong></p>
@@ -333,8 +333,8 @@
 
 <script src="runtime-config.js"></script>
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
-<script src="app.js?v=20260918-neuro-448-v1"></script>
-<script src="rooms-client.js?v=20260919-neuro-v2-player-test"></script>
+<script src="app.js?v=20260920-neuro-teacher-gate-v1"></script>
+<script src="rooms-client.js?v=20260920-neuro-teacher-gate-v1"></script>
 <script>
   NarduApp.requireAuth();
   const tt = (key) => NarduApp.t(key);
@@ -406,8 +406,16 @@
   const accessLabelKeys = { open: 'access_open', closed: 'access_closed' };
   const botNameKeys = { easy: 'bot_easy', medium: 'bot_medium', hard: 'bot_hard', 'hard-neuro': 'bot_hard_neuro' };
   const botDifficulties = ['easy', 'medium', 'hard', 'hard-neuro'];
+  // The frozen V2 candidate has not passed the declared strength gate.
+  // Keep existing room recovery available, but fail closed for every new game
+  // entry point until a reviewed release explicitly flips this flag.
+  const NEURAL_NEW_GAME_ENABLED = false;
   function isSupportedBotVariant(difficulty, variant) {
     return difficulty !== 'hard-neuro' || variant === 'long';
+  }
+  function canCreateBotDifficulty(difficulty, variant) {
+    return isSupportedBotVariant(difficulty, variant)
+      && (difficulty !== 'hard-neuro' || NEURAL_NEW_GAME_ENABLED);
   }
   function createLocalGameCode() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1163,7 +1171,7 @@
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', String(active));
       if (key === 'difficulty' && btn.dataset.value === 'hard-neuro') {
-        btn.disabled = !isSupportedBotVariant('hard-neuro', createState.variant);
+        btn.disabled = !canCreateBotDifficulty('hard-neuro', createState.variant);
         btn.hidden = btn.disabled;
         btn.setAttribute('aria-disabled', String(btn.disabled));
       }
@@ -1238,7 +1246,7 @@
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
       createState[btn.dataset.createOption] = btn.dataset.value;
-      if (btn.dataset.createOption === 'variant' && !isSupportedBotVariant(createState.difficulty, createState.variant)) {
+      if (btn.dataset.createOption === 'variant' && !canCreateBotDifficulty(createState.difficulty, createState.variant)) {
         createState.difficulty = 'hard';
       }
       createError.textContent = '';
@@ -1251,8 +1259,9 @@
 
   createGameForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (createState.opponent === 'bot' && !isSupportedBotVariant(createState.difficulty, createState.variant)) {
-      createError.textContent = tt('bot_neuro_long_only');
+    if (createState.opponent === 'bot' && !canCreateBotDifficulty(createState.difficulty, createState.variant)) {
+      createError.textContent = tt(createState.difficulty === 'hard-neuro'
+        ? 'bot_neuro_gate_closed' : 'bot_neuro_long_only');
       return;
     }
     const password = createPassword.value.trim();
@@ -1297,8 +1306,9 @@
       if (botDifficulties.includes(selectedDifficulty)) {
         createState.difficulty = selectedDifficulty;
       }
-      if (!isSupportedBotVariant(createState.difficulty, createState.variant)) {
-        createError.textContent = tt('bot_neuro_long_only');
+      if (!canCreateBotDifficulty(createState.difficulty, createState.variant)) {
+        createError.textContent = tt(createState.difficulty === 'hard-neuro'
+          ? 'bot_neuro_gate_closed' : 'bot_neuro_long_only');
         createRequestPending = false;
         createSubmit.disabled = false;
         createGameForm.removeAttribute('aria-busy');

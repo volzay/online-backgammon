@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
+const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 
@@ -14,10 +15,14 @@ function storage() {
   return { get length() { return values.size; }, key(index) { return [...values.keys()][index] || null; },
     getItem(key) { return values.get(key) || null; }, setItem(key, value) { values.set(key, String(value)); }, removeItem(key) { values.delete(key); } };
 }
-function harness({ model = true, localStorage = storage(), difficulty = 'hard-neuro', variant = 'long' } = {}) {
+function harness({ model = true, localStorage = storage(), difficulty = 'hard-neuro', variant = 'long',
+  experienceLoader = null, experienceStartsFrozen = true } = {}) {
   const pending = new Map(); let timerId = 0;
-  const calls = { fallback: 0, experience: 0, animations: [], warns: [] };
-  const setTimer = (callback, ms) => { const id = ++timerId; pending.set(id, { callback, ms }); return id; };
+  let experienceFrozen = experienceStartsFrozen;
+  const calls = { fallback: 0, teacher: 0, experience: 0, freezes: 0,
+    sharedExperienceLoads: 0, timerDelays: [], animations: [], warns: [] };
+  const setTimer = (callback, ms) => { const id = ++timerId; calls.timerDelays.push(ms);
+    pending.set(id, { callback, ms }); return id; };
   class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [1789732800000])); } static now() { return 1789732800000; } }
   const math = Object.create(Math); math.random = () => { throw new Error('Unexpected RNG in neural turn'); };
   const window = {
@@ -26,6 +31,8 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
     NarduApp: { getUser: () => ({ id: 'neural-controller-user', name: 'Tester', guest: false }), paintUser() {}, formatRating: () => '1500' },
     NarduSound: { prime() {}, move() {}, bearOff() {}, click() {}, dice() {}, win() {}, lose() {} },
     NarduBoardEngine: { animateCheckerMove: async input => { calls.animations.push(plain(input)); } },
+    NarduRooms: { async loadLongBotExperience() { calls.sharedExperienceLoads += 1;
+      return experienceLoader ? experienceLoader() : [{ creditVersion: 9 }]; } },
   };
   const context = { window, Date: FixedDate, Math: math, JSON, URL, Uint8Array, TextEncoder,
     console: { warn(...args) { calls.warns.push(args.map(String)); }, log() {} },
@@ -46,14 +53,28 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
   }
   context.NarduGame = window.NarduGame; context.NarduBot = window.NarduBot;
   context.NarduSound = window.NarduSound; context.NarduBoardEngine = window.NarduBoardEngine;
-  window.NarduLongBotEngine = { beginExperienceSession() { calls.experience += 1; }, consumeLastDecision: () => null,
-    experienceSize: () => 0, experienceReplaySnapshot() { calls.experience += 1; return null; } };
-  window.NarduStrongBot = { plan() { calls.fallback += 1; throw new Error('Unexpected hard fallback'); },
+  let teacherDecision = null;
+  window.NarduLongBotEngine = { version: 'long-analytic-v35', policyImplementationId: TEACHER_POLICY_ID,
+    beginExperienceSession() { calls.experience += 1; },
+    freezeExperience: () => { calls.freezes += 1; experienceFrozen = true;
+      return { fingerprint: 'lbe8-controller', size: 2, frozen: true }; },
+    consumeLastDecision() { const decision = teacherDecision; teacherDecision = null; return decision; },
+    experienceSize: () => 2,
+    experienceSnapshot: () => ({ fingerprint: 'lbe8-controller', size: 2, frozen: experienceFrozen }),
+    experienceReplaySnapshot() { calls.experience += 1; return null; } };
+  window.NarduStrongBot = { plan(state) {
+    calls.teacher += 1;
+    const legal = window.NarduGame.bestMoveSequences(state, state.turn);
+    const selected = (legal.at(-1) || []).map(({ from, die }) => ({ from, die }));
+    teacherDecision = { positionId: 'teacher-controller-position',
+      selected: { score: 7, moves: plain(selected) } };
+    return selected;
+  },
     syncLocalExperience() { calls.experience += 1; }, consumeLastFallbackDecision: () => null };
   const marker = '    preferredMoveAction,\n  };';
   const source = read('game-controller.js'); assert(source.includes(marker));
   const exposed = source.replace(marker,
-    `    preferredMoveAction,\n    __neuroTest: { safeBotPlan, playBotTurn, adoptBotIdentity, normalizeRestoredState, recordNeuralExecution, rememberNeuralDecision, activeNeuralDecision, botTrainingStatePayload, botAnalysisPayload, validateNeuralBotAvailability, ensureAutoProgress, setState(next) { state = next; variant = next.variant || variant; }, status: () => ({ mode, variant, botDifficulty, opponentName, opponentRating, botPlannerError, botTurnActive }), waitPlan: () => botTurnPlanPromise },\n  };`);
+    `    preferredMoveAction,\n    __neuroTest: { safeBotPlan, playBotTurn, adoptBotIdentity, normalizeRestoredState, recordNeuralExecution, rememberNeuralDecision, activeNeuralDecision, botTrainingStatePayload, botAnalysisPayload, validateNeuralBotAvailability, ensureAutoProgress, ensureAutoProgressAfterExperience, setState(next) { state = next; variant = next.variant || variant; }, status: () => ({ mode, variant, botDifficulty, opponentName, opponentRating, botPlannerError, botTurnActive }), waitPlan: () => botTurnPlanPromise },\n  };`);
   vm.runInContext(exposed, context, { filename: 'game-controller.js actual controller, private functions exposed for tests' });
   const controller = window.NarduController;
   controller.init({ mode: 'bot', roomCode: 'NEUR-TEST', variant, difficulty,
@@ -81,7 +102,7 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
 test('controller keeps hard-neuro identity despite an old hard name and 1500 rating', () => {
   const h = harness(); const status = h.api.status();
   assert.equal(status.botDifficulty, 'hard-neuro'); assert.equal(status.opponentName, 'Сложный бот-нейро');
-  assert.equal(status.opponentRating, 1500); assert.equal(h.calls.experience, 0);
+  assert.equal(status.opponentRating, 1500); assert.equal(h.calls.experience, 2);
   for (const value of ['hard-neuro', 'Сложный бот-нейро', 'Hard neural bot']) {
     assert.equal(h.controller.resolveBotDifficulty(value, 'hard', 1500), 'hard-neuro');
   }
@@ -194,7 +215,37 @@ test('safe neural plan archives exact selected moves and no old hard botMemory/X
   assert.equal(decision.execution.complete, false); assert.equal(state.analysis.botMemory, undefined);
   assert.deepEqual(plain(decision.before.firstMoveDone), before.firstMoveDone);
   assert.deepEqual(plain(decision.before.headPlayedThisTurn), before.headPlayedThisTurn);
-  assert.equal(h.calls.experience, 0); assert.equal(h.calls.fallback, 0);
+  assert.equal(h.calls.experience, 2); assert.equal(h.calls.fallback, 0);
+  assert.equal(h.calls.teacher, 1);
+  assert.equal(decision.diagnostics.teacherGuardActive, true);
+  assert.equal(decision.diagnostics.teacherEngineVersion, 'long-analytic-v35');
+  assert.equal(decision.diagnostics.teacherExperienceFingerprint, 'lbe8-controller');
+  assert.equal(decision.diagnostics.teacherExperienceFrozen, true);
+});
+
+test('existing neural room loads and freezes the shared hard-bot experience before play', async () => {
+  const h = harness();
+  h.api.ensureAutoProgressAfterExperience(0, 1000);
+  await h.flush();
+  assert.equal(h.calls.sharedExperienceLoads, 1);
+  assert.equal(h.calls.freezes, 1);
+  const teacher = h.controller.getState().analysis.neuralTeacherExperience;
+  assert.equal(teacher.status, 'ready');
+  assert.equal(teacher.patternCount, 1);
+  assert.equal(teacher.experienceSize, 2);
+  assert.equal(teacher.frozen, true);
+  assert.equal(teacher.fingerprint, 'lbe8-controller');
+  assert.equal(teacher.engineVersion, 'long-analytic-v35');
+  assert.equal(h.controller.getState().analysis.neuralExecutionPolicy, 'long-neural-hard-teacher-guard-v1');
+  assert.equal(h.controller.getState().analysis.neuralTeacherPolicyImplementationId, TEACHER_POLICY_ID);
+  assert.equal(h.controller.getState().analysis.botMemory, undefined);
+});
+
+test('neural safety resume never waits the hard-bot 16.5 second experience budget', () => {
+  const h = harness({ experienceLoader: () => new Promise(() => {}), experienceStartsFrozen: false });
+  h.api.ensureAutoProgressAfterExperience(0, 16500);
+  assert.ok(h.calls.timerDelays.includes(900));
+  assert.equal(h.calls.timerDelays.includes(16500), false);
 });
 
 test('neural legality validation searches only a detached rule position, not growing proof or analytics history', () => {
@@ -371,7 +422,7 @@ test('neural training archive preserves full move history and excludes the old r
   h.api.safeBotPlan(); const payload = h.api.botTrainingStatePayload();
   assert.equal(payload.history.length, 240); assert.equal(payload.botDifficulty, 'hard-neuro');
   assert.equal(payload.analysis.neuralDecisions.length, 1); assert.equal(payload.analysis.botMemory, undefined);
-  assert.equal(h.calls.experience, 0);
+  assert.equal(h.calls.experience, 2);
 });
 
 test('existing hard identity and durable old botMemory decision path remain separate', () => {

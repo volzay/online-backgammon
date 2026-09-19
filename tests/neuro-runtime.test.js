@@ -9,6 +9,7 @@ const neural = require('../lib/long-bot-neural');
 const neuralV2 = require('../lib/long-bot-neural-v2');
 const buildModel = require('../scripts/build-long-neural-model');
 const buildV2Model = require('../scripts/build-long-neural-v2-public-model');
+const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const { fingerprint } = require('../lib/long-neural-artifact');
 const ROOT = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
@@ -33,7 +34,23 @@ function environment({ model = true, core = true, adapter = true, integrity = tr
   if (model) vm.runInContext(read('vendor/long-neural/model-v2.js'), context);
   if (payload) context.window.NarduLongNeuralV2Model = payload;
   if (adapter) vm.runInContext(read('long-neural-bot.js'), context);
-  context.window.NarduStrongBot = { plan() { throw new Error('Neuro must not call strong heuristic'); } };
+  let teacherDecision = null;
+  context.window.NarduLongBotEngine = {
+    version: 'long-analytic-v35',
+    policyImplementationId: TEACHER_POLICY_ID,
+    consumeLastDecision() { const decision = teacherDecision; teacherDecision = null; return decision; },
+    experienceSnapshot: () => ({ fingerprint: 'lbe8-test0001', size: 3, frozen: true }),
+  };
+  context.window.NarduStrongBot = {
+    plan(state) {
+      const legal = context.window.NarduGame.bestMoveSequences(state, state.turn);
+      const selected = (legal.at(-1) || []).map(({ from, die }) => ({ from, die }));
+      teacherDecision = { positionId: 'teacher-position', selected: { score: 42,
+        moves: selected.map(({ from, die }) => ({ from, die })) } };
+      return selected;
+    },
+    consumeLastFallbackDecision: () => null,
+  };
   vm.runInContext(read('bot.js'), context);
   return { context, game: context.window.NarduGame, bot: context.window.NarduBot,
     neuro: context.window.NarduNeuralBot, payload: context.window.NarduLongNeuralV2Model };
@@ -42,6 +59,24 @@ function rolled(game, dice = [2, 4]) {
   const state = game.initialState('long');
   state.turn = 'white'; state.phase = 'roll'; game.applyRoll(state, dice);
   return state;
+}
+
+function realTeacherEnvironment() {
+  const values = new Map();
+  const storage = { get length() { return values.size; }, key: index => [...values.keys()][index] || null,
+    getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key) };
+  const window = { localStorage: storage, sessionStorage: storage };
+  const context = vm.createContext({ window, console, Date, Math, JSON, TextEncoder, Uint8Array });
+  vm.runInContext(read('game.js'), context);
+  context.NarduGame = window.NarduGame;
+  vm.runInContext(read('fair-dice-crypto.js'), context);
+  window.NarduFairDiceCrypto = context.NarduFairDiceCrypto;
+  for (const file of ['long-bot-engine.js', 'strong-bot.js',
+    'lib/long-bot-neural.js', 'lib/long-bot-neural-v2.js', 'vendor/long-neural/model-v2.js',
+    'long-neural-bot.js', 'bot.js']) vm.runInContext(read(file), context, { filename: file });
+  return { window, game: window.NarduGame, neuro: window.NarduNeuralBot,
+    hard: window.NarduStrongBot, engine: window.NarduLongBotEngine };
 }
 
 test('the retired V1 rollback asset remains pinned and reproducible but is not the runtime model', () => {
@@ -139,14 +174,17 @@ test('hard-neuro normalization preserves its identity before the old hard/name/r
   for (const level of ['easy', 'medium', 'hard']) assert.equal(bot.normalizeDifficulty(level), level);
 });
 
-test('hard-neuro uses only saved network, obeys the full first-double turn and never generates dice', () => {
+test('hard-neuro evaluates its saved network but executes the verified hard-v35 teacher turn', () => {
   const { game, bot, neuro, payload } = environment();
   const state = rolled(game, [3, 3, 3, 3]);
   const before = JSON.stringify(state); const weights = JSON.stringify(payload.model);
   const plan = plain(bot.plan(state, { difficulty: 'hard-neuro' }));
   const reference = neuralV2.createNeuralBot(game, plain(payload.model),
     { maxCandidates: 32, replyTopCandidates: 2, replyCandidates: 4, replyWeight: 0.35 });
-  assert.deepEqual(plan, plain(reference.plan(state)));
+  const neuralOnly = plain(reference.plan(state));
+  const teacher = plain(game.bestMoveSequences(plain(state), state.turn).at(-1))
+    .map(({ from, die }) => ({ from, die }));
+  assert.deepEqual(plan, teacher);
   assert.equal(plan.filter(move => move.from === 24).length, 2);
   assert.equal(plan.length, 4);
   const legal = game.bestMoveSequences(plain(state));
@@ -169,7 +207,44 @@ test('hard-neuro uses only saved network, obeys the full first-double turn and n
   assert.equal(decision.rulesFingerprint, buildV2Model.PIN.rulesFingerprint);
   assert.equal(decision.searchPolicyCodeFingerprint, buildV2Model.PIN.searchPolicyCodeFingerprint);
   assert.equal(decision.productionEligible, false);
+  assert.equal(decision.executionPolicy, 'long-neural-hard-teacher-guard-v1');
+  assert.equal(decision.teacherGuardActive, true);
+  assert.equal(decision.teacherEngineVersion, 'long-analytic-v35');
+  assert.equal(decision.teacherExperienceFingerprint, 'lbe8-test0001');
+  assert.equal(decision.teacherExperienceSize, 3);
+  assert.equal(decision.teacherExperienceFrozen, true);
+  assert.deepEqual(plain(decision.neuralProposedMoves), neuralOnly);
+  assert.equal(decision.neuralTeacherAgreement, JSON.stringify(neuralOnly) === JSON.stringify(teacher));
   assert(decision.selectedValue >= 0 && decision.selectedValue <= 1);
+});
+
+test('production neural guard executes the exact real hard-v35 plan with a frozen experience snapshot', () => {
+  const { game, neuro, hard, engine } = realTeacherEnvironment();
+  const state = rolled(game, [2, 4]);
+  engine.beginExperienceSession('neural-teacher-regression');
+  const frozen = engine.freezeExperience('neural-teacher-regression');
+  const expected = plain(hard.plan(plain(state)));
+  const actual = plain(neuro.plan(state));
+  assert.deepEqual(actual, expected);
+  const decision = neuro.getLastDecision();
+  assert.equal(decision.teacherGuardActive, true);
+  assert.equal(decision.teacherEngineVersion, engine.version);
+  assert.equal(decision.teacherPolicyImplementationId, engine.policyImplementationId);
+  assert.equal(decision.teacherExperienceFingerprint, frozen.fingerprint);
+  assert.equal(decision.teacherExperienceFrozen, true);
+  assert.equal(decision.teacherChoiceSource, 'long-analytic-engine');
+});
+
+test('teacher guard fails closed on an unpinned v35 build or an unfrozen experience snapshot', () => {
+  const wrongPolicy = environment();
+  wrongPolicy.context.window.NarduLongBotEngine.policyImplementationId = 'b'.repeat(64);
+  assert.throws(() => wrongPolicy.neuro.plan(rolled(wrongPolicy.game)), /teacher is unavailable/);
+
+  const unfrozen = environment();
+  unfrozen.context.window.NarduLongBotEngine.experienceSnapshot = () => ({
+    fingerprint: 'lbe8-unfrozen', size: 3, frozen: false,
+  });
+  assert.throws(() => unfrozen.neuro.plan(rolled(unfrozen.game)), /experience is not frozen/);
 });
 
 test('neuro consumes one decision and a later invalid request clears its diagnostics', () => {
