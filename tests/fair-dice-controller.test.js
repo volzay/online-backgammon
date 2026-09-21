@@ -39,6 +39,7 @@ function extractFunction(signature) {
 
 const sources = [
   'function compactRollText(', 'function expandRollValues(', 'function boardDiceFaces(',
+  'function visualAnimationWithDeadline(',
   'async function shaDiceRoll(', 'async function handleFairDiceFailure(',
   'function ensureAutoProgress(', 'async function openingRoll(', 'async function autoRoll(',
 ].map(extractFunction).join('\n');
@@ -77,8 +78,9 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     fairDiceError: '', fairDiceInFlight: false, undoStack: [],
     botAnalysisVersion: 1, remoteVersion: 1, Date, Math: math, URL,
     location: { href: 'https://volzay.github.io/online-backgammon/room.html' },
-    console: { warn: () => calls.push('warning') },
+    console: { warn: () => calls.push('warning') }, setTimeout, clearTimeout,
     window: {
+      setTimeout,
       NarduApp: { getUser: () => ({ name: 'Owner' }) },
       NarduRooms: {
         fairDicePolicy: async () => ({ required: true }),
@@ -115,6 +117,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     trayRollAnimation: async () => calls.push('animate-tray'),
     finishOpeningRollAnimation: () => { context.isRolling = false; calls.push('finish-animation'); },
     finishTurnRollAnimation: () => { context.isRolling = false; calls.push('finish-animation'); },
+    DICE_VISUAL_TIMEOUT_MS: 1600,
     randomHex: legacy('legacy-seed'), sha256Hex: legacy('legacy-hash'),
     diceValuesFromHash: legacy('legacy-dice'),
   };
@@ -198,6 +201,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
       isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
       isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
       autoRoll() {}, openingRoll() {}, playBotTurn() {}, maybeScheduleAutoEndTurn() {},
+      scheduleBotTurn(ms) { scheduled.push({ callback: () => {}, ms }); },
       scheduleOpeningTurnRoll() {}, persistRoomSnapshot() {}, console,
       schedule(callback, ms) { scheduled.push({ callback, ms }); return scheduled.length; } };
     vm.createContext(context);
@@ -302,6 +306,36 @@ test('last bot-room checker to protected dice animation stays inside the 1.5 sec
   assert.equal(animationStartedAt, 1330);
   assert.ok(animationStartedAt <= 1500);
   assert.equal(count(r.calls, 'animate-roll'), 1);
+});
+
+test('a stalled dice animation continues the same saved roll without requesting another roll', async () => {
+  const r = rig('autoRoll');
+  let deadline = null;
+  r.context.window.setTimeout = (callback, ms) => {
+    deadline = { callback, ms };
+    return 1;
+  };
+  r.context.NarduBoardEngine.animateDiceRoll = () => new Promise(() => {});
+
+  const running = r.run();
+  await flush();
+  assert.equal(count(r.calls, 'request'), 1);
+  r.requested.resolve(clone(proof));
+  await running;
+  await flush();
+
+  assert.equal(r.context.isRolling, true);
+  assert.equal(count(r.calls, 'finish-animation'), 0);
+  assert.equal(r.context.state.history.filter(event => event.fairDiceProof?.request?.id === PROOF_ID).length, 1);
+  assert.deepEqual(deadline && { ms: deadline.ms }, { ms: 1600 });
+
+  deadline.callback();
+  await flush();
+
+  assert.equal(r.context.isRolling, false);
+  assert.equal(count(r.calls, 'finish-animation'), 1);
+  assert.equal(count(r.calls, 'request'), 1, 'the already saved signed roll must not be requested again');
+  assert.equal(r.context.state.history.filter(event => event.fairDiceProof?.request?.id === PROOF_ID).length, 1);
 });
 
 for (const method of ['openingRoll', 'autoRoll']) {

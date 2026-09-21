@@ -132,15 +132,27 @@ test('native hard factory preserves captured v35 source/policy and selected open
   assert.throws(() => evaluator.createCurrentHard(snapshot, { loader: 'fallback' }), /loader/);
 });
 
-test('current-hard approval pins two whole runtime tuples and rejects genuinely changed source bytes', () => {
+test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 2);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 3);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
-  const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES[1];
+  const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
   assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
   assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
+  assert.equal(hard.metadata.sourceFingerprints['strong-bot.js'], `sha256:${actual.strongBotBytesDigest}`);
+  const previous = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-2);
+  assert.equal(evaluator.approvedCurrentHardTuple(actual.policyImplementationId, {
+    'game.js': `sha256:${actual.gameBytesDigest}`,
+    'long-bot-engine.js': `sha256:${actual.runtimeBytesDigest}`,
+    'strong-bot.js': `sha256:${previous.strongBotBytesDigest}`,
+  }), null, 'a current engine cannot be paired with the previous dispatcher');
+  assert.equal(evaluator.approvedCurrentHardTuple(previous.policyImplementationId, {
+    'game.js': `sha256:${previous.gameBytesDigest}`,
+    'long-bot-engine.js': `sha256:${previous.runtimeBytesDigest}`,
+    'strong-bot.js': `sha256:${actual.strongBotBytesDigest}`,
+  }), null, 'a previous engine cannot be paired with the current dispatcher');
   for (const changedName of ['game.js', 'long-bot-engine.js', 'strong-bot.js']) {
     const entries = snapshot.entries.map(([name, bytes]) => [name,
       name === changedName ? Buffer.concat([bytes, Buffer.from('\n// unaudited runtime bytes\n')]) : Buffer.from(bytes)]);

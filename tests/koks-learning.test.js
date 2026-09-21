@@ -301,19 +301,21 @@ test("production entry points cache-bust every current bot dependency", () => {
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
   const version = "20260916-long-bot-v35-v37";
+  const botRuntimeVersion = "20260921-long-bot-worker-v1";
 
-  assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${version}`));
-  assert.match(room, new RegExp(`strong-bot\\.js\\?v=${version}`));
-  assert.match(room, /rooms-client\.js\?v=20260920-neuro-teacher-gate-v1/);
+  assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${botRuntimeVersion}`));
+  assert.match(room, new RegExp(`strong-bot\\.js\\?v=${botRuntimeVersion}`));
+  assert.match(room, new RegExp(`long-bot-worker-client\\.js\\?v=${botRuntimeVersion}`));
+  assert.match(room, new RegExp(`rooms-client\\.js\\?v=${botRuntimeVersion}`));
   assert.match(room, new RegExp(`supabase-client\\.js\\?v=${version}`));
-  assert.match(room, /game-controller\.js\?v=20260920-neuro-teacher-gate-v1/);
+  assert.match(room, new RegExp(`game-controller\\.js\\?v=${botRuntimeVersion}`));
   const neuralVersion = "20260920-neuro-teacher-gate-v1";
   assert.match(room, new RegExp(`lib/long-bot-neural\\.js\\?v=${neuralVersion}`));
   assert.match(room, new RegExp(`lib/long-bot-neural-v2\\.js\\?v=${neuralVersion}`));
   assert.match(room, new RegExp(`vendor/long-neural/model-v2\\.js\\?v=${neuralVersion}`));
-  assert.match(room, new RegExp(`long-neural-bot\\.js\\?v=${neuralVersion}`));
+  assert.match(room, new RegExp(`long-neural-bot\\.js\\?v=${botRuntimeVersion}`));
   assert.doesNotMatch(room, /vendor\/long-neural\/model\.js/);
-  assert.match(lobby, /rooms-client\.js\?v=20260920-neuro-teacher-gate-v1/);
+  assert.match(lobby, new RegExp(`rooms-client\\.js\\?v=${botRuntimeVersion}`));
   assert.match(lobby, new RegExp(`supabase-client\\.js\\?v=${version}`));
   [login, register, settings, homegate].forEach(source => {
     assert.match(source, new RegExp(`supabase-client\\.js\\?v=${version}`));

@@ -86,14 +86,15 @@
     if (!/^[0-9a-f]{64}$/.test(current)) return false;
     if (value === current) return true;
     const compatibility = engine?.learningCompatibility;
-    return current === '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526'
-      && !!compatibility && Object.isFrozen(compatibility) && Object.isFrozen(compatibility.sourceFingerprints)
+    return !!compatibility && Object.isFrozen(compatibility)
+      && Object.isFrozen(compatibility.sourceFingerprints)
+      && Object.isFrozen(compatibility.compatiblePolicyImplementationIds)
       && compatibility.schema === 'long-v35-history-free-learning-compat-v1'
       && compatibility.policyImplementationId === current
       && compatibility.sourceFingerprints?.['game.js'] === 'sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623'
       && compatibility.learningPolicyImplementationId === 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1'
+      && compatibility.compatiblePolicyImplementationIds.includes(value)
       && engine.learningPolicyImplementationId === compatibility.learningPolicyImplementationId
-      && value === compatibility.learningPolicyImplementationId
       && typeof engine.acceptsLearningPolicyImplementationId === 'function'
       && engine.acceptsLearningPolicyImplementationId(value) === true;
   }

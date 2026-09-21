@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}}, sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573"}) });
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:6fa6520f41aa145309760d6c2b1903b2c800e83b59b7a57115c5eae1d1f6cb09","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:6a3fd5d5cc24f93f56efb67dd39ecd3bb775a7261fc072e0661ea82f618f7eff","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:6fa6520f41aa145309760d6c2b1903b2c800e83b59b7a57115c5eae1d1f6cb09","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:6a3fd5d5cc24f93f56efb67dd39ecd3bb775a7261fc072e0661ea82f618f7eff","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812"}) });
 
 /* bot-engine/long/metrics.ts */
 
@@ -2639,6 +2639,11 @@ function signedFlag(name, value) {
 
 
 const DEFAULT_MAX_CANDIDATES = 64;
+// Generating every legal move order for doubles can grow explosively before
+// the analytical node budget is even created.  Keep the initial frontier
+// bounded as well; sampledMoveSequences still returns only maximum-use legal
+// turns and deduplicates equivalent resulting positions.
+const DEFAULT_INITIAL_SEQUENCE_LIMIT = 0;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
 const IMMINENT_HEAD_FENCE_SCORE_TOLERANCE = 8000000;
@@ -2647,6 +2652,10 @@ const CONTESTED_HEAD_EXIT_SCORE_TOLERANCE = 60000000;
 function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
   const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
+  const defaultInitialSequenceLimit = Math.max(
+    0,
+    Number(options.initialSequenceLimit) || DEFAULT_INITIAL_SEQUENCE_LIMIT,
+  );
   const defaultAnalysisNodeBudget = normalizeAnalysisNodeBudget(
     options.analysisNodeBudget,
     DEFAULT_ANALYSIS_NODE_BUDGET,
@@ -2659,6 +2668,10 @@ function createLongBotEngine(adapter, options = {}) {
     if (!color) return [];
     const weights = mergeWeights({ ...defaultWeights, ...(runtimeOptions.weights || {}) });
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
+    const initialSequenceLimit = Math.max(
+      0,
+      Number(runtimeOptions.initialSequenceLimit) || defaultInitialSequenceLimit,
+    );
     const analysisNodeBudget = normalizeAnalysisNodeBudget(
       runtimeOptions.analysisNodeBudget,
       defaultAnalysisNodeBudget,
@@ -2668,7 +2681,9 @@ function createLongBotEngine(adapter, options = {}) {
     const advancedStrategy = strategyProfile !== 'v19';
     const useExperience = advancedStrategy
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
-    const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
+    const sequences = adapter.legalSequences(state, color, {
+      limit: initialSequenceLimit,
+    }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(adapter, state, color, sequences, maxCandidates);
@@ -6779,12 +6794,17 @@ const LEARNING_COMPATIBILITY = typeof NARDU_LONG_BOT_LEARNING_COMPATIBILITY === 
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.schema === 'long-v35-history-free-learning-compat-v1'
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.policyImplementationId === POLICY_IMPLEMENTATION_ID
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.learningPolicyImplementationId === 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1'
+  && Object.isFrozen(NARDU_LONG_BOT_LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds)
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(
+    NARDU_LONG_BOT_LEARNING_COMPATIBILITY.learningPolicyImplementationId
+  )
   ? NARDU_LONG_BOT_LEARNING_COMPATIBILITY : null;
 
 function acceptsLearningPolicyImplementationId(value) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && (value === POLICY_IMPLEMENTATION_ID
-      || !!LEARNING_COMPATIBILITY && value === LEARNING_COMPATIBILITY.learningPolicyImplementationId);
+      || !!LEARNING_COMPATIBILITY
+        && LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
@@ -7298,6 +7318,8 @@ function compactRuntimeOptions(runtimeOptions = {}) {
     maxCandidates: Math.max(0, Number(runtimeOptions.maxCandidates) || 0),
     analysisNodeBudget: Math.max(0, Number(runtimeOptions.analysisNodeBudget) || 0),
   };
+  const initialSequenceLimit = Math.max(0, Number(runtimeOptions.initialSequenceLimit) || 0);
+  if (initialSequenceLimit > 0) compact.initialSequenceLimit = initialSequenceLimit;
   if (runtimeOptions.weights && typeof runtimeOptions.weights === 'object') {
     compact.weights = Object.fromEntries(
       Object.entries(runtimeOptions.weights)

@@ -9,6 +9,12 @@ window.NarduStrongBot = (function () {
   const PREFILTER_SEQUENCE_LIMIT = 64;
   const REPLY_LIMIT = 4;
   const PLAN_ANALYSIS_NODE_BUDGET = 480;
+  // Doubles create a four-ply combinatorial tree.  Keep that one class of
+  // positions inside the live-turn latency budget while preserving the full
+  // production search for ordinary rolls.
+  const LIVE_DOUBLES_CANDIDATE_LIMIT = 16;
+  const LIVE_DOUBLES_SEQUENCE_LIMIT = 16;
+  const LIVE_DOUBLES_NODE_BUDGET = 12;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v8';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
@@ -1584,13 +1590,36 @@ window.NarduStrongBot = (function () {
         syncLocalExperience();
         window.NarduLongBotEngine.freezeExperience?.();
         const productionOptions = window.NarduLongBotEngine.productionOptions || {};
+        const rolled = Array.isArray(state?.rolled) ? state.rolled : [];
+        const dice = Array.isArray(state?.dice) ? state.dice : [];
+        const liveDoublesTurn = runtimeOptions.liveTurnLatencyBudget === true
+          && rolled.length === 4
+          && rolled.every(die => die === rolled[0])
+          && dice.length > 0
+          && dice.every(die => die === rolled[0]);
+        const requestedMaxCandidates = Number(runtimeOptions.maxCandidates)
+          || Number(productionOptions.maxCandidates)
+          || PREFILTER_SEQUENCE_LIMIT;
+        const requestedSequenceLimit = Math.max(0,
+          Number(runtimeOptions.initialSequenceLimit)
+          || Number(productionOptions.initialSequenceLimit)
+          || 0);
+        const requestedNodeBudget = Number(runtimeOptions.analysisNodeBudget)
+          || Number(productionOptions.analysisNodeBudget)
+          || PLAN_ANALYSIS_NODE_BUDGET;
         const enginePlan = window.NarduLongBotEngine.plan(state, {
-          maxCandidates: Number(runtimeOptions.maxCandidates)
-            || Number(productionOptions.maxCandidates)
-            || PREFILTER_SEQUENCE_LIMIT,
-          analysisNodeBudget: Number(runtimeOptions.analysisNodeBudget)
-            || Number(productionOptions.analysisNodeBudget)
-            || PLAN_ANALYSIS_NODE_BUDGET,
+          maxCandidates: liveDoublesTurn
+            ? Math.min(requestedMaxCandidates, LIVE_DOUBLES_CANDIDATE_LIMIT)
+            : requestedMaxCandidates,
+          initialSequenceLimit: liveDoublesTurn
+            ? Math.min(
+              requestedSequenceLimit || LIVE_DOUBLES_SEQUENCE_LIMIT,
+              LIVE_DOUBLES_SEQUENCE_LIMIT,
+            )
+            : requestedSequenceLimit,
+          analysisNodeBudget: liveDoublesTurn
+            ? Math.min(requestedNodeBudget, LIVE_DOUBLES_NODE_BUDGET)
+            : requestedNodeBudget,
           strategyProfile: runtimeOptions.strategyProfile
             || productionOptions.strategyProfile
             || 'v25',

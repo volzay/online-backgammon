@@ -30,12 +30,23 @@ const AUDITED_NATIVE_CACHE_POLICY = Object.freeze({
 // clones. Exact ordered rules/plans are checked in the history-search suite.
 // Keep the original tuple and its namespaces unchanged; never mix its hashes
 // with this regenerated bundle or relabel historical rollout evidence.
-const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
+const HISTORY_FREE_NATIVE_CACHE_POLICY = Object.freeze({
   policyImplementationId: '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526',
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d',
 });
-const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([AUDITED_NATIVE_CACHE_POLICY, OPTIMIZED_NATIVE_CACHE_POLICY]);
+// The ordinary/default dispatcher remains behavior-compatible; only an
+// explicit live-worker option activates the bounded doubles frontier.
+const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: '953fd056d24e7491d54af9203c6cf3458cf0b959d4aff23773f134c3302a6187',
+});
+const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
+  AUDITED_NATIVE_CACHE_POLICY,
+  HISTORY_FREE_NATIVE_CACHE_POLICY,
+  OPTIMIZED_NATIVE_CACHE_POLICY,
+]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
   minSamples: 32,
@@ -683,6 +694,7 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
 
 module.exports = {
   AUDITED_NATIVE_CACHE_POLICY,
+  HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,

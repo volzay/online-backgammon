@@ -7,6 +7,7 @@ const builder = require('./build-long-bot-engine');
 const ROOT = path.join(__dirname, '..');
 const OPTIMIZED_RULES = '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623';
 const ORIGINAL_LEARNING_POLICY = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
+const PREVIOUS_PRODUCTION_POLICY = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 
 function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicySourceEntries(),
   engineSource = fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8') } = {}) {
@@ -23,7 +24,10 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
     || compatibility.schema !== 'long-v35-history-free-learning-compat-v1'
     || compatibility.policyImplementationId !== actualPolicy
     || compatibility.learningPolicyImplementationId !== ORIGINAL_LEARNING_POLICY
+    || !Object.isFrozen(compatibility.compatiblePolicyImplementationIds)
+    || !compatibility.compatiblePolicyImplementationIds.includes(PREVIOUS_PRODUCTION_POLICY)
     || engine.acceptsLearningPolicyImplementationId?.(ORIGINAL_LEARNING_POLICY) !== true
+    || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_PRODUCTION_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(actualPolicy) !== true
     || engine.acceptsLearningPolicyImplementationId?.('0'.repeat(64)) !== false) {
     throw new Error('Optimized v35 rules must preserve audited causal learning before publication');

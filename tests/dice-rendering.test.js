@@ -48,6 +48,8 @@ for (const protocol of ['system-csprng-v1', 'drand-quicknet-v1', undefined]) {
       openingRoll: { host: 2, guest: 4, fairDiceProof: proof }, history: [{ fairDiceProof: proof }] };
     const context = vm.createContext({ state, isRolling: true, console,
       document: { getElementById: () => layer }, NarduSound: { dice() {} },
+      DICE_VISUAL_TIMEOUT_MS: 1600,
+      visualAnimationWithDeadline: start => Promise.resolve().then(start),
       NarduBoardEngine: {
         animateOpeningRoll(options) { captured.push({ kind: 'opening', ...options }); return Promise.resolve(); },
         animateDiceRoll(options) { captured.push({ kind: 'turn', ...options }); return Promise.resolve(); },

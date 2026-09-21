@@ -229,7 +229,7 @@ test('production neural guard executes the exact real hard-v35 plan with a froze
   const decision = neuro.getLastDecision();
   assert.equal(decision.teacherGuardActive, true);
   assert.equal(decision.teacherEngineVersion, engine.version);
-  assert.equal(decision.teacherPolicyImplementationId, engine.policyImplementationId);
+  assert.equal(decision.teacherPolicyImplementationId, TEACHER_POLICY_ID);
   assert.equal(decision.teacherExperienceFingerprint, frozen.fingerprint);
   assert.equal(decision.teacherExperienceFrozen, true);
   assert.equal(decision.teacherChoiceSource, 'long-analytic-engine');

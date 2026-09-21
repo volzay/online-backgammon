@@ -8,6 +8,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 const {
   AUDITED_NATIVE_CACHE_POLICY,
+  HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
@@ -77,7 +78,11 @@ test('real optimized native identity enables a separately pinned cache without c
   assert.equal(native.engine.policyImplementationId, OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId);
   assert.equal(native.gameBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.gameBytesDigest);
   assert.equal(native.runtimeBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.runtimeBytesDigest);
-  assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [AUDITED_NATIVE_CACHE_POLICY, OPTIMIZED_NATIVE_CACHE_POLICY]);
+  assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
+    AUDITED_NATIVE_CACHE_POLICY,
+    HISTORY_FREE_NATIVE_CACHE_POLICY,
+    OPTIMIZED_NATIVE_CACHE_POLICY,
+  ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
 
@@ -85,6 +90,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
   assert.equal(AUDITED_NATIVE_CACHE_POLICY.gameBytesDigest, '769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b');
   assert.equal(AUDITED_NATIVE_CACHE_POLICY.policyImplementationId, 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1');
   assert.equal(AUDITED_NATIVE_CACHE_POLICY.runtimeBytesDigest, '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255');
+  assert.deepEqual(HISTORY_FREE_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d',
+  });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
   optimizedRuntime.engine.policyImplementationId = OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId;

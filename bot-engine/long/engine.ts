@@ -39,6 +39,11 @@ import {
 } from './metrics.ts';
 
 const DEFAULT_MAX_CANDIDATES = 64;
+// Generating every legal move order for doubles can grow explosively before
+// the analytical node budget is even created.  Keep the initial frontier
+// bounded as well; sampledMoveSequences still returns only maximum-use legal
+// turns and deduplicates equivalent resulting positions.
+const DEFAULT_INITIAL_SEQUENCE_LIMIT = 0;
 const DEFAULT_ANALYSIS_NODE_BUDGET = 1150;
 const LATENT_REAR_ESCAPE_SCORE_TOLERANCE = 420000000;
 const IMMINENT_HEAD_FENCE_SCORE_TOLERANCE = 8000000;
@@ -47,6 +52,10 @@ const CONTESTED_HEAD_EXIT_SCORE_TOLERANCE = 60000000;
 export function createLongBotEngine(adapter, options = {}) {
   const defaultWeights = mergeWeights(options.weights);
   const defaultMaxCandidates = Number(options.maxCandidates) || DEFAULT_MAX_CANDIDATES;
+  const defaultInitialSequenceLimit = Math.max(
+    0,
+    Number(options.initialSequenceLimit) || DEFAULT_INITIAL_SEQUENCE_LIMIT,
+  );
   const defaultAnalysisNodeBudget = normalizeAnalysisNodeBudget(
     options.analysisNodeBudget,
     DEFAULT_ANALYSIS_NODE_BUDGET,
@@ -59,6 +68,10 @@ export function createLongBotEngine(adapter, options = {}) {
     if (!color) return [];
     const weights = mergeWeights({ ...defaultWeights, ...(runtimeOptions.weights || {}) });
     const maxCandidates = Number(runtimeOptions.maxCandidates) || defaultMaxCandidates;
+    const initialSequenceLimit = Math.max(
+      0,
+      Number(runtimeOptions.initialSequenceLimit) || defaultInitialSequenceLimit,
+    );
     const analysisNodeBudget = normalizeAnalysisNodeBudget(
       runtimeOptions.analysisNodeBudget,
       defaultAnalysisNodeBudget,
@@ -68,7 +81,9 @@ export function createLongBotEngine(adapter, options = {}) {
     const advancedStrategy = strategyProfile !== 'v19';
     const useExperience = advancedStrategy
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
-    const sequences = adapter.legalSequences(state, color).filter(sequence => sequence?.length);
+    const sequences = adapter.legalSequences(state, color, {
+      limit: initialSequenceLimit,
+    }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
     const candidates = prefilterSequences(adapter, state, color, sequences, maxCandidates);

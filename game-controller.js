@@ -75,6 +75,9 @@ window.NarduController = (function () {
   let botTurnActive = false;
   let botTurnGeneration = 0;
   let botTurnPlanPromise = null;
+  let botTurnTimer = null;
+  let botTurnScheduledAt = 0;
+  let botTurnStartedAt = 0;
   let activeBotDecisionId = '';
   let fallbackBotDecisionSerial = 0;
   const ROOM_RELOAD_SNAPSHOT_KEY = 'narduh-room-reload-snapshot';
@@ -95,11 +98,18 @@ window.NarduController = (function () {
   const BEAR_OFF_SOUND_SETTLE_MS = 190;
   const GAME_OVER_SOUND_GAP_MS = 260;
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
+  const LONG_BOT_WORKER_TIMEOUT_MS = 8000;
+  const BOT_TURN_STALE_MS = 15000;
+  const DICE_VISUAL_TIMEOUT_MS = 1600;
+  const CHECKER_VISUAL_TIMEOUT_MS = 1800;
   const LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS = 8000;
   const LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS = 2;
   const NEURAL_TEACHER_EXPERIENCE_WAIT_MS = 900;
   const NEURAL_TEACHER_GUARD_SCHEMA = 'long-neural-hard-teacher-guard-v1';
   const NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
+  // The worker-only latency branch is opt-in. Neural teacher calls do not use
+  // it, so this audited runtime still executes the frozen teacher policy above.
+  const NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -876,18 +886,23 @@ window.NarduController = (function () {
       return;
     }
     const startWithFrozenExperience = () => {
-      if (variant === 'long') {
-        window.NarduStrongBot?.syncLocalExperience?.();
-        const snapshot = window.NarduLongBotEngine?.freezeExperience?.(
-          longBotExperienceSessionKey(),
-        );
-        recordLongBotExperienceLoad({
-          frozen: true,
-          fingerprint: snapshot?.fingerprint || '',
-          experienceSize: Number(snapshot?.size) || 0,
-        });
+      try {
+        if (variant === 'long') {
+          window.NarduStrongBot?.syncLocalExperience?.();
+          const snapshot = window.NarduLongBotEngine?.freezeExperience?.(
+            longBotExperienceSessionKey(),
+          );
+          recordLongBotExperienceLoad({
+            frozen: true,
+            fingerprint: snapshot?.fingerprint || '',
+            experienceSize: Number(snapshot?.size) || 0,
+          });
+        }
+      } catch (error) {
+        console.warn('Could not freeze bot experience before resuming', error?.message || error);
+      } finally {
+        ensureAutoProgress(delay);
       }
-      ensureAutoProgress(delay);
     };
     if (variant === 'long') {
       const loadExperience = loadLongBotExperienceBeforeStart().catch(error => {
@@ -2036,12 +2051,12 @@ window.NarduController = (function () {
         finish();
         return;
       }
-      NarduBoardEngine.animateCheckerMove({
+      visualAnimationWithDeadline(() => NarduBoardEngine.animateCheckerMove({
         from,
         to,
         color: move.color,
         destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
-      }).then(() => {
+      }), CHECKER_VISUAL_TIMEOUT_MS, 'Incoming checker animation').then(() => {
         const applied = NarduGame.applyMove(state, from, move.die, { autoEnd: false });
         if (!applied) {
           finish();
@@ -2106,7 +2121,7 @@ window.NarduController = (function () {
     if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
     NarduSound.dice();
 
-    Promise.all([
+    visualAnimationWithDeadline(() => Promise.all([
       NarduBoardEngine.animateOpeningRoll({
         layer: boardDiceLayer,
         opening,
@@ -2114,7 +2129,7 @@ window.NarduController = (function () {
         duration: state.openingRoll?.fairDiceProof?.protocol === 'system-csprng-v1' ? 380 : 800,
       }),
       trayRollAnimation(),
-    ]).then(() => {
+    ]), DICE_VISUAL_TIMEOUT_MS, 'Incoming opening dice animation').then(() => {
       isRolling = false;
       if (state.rollToken !== token) {
         render();
@@ -2138,7 +2153,7 @@ window.NarduController = (function () {
     if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(faces.length);
     NarduSound.dice();
 
-    Promise.all([
+    visualAnimationWithDeadline(() => Promise.all([
       NarduBoardEngine.animateDiceRoll({
         layer: boardDiceLayer,
         faces,
@@ -2147,7 +2162,7 @@ window.NarduController = (function () {
         duration: state.history?.[0]?.fairDiceProof?.protocol === 'system-csprng-v1' ? 380 : undefined,
       }),
       trayRollAnimation(),
-    ]).then(() => {
+    ]), DICE_VISUAL_TIMEOUT_MS, 'Incoming turn dice animation').then(() => {
       isRolling = false;
       if (state.rollToken !== token) {
         render();
@@ -2406,6 +2421,7 @@ window.NarduController = (function () {
     const opponentColor = playerColor === 'white' ? 'dark' : 'white';
     paintCardStats('.player.white', playerColor);
     paintCardStats('.player.dark', opponentColor);
+    ensureBotTurnLiveness();
   }
 
   function paintCardStats(selector, color) {
@@ -2683,6 +2699,63 @@ window.NarduController = (function () {
     return t;
   }
 
+  function visualAnimationWithDeadline(start, timeoutMs, label) {
+    const waitMs = Math.max(1, Number(timeoutMs) || 1);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.warn(`${label || 'Visual animation'} timed out; continuing the saved game state`);
+        resolve({ timedOut: true });
+      }, waitMs);
+      Promise.resolve()
+        .then(start)
+        .then((value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        }, (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
+  }
+
+  function scheduleBotTurn(ms = 180) {
+    if (mode !== 'bot' || !state || state.phase !== 'move' || isMyTurn() || state.winner) return;
+    const delay = Math.max(0, Number(ms) || 0);
+    if (botTurnTimer) {
+      const staleAfter = Math.max(2000, delay + 1500);
+      if (Date.now() - botTurnScheduledAt <= staleAfter) return;
+      clearTimeout(botTurnTimer);
+      botTurnTimer = null;
+    }
+    botTurnScheduledAt = Date.now();
+    botTurnTimer = schedule(() => {
+      botTurnTimer = null;
+      botTurnScheduledAt = 0;
+      playBotTurn();
+    }, delay);
+  }
+
+  function ensureBotTurnLiveness() {
+    if (mode !== 'bot' || !state || state.phase !== 'move' || isMyTurn() || state.winner) return;
+    if (isRolling || isAnimating || isChainingMove || botAnalysisRestorePending || fairDiceError || botPlannerError) return;
+    const guardedLongWorkerTurn = variant === 'long'
+      && botDifficulty === 'hard'
+      && typeof window.NarduLongBotWorker?.plan === 'function';
+    if (guardedLongWorkerTurn && botTurnActive && botTurnStartedAt > 0
+      && Date.now() - botTurnStartedAt > BOT_TURN_STALE_MS) {
+      console.warn('Stale bot turn cancelled; retrying the same saved position');
+      cancelBotTurnActivity();
+    }
+    if (!botTurnActive) scheduleBotTurn(120);
+  }
+
   function randomHex(bytes = 32) {
     const data = new Uint8Array(bytes);
     if (window.crypto?.getRandomValues) {
@@ -2940,7 +3013,7 @@ window.NarduController = (function () {
       return;
     }
     if (state.turn === rollingTurn && mode === 'bot' && !isMyTurn()) {
-      schedule(playBotTurn, 180);
+      scheduleBotTurn(180);
     } else {
       maybeScheduleAutoEndTurn();
     }
@@ -2965,7 +3038,7 @@ window.NarduController = (function () {
     }
     if (state.phase === 'move') {
       if (mode === 'bot' && !isMyTurn()) {
-        schedule(playBotTurn, Math.max(120, ms));
+        scheduleBotTurn(Math.max(120, ms));
         return;
       }
       maybeScheduleAutoEndTurn();
@@ -3025,17 +3098,24 @@ window.NarduController = (function () {
 
       const boardDiceLayer = document.getElementById('board-dice-layer');
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
-      Promise.all([
+      const rollToken = state.rollToken;
+      visualAnimationWithDeadline(() => Promise.all([
         NarduBoardEngine.animateOpeningRoll({
           layer: boardDiceLayer,
           opening,
-          token: state.rollToken,
+          token: rollToken,
           duration: fair.proof?.protocol === 'system-csprng-v1' ? 380 : 800,
         }),
         trayRollAnimation(),
-      ])
-        .then(() => finishOpeningRollAnimation())
-        .catch(error => finishOpeningRollAnimation(error));
+      ]), DICE_VISUAL_TIMEOUT_MS, 'Opening dice animation')
+        .then(() => {
+          if (generation !== botAnalysisStartupGeneration || state.rollToken !== rollToken) return;
+          finishOpeningRollAnimation();
+        })
+        .catch(error => {
+          if (generation !== botAnalysisStartupGeneration || state.rollToken !== rollToken) return;
+          finishOpeningRollAnimation(error);
+        });
     } catch (error) {
       console.warn('Opening roll failed', error?.message || error);
       await handleFairDiceFailure(error);
@@ -3101,18 +3181,25 @@ window.NarduController = (function () {
       const boardDiceLayer = document.getElementById('board-dice-layer');
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
 
-      Promise.all([
+      const rollToken = state.rollToken;
+      visualAnimationWithDeadline(() => Promise.all([
         NarduBoardEngine.animateDiceRoll({
           layer: boardDiceLayer,
           faces: boardFaces,
           color: rollingTurn,
-          token: state.rollToken,
+          token: rollToken,
           duration: fair.proof?.protocol === 'system-csprng-v1' ? 380 : undefined,
         }),
         trayRollAnimation(),
-      ])
-        .then(() => finishTurnRollAnimation(rollingTurn))
-        .catch(error => finishTurnRollAnimation(rollingTurn, error));
+      ]), DICE_VISUAL_TIMEOUT_MS, 'Turn dice animation')
+        .then(() => {
+          if (generation !== botAnalysisStartupGeneration || state.rollToken !== rollToken) return;
+          finishTurnRollAnimation(rollingTurn);
+        })
+        .catch(error => {
+          if (generation !== botAnalysisStartupGeneration || state.rollToken !== rollToken) return;
+          finishTurnRollAnimation(rollingTurn, error);
+        });
     } catch (error) {
       console.warn('Turn roll failed', error?.message || error);
       await handleFairDiceFailure(error);
@@ -3954,7 +4041,10 @@ window.NarduController = (function () {
       if (variant !== 'long' || state?.variant !== 'long') throw new Error('Unsupported short-neuro room');
       if (!window.NarduNeuralBot?.getModelMetadata) throw new Error('Neural model assets missing');
       if (window.NarduLongBotEngine?.version !== 'long-analytic-v35'
-        || window.NarduLongBotEngine?.policyImplementationId !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID
+        || (window.NarduLongBotEngine?.policyImplementationId
+          !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {
         throw new Error('Verified long-analytic-v35 teacher assets missing');
       }
@@ -4106,6 +4196,35 @@ window.NarduController = (function () {
     }
   }
 
+  function boundedLongBotFallbackPlan(reason = 'worker-fallback') {
+    try {
+      const sequences = (NarduGame.sampledMoveSequences?.(state, state.turn, 4) || [])
+        .filter(sequence => Array.isArray(sequence) && sequence.length);
+      if (!sequences.length) return [];
+      const engine = window.NarduLongBotEngine;
+      const ranked = sequences.map((sequence, index) => {
+        let score = -index;
+        try {
+          const review = engine?.reviewSequenceStatic?.(state, sequence, {
+            color: state.turn,
+            strategyProfile: engine?.productionOptions?.strategyProfile || 'v25',
+          });
+          if (Number.isFinite(review?.score)) score = review.score;
+        } catch {}
+        return { sequence, score };
+      }).sort((left, right) => right.score - left.score);
+      const planned = ranked[0].sequence.map(move => ({
+        from: Number(move.from),
+        die: Number(move.die),
+      }));
+      rememberBotDecision(createFallbackBotDecision(state, planned, reason));
+      return planned;
+    } catch (error) {
+      console.warn('Bounded long bot fallback failed', error?.message || error);
+      return [];
+    }
+  }
+
   function safeBotPlan() {
     if (botDifficulty === 'hard-neuro') {
       if (!validateNeuralBotAvailability()) throw new Error(botPlannerError);
@@ -4170,17 +4289,23 @@ window.NarduController = (function () {
   }
 
   function cancelBotTurnActivity() {
+    if (botTurnTimer) clearTimeout(botTurnTimer);
+    botTurnTimer = null;
+    botTurnScheduledAt = 0;
+    botTurnStartedAt = 0;
     botTurnGeneration += 1;
     botTurnActive = false;
     botTurnPlanPromise = null;
     activeBotDecisionId = '';
     activeNeuralDecisionId = '';
+    window.NarduLongBotWorker?.cancel?.();
   }
 
   function releaseBotTurnActivity(generation) {
     if (generation !== botTurnGeneration) return false;
     botTurnActive = false;
     botTurnPlanPromise = null;
+    botTurnStartedAt = 0;
     return true;
   }
 
@@ -4200,6 +4325,37 @@ window.NarduController = (function () {
     );
     const engine = window.NarduShortBotEngine;
     const client = window.NarduShortBotWildbg;
+    if (variant === 'long' && botDifficulty === 'hard') {
+      const longEngine = window.NarduLongBotEngine;
+      const longClient = window.NarduLongBotWorker;
+      if (typeof longClient?.plan !== 'function') {
+        return {
+          stale: !current(),
+          moves: current() ? boundedLongBotFallbackPlan('worker-unavailable') : [],
+        };
+      }
+      try {
+        const result = await longClient.plan({
+          engine: longEngine,
+          state: sourceState,
+          isCurrent: current,
+          timeoutMs: LONG_BOT_WORKER_TIMEOUT_MS,
+        });
+        if (result?.stale || !current()) return { stale: true, moves: [] };
+        if (!result?.decision) {
+          return { stale: false, moves: boundedLongBotFallbackPlan('worker-missing-decision') };
+        }
+        rememberBotDecision(result.decision);
+        return {
+          stale: false,
+          moves: (result.moves || []).map(move => ({ from: move.from, die: move.die })),
+        };
+      } catch (error) {
+        if (!current()) return { stale: true, moves: [] };
+        console.warn('Long bot worker failed, using bounded fallback', error?.message || error);
+        return { stale: false, moves: boundedLongBotFallbackPlan('worker-error') };
+      }
+    }
     if (
       variant !== 'short' ||
       botDifficulty !== 'hard' ||
@@ -4653,6 +4809,9 @@ window.NarduController = (function () {
   }
 
   function playBotTurn() {
+    if (botTurnTimer) clearTimeout(botTurnTimer);
+    botTurnTimer = null;
+    botTurnScheduledAt = 0;
     if (
       fairDiceError ||
       (typeof botPlannerError !== 'undefined' && botPlannerError) ||
@@ -4668,6 +4827,7 @@ window.NarduController = (function () {
     NarduSound.prime();
     undoStack = [];
     botTurnActive = true;
+    botTurnStartedAt = Date.now();
     activeBotDecisionId = '';
     activeNeuralDecisionId = '';
     const generation = ++botTurnGeneration;
@@ -4744,6 +4904,7 @@ window.NarduController = (function () {
               return;
             }
             recordBotMoveApplied(m, to, i - 1);
+            botTurnStartedAt = Date.now();
             if (botDifficulty === 'hard-neuro') recordNeuralExecution(m, to);
             playMoveSound(m);
             render();
@@ -4776,13 +4937,13 @@ window.NarduController = (function () {
   /* ── animation: clone a flying checker from source to destination ── */
   function animateMove(from, to, done, options = {}) {
     isAnimating = true;
-    NarduBoardEngine.animateCheckerMove({
+    visualAnimationWithDeadline(() => NarduBoardEngine.animateCheckerMove({
       from,
       to,
       color: state.turn,
       destinationCount: to === 0 ? 0 : NarduGame.pointCount(state, to),
       movingChecker: options.movingChecker,
-    }).then(() => {
+    }), CHECKER_VISUAL_TIMEOUT_MS, 'Checker animation').then(() => {
       isAnimating = false;
       done();
     }).catch(error => {

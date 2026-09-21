@@ -48,6 +48,8 @@ const STATIC_FILES = [
   "short-bot-wildbg-client.js",
   "short-bot-wildbg-worker.js",
   "strong-bot.js",
+  "long-bot-worker-client.js",
+  "long-bot-worker.js",
   "lib/long-bot-neural.js",
   "lib/long-bot-neural-v2.js",
   "vendor/long-neural/model-v2.js",

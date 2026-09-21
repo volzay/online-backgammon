@@ -15,12 +15,17 @@ const LEARNING_COMPATIBILITY = typeof NARDU_LONG_BOT_LEARNING_COMPATIBILITY === 
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.schema === 'long-v35-history-free-learning-compat-v1'
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.policyImplementationId === POLICY_IMPLEMENTATION_ID
   && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.learningPolicyImplementationId === 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1'
+  && Object.isFrozen(NARDU_LONG_BOT_LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds)
+  && NARDU_LONG_BOT_LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(
+    NARDU_LONG_BOT_LEARNING_COMPATIBILITY.learningPolicyImplementationId
+  )
   ? NARDU_LONG_BOT_LEARNING_COMPATIBILITY : null;
 
 function acceptsLearningPolicyImplementationId(value) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && (value === POLICY_IMPLEMENTATION_ID
-      || !!LEARNING_COMPATIBILITY && value === LEARNING_COMPATIBILITY.learningPolicyImplementationId);
+      || !!LEARNING_COMPATIBILITY
+        && LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
@@ -534,6 +539,8 @@ function compactRuntimeOptions(runtimeOptions = {}) {
     maxCandidates: Math.max(0, Number(runtimeOptions.maxCandidates) || 0),
     analysisNodeBudget: Math.max(0, Number(runtimeOptions.analysisNodeBudget) || 0),
   };
+  const initialSequenceLimit = Math.max(0, Number(runtimeOptions.initialSequenceLimit) || 0);
+  if (initialSequenceLimit > 0) compact.initialSequenceLimit = initialSequenceLimit;
   if (runtimeOptions.weights && typeof runtimeOptions.weights === 'object') {
     compact.weights = Object.fromEntries(
       Object.entries(runtimeOptions.weights)
