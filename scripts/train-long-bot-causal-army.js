@@ -652,7 +652,8 @@ async function runTraining(options, dependencies = {}) {
     rolloutLimits: { samples: options.reviewSamples, minSamples: 32,
       maxUniquePositions: options.reviewPositions, maxPlies: options.reviewMaxPlies,
       maxElapsedMs: options.reviewMs,
-      policy: { strategyProfile: 'v25', maxCandidates: 24, analysisNodeBudget: 64 } },
+      policy: { strategyProfile: 'v25', maxCandidates: 24,
+        maxTacticalCandidates: 2, analysisNodeBudget: 66 } },
   };
   // Validate the immutable closure and policy binding before spending resources on games.
   workerOptions.runtimeDigest = worker.runtimeDigest(workerOptions);

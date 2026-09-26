@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
-  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:6fa6520f41aa145309760d6c2b1903b2c800e83b59b7a57115c5eae1d1f6cb09","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:6a3fd5d5cc24f93f56efb67dd39ecd3bb775a7261fc072e0661ea82f618f7eff","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932","bot-engine/long/engine.ts":"sha256:6fa6520f41aa145309760d6c2b1903b2c800e83b59b7a57115c5eae1d1f6cb09","bot-engine/long/nardu-game-adapter.ts":"sha256:f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08","bot-engine/long/browser.ts":"sha256:6a3fd5d5cc24f93f56efb67dd39ecd3bb775a7261fc072e0661ea82f618f7eff","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812"}) });
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:408f4b38e73f11c868a86c5ddb2c41e326ac1e80e841fcada3b83c666c82d2ac","bot-engine/long/nardu-game-adapter.ts":"sha256:7088d6994e7c84ade8a70d3d31e25e2892e34c48405b5e7f493961dd9df34100","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:408f4b38e73f11c868a86c5ddb2c41e326ac1e80e841fcada3b83c666c82d2ac","bot-engine/long/nardu-game-adapter.ts":"sha256:7088d6994e7c84ade8a70d3d31e25e2892e34c48405b5e7f493961dd9df34100","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}) });
 
 /* bot-engine/long/metrics.ts */
 
@@ -1441,16 +1441,35 @@ function analyzeOpponentReplies(
   options = {},
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
+  const configuredTacticalLimit = Math.max(
+    1,
+    Math.min(
+      MAX_TACTICAL_CANDIDATES,
+      Math.floor(Number(options.maxTacticalCandidates) || MAX_TACTICAL_CANDIDATES),
+    ),
+  );
   const beforeDeepCandidate = typeof options.beforeDeepCandidate === 'function'
     ? options.beforeDeepCandidate
     : null;
   const beforeDeepSelection = typeof options.beforeDeepSelection === 'function'
     ? options.beforeDeepSelection
     : null;
-  const tacticalCandidates = uniquePositionCandidates(
+  const comparableCandidates = uniquePositionCandidates(
     candidates,
-    MAX_TACTICAL_CANDIDATES,
+    configuredTacticalLimit,
   );
+  // Primary reply evidence is useful only when every one of the 21 canonical
+  // dice outcomes is complete. Previously a small live budget was spread
+  // across incomplete candidates and produced no tactical result at all.
+  // Require two complete candidates when there is a choice, so an analyzed
+  // move cannot win merely because every alternative remained unchecked.
+  const affordableCandidates = budget
+    ? Math.floor(Number(budget.remaining) / CANONICAL_DICE_OUTCOMES.length)
+    : configuredTacticalLimit;
+  const minimumComparable = comparableCandidates.length > 1 ? 2 : 1;
+  const tacticalCandidates = affordableCandidates >= minimumComparable
+    ? comparableCandidates.slice(0, affordableCandidates)
+    : [];
   if (!tacticalCandidates.length || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
@@ -2869,6 +2888,7 @@ function createLongBotEngine(adapter, options = {}) {
       budget,
       {
         expandDoubles: advancedStrategy,
+        maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
           : null,
@@ -6737,7 +6757,112 @@ function strategicSafetyAdjustment(state, color, features) {
 
 
 /* bot-engine/long/nardu-game-adapter.ts */
-function createNarduGameAdapter(game) {
+function supportsGeneratedSequencePreview(game) {
+  return typeof game?.basicLegalMove === 'function'
+    && typeof game?.moveTo === 'function'
+    && typeof game?.pathPos === 'function'
+    && typeof game?.headPoint === 'function'
+    && typeof game?.resultTypeFor === 'function';
+}
+
+function previewGeneratedLongSequence(game, state, color, sequence) {
+  if (
+    String(state?.variant || 'long').toLowerCase() !== 'long'
+    || !Array.isArray(sequence)
+    || !sequence.length
+  ) return null;
+
+  const next = JSON.parse(JSON.stringify(state || {}));
+  const activeColor = color || next.turn;
+  if (activeColor !== 'white' && activeColor !== 'dark') return null;
+  next.variant = 'long';
+  next.turn = activeColor;
+  next.phase = 'move';
+  next.points ||= {};
+  next.bar ||= { white: 0, dark: 0 };
+  next.off ||= { white: 0, dark: 0 };
+  next.score ||= { white: 0, dark: 0 };
+  next.dice ||= [];
+  next.rolled ||= [];
+  next.turnMoves ||= [];
+  next.history ||= [];
+  next.firstMoveDone ||= { white: false, dark: false };
+  next.headPlayedThisTurn ||= { white: false, dark: false };
+
+  for (let index = 0; index < sequence.length; index += 1) {
+    const generated = sequence[index] || {};
+    const from = Number(generated.from);
+    const die = Number(generated.die);
+    const dieIndex = next.dice.findIndex(value => Number(value) === die);
+    if (!Number.isInteger(from) || dieIndex < 0) return null;
+
+    const expectedTo = game.moveTo(activeColor, from, die, next);
+    const hasExplicitTo = Object.prototype.hasOwnProperty.call(generated, 'to');
+    const to = generated.bearOff || hasExplicitTo && Number(generated.to) === 0
+      ? 0
+      : hasExplicitTo ? Number(generated.to) : expectedTo;
+    if (!Number.isFinite(to) || expectedTo !== to) {
+      return null;
+    }
+    const check = game.basicLegalMove(next, activeColor, from, to, dieIndex);
+    if (!check?.ok || Number(check.die) !== die) return null;
+
+    const source = next.points[from];
+    if (!source || source.color !== activeColor || !(Number(source.count) > 0)) {
+      return null;
+    }
+    source.count -= 1;
+    if (source.count === 0) delete next.points[from];
+
+    if (check.bearOff) {
+      next.off[activeColor] = (Number(next.off[activeColor]) || 0) + 1;
+      next.score[activeColor] = (Number(next.score[activeColor]) || 0)
+        + 24 - game.pathPos(activeColor, from, next);
+    } else {
+      const target = next.points[to];
+      if (target && target.color !== activeColor) return null;
+      if (!target) next.points[to] = { color: activeColor, count: 0 };
+      next.points[to].count += 1;
+      next.score[activeColor] = (Number(next.score[activeColor]) || 0) + die;
+    }
+
+    const removeIndex = Number.isInteger(check.dieIndex)
+      && Number(next.dice[check.dieIndex]) === die
+      ? check.dieIndex
+      : next.dice.findIndex(value => Number(value) === die);
+    if (removeIndex < 0) return null;
+    next.dice.splice(removeIndex, 1);
+    next.turnMoves.push({ color: activeColor, from, to, die, bearOff: check.bearOff });
+    if (from === game.headPoint(activeColor, next)) {
+      next.headPlayedThisTurn[activeColor] = true;
+    }
+
+    if (next.off[activeColor] >= 15) {
+      next.winner = activeColor;
+      next.resultType = game.resultTypeFor(next, activeColor);
+      next.phase = 'over';
+    }
+    next.history.unshift({
+      color: activeColor,
+      from,
+      to: check.bearOff ? 'снято' : to,
+      die,
+      hit: false,
+      hitColor: null,
+      at: new Date().toISOString(),
+    });
+
+    // A generated maximum-use sequence cannot continue after the final
+    // checker. Reject an externally forged continuation instead of previewing
+    // a state which the public rules could never produce.
+    if (next.winner && index !== sequence.length - 1) return null;
+  }
+  return next;
+}
+
+function createNarduGameAdapter(game, options = {}) {
+  const generatedSequenceFastPath = options.generatedSequenceFastPath === true
+    && supportsGeneratedSequencePreview(game);
   return {
     legalSequences(state, color, options = {}) {
       if (!game?.bestMoveSequences) return [];
@@ -6761,6 +6886,21 @@ function createNarduGameAdapter(game) {
     },
 
     applySequence(state, sequence, color) {
+      // Sequences reaching this adapter were produced by legalSequences above.
+      // Validate each move against the native rules on its intermediate board,
+      // then preview the long-only transition without recursively rebuilding
+      // the complete move tree for every checker. Public moves and all custom
+      // adapters continue through applyMove.
+      if (generatedSequenceFastPath) {
+        const preview = previewGeneratedLongSequence(
+          game,
+          state,
+          color || state.turn,
+          sequence,
+        );
+        if (preview) return preview;
+        throw new Error('Generated long sequence failed native validation');
+      }
       const next = JSON.parse(JSON.stringify(state || {}));
       next.turn = color || state.turn;
       next.phase = 'move';
@@ -6819,7 +6959,12 @@ const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
 });
 
 function createBrowserLongBotEngine(game, options = {}) {
-  const adapter = createNarduGameAdapter(game);
+  const adapter = createNarduGameAdapter(game, {
+    // This opt-in is deliberately coupled to the native history-free planner.
+    // Custom/history-dependent game factories retain the legacy applyMove
+    // transition contract unless they explicitly request the fast path.
+    generatedSequenceFastPath: options.historyFreePlanning === true,
+  });
   const engine = createLongBotEngine(adapter, options);
   const experienceStorage = Object.prototype.hasOwnProperty.call(options, 'experienceStorage')
     ? options.experienceStorage
@@ -7320,6 +7465,8 @@ function compactRuntimeOptions(runtimeOptions = {}) {
   };
   const initialSequenceLimit = Math.max(0, Number(runtimeOptions.initialSequenceLimit) || 0);
   if (initialSequenceLimit > 0) compact.initialSequenceLimit = initialSequenceLimit;
+  const maxTacticalCandidates = Math.max(0, Number(runtimeOptions.maxTacticalCandidates) || 0);
+  if (maxTacticalCandidates > 0) compact.maxTacticalCandidates = maxTacticalCandidates;
   if (runtimeOptions.weights && typeof runtimeOptions.weights === 'object') {
     compact.weights = Object.fromEntries(
       Object.entries(runtimeOptions.weights)

@@ -267,6 +267,14 @@ const DISPATCH_OPTIONS = Object.freeze({
 test('production-dispatch games use the real stable weight overrides on both frozen engines', () => {
   const runtime = loadIsolatedRuntimes();
   const observed = [];
+  const dispatchFlags = [];
+  for (const hardBot of [runtime.hardBot, runtime.controlHardBot]) {
+    const original = hardBot.plan.bind(hardBot);
+    hardBot.plan = (state, options) => {
+      dispatchFlags.push(options.liveTurnLatencyBudget);
+      return original(state, options);
+    };
+  }
   for (const engine of [runtime.engine, runtime.controlEngine]) {
     const original = engine.plan.bind(engine);
     engine.plan = (state, options) => {
@@ -282,6 +290,7 @@ test('production-dispatch games use the real stable weight overrides on both fro
     trapRisk: 62000, escapeGatewayRisk: 800000, distribution: 780,
   };
   assert.deepEqual(observed, [expected, expected]);
+  assert.deepEqual(dispatchFlags, [true, true]);
 });
 
 test('production-dispatch games reject missing dispatchers and unverified fallback plans', () => {

@@ -102,6 +102,30 @@ test('a completed review advances one original index and cannot mutate prior fin
   assert.equal(first.finishedReviews[0].review.positionId, 'synthetic-only');
 });
 
+test('strategic-budget skips still advance every original SQL decision index without evidence', () => {
+  const skipped = { decisionId: 'bot-a', positionId: 'synthetic-only', status: 'rejected',
+    reason: 'production-strategic-risk-budget-skip', outcomeUsed: false, evidence: null,
+    reviewSelection: { schema: 'long-server-causal-strategic-risk-selection-v1',
+      selectedForExpensiveReview: false, maximumExpensiveReviews: 4 } };
+  const first = advanceProductionProgress(game, initial(), 1, skipped);
+  assert.equal(first.currentDecisionIndex, 3);
+  assert.deepEqual(first.finishedReviews.map(item => item.decisionIndex), [1]);
+  assert.equal(first.finishedReviews[0].review.evidence, null);
+  const done = advanceProductionProgress(game, first, 3, review('bot-b'));
+  assert.equal(done.currentDecisionIndex, null);
+  assert.deepEqual(done.finishedReviews.map(item => item.decisionIndex), productionDecisionIndexes(game));
+  const slice = { reviews: [review('bot-b')], evidence: [], reviewCoverage: {
+    totalLedgerDecisions: 4, totalBotDecisions: 2, fullGameEnvelopeValidated: true,
+    scope: 'server-resumable-index',
+  } };
+  const aggregate = aggregateProductionResult(game, slice, done);
+  assert.deepEqual(aggregate.reviewCoverage.finishedDecisionIndexes, [1, 3]);
+  assert.equal(aggregate.reviewCoverage.completedOutcomeCohorts, 1);
+  assert.equal(aggregate.summary.rejected, 1);
+  assert.equal(aggregate.summary.noRegret, 1);
+  assert.equal(aggregate.summary.evidenceCount, 0);
+});
+
 test('only the finished entire-ledger aggregate reaches full result coverage', () => {
   const partial = advanceProductionProgress(game, initial(), 1, review('bot-a'));
   const slice = { reviews: [review('bot-b')], evidence: [], reviewCoverage: { totalLedgerDecisions: 4,

@@ -42,10 +42,20 @@ const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: '953fd056d24e7491d54af9203c6cf3458cf0b959d4aff23773f134c3302a6187',
 });
+// Current production policy: complete two-candidate live-doubles reply
+// distributions plus the generated-sequence transition fast path. Keep the
+// earlier tuples above immutable because their cache/evidence namespaces are
+// historical artifacts, not aliases for this runtime.
+const TACTICAL_LIVE_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'fe6e2d805d007e03a737c8c765c0d68786ad1820a55fa74212f3ddb0ead130a5',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
+  TACTICAL_LIVE_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -58,7 +68,12 @@ const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   cacheMode: NATIVE_CACHE_VERSION,
   cacheMaxEntries: 4096,
   cacheMaxBytes: 8388608,
-  policy: Object.freeze({ strategyProfile: 'v25', maxCandidates: 24, analysisNodeBudget: 64 }),
+  // Static ranking spends one node per candidate before tactical replies. Two
+  // complete 21-roll reply distributions therefore require 24 + (2 * 21)
+  // nodes. Keep this continuation policy explicit so rollouts never compare
+  // candidates using truncated tactical samples.
+  policy: Object.freeze({ strategyProfile: 'v25', maxCandidates: 24,
+    maxTacticalCandidates: 2, analysisNodeBudget: 66 }),
 });
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -435,6 +450,8 @@ function normalizedLimits(options = {}) {
     policy: {
       strategyProfile: 'v25',
       maxCandidates: positive(source.policy?.maxCandidates, DEFAULT_ROLLOUT_LIMITS.policy.maxCandidates, 128),
+      maxTacticalCandidates: positive(source.policy?.maxTacticalCandidates,
+        DEFAULT_ROLLOUT_LIMITS.policy.maxTacticalCandidates, 4),
       analysisNodeBudget: positive(source.policy?.analysisNodeBudget, DEFAULT_ROLLOUT_LIMITS.policy.analysisNodeBudget, 480),
     },
   };
@@ -696,6 +713,7 @@ module.exports = {
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
+  TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,

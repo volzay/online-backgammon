@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
+const CURRENT_TEACHER_POLICY_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 
@@ -16,7 +17,8 @@ function storage() {
     getItem(key) { return values.get(key) || null; }, setItem(key, value) { values.set(key, String(value)); }, removeItem(key) { values.delete(key); } };
 }
 function harness({ model = true, localStorage = storage(), difficulty = 'hard-neuro', variant = 'long',
-  experienceLoader = null, experienceStartsFrozen = true } = {}) {
+  experienceLoader = null, experienceStartsFrozen = true,
+  teacherPolicyId = TEACHER_POLICY_ID } = {}) {
   const pending = new Map(); let timerId = 0;
   let experienceFrozen = experienceStartsFrozen;
   const calls = { fallback: 0, teacher: 0, experience: 0, freezes: 0,
@@ -54,7 +56,7 @@ function harness({ model = true, localStorage = storage(), difficulty = 'hard-ne
   context.NarduGame = window.NarduGame; context.NarduBot = window.NarduBot;
   context.NarduSound = window.NarduSound; context.NarduBoardEngine = window.NarduBoardEngine;
   let teacherDecision = null;
-  window.NarduLongBotEngine = { version: 'long-analytic-v35', policyImplementationId: TEACHER_POLICY_ID,
+  window.NarduLongBotEngine = { version: 'long-analytic-v35', policyImplementationId: teacherPolicyId,
     beginExperienceSession() { calls.experience += 1; },
     freezeExperience: () => { calls.freezes += 1; experienceFrozen = true;
       return { fingerprint: 'lbe8-controller', size: 2, frozen: true }; },
@@ -106,6 +108,15 @@ test('controller keeps hard-neuro identity despite an old hard name and 1500 rat
   for (const value of ['hard-neuro', 'Сложный бот-нейро', 'Hard neural bot']) {
     assert.equal(h.controller.resolveBotDifficulty(value, 'hard', 1500), 'hard-neuro');
   }
+});
+
+test('controller admits the exact current hard runtime while preserving the frozen room guard ID', () => {
+  const h = harness({ teacherPolicyId: CURRENT_TEACHER_POLICY_ID });
+  assert.equal(h.api.validateNeuralBotAvailability(), true);
+  assert.equal(
+    h.controller.getState().analysis.neuralTeacherPolicyImplementationId,
+    TEACHER_POLICY_ID,
+  );
 });
 
 test('experimental hard-neuro games remain unrated until the strength gate passes', () => {

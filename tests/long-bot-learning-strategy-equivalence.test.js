@@ -101,12 +101,30 @@ function evidenceFor(cold, cases) {
 
 function checkedPlans(old, candidate, cases) {
   let actualPenalties = 0;
+  let avoidedIncompleteAnalysisNodes = 0;
+  const withoutAnalysisWorkCounter = (value) => {
+    const copy = plain(value);
+    const visit = current => {
+      if (!current || typeof current !== 'object') return;
+      if (Object.hasOwn(current, 'analysisNodesUsed')) delete current.analysisNodesUsed;
+      Object.values(current).forEach(visit);
+    };
+    visit(copy);
+    return copy;
+  };
   for (const { name, state } of cases) {
     const saved = plain(state);
     const originalRank = plain(old.engine.rank(plain(state), OPTIONS));
     const currentRank = plain(candidate.engine.rank(plain(state), OPTIONS));
     assert.ok(originalRank.length > 0, name);
-    assert.deepEqual(currentRank, originalRank, `${name}: full ordered ranks, scores, features and after positions`);
+    assert.deepEqual(withoutAnalysisWorkCounter(currentRank), withoutAnalysisWorkCounter(originalRank),
+      `${name}: ordered ranks, scores, strategic features and after positions`);
+    currentRank.forEach((row, index) => {
+      const currentNodes = Number(row.features?.analysisNodesUsed || 0);
+      const originalNodes = Number(originalRank[index]?.features?.analysisNodesUsed || 0);
+      assert.ok(currentNodes <= originalNodes, `${name}: incomplete reply work must not increase`);
+      avoidedIncompleteAnalysisNodes += originalNodes - currentNodes;
+    });
     const penalties = currentRank.filter(row => row.experienceAdjustment < 0);
     assert.ok(penalties.length > 0, `${name}: matching lessons must actually affect score, not merely be stored`);
     actualPenalties += penalties.length;
@@ -114,11 +132,14 @@ function checkedPlans(old, candidate, cases) {
     const originalDecision = old.engine.consumeLastDecision();
     const currentDecision = candidate.engine.consumeLastDecision();
     for (const field of ['selected', 'alternatives', 'experienceFingerprint', 'experienceSize', 'experienceFrozen', 'stateSnapshotV2', 'replayInput', 'weights']) {
-      assert.deepEqual(plain(currentDecision[field]), plain(originalDecision[field]), `${name}: archived ${field}`);
+      assert.deepEqual(withoutAnalysisWorkCounter(currentDecision[field]),
+        withoutAnalysisWorkCounter(originalDecision[field]), `${name}: archived ${field}`);
     }
     assert.deepEqual(state, saved, `${name}: caller state and complete history are unchanged`);
   }
   assert.ok(actualPenalties >= cases.length);
+  assert.ok(avoidedIncompleteAnalysisNodes > 0,
+    'new runtime must skip reply work that cannot complete a comparable 21-roll cohort');
 }
 
 test('optimized real hard strategy retains identical nonempty old-release lessons, ranks, scores and selected plans', () => {

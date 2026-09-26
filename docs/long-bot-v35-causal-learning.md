@@ -244,13 +244,26 @@ control checks; it did not weaken either policy's search budget and keeps its
 original generator/source identities.
 
 The trusted offline API is `reviewDecisionIndexes`; production claimed jobs
-reject it and review every bot decision through their private server cursor. Full original coverage and
-engine generation are validated before selecting work, using native finite
-nonnegative integer counts. Only selected decision snapshots/execution are
-replayed. `reviewCoverage` distinguishes requested, attempted, finished and
-failed indexes, complete outcome cohorts, selection covering the whole ledger,
-and all requested reviews finishing. These flags do not claim whole-game
-causal confidence or independent evidence from repeated exact positions.
+reject caller-selected indexes and keep their private server cursor over every
+original bot decision. Before any evidence is possible, the complete game and
+every decision envelope are validated. Expensive shadow replay and paired
+terminal rollout are then limited to the deterministic four highest
+outcome-independent strategic-risk decisions; the remaining cursor entries are
+stored as explicit evidence-free budget skips. This prevents one loss with
+dozens of decisions from exhausting every lease while preserving a complete,
+auditable original-index ledger. `reviewCoverage` distinguishes requested,
+attempted, finished and failed indexes, complete outcome cohorts, selection
+covering the whole ledger, and all requested reviews finishing. These flags do
+not claim whole-game causal confidence or independent evidence from repeated
+exact positions.
+
+The production selector also retains the exact earlier `16/16/12` live-doubles
+envelope as replay-only compatibility. New play never selects it. This matters
+because every game in the 27 September 17-game audit contained at least one
+historical decision with that envelope; rejecting it would silently make all of
+those immutable ledgers ineligible for causal review. Compatibility permits
+reproduction only and does not relabel the earlier decision as tactically
+complete.
 
 ## Deployment
 

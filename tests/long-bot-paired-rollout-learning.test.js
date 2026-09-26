@@ -18,6 +18,10 @@ const {
   TRUST_DOMAIN,
   WORKER_RELEASE,
   PRODUCTION_POLICY,
+  PRODUCTION_LIVE_DOUBLES_POLICY,
+  PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
+  PRODUCTION_POLICY_ENVELOPE,
+  PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
   POLICY_ROLE,
   analyzeTrainingGame,
   collisionResistantIdentities,
@@ -31,10 +35,18 @@ const {
   runClaimedBatch,
   policyImplementationId,
   serverOwnedPolicy,
+  serverOwnedPolicyEnvelope,
+  serverOwnedDecisionPolicy,
+  isProductionLiveDoublesDecision,
+  archivedPolicyFailure,
+  archivedStrategicRisk: productionArchivedStrategicRisk,
+  productionStrategicReviewPlan,
+  reviewStrategicallyBoundedProductionDecision,
   trustedReviewSelection,
   uniqueCausalEvidence,
   validateGameEnvelope,
 } = require('../scripts/long-bot-causal-worker');
+const { archivedStrategicRisk: offlineArchivedStrategicRisk } = require('../scripts/train-long-bot-causal-army');
 const { DEFAULT_LIMITS: SHADOW_LIMITS, afterPositionKey, loadRuntime, clearRuntimeCache } = require('../scripts/generate-long-bot-shadow-replay');
 
 const ROOT = path.join(__dirname, '..');
@@ -432,11 +444,105 @@ test('real stable production dispatch policy reaches legal replay and skips a fo
   assert.equal((await reviewTrustedDecision(game, decision)).reason, 'unapproved-production-policy');
 });
 
+test('production decision envelope replays the deployed live-doubles policy and rejects forged branches', async () => {
+  const ordinary = actualArchivedDecision(PRODUCTION_POLICY, [6, 5]);
+  assert.equal(isProductionLiveDoublesDecision(ordinary.decision), false);
+  assert.deepEqual(serverOwnedDecisionPolicy(ordinary.decision), PRODUCTION_POLICY);
+  assert.equal(archivedPolicyFailure(ordinary.decision), '');
+
+  const live = actualArchivedDecision(PRODUCTION_LIVE_DOUBLES_POLICY, [4, 4, 4, 4]);
+  assert.equal(isProductionLiveDoublesDecision(live.decision), true);
+  assert.deepEqual(serverOwnedDecisionPolicy(live.decision), {
+    strategyProfile: 'v25',
+    maxCandidates: 16,
+    initialSequenceLimit: 16,
+    maxTacticalCandidates: 2,
+    analysisNodeBudget: 58,
+    weights: PRODUCTION_POLICY.weights,
+  });
+  assert.equal(archivedPolicyFailure(live.decision), '');
+  assert.equal(regenerateArchivedSelection(live.game, live.decision).ok, true);
+
+  const legacy = actualArchivedDecision(PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY, [5, 5, 5, 5]);
+  assert.equal(isProductionLiveDoublesDecision(legacy.decision), true);
+  assert.deepEqual(serverOwnedDecisionPolicy(legacy.decision), {
+    strategyProfile: 'v25',
+    maxCandidates: 16,
+    initialSequenceLimit: 16,
+    analysisNodeBudget: 12,
+    weights: PRODUCTION_POLICY.weights,
+  });
+  assert.equal(Object.hasOwn(legacy.decision.replayInput.runtime, 'maxTacticalCandidates'), false);
+  assert.equal(archivedPolicyFailure(legacy.decision), '');
+  assert.equal(regenerateArchivedSelection(legacy.game, legacy.decision).ok, true);
+  let legacyReachedReplay = false;
+  const acceptedLegacyContract = await reviewTrustedDecision(legacy.game, legacy.decision, {
+    shadowReplayGenerator() {
+      legacyReachedReplay = true;
+      return { ok: false, reason: 'focused-legacy-policy-contract-stop' };
+    },
+  });
+  assert.equal(legacyReachedReplay, true, acceptedLegacyContract.reason);
+  assert.equal(acceptedLegacyContract.reason, 'focused-legacy-policy-contract-stop');
+
+  const forgedLegacy = structuredClone(legacy.decision);
+  forgedLegacy.replayInput.runtime.analysisNodeBudget = 11;
+  assert.equal(archivedPolicyFailure(forgedLegacy), 'unapproved-production-policy');
+
+  let reachedReplay = false;
+  const acceptedContract = await reviewTrustedDecision(live.game, live.decision, {
+    shadowReplayGenerator() {
+      reachedReplay = true;
+      return { ok: false, reason: 'focused-policy-contract-stop' };
+    },
+  });
+  assert.equal(reachedReplay, true, acceptedContract.reason);
+  assert.equal(acceptedContract.reason, 'focused-policy-contract-stop');
+
+  const forgeries = [
+    decision => { decision.replayInput.runtime.analysisNodeBudget = 57; },
+    decision => { decision.replayInput.runtime.initialSequenceLimit = 15; },
+    decision => { decision.replayInput.runtime.maxTacticalCandidates = 3; },
+    decision => { decision.replayInput.runtime.weights.homeEntry += 1; },
+    decision => { delete decision.replayInput.runtime.initialSequenceLimit; },
+    decision => { decision.replayInput.runtime.unapproved = 1; },
+  ];
+  for (const forge of forgeries) {
+    const forged = structuredClone(live.decision);
+    forge(forged);
+    let replayed = false;
+    const rejected = await reviewTrustedDecision(live.game, forged, {
+      shadowReplayGenerator() { replayed = true; throw new Error('forged policy reached replay'); },
+    });
+    assert.equal(rejected.reason, 'unapproved-production-policy');
+    assert.equal(replayed, false);
+  }
+
+  const ordinaryWithDoublesOnlyKnobs = structuredClone(ordinary.decision);
+  ordinaryWithDoublesOnlyKnobs.replayInput.runtime.initialSequenceLimit = 16;
+  ordinaryWithDoublesOnlyKnobs.replayInput.runtime.maxTacticalCandidates = 2;
+  assert.equal(archivedPolicyFailure(ordinaryWithDoublesOnlyKnobs), 'unapproved-production-policy');
+});
+
+test('runtime release identity attests the complete ordinary and live-doubles policy envelope', () => {
+  assert.deepEqual(serverOwnedPolicyEnvelope(), PRODUCTION_POLICY_ENVELOPE);
+  assert.deepEqual(PRODUCTION_POLICY_ENVELOPE.ordinary, PRODUCTION_POLICY);
+  assert.deepEqual(PRODUCTION_POLICY_ENVELOPE.liveDoubles, PRODUCTION_LIVE_DOUBLES_POLICY);
+  assert.deepEqual(
+    PRODUCTION_POLICY_ENVELOPE.replayOnlyLegacyLiveDoubles,
+    PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
+  );
+  assert.equal(Object.isFrozen(PRODUCTION_POLICY_ENVELOPE), true);
+  assert.equal(Object.isFrozen(PRODUCTION_POLICY_ENVELOPE.selector), true);
+  assert.equal(Object.isFrozen(PRODUCTION_POLICY_ENVELOPE.liveDoubles), true);
+});
+
 test('real forced expanded doubles skip terminal cohorts but mixed four-die encodings fail closed', async () => {
   let game;
   let decision;
   for (const roll of [[1, 1], [1, 1, 1, 1]]) {
-    ({ game, decision } = actualArchivedDecision(PRODUCTION_POLICY, roll));
+    const policy = roll.length === 4 ? PRODUCTION_LIVE_DOUBLES_POLICY : PRODUCTION_POLICY;
+    ({ game, decision } = actualArchivedDecision(policy, roll));
     assert.deepEqual(decision.stateSnapshotV2.rolled, roll);
     let rolloutReached = false;
     const review = await reviewTrustedDecision(game, decision, {
@@ -447,7 +553,10 @@ test('real forced expanded doubles skip terminal cohorts but mixed four-die enco
   }
   for (const rolled of [[1, 2, 1, 2], [1, 1, 1, 2], [1, 1, 1], [1, 1, 1, 1, 1]]) {
     decision.stateSnapshotV2.rolled = rolled;
-    assert.equal((await reviewTrustedDecision(game, decision)).reason, 'decision-state-envelope-invalid');
+    assert.match(
+      (await reviewTrustedDecision(game, decision)).reason,
+      /^(?:decision-state-envelope-invalid|unapproved-production-policy)$/,
+    );
   }
 });
 
@@ -714,6 +823,88 @@ test('full-envelope coverage counts remain native finite integers under scoped o
       assert.equal(replayed, false);
     }
   }
+});
+
+function strategicProductionReviewFixture() {
+  const { game, decision } = fixture();
+  const featureSets = [
+    { primeRunBefore: 5, primeRunAfter: 4 },
+    { headLandingBreak: 1 },
+    { homeShuffleMoves: 1, outsideReduction: 0 },
+    {},
+    {},
+    { escapeGatewayDelta: -1 },
+    { primeRunBefore: 4, primeRunAfter: 3, primeScoreBefore: 1,
+      opponentMoveBlockBefore: 1, opponentMoveBlockGain: -1 },
+    {},
+  ];
+  game.decisions = featureSets.map((features, index) => {
+    const item = structuredClone(decision);
+    item.id = `bounded-production-${index}`;
+    item.choiceCount = [0, 1, 3, 6].includes(index) ? 2 : 1;
+    item.selected.features = features;
+    return item;
+  });
+  Object.assign(game.final_state.analysis.botMemory.coverage, {
+    expectedBotDecisions: game.decisions.length,
+    recordedBotDecisions: game.decisions.length,
+  });
+  return game;
+}
+
+test('production causal curriculum exactly matches offline strategic-risk ordering and ignores outcomes', () => {
+  const game = strategicProductionReviewFixture();
+  const plan = productionStrategicReviewPlan(game);
+  assert.equal(plan.maximumExpensiveReviews, PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
+  assert.deepEqual(plan.expensiveDecisionIndexes, [6, 0, 5, 1]);
+  assert.deepEqual(plan.risks.map(item => item.tier), [4, 4, 3, 3, 2, 1, 0, 0]);
+  for (const decision of game.decisions) {
+    assert.deepEqual(productionArchivedStrategicRisk(game, decision), offlineArchivedStrategicRisk(game, decision));
+  }
+  const changedOutcome = structuredClone(game);
+  changedOutcome.winner = 'dark';
+  changedOutcome.result_type = 'koks';
+  changedOutcome.final_state.winner = 'dark';
+  assert.deepEqual(productionStrategicReviewPlan(changedOutcome), plan,
+    'winner and result are cohort metadata, never per-decision priority labels');
+});
+
+test('bounded production review validates the full ledger and calls expensive analysis at most four times', async () => {
+  const game = strategicProductionReviewFixture();
+  const expensiveCalls = [];
+  const results = [];
+  const fakeExpensiveReview = async (input, decision) => {
+    assert.equal(input, game);
+    expensiveCalls.push(decision.id);
+    return { decisionId: decision.id, positionId: decision.positionId, status: 'no-regret', reason: '',
+      evidence: null, outcomeUsed: false, rollout: { coverage: { complete: true } } };
+  };
+  for (let index = 0; index < game.decisions.length; index += 1) {
+    results.push(await reviewStrategicallyBoundedProductionDecision(game, index, {}, fakeExpensiveReview));
+  }
+  assert.equal(expensiveCalls.length, PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
+  assert.deepEqual(expensiveCalls, [game.decisions[0].id, game.decisions[1].id,
+    game.decisions[5].id, game.decisions[6].id]);
+  assert.deepEqual(results.filter(result => result.reason === 'production-strategic-risk-budget-skip')
+    .map(result => result.decisionId), [game.decisions[2].id, game.decisions[3].id,
+    game.decisions[4].id, game.decisions[7].id]);
+  assert.ok(results.every(result => result.decisionEnvelopeValidation.complete === true
+    && result.decisionEnvelopeValidation.valid === true));
+  assert.ok(results.filter(result => !result.reviewSelection.selectedForExpensiveReview)
+    .every(result => result.status === 'rejected' && result.evidence === null && result.outcomeUsed === false));
+
+  const malformed = strategicProductionReviewFixture();
+  malformed.decisions[7].execution.executedActionKey = 'forged-action';
+  let replayed = false;
+  const rejected = await reviewStrategicallyBoundedProductionDecision(malformed, 6, {}, async () => {
+    replayed = true;
+    throw new Error('invalid full ledger reached expensive replay');
+  });
+  assert.equal(replayed, false);
+  assert.equal(rejected.reason, 'production-game-decision-envelope-invalid');
+  assert.equal(rejected.decisionEnvelopeValidation.firstInvalidDecisionIndex, 7);
+  assert.equal(rejected.decisionEnvelopeValidation.firstInvalidReason, 'execution-action-mismatch');
+  assert.equal(rejected.evidence, null);
 });
 
 test('exact observation deduplication is independent of replay order, decision IDs and export IDs', () => {

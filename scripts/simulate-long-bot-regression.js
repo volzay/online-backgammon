@@ -416,6 +416,10 @@ function playGame(pairIndex, leg, runtime, options) {
   let controlDoubles = 0;
   let botRolls = 0;
   let controlRolls = 0;
+  let botDoubleDecisions = 0;
+  let controlDoubleDecisions = 0;
+  let botDoubleTacticalComplete = 0;
+  let controlDoubleTacticalComplete = 0;
   let productionPolicyWeights = null;
   let productionPolicyWeightsKey = '';
   const decisions = [];
@@ -450,7 +454,13 @@ function playGame(pairIndex, leg, runtime, options) {
     }
     const legalEmptyPass = options.productionDispatch && !game.hasAnyMoves(state);
     const plan = options.productionDispatch
-      ? (legalEmptyPass ? [] : actingHardBot.plan(state, actingOptions))
+      ? (legalEmptyPass ? [] : actingHardBot.plan(state, {
+        ...actingOptions,
+        // The browser worker always sets this flag. Without it the league was
+        // certifying the full 64/480 policy even though production used the
+        // bounded live-doubles branch.
+        liveTurnLatencyBudget: true,
+      }))
       : actingEngine.plan(state, actingOptions);
     const recordedDecision = actingEngine.consumeLastDecision?.();
     const decision = legalEmptyPass ? null : recordedDecision;
@@ -470,6 +480,23 @@ function playGame(pairIndex, leg, runtime, options) {
       }
       productionPolicyWeightsKey = weightsKey;
       productionPolicyWeights = Object.fromEntries(entries);
+      if (state.rolled.length === 4 && state.rolled.every(die => die === state.rolled[0])) {
+        if (actingColor === botColor) {
+          botDoubleDecisions += 1;
+          if (decision.selected?.tactical?.distributionComplete === true
+            && decision.selected.tactical?.rolls === 21
+            && decision.selected.tactical?.distributionWeight === 36) {
+            botDoubleTacticalComplete += 1;
+          }
+        } else {
+          controlDoubleDecisions += 1;
+          if (decision.selected?.tactical?.distributionComplete === true
+            && decision.selected.tactical?.rolls === 21
+            && decision.selected.tactical?.distributionWeight === 36) {
+            controlDoubleTacticalComplete += 1;
+          }
+        }
+      }
     }
     if (actingColor === botColor && decision) {
       if (sidecarAnalysis) {
@@ -533,6 +560,10 @@ function playGame(pairIndex, leg, runtime, options) {
     controlRolls,
     botDoubles,
     controlDoubles,
+    botDoubleDecisions,
+    controlDoubleDecisions,
+    botDoubleTacticalComplete,
+    controlDoubleTacticalComplete,
     off: { ...state.off },
     ...(options.productionDispatch ? { productionDispatch: true, productionPolicyWeights, sidecarAnalysis } : {}),
     ...(options.trace ? { decisions } : {}),

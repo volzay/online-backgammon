@@ -14,7 +14,11 @@ window.NarduStrongBot = (function () {
   // production search for ordinary rolls.
   const LIVE_DOUBLES_CANDIDATE_LIMIT = 16;
   const LIVE_DOUBLES_SEQUENCE_LIMIT = 16;
-  const LIVE_DOUBLES_NODE_BUDGET = 12;
+  const LIVE_DOUBLES_TACTICAL_CANDIDATE_LIMIT = 2;
+  // Sixteen static candidates plus two complete 21-outcome reply
+  // distributions. The old budget of 12 expired before reply analysis even
+  // started, so every production double was chosen by static scoring only.
+  const LIVE_DOUBLES_NODE_BUDGET = 58;
   const PROFILE_KEY = 'narduh-strong-bot-profile-v5';
   const EXPERIENCE_KEY = 'narduh-long-bot-experience-v8';
   const LEGACY_LONG_EXPERIENCE_KEYS = [
@@ -1620,6 +1624,9 @@ window.NarduStrongBot = (function () {
           analysisNodeBudget: liveDoublesTurn
             ? Math.min(requestedNodeBudget, LIVE_DOUBLES_NODE_BUDGET)
             : requestedNodeBudget,
+          maxTacticalCandidates: liveDoublesTurn
+            ? LIVE_DOUBLES_TACTICAL_CANDIDATE_LIMIT
+            : undefined,
           strategyProfile: runtimeOptions.strategyProfile
             || productionOptions.strategyProfile
             || 'v25',

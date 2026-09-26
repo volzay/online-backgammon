@@ -56,6 +56,8 @@ export interface LongBotWeights {
 export interface LongBotEngineOptions {
   weights?: Partial<LongBotWeights>;
   maxCandidates?: number;
+  initialSequenceLimit?: number;
+  maxTacticalCandidates?: number;
   analysisNodeBudget?: number;
   /** @deprecated Kept for older callers; search is bounded by analysisNodeBudget. */
   timeLimitMs?: number;

@@ -107,9 +107,11 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_EXPERIENCE_WAIT_MS = 900;
   const NEURAL_TEACHER_GUARD_SCHEMA = 'long-neural-hard-teacher-guard-v1';
   const NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-  // The worker-only latency branch is opt-in. Neural teacher calls do not use
-  // it, so this audited runtime still executes the frozen teacher policy above.
+  // Runtime IDs are admitted only after exact source compatibility review.
+  // The persisted guard ID above remains the frozen neural-room contract; it
+  // must not be relabelled as a new model or new playing-strength evidence.
   const NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+  const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -4044,7 +4046,9 @@ window.NarduController = (function () {
         || (window.NarduLongBotEngine?.policyImplementationId
           !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
-            !== NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID)
+            !== NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {
         throw new Error('Verified long-analytic-v35 teacher assets missing');
       }

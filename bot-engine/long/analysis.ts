@@ -93,16 +93,35 @@ export function analyzeOpponentReplies(
   options = {},
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
+  const configuredTacticalLimit = Math.max(
+    1,
+    Math.min(
+      MAX_TACTICAL_CANDIDATES,
+      Math.floor(Number(options.maxTacticalCandidates) || MAX_TACTICAL_CANDIDATES),
+    ),
+  );
   const beforeDeepCandidate = typeof options.beforeDeepCandidate === 'function'
     ? options.beforeDeepCandidate
     : null;
   const beforeDeepSelection = typeof options.beforeDeepSelection === 'function'
     ? options.beforeDeepSelection
     : null;
-  const tacticalCandidates = uniquePositionCandidates(
+  const comparableCandidates = uniquePositionCandidates(
     candidates,
-    MAX_TACTICAL_CANDIDATES,
+    configuredTacticalLimit,
   );
+  // Primary reply evidence is useful only when every one of the 21 canonical
+  // dice outcomes is complete. Previously a small live budget was spread
+  // across incomplete candidates and produced no tactical result at all.
+  // Require two complete candidates when there is a choice, so an analyzed
+  // move cannot win merely because every alternative remained unchecked.
+  const affordableCandidates = budget
+    ? Math.floor(Number(budget.remaining) / CANONICAL_DICE_OUTCOMES.length)
+    : configuredTacticalLimit;
+  const minimumComparable = comparableCandidates.length > 1 ? 2 : 1;
+  const tacticalCandidates = affordableCandidates >= minimumComparable
+    ? comparableCandidates.slice(0, affordableCandidates)
+    : [];
   if (!tacticalCandidates.length || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);

@@ -18,15 +18,16 @@ const SOURCES = [
 const HISTORY_FREE_LEARNING_SOURCES = Object.freeze({
   'bot-engine/long/metrics.ts': '8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31',
   'bot-engine/long/evaluator.ts': '60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6',
-  'bot-engine/long/analysis.ts': '24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932',
-  'bot-engine/long/engine.ts': '6fa6520f41aa145309760d6c2b1903b2c800e83b59b7a57115c5eae1d1f6cb09',
-  'bot-engine/long/nardu-game-adapter.ts': 'f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08',
-  'bot-engine/long/browser.ts': '6a3fd5d5cc24f93f56efb67dd39ecd3bb775a7261fc072e0661ea82f618f7eff',
+  'bot-engine/long/analysis.ts': '6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940',
+  'bot-engine/long/engine.ts': '408f4b38e73f11c868a86c5ddb2c41e326ac1e80e841fcada3b83c666c82d2ac',
+  'bot-engine/long/nardu-game-adapter.ts': '7088d6994e7c84ade8a70d3d31e25e2892e34c48405b5e7f493961dd9df34100',
+  'bot-engine/long/browser.ts': '6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213',
   'game.js': '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
-  'strong-bot.js': '74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812',
+  'strong-bot.js': '96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951',
 });
 const HISTORICAL_LEARNING_POLICY_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 const PREVIOUS_PRODUCTION_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
+const PREVIOUS_LIVE_DOUBLES_POLICY_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
 
 function writeOutputAtomically(output, contents, fileSystem = fs) {
   const temporaryOutput = `${output}.${process.pid}.${randomUUID()}.tmp`;
@@ -75,6 +76,7 @@ function learningCompatibility(entries = readPolicySourceEntries()) {
     compatiblePolicyImplementationIds: Object.freeze([
       HISTORICAL_LEARNING_POLICY_ID,
       PREVIOUS_PRODUCTION_POLICY_ID,
+      PREVIOUS_LIVE_DOUBLES_POLICY_ID,
     ]),
     sourceFingerprints: Object.freeze(Object.fromEntries(names.map(name => [name, `sha256:${HISTORY_FREE_LEARNING_SOURCES[name]}`]))) });
 }

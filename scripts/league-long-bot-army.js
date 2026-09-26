@@ -234,6 +234,14 @@ function summarizeArmyResults(pairResults, options, completion) {
   const gameWilson95 = wilsonInterval(candidateWins, completedGames);
   const pairedWilson95 = wilsonInterval(pairedSuccesses, completedPairs);
   const pairedHoeffding95 = boundedPairInterval(pairedSuccesses, completedPairs);
+  const sumCounter = name => flattened.reduce((sum, result) => {
+    const value = Number(result?.[name]);
+    return sum + (Number.isSafeInteger(value) && value >= 0 ? value : 0);
+  }, 0);
+  const candidateDoubleDecisions = sumCounter('botDoubleDecisions');
+  const controlDoubleDecisions = sumCounter('controlDoubleDecisions');
+  const candidateDoubleTacticalComplete = sumCounter('botDoubleTacticalComplete');
+  const controlDoubleTacticalComplete = sumCounter('controlDoubleTacticalComplete');
   const checks = {
     runComplete: Boolean(completion.complete),
     minimumGamesMet: completedGames >= options.minimumGames,
@@ -269,6 +277,20 @@ function summarizeArmyResults(pairResults, options, completion) {
       sweeps: pairScores.filter(score => score === 1).length,
       splits: pairScores.filter(score => score === 0.5).length,
       losses: pairScores.filter(score => score === 0).length,
+    },
+    livePolicyTelemetry: {
+      candidate: {
+        doubleDecisions: candidateDoubleDecisions,
+        tacticalComplete: candidateDoubleTacticalComplete,
+        tacticalCoverage: candidateDoubleDecisions > 0
+          ? candidateDoubleTacticalComplete / candidateDoubleDecisions : null,
+      },
+      control: {
+        doubleDecisions: controlDoubleDecisions,
+        tacticalComplete: controlDoubleTacticalComplete,
+        tacticalCoverage: controlDoubleDecisions > 0
+          ? controlDoubleTacticalComplete / controlDoubleDecisions : null,
+      },
     },
     gameWilson95,
     pairedWilson95,
@@ -415,7 +437,7 @@ function aggregateArmyReports({ options, identity, assignments, shardReports, wo
       legsPerPair: 2,
       dice: 'deterministic global pair index; identical color-bound streams in both legs',
       resources: 'identical profile, node budget and candidate cap for candidate and control',
-      policyDispatch: 'frozen strong-bot.js production dispatch on both sides; identical finite stable weights; no fallbacks',
+      policyDispatch: 'frozen strong-bot.js browser-production dispatch on both sides, including the live doubles latency envelope; identical finite stable weights; no fallbacks',
       sidecarAnalysis: options.sidecarAnalysis === true,
       analysisLedger: options.sidecarAnalysis === true
         ? 'candidate decisions held in sidecar during play; complete ledger restored after terminal before export'

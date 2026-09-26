@@ -328,6 +328,10 @@ test('actual terminal cold loss has complete durable coverage and is accepted by
     assert.deepEqual(seen[0].trustedTrainingPolicy, {
       strategyProfile: 'v25', maxCandidates: 4, analysisNodeBudget: 4, weights: PRODUCTION_WEIGHTS,
     });
+    assert.deepEqual(seen[0].rolloutLimits.policy, {
+      strategyProfile: 'v25', maxCandidates: 24,
+      maxTacticalCandidates: 2, analysisNodeBudget: 66,
+    });
     assert.equal(seen[0].runtimeDigest, report.frozenRuntime.workerRuntimeDigest);
     assert.deepEqual(seen[0].reviewDecisionIndexes, [0]);
     assert.equal(report.processLimits.reviewHardTimeoutScope, 'one-decision-cohort');

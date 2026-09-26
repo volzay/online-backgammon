@@ -57,6 +57,10 @@ function pairLegs(pairIndex, seed, candidateWins = 2) {
       resultType: 'normal',
       productionDispatch: true,
       productionPolicyWeights: { homeEntry: 145000 },
+      botDoubleDecisions: 2,
+      controlDoubleDecisions: 3,
+      botDoubleTacticalComplete: 2,
+      controlDoubleTacticalComplete: 3,
       sidecarAnalysis: false,
     };
   });
@@ -122,6 +126,10 @@ test('army aggregation certifies only a complete, sufficiently large, high-confi
   assert.equal(payload.completion.stopReason, 'requested-pairs-completed');
   assert.equal(payload.summary.completedGames, 40);
   assert.equal(payload.summary.observedWinRate, 1);
+  assert.deepEqual(payload.summary.livePolicyTelemetry, {
+    candidate: { doubleDecisions: 80, tacticalComplete: 80, tacticalCoverage: 1 },
+    control: { doubleDecisions: 120, tacticalComplete: 120, tacticalCoverage: 1 },
+  });
   assert.ok(payload.summary.pairedWilson95.lower >= 0.65);
   assert.ok(payload.summary.pairedHoeffding95.lower >= 0.65);
   assert.equal(payload.summary.verdict, 'certified');

@@ -40,7 +40,12 @@ const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
 });
 
 export function createBrowserLongBotEngine(game, options = {}) {
-  const adapter = createNarduGameAdapter(game);
+  const adapter = createNarduGameAdapter(game, {
+    // This opt-in is deliberately coupled to the native history-free planner.
+    // Custom/history-dependent game factories retain the legacy applyMove
+    // transition contract unless they explicitly request the fast path.
+    generatedSequenceFastPath: options.historyFreePlanning === true,
+  });
   const engine = createLongBotEngine(adapter, options);
   const experienceStorage = Object.prototype.hasOwnProperty.call(options, 'experienceStorage')
     ? options.experienceStorage
@@ -541,6 +546,8 @@ function compactRuntimeOptions(runtimeOptions = {}) {
   };
   const initialSequenceLimit = Math.max(0, Number(runtimeOptions.initialSequenceLimit) || 0);
   if (initialSequenceLimit > 0) compact.initialSequenceLimit = initialSequenceLimit;
+  const maxTacticalCandidates = Math.max(0, Number(runtimeOptions.maxTacticalCandidates) || 0);
+  if (maxTacticalCandidates > 0) compact.maxTacticalCandidates = maxTacticalCandidates;
   if (runtimeOptions.weights && typeof runtimeOptions.weights === 'object') {
     compact.weights = Object.fromEntries(
       Object.entries(runtimeOptions.weights)

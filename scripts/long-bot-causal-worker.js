@@ -57,6 +57,8 @@ const EVIDENCE_SCHEMA = 'long-server-causal-evidence-v1';
 const POLICY_ROLE = 'current-frozen-cold-re-review';
 const RESULT_SCHEMA = 'long-server-causal-review-result-v1';
 const TRUST_DOMAIN = 'nardu/server-long-bot-causal/v1';
+const PRODUCTION_EXPENSIVE_REVIEW_LIMIT = 4;
+const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v1';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
   strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
@@ -65,6 +67,46 @@ const PRODUCTION_POLICY = Object.freeze({
     foothold: 4300, homeEntry: 145000, rushPenalty: 12500,
     trapRisk: 62000, escapeGatewayRisk: 800000, distribution: 780,
   }),
+});
+// The browser dispatch has one deliberately smaller envelope for live doubles.
+// It is not a caller-selected "fast mode": the immutable decision snapshot
+// chooses this exact policy, while every other position keeps the full policy
+// above. Keeping both policies in one attested envelope lets the causal worker
+// replay what production actually selected without accepting arbitrary client
+// resource knobs.
+const PRODUCTION_LIVE_DOUBLES_POLICY = Object.freeze({
+  strategyProfile: 'v25',
+  maxCandidates: 16,
+  initialSequenceLimit: 16,
+  maxTacticalCandidates: 2,
+  analysisNodeBudget: 58,
+  weights: PRODUCTION_POLICY.weights,
+});
+// v35 was already deployed with this exact live-doubles envelope. Every one
+// of the 17 audited games contains at least one such decision, so silently
+// replacing it with the new envelope would make the whole immutable ledger
+// unverifiable and would discard all historical learning. Keep this one exact
+// tuple as replay-only compatibility; it is never selected for new play.
+const PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY = Object.freeze({
+  strategyProfile: 'v25',
+  maxCandidates: 16,
+  initialSequenceLimit: 16,
+  analysisNodeBudget: 12,
+  weights: PRODUCTION_POLICY.weights,
+});
+const PRODUCTION_POLICY_ENVELOPE = Object.freeze({
+  schema: 'long-v35-production-decision-policy-envelope-v1',
+  selector: Object.freeze({
+    schema: 'long-v35-live-doubles-snapshot-selector-v1',
+    defaultPolicy: 'ordinary',
+    liveDoublesPolicy: 'liveDoubles',
+    rolledLength: 4,
+    remainingDiceMinimum: 1,
+    requiresOneRepeatedDie: true,
+  }),
+  ordinary: PRODUCTION_POLICY,
+  liveDoubles: PRODUCTION_LIVE_DOUBLES_POLICY,
+  replayOnlyLegacyLiveDoubles: PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
 });
 const EXECUTABLE_DEPENDENCIES = Object.freeze([
   ['worker', __filename],
@@ -159,7 +201,10 @@ function runtimeDigestFromEntries(entries, options = {}) {
     digest.update('\0');
   }
   digest.update(canonicalJson({ node: process.versions.node, v8: process.versions.v8 }));
-  digest.update(canonicalJson(serverOwnedPolicy(options)));
+  // Attest the whole decision-policy envelope, not merely the ordinary-roll
+  // branch. Otherwise a live-doubles resource change could leave the release
+  // identity claiming the wrong replay contract.
+  digest.update(canonicalJson(serverOwnedPolicyEnvelope(options)));
   digest.update(canonicalJson(options.rolloutLimits || DEFAULT_ROLLOUT_LIMITS));
   return digest.digest('hex');
 }
@@ -193,9 +238,39 @@ function serverOwnedPolicy(options = {}) {
   };
 }
 
+function serverOwnedPolicyEnvelope(options = {}) {
+  if (options.trustedTrainingPolicy === undefined) return PRODUCTION_POLICY_ENVELOPE;
+  return {
+    schema: 'long-v35-trusted-offline-uniform-policy-envelope-v1',
+    selector: 'all-decisions',
+    policy: serverOwnedPolicy(options),
+  };
+}
+
+function isProductionLiveDoublesDecision(decision) {
+  const snapshot = decision?.stateSnapshotV2;
+  const rolled = snapshot?.rolled;
+  const dice = snapshot?.dice;
+  return Array.isArray(rolled)
+    && rolled.length === PRODUCTION_POLICY_ENVELOPE.selector.rolledLength
+    && rolled.every(die => Number.isInteger(die) && die >= 1 && die <= 6 && die === rolled[0])
+    && Array.isArray(dice)
+    && dice.length >= PRODUCTION_POLICY_ENVELOPE.selector.remainingDiceMinimum
+    && dice.every(die => die === rolled[0]);
+}
+
+function serverOwnedDecisionPolicy(decision, options = {}) {
+  if (options.trustedTrainingPolicy !== undefined) return serverOwnedPolicy(options);
+  if (!isProductionLiveDoublesDecision(decision)) return PRODUCTION_POLICY;
+  const archived = decision?.replayInput?.runtime;
+  return canonicalJson(archived) === canonicalJson(PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY)
+    ? PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY
+    : PRODUCTION_LIVE_DOUBLES_POLICY;
+}
+
 function archivedPolicyFailure(decision, options = {}) {
   const archived = decision?.replayInput?.runtime;
-  const approved = serverOwnedPolicy(options);
+  const approved = serverOwnedDecisionPolicy(decision, options);
   if (!archived || canonicalJson(archived) !== canonicalJson(approved)) {
     return options.trustedTrainingPolicy === undefined
       ? 'unapproved-production-policy' : 'trusted-training-policy-mismatch';
@@ -305,6 +380,109 @@ function trainingDecisions(game) {
   return Array.isArray(game?.training_game?.decisions) ? game.training_game.decisions : [];
 }
 
+function nativeFinite(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+// Keep this outcome-independent curriculum identical to the bounded offline
+// army selector. Archived features decide only where expensive review effort
+// goes; they can never establish regret or create evidence by themselves.
+function archivedOutsideCount(game, decision) {
+  const snapshot = decision?.stateSnapshotV2;
+  const color = decision?.color;
+  if (!['white', 'dark'].includes(color) || (game.bot_color || game.botColor) !== color
+    || snapshot?.schema !== 'long-state-v2' || snapshot.variant !== 'long'
+    || snapshot.phase !== 'move' || snapshot.turn !== color
+    || !snapshot.points || typeof snapshot.points !== 'object' || Array.isArray(snapshot.points)
+    || Object.keys(snapshot.points).length > 24 || !snapshot.off || !snapshot.bar) return null;
+  const totals = { white: 0, dark: 0 };
+  for (const side of ['white', 'dark']) {
+    const off = snapshot.off[side];
+    if (!Number.isSafeInteger(off) || off < 0 || off > 15 || snapshot.bar[side] !== 0) return null;
+    totals[side] = off;
+  }
+  let outside = 0;
+  for (const [key, stack] of Object.entries(snapshot.points)) {
+    if (!/^(?:[1-9]|1[0-9]|2[0-4])$/.test(key) || !stack || Array.isArray(stack)
+      || !['white', 'dark'].includes(stack.color) || !Number.isSafeInteger(stack.count)
+      || stack.count < 1 || stack.count > 15) return null;
+    totals[stack.color] += stack.count;
+    const point = Number(key);
+    const inHome = color === 'white' ? point <= 6 : point >= 13 && point <= 18;
+    if (stack.color === color && !inHome) outside += stack.count;
+  }
+  return totals.white === 15 && totals.dark === 15 ? outside : null;
+}
+
+function archivedStrategicRisk(game, decision) {
+  const features = decision?.selected?.features;
+  if ((game.engine_version || game.engineVersion) !== ENGINE_VERSION
+    || decision?.engineVersion !== ENGINE_VERSION || decision?.source !== 'engine'
+    || !features || typeof features !== 'object' || Array.isArray(features)) return { tier: 0, signals: [] };
+  const choiceCount = decision.choiceCount;
+  const multipleChoices = Number.isSafeInteger(choiceCount) && choiceCount > 1;
+  const primeBefore = nativeFinite(features.primeRunBefore);
+  const primeAfter = nativeFinite(features.primeRunAfter);
+  if (multipleChoices && primeBefore !== null && primeAfter !== null
+    && Number.isSafeInteger(primeBefore) && primeBefore >= 5 && primeBefore <= 15
+    && Number.isSafeInteger(primeAfter) && primeAfter >= 0 && primeAfter < primeBefore) {
+    return { tier: 4, signals: ['prime-loss-with-choice'] };
+  }
+  const primeScoreBefore = nativeFinite(features.primeScoreBefore);
+  const blockBefore = nativeFinite(features.opponentMoveBlockBefore);
+  const blockGain = nativeFinite(features.opponentMoveBlockGain);
+  if (multipleChoices && primeBefore === 4
+    && primeAfter !== null && Number.isSafeInteger(primeAfter) && primeAfter >= 0 && primeAfter < 4
+    && primeScoreBefore !== null && primeScoreBefore > 0
+    && blockBefore !== null && blockBefore > 0 && blockGain !== null && blockGain < 0) {
+    return { tier: 4, signals: ['active-four-prime-loss-with-choice'] };
+  }
+  const structural = [
+    ['headLandingBreak', 'head-support-break', value => value > 0],
+    ['latentFenceExposureDelta', 'latent-fence-deterioration', value => value < 0],
+    ['fenceClosureDelta', 'fence-deterioration', value => value < 0],
+    ['escapeGatewayDelta', 'gateway-deterioration', value => value < 0],
+  ].filter(([field, , worsens]) => {
+    const value = nativeFinite(features[field]);
+    return value !== null && worsens(value);
+  }).map(([, signal]) => signal);
+  if (structural.length) return { tier: 3, signals: structural };
+  const shuffle = nativeFinite(features.homeShuffleMoves);
+  const reduction = nativeFinite(features.outsideReduction);
+  const outside = archivedOutsideCount(game, decision);
+  if (shuffle !== null && Number.isSafeInteger(shuffle) && shuffle > 0 && shuffle <= 4
+    && reduction !== null && Number.isSafeInteger(reduction) && reduction <= 0 && reduction >= -15
+    && outside !== null && outside > 0) {
+    return { tier: 2, signals: ['home-shuffle-with-outside-checkers'] };
+  }
+  const tactical = decision.selected.tactical;
+  const missingAnalysis = tactical === null || tactical === undefined;
+  const incompleteAnalysis = tactical && typeof tactical === 'object' && !Array.isArray(tactical)
+    && (tactical.distributionComplete === undefined || tactical.distributionComplete === false
+      || tactical.recoveryDistributionComplete === false || tactical.continuationCoverageComplete === false);
+  if (multipleChoices && (missingAnalysis || incompleteAnalysis)) {
+    return { tier: 1, signals: ['multiple-choice-analysis-diagnostic'] };
+  }
+  return { tier: 0, signals: [] };
+}
+
+function productionStrategicReviewPlan(game) {
+  const risks = trainingDecisions(game).map((decision, index) => ({ decision, index }))
+    .filter(({ decision }) => botDecision(decision, game))
+    .map(({ decision, index }) => ({ index, ...archivedStrategicRisk(game, decision) }))
+    .sort((left, right) => right.tier - left.tier || right.index - left.index);
+  return {
+    schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
+    strategy: 'strategic-risk',
+    ordering: 'strategic-tier-then-reverse-original-bot-ledger',
+    riskRole: 'curriculum-only',
+    outcomeUsed: false,
+    maximumExpensiveReviews: PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
+    expensiveDecisionIndexes: risks.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
+    risks: risks.map(({ index, tier, signals }) => ({ index, tier, signals: [...signals] })),
+  };
+}
+
 function validateGameEnvelope(game, limits = DEFAULT_LIMITS) {
   if (!game || typeof game !== 'object') return 'training-game-missing';
   if (String(game.engine_version || game.engineVersion || '') !== ENGINE_VERSION) {
@@ -387,7 +565,7 @@ function regenerateArchivedSelection(game, decision, options = {}) {
   const runtime = loadRuntime(options);
   runtime.engine.setExperience([], 'server-causal-review');
   const state = stateFromSnapshot(decision.stateSnapshotV2 || {});
-  const ranked = runtime.engine.rank(state, serverOwnedPolicy(options));
+  const ranked = runtime.engine.rank(state, serverOwnedDecisionPolicy(decision, options));
   const selected = compactPolicyCandidate(ranked?.[0]);
   if (
     afterPositionKey(selected) !== afterPositionKey(decision.selected)
@@ -402,12 +580,24 @@ function regenerateArchivedSelection(game, decision, options = {}) {
 function validateDecisionResources(game, decision) {
   const snapshot = decision?.stateSnapshotV2;
   const runtime = decision?.replayInput?.runtime;
+  const approvedPolicy = serverOwnedDecisionPolicy(decision);
+  const allowedRuntimeKeys = new Set(Object.keys(approvedPolicy));
   if (
     !runtime || runtime.strategyProfile !== 'v25'
+    || typeof runtime !== 'object' || Array.isArray(runtime)
+    || Object.keys(runtime).some(key => !allowedRuntimeKeys.has(key))
     || !Number.isInteger(runtime.maxCandidates)
     || runtime.maxCandidates < 1 || runtime.maxCandidates > 128
     || !Number.isInteger(runtime.analysisNodeBudget)
     || runtime.analysisNodeBudget < 1 || runtime.analysisNodeBudget > 1150
+    || (Object.hasOwn(approvedPolicy, 'initialSequenceLimit') && (
+      !Number.isInteger(runtime.initialSequenceLimit)
+      || runtime.initialSequenceLimit < 1 || runtime.initialSequenceLimit > 128
+    ))
+    || (Object.hasOwn(approvedPolicy, 'maxTacticalCandidates') && (
+      !Number.isInteger(runtime.maxTacticalCandidates)
+      || runtime.maxTacticalCandidates < 1 || runtime.maxTacticalCandidates > 128
+    ))
     || (runtime.weights !== undefined && (
       !runtime.weights || typeof runtime.weights !== 'object' || Array.isArray(runtime.weights)
       || Object.keys(runtime.weights).length > 128
@@ -462,6 +652,24 @@ function validateDecisionResources(game, decision) {
     ) return 'decision-state-envelope-invalid';
     remaining.splice(remaining.indexOf(move.die), 1);
   }
+  return '';
+}
+
+function trustedDecisionEnvelopeFailure(game, decision, options = {}) {
+  if (!botDecision(decision, game)) return 'not-bot-decision';
+  if (
+    decision?.source !== 'engine'
+    || decision?.fallback === true
+    || decision?.fallbackReason
+    || decision?.engineVersion !== ENGINE_VERSION
+  ) return 'decision-provenance-invalid';
+  const policyFailure = archivedPolicyFailure(decision, options);
+  if (policyFailure) return policyFailure;
+  const resourceFailure = validateDecisionResources(game, decision);
+  if (resourceFailure) return resourceFailure;
+  const execution = exactExecution(decision);
+  if (!execution.ok) return execution.reason;
+  if (!emptyFrozenExperience(game, decision)) return 'recursive-experience-provenance-unsigned';
   return '';
 }
 
@@ -524,7 +732,7 @@ function offlineTerminalJournalBindings(game, decision, selected, options, nativ
     executableClosure: runtimeClosureEntries(options).map(([name, bytes]) => ({ name, sha256: sha256(bytes) })),
     gameBytesSha256: nativeRuntime.gameBytesDigest, bundleBytesSha256: nativeRuntime.runtimeBytesDigest,
     node: process.versions.node, v8: process.versions.v8,
-    originalSelectionPolicy: serverOwnedPolicy(options),
+    originalSelectionPolicy: serverOwnedDecisionPolicy(decision, options),
     frozenFutureExperienceCanonical: canonicalJson(nativeRuntime.engine.experienceReplaySnapshot()),
     legalSetSemantics: 'every unique legal after-board, one fixed native ordered action per board',
     ...(production ? {
@@ -548,22 +756,9 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   };
   const journalFailure = offlineTerminalJournalFailure(options);
   if (journalFailure) return { ...base, reason: journalFailure };
-  if (!botDecision(decision, game)) return { ...base, reason: 'not-bot-decision' };
-  if (
-    decision?.source !== 'engine'
-    || decision?.fallback === true
-    || decision?.fallbackReason
-    || decision?.engineVersion !== ENGINE_VERSION
-  ) return { ...base, reason: 'decision-provenance-invalid' };
-  const policyFailure = archivedPolicyFailure(decision, options);
-  if (policyFailure) return { ...base, reason: policyFailure };
-  const resourceFailure = validateDecisionResources(game, decision);
-  if (resourceFailure) return { ...base, reason: resourceFailure };
+  const envelopeFailure = trustedDecisionEnvelopeFailure(game, decision, options);
+  if (envelopeFailure) return { ...base, reason: envelopeFailure };
   const execution = exactExecution(decision);
-  if (!execution.ok) return { ...base, reason: execution.reason };
-  if (!emptyFrozenExperience(game, decision)) {
-    return { ...base, reason: 'recursive-experience-provenance-unsigned' };
-  }
 
   // Always regenerate under the CURRENT frozen cold implementation. Matching
   // the archived action does not attest which source build played originally.
@@ -848,10 +1043,10 @@ async function analyzeTrainingGame(game, options = {}) {
     const decision = trainingDecisions(game)[index];
     result.reviewCoverage.attemptedDecisionIndexes.push(index);
     result.summary.botDecisionsSeen += 1;
-    const review = await reviewTrustedDecision(game, decision, {
-      ...options,
-      runtimeDigest: digest,
-    });
+    const reviewOptions = { ...options, runtimeDigest: digest };
+    const review = VERIFIED_SCOPES.has(options[PRODUCTION_SCOPE])
+      ? await reviewStrategicallyBoundedProductionDecision(game, index, reviewOptions)
+      : await reviewTrustedDecision(game, decision, reviewOptions);
     result.reviewCoverage.finishedDecisionIndexes.push(index);
     if (review.rollout?.coverage?.complete === true) result.reviewCoverage.completedOutcomeCohorts += 1;
     result.reviews.push(review);
@@ -890,6 +1085,74 @@ async function supabaseRpc(url, serviceRoleKey, name, args = {}) {
 
 function productionDecisionIndexes(game) {
   return trainingDecisions(game).flatMap((decision, index) => botDecision(decision, game) ? [index] : []);
+}
+
+function productionReviewSelectionTelemetry(plan, decisionIndex) {
+  const riskRank = plan.risks.findIndex(item => item.index === decisionIndex);
+  const risk = riskRank < 0 ? { tier: 0, signals: [] } : plan.risks[riskRank];
+  return {
+    schema: plan.schema,
+    strategy: plan.strategy,
+    ordering: plan.ordering,
+    riskRole: plan.riskRole,
+    outcomeUsed: false,
+    maximumExpensiveReviews: plan.maximumExpensiveReviews,
+    selectedForExpensiveReview: plan.expensiveDecisionIndexes.includes(decisionIndex),
+    priorityRank: riskRank < 0 ? null : riskRank + 1,
+    tier: risk.tier,
+    signals: [...risk.signals],
+  };
+}
+
+async function reviewStrategicallyBoundedProductionDecision(
+  game,
+  decisionIndex,
+  options = {},
+  expensiveReviewer = reviewTrustedDecision,
+) {
+  const decisions = trainingDecisions(game);
+  const indexes = productionDecisionIndexes(game);
+  if (!Number.isSafeInteger(decisionIndex) || !indexes.includes(decisionIndex)) {
+    throw new Error('Bounded production review requires an original bot decision index');
+  }
+  if (typeof expensiveReviewer !== 'function') throw new Error('Bounded production expensive reviewer is invalid');
+  const plan = productionStrategicReviewPlan(game);
+  const reviewSelection = productionReviewSelectionTelemetry(plan, decisionIndex);
+  const decisionEnvelopeFailures = indexes.map(index => ({
+    index,
+    reason: trustedDecisionEnvelopeFailure(game, decisions[index], options),
+  })).filter(item => item.reason);
+  const decisionEnvelopeValidation = {
+    schema: 'long-server-causal-decision-envelope-validation-v1',
+    complete: true,
+    valid: decisionEnvelopeFailures.length === 0,
+    totalBotDecisions: indexes.length,
+    ...(decisionEnvelopeFailures.length ? {
+      firstInvalidDecisionIndex: decisionEnvelopeFailures[0].index,
+      firstInvalidReason: decisionEnvelopeFailures[0].reason,
+      invalidDecisionCount: decisionEnvelopeFailures.length,
+    } : {}),
+  };
+  const base = {
+    decisionId: String(decisions[decisionIndex]?.id || ''),
+    positionId: String(decisions[decisionIndex]?.positionId || ''),
+    status: 'rejected',
+    evidence: null,
+    outcomeUsed: false,
+    reviewSelection,
+    decisionEnvelopeValidation,
+  };
+  // Fail the entire immutable ledger closed before any selected decision can
+  // mint evidence. SQL still advances this original index with an explicit,
+  // evidence-free rejection and will inspect every remaining original index.
+  if (decisionEnvelopeFailures.length) {
+    return { ...base, reason: 'production-game-decision-envelope-invalid' };
+  }
+  if (!reviewSelection.selectedForExpensiveReview) {
+    return { ...base, reason: 'production-strategic-risk-budget-skip' };
+  }
+  const review = await expensiveReviewer(game, decisions[decisionIndex], options);
+  return { ...review, reviewSelection, decisionEnvelopeValidation };
 }
 
 function validProductionRolloutCheckpoint(value) {
@@ -1321,7 +1584,13 @@ module.exports = {
   TRUST_DOMAIN,
   WORKER_RELEASE,
   PRODUCTION_POLICY,
+  PRODUCTION_LIVE_DOUBLES_POLICY,
+  PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
+  PRODUCTION_POLICY_ENVELOPE,
+  PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
   analyzeTrainingGame,
+  archivedOutsideCount,
+  archivedStrategicRisk,
   botDecision,
   collisionResistantIdentities,
   emptyFrozenExperience,
@@ -1339,6 +1608,9 @@ module.exports = {
   runtimeClosureFiles,
   policyImplementationId,
   serverOwnedPolicy,
+  serverOwnedPolicyEnvelope,
+  serverOwnedDecisionPolicy,
+  isProductionLiveDoublesDecision,
   archivedPolicyFailure,
   sha256,
   supabaseRpc,
@@ -1348,6 +1620,8 @@ module.exports = {
   LEGACY_PROGRESS_SCHEMA,
   PROGRESS_SCHEMA,
   productionDecisionIndexes,
+  productionStrategicReviewPlan,
+  reviewStrategicallyBoundedProductionDecision,
   normalizeProductionProgress,
   validateProductionProgress,
   advanceProductionProgress,

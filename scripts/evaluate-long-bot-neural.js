@@ -20,12 +20,17 @@ const ARTIFACT_VALIDATOR_CODE_FINGERPRINT = trainer.fingerprint(fs.readFileSync(
 // still requires its original training rules bytes; this does NOT migrate an
 // old candidate or its confirmation statistics to the optimized runtime.
 const PREVIOUS_V35_STRONG_BOT_DIGEST = '49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573';
-const CURRENT_V35_STRONG_BOT_DIGEST = '74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812';
-const APPROVED_V35_RUNTIME_TUPLES = Object.freeze(AUDITED_NATIVE_CACHE_POLICIES.map((tuple, index, tuples) => Object.freeze({
+const PREVIOUS_LIVE_V35_STRONG_BOT_DIGEST = '74d3d176de1caea94d26c304a0fbc111ac5349dd49586dd4bda6fa4ccc959812';
+const CURRENT_V35_STRONG_BOT_DIGEST = '96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951';
+const CURRENT_V35_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+const PREVIOUS_LIVE_V35_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+const APPROVED_V35_RUNTIME_TUPLES = Object.freeze(AUDITED_NATIVE_CACHE_POLICIES.map(tuple => Object.freeze({
   ...tuple,
-  strongBotBytesDigest: index === tuples.length - 1
+  strongBotBytesDigest: tuple.policyImplementationId === CURRENT_V35_POLICY_IMPLEMENTATION_ID
     ? CURRENT_V35_STRONG_BOT_DIGEST
-    : PREVIOUS_V35_STRONG_BOT_DIGEST,
+    : tuple.policyImplementationId === PREVIOUS_LIVE_V35_POLICY_IMPLEMENTATION_ID
+      ? PREVIOUS_LIVE_V35_STRONG_BOT_DIGEST
+      : PREVIOUS_V35_STRONG_BOT_DIGEST,
 })));
 const APPROVED_V35_RESOURCES = Object.freeze({ strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480 });
 const APPROVED_V35_DISPATCH_WEIGHTS_FINGERPRINT = 'sha256:f9f0c7b0c51f92362c965793c28114c98dd5a7cfb81c7ccf9bbff25711800cc0';

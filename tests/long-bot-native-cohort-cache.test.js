@@ -10,6 +10,7 @@ const {
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
+  TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -71,17 +72,18 @@ function runtime() {
   return value;
 }
 
-test('real optimized native identity enables a separately pinned cache without calling its planner', () => {
+test('real current native identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, OPTIMIZED_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, TACTICAL_LIVE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, TACTICAL_LIVE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, TACTICAL_LIVE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
     OPTIMIZED_NATIVE_CACHE_POLICY,
+    TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -94,6 +96,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     policyImplementationId: '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526',
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d',
+  });
+  assert.deepEqual(TACTICAL_LIVE_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'fe6e2d805d007e03a737c8c765c0d68786ad1820a55fa74212f3ddb0ead130a5',
   });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
@@ -114,7 +121,20 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
 });
 
 test('normalized mode/caps are explicit, native, bounded and default to audited native cold', () => {
-  assert.equal(normalizedLimits().cacheMode, NATIVE_CACHE_VERSION);
+  const defaults = normalizedLimits();
+  assert.equal(defaults.cacheMode, NATIVE_CACHE_VERSION);
+  assert.deepEqual(defaults.policy, {
+    strategyProfile: 'v25', maxCandidates: 24,
+    maxTacticalCandidates: 2, analysisNodeBudget: 66,
+  });
+  assert.equal(defaults.policy.analysisNodeBudget - defaults.policy.maxCandidates,
+    defaults.policy.maxTacticalCandidates * 21);
+  assert.equal(normalizedLimits({ rolloutLimits: {
+    policy: { maxTacticalCandidates: 3 },
+  } }).policy.maxTacticalCandidates, 3);
+  assert.equal(normalizedLimits({ rolloutLimits: {
+    policy: { maxTacticalCandidates: 5 },
+  } }).policy.maxTacticalCandidates, 4);
   assert.equal(normalizedLimits({ rolloutLimits: { cacheMode: 'off' } }).cacheMode, 'off');
   assert.equal(normalizedLimits({ rolloutLimits: { cacheMode: true } }).cacheMode, 'off');
   for (const [key, bad] of [['cacheMaxEntries', '1'], ['cacheMaxEntries', 4097], ['cacheMaxEntries', null],

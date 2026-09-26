@@ -269,6 +269,7 @@ export function createLongBotEngine(adapter, options = {}) {
       budget,
       {
         expandDoubles: advancedStrategy,
+        maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
           : null,

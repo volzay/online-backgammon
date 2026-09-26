@@ -8,7 +8,8 @@ const builder = require('../scripts/build-long-bot-engine');
 const ROOT = path.join(__dirname, '..');
 const ORIGINAL = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 const PREVIOUS = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-const ACTUAL = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+const PREVIOUS_LIVE = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+const ACTUAL = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 function pattern(policyImplementationId = ORIGINAL) {
@@ -47,6 +48,7 @@ test('learning compatibility preserves truthful actual identity and pins every r
   assert.equal(engine.acceptsLearningPolicyImplementationId(ACTUAL), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId(ORIGINAL), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId(PREVIOUS), true);
+  assert.equal(engine.acceptsLearningPolicyImplementationId(PREVIOUS_LIVE), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId('0'.repeat(64)), false);
   for (const [changedName] of entries) {
     const changed = entries.map(([name, bytes]) => [name, name === changedName
@@ -64,7 +66,7 @@ test('learning compatibility preserves truthful actual identity and pins every r
 });
 
 test('live RPC accepts original and current lessons without rewriting provenance; wrong/local lessons are rejected', async () => {
-  for (const source of [pattern(), pattern(PREVIOUS), pattern(ACTUAL), pattern('f'.repeat(64)),
+  for (const source of [pattern(), pattern(PREVIOUS), pattern(PREVIOUS_LIVE), pattern(ACTUAL), pattern('f'.repeat(64)),
     { ...pattern(), reviewerVersion: 'forged-reviewer' }]) {
     const { context, engine, values } = browser();
     values.set('narduh-long-bot-server-experience-v15', JSON.stringify({ savedAt: Date.now(), playerKey: 'tester',

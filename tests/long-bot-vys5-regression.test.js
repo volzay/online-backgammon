@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { performance } = require('node:perf_hooks');
 
 const ROOT = path.join(__dirname, '..');
-const LIVE_TURN_LIMIT_MS = 5000;
+const LIVE_TURN_LIMIT_MS = 1500;
 const EXPECTED_PLAN = [
   { from: 3, die: 1 },
   { from: 2, die: 1 },
@@ -125,11 +125,43 @@ test('VYS5-WGNB double-one turn stays legal and finishes inside the live latency
     strategyProfile: 'v25',
     maxCandidates: 16,
     initialSequenceLimit: 16,
-    analysisNodeBudget: 12,
+    maxTacticalCandidates: 2,
+    analysisNodeBudget: 58,
     weights: decision.replayInput.runtime.weights,
   });
   assert.ok(Object.keys(decision.replayInput.runtime.weights).length > 0);
-  assert.ok(decision.selected.features.analysisNodesUsed <= 12);
+  assert.ok(decision.selected.features.analysisNodesUsed <= 58);
+  assert.equal(decision.selected.tactical?.distributionComplete, true);
+  assert.equal(decision.selected.tactical?.rolls, 21);
+  assert.equal(decision.selected.tactical?.distributionWeight, 36);
+  assert.ok(decision.selected.tactical?.plies >= 2);
+});
+
+test('live doubles tactical budget admits only complete comparable reply distributions', () => {
+  const { engine } = runtime();
+  const state = vys5State();
+  const common = {
+    strategyProfile: 'v25',
+    maxCandidates: 16,
+    initialSequenceLimit: 16,
+    maxTacticalCandidates: 2,
+  };
+
+  const insufficient = plain(engine.rank(plain(state), {
+    ...common,
+    analysisNodeBudget: 57,
+  }));
+  assert.ok(insufficient.length > 1);
+  assert.equal(insufficient.some(candidate => candidate.tactical), false);
+
+  const complete = plain(engine.rank(plain(state), {
+    ...common,
+    analysisNodeBudget: 58,
+  }));
+  assert.equal(complete.length, 2);
+  assert.ok(complete.every(candidate => candidate.tactical?.distributionComplete === true));
+  assert.ok(complete.every(candidate => candidate.tactical?.rolls === 21));
+  assert.ok(complete.every(candidate => candidate.tactical?.distributionWeight === 36));
 });
 
 test('ordinary long turns retain the full production search envelope', () => {
