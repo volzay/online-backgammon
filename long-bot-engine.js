@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
-  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:408f4b38e73f11c868a86c5ddb2c41e326ac1e80e841fcada3b83c666c82d2ac","bot-engine/long/nardu-game-adapter.ts":"sha256:7088d6994e7c84ade8a70d3d31e25e2892e34c48405b5e7f493961dd9df34100","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:408f4b38e73f11c868a86c5ddb2c41e326ac1e80e841fcada3b83c666c82d2ac","bot-engine/long/nardu-game-adapter.ts":"sha256:7088d6994e7c84ade8a70d3d31e25e2892e34c48405b5e7f493961dd9df34100","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}) });
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
+  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:c15707ab9c3f86757fbdd586c8dad8b4de921b4661588ad3d97fb88740fa66d5","bot-engine/long/nardu-game-adapter.ts":"sha256:ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940","bot-engine/long/engine.ts":"sha256:c15707ab9c3f86757fbdd586c8dad8b4de921b4661588ad3d97fb88740fa66d5","bot-engine/long/nardu-game-adapter.ts":"sha256:ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}) });
 
 /* bot-engine/long/metrics.ts */
 
@@ -2702,6 +2702,14 @@ function createLongBotEngine(adapter, options = {}) {
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color, {
       limit: initialSequenceLimit,
+      // A 16-wide static sampler discarded the strongest late-race routes in
+      // three JSYS-DECV doubles before evaluation began. Doubles contain only
+      // four moves, so enumerate their complete legal outcomes and retain the
+      // existing bounded 16-candidate/tactical budgets after prefiltering.
+      exhaustiveLongDoubles: advancedStrategy
+        && Array.isArray(state.dice)
+        && state.dice.length >= 3
+        && new Set(state.dice.map(Number)).size === 1,
     }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -4097,11 +4105,13 @@ function isSafeHomeEntryAlternative(state, color, candidate, selected) {
   ) {
     return false;
   }
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
   const replyTolerance = (
-    isForcedLateHomeEntryContext(state, color, selected)
+    opponentHomeReadyRace
+    || isForcedLateHomeEntryContext(state, color, selected)
     || isDirectLateHomeEntryReplacement(state, color, candidate, selected)
   )
-    ? 8000000
+    ? opponentHomeReadyRace ? 12000000 : 8000000
     : 250000;
   const replyEnvelope = Number(candidate.tactical.expectedImpact) >= (
     Number(selected.tactical.expectedImpact) - replyTolerance
@@ -4111,11 +4121,31 @@ function isSafeHomeEntryAlternative(state, color, candidate, selected) {
     );
   if (!replyEnvelope) return false;
 
-  const needsLateRaceProof = isUncontestedPreHomeStaging(state, color, selected)
+  const needsLateRaceProof = opponentHomeReadyRace
+    || isUncontestedPreHomeStaging(state, color, selected)
     || isUncontestedLateRaceState(state, color, selected.features);
   if (!needsLateRaceProof) return true;
   if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) {
     return false;
+  }
+
+  if (opponentHomeReadyRace) {
+    // A single recovery-tail proxy may dislike the temporary stack at the
+    // home entrance. Require the complete recovery expectation/worst case and
+    // every continuation measure to corroborate the entry instead of letting
+    // that one proxy preserve obsolete defensive structure.
+    return Number(candidate.tactical.recoveryExpected || 0)
+        >= Number(selected.tactical.recoveryExpected || 0)
+      && Number(candidate.tactical.recoveryWorst || 0)
+        >= Number(selected.tactical.recoveryWorst || 0) - 2000000
+      && Number(candidate.tactical.recoveryTailRisk || 0)
+        >= Number(selected.tactical.recoveryTailRisk || 0) - 15000000
+      && Number(candidate.tactical.continuationExpected || 0)
+        >= Number(selected.tactical.continuationExpected || 0) - 4000000
+      && Number(candidate.tactical.continuationWorst || 0)
+        >= Number(selected.tactical.continuationWorst || 0) - 4000000
+      && Number(candidate.tactical.continuationTailRisk || 0)
+        >= Number(selected.tactical.continuationTailRisk || 0) - 4000000;
   }
 
   // Entering a checker may make the immediate recovery estimate slightly
@@ -4775,6 +4805,25 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     );
 }
 
+// Once the opponent has brought every checker home, no future move can build
+// a fence or otherwise interact with our route. In that phase, defensive
+// prime/tower metrics describe obsolete contact structure and must not veto a
+// legal move which brings another checker home.
+function isOpponentHomeReadyRaceState(state, color) {
+  const opponent = opponentOf(color);
+  let opponentCheckers = offCount(state, opponent);
+  for (let point = 1; point <= 24; point += 1) {
+    if (colorAt(state, point) === opponent) {
+      opponentCheckers += Number(state.points?.[point]?.count || 0);
+    }
+  }
+  return opponentCheckers === 15
+    && !homeReady(state, color)
+    && homeReady(state, opponent)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) > 0;
+}
+
 function isUncontestedLateRaceState(state, color, features = {}) {
   const outside = outsideHomeCount(state, color);
   // The deep continuation score is allowed to yield to race progress only when
@@ -4809,6 +4858,20 @@ function isUncontestedPreHomeStaging(state, color, selected) {
 }
 
 function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
+  if (opponentHomeReadyRace) {
+    return Number(candidate.features.homeShuffleMoves || 0)
+        < Number(selected.features.homeShuffleMoves || 0)
+      && Number(candidate.features.outsideReduction || 0)
+        > Number(selected.features.outsideReduction || 0)
+      && Number(candidate.features.outsidePipGain || 0)
+        > Number(selected.features.outsidePipGain || 0)
+      && Number(candidate.features.resultSafetyAfter || 0)
+        >= Number(selected.features.resultSafetyAfter || 0)
+      && Number(candidate.features.maxRouteTowerAfter || 0) <= 6
+      && scoreWithoutExperience(candidate)
+        >= scoreWithoutExperience(selected) - 12000000;
+  }
   const stagedReplacement = isUncontestedPreHomeStaging(state, color, selected);
   const uncontestedRace = isUncontestedLateRaceState(state, color, selected.features);
   const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
@@ -4875,6 +4938,7 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
 
 function isDirectLateHomeEntryReplacement(state, color, candidate, selected) {
   const outside = outsideHomeCount(state, color);
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
   return Boolean(candidate && selected)
     && headCheckers(state, color) === 0
     && outside > 0
@@ -4887,12 +4951,18 @@ function isDirectLateHomeEntryReplacement(state, color, candidate, selected) {
       > Number(selected.features.outsideReduction || 0)
     && Number(candidate.features.outsidePipGain || 0)
       > Number(selected.features.outsidePipGain || 0)
-    && Number(candidate.features.primeRunAfter || 0)
-      >= Number(selected.features.primeRunAfter || 0)
-    && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0)
-    && Number(candidate.features.latentFenceExposureDelta || 0)
-      >= Number(selected.features.latentFenceExposureDelta || 0) - 2;
+    && (
+      opponentHomeReadyRace
+        ? Number(candidate.features.resultSafetyAfter || 0)
+            >= Number(selected.features.resultSafetyAfter || 0)
+          && Number(candidate.features.maxRouteTowerAfter || 0) <= 6
+        : Number(candidate.features.primeRunAfter || 0)
+            >= Number(selected.features.primeRunAfter || 0)
+          && Number(candidate.features.maxRouteTowerAfter || 0)
+            <= Number(selected.features.maxRouteTowerAfter || 0)
+          && Number(candidate.features.latentFenceExposureDelta || 0)
+            >= Number(selected.features.latentFenceExposureDelta || 0) - 2
+    );
 }
 
 function isForcedLateHomeEntryContext(state, color, selected) {
@@ -5584,7 +5654,12 @@ function hasStructuralIntegrityEnvelope(candidate, selected, proofType) {
 
 function prioritizeStructuralIntegrity(state, color, ranked) {
   const selected = ranked[0];
-  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+  if (
+    !selected
+    || homeReady(state, color)
+    || isOpponentHomeReadyRaceState(state, color)
+    || ranked.length < 2
+  ) return ranked;
   const alternatives = ranked.filter(candidate => {
     if (candidate === selected) return false;
     const proofType = structuralIntegrityProofType(candidate, selected);
@@ -6872,7 +6947,14 @@ function createNarduGameAdapter(game, options = {}) {
         phase: 'move',
       };
       const limit = Math.max(0, Number(options.limit) || 0);
-      const sequences = limit > 0 && game.sampledMoveSequences
+      const exhaustiveLongDoubles = options.exhaustiveLongDoubles === true
+        && String(prepared.variant || 'long').toLowerCase() === 'long'
+        && Array.isArray(prepared.dice)
+        && prepared.dice.length >= 3
+        && new Set(prepared.dice.map(Number)).size === 1;
+      const sequences = exhaustiveLongDoubles
+        ? game.bestMoveSequences(prepared, color)
+        : limit > 0 && game.sampledMoveSequences
         ? game.sampledMoveSequences(prepared, color, limit)
         : game.bestMoveSequences(prepared, color);
       return sequences

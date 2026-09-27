@@ -11,6 +11,8 @@ const {
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
+  PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -76,14 +78,16 @@ test('real current native identity enables a separately pinned cache without cal
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, TACTICAL_LIVE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, TACTICAL_LIVE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, TACTICAL_LIVE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
     OPTIMIZED_NATIVE_CACHE_POLICY,
     TACTICAL_LIVE_NATIVE_CACHE_POLICY,
+    PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+    JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -101,6 +105,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     policyImplementationId: '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89',
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'fe6e2d805d007e03a737c8c765c0d68786ad1820a55fa74212f3ddb0ead130a5',
+  });
+  assert.deepEqual(JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'c53a284754c7aa254e7b83064afc73d8aa63edce2993d0bd140dd7ee02fffb9a',
   });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);

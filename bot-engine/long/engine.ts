@@ -83,6 +83,14 @@ export function createLongBotEngine(adapter, options = {}) {
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color, {
       limit: initialSequenceLimit,
+      // A 16-wide static sampler discarded the strongest late-race routes in
+      // three JSYS-DECV doubles before evaluation began. Doubles contain only
+      // four moves, so enumerate their complete legal outcomes and retain the
+      // existing bounded 16-candidate/tactical budgets after prefiltering.
+      exhaustiveLongDoubles: advancedStrategy
+        && Array.isArray(state.dice)
+        && state.dice.length >= 3
+        && new Set(state.dice.map(Number)).size === 1,
     }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -1478,11 +1486,13 @@ function isSafeHomeEntryAlternative(state, color, candidate, selected) {
   ) {
     return false;
   }
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
   const replyTolerance = (
-    isForcedLateHomeEntryContext(state, color, selected)
+    opponentHomeReadyRace
+    || isForcedLateHomeEntryContext(state, color, selected)
     || isDirectLateHomeEntryReplacement(state, color, candidate, selected)
   )
-    ? 8000000
+    ? opponentHomeReadyRace ? 12000000 : 8000000
     : 250000;
   const replyEnvelope = Number(candidate.tactical.expectedImpact) >= (
     Number(selected.tactical.expectedImpact) - replyTolerance
@@ -1492,11 +1502,31 @@ function isSafeHomeEntryAlternative(state, color, candidate, selected) {
     );
   if (!replyEnvelope) return false;
 
-  const needsLateRaceProof = isUncontestedPreHomeStaging(state, color, selected)
+  const needsLateRaceProof = opponentHomeReadyRace
+    || isUncontestedPreHomeStaging(state, color, selected)
     || isUncontestedLateRaceState(state, color, selected.features);
   if (!needsLateRaceProof) return true;
   if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) {
     return false;
+  }
+
+  if (opponentHomeReadyRace) {
+    // A single recovery-tail proxy may dislike the temporary stack at the
+    // home entrance. Require the complete recovery expectation/worst case and
+    // every continuation measure to corroborate the entry instead of letting
+    // that one proxy preserve obsolete defensive structure.
+    return Number(candidate.tactical.recoveryExpected || 0)
+        >= Number(selected.tactical.recoveryExpected || 0)
+      && Number(candidate.tactical.recoveryWorst || 0)
+        >= Number(selected.tactical.recoveryWorst || 0) - 2000000
+      && Number(candidate.tactical.recoveryTailRisk || 0)
+        >= Number(selected.tactical.recoveryTailRisk || 0) - 15000000
+      && Number(candidate.tactical.continuationExpected || 0)
+        >= Number(selected.tactical.continuationExpected || 0) - 4000000
+      && Number(candidate.tactical.continuationWorst || 0)
+        >= Number(selected.tactical.continuationWorst || 0) - 4000000
+      && Number(candidate.tactical.continuationTailRisk || 0)
+        >= Number(selected.tactical.continuationTailRisk || 0) - 4000000;
   }
 
   // Entering a checker may make the immediate recovery estimate slightly
@@ -2156,6 +2186,25 @@ function hasHomeEntryPriorityContext(state, color, selected) {
     );
 }
 
+// Once the opponent has brought every checker home, no future move can build
+// a fence or otherwise interact with our route. In that phase, defensive
+// prime/tower metrics describe obsolete contact structure and must not veto a
+// legal move which brings another checker home.
+function isOpponentHomeReadyRaceState(state, color) {
+  const opponent = opponentOf(color);
+  let opponentCheckers = offCount(state, opponent);
+  for (let point = 1; point <= 24; point += 1) {
+    if (colorAt(state, point) === opponent) {
+      opponentCheckers += Number(state.points?.[point]?.count || 0);
+    }
+  }
+  return opponentCheckers === 15
+    && !homeReady(state, color)
+    && homeReady(state, opponent)
+    && headCheckers(state, color) === 0
+    && outsideHomeCount(state, color) > 0;
+}
+
 function isUncontestedLateRaceState(state, color, features = {}) {
   const outside = outsideHomeCount(state, color);
   // The deep continuation score is allowed to yield to race progress only when
@@ -2190,6 +2239,20 @@ function isUncontestedPreHomeStaging(state, color, selected) {
 }
 
 function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
+  if (opponentHomeReadyRace) {
+    return Number(candidate.features.homeShuffleMoves || 0)
+        < Number(selected.features.homeShuffleMoves || 0)
+      && Number(candidate.features.outsideReduction || 0)
+        > Number(selected.features.outsideReduction || 0)
+      && Number(candidate.features.outsidePipGain || 0)
+        > Number(selected.features.outsidePipGain || 0)
+      && Number(candidate.features.resultSafetyAfter || 0)
+        >= Number(selected.features.resultSafetyAfter || 0)
+      && Number(candidate.features.maxRouteTowerAfter || 0) <= 6
+      && scoreWithoutExperience(candidate)
+        >= scoreWithoutExperience(selected) - 12000000;
+  }
   const stagedReplacement = isUncontestedPreHomeStaging(state, color, selected);
   const uncontestedRace = isUncontestedLateRaceState(state, color, selected.features);
   const forcedLateEntry = isForcedLateHomeEntryContext(state, color, selected);
@@ -2256,6 +2319,7 @@ function isPlausibleHomeEntryAlternative(state, color, candidate, selected) {
 
 function isDirectLateHomeEntryReplacement(state, color, candidate, selected) {
   const outside = outsideHomeCount(state, color);
+  const opponentHomeReadyRace = isOpponentHomeReadyRaceState(state, color);
   return Boolean(candidate && selected)
     && headCheckers(state, color) === 0
     && outside > 0
@@ -2268,12 +2332,18 @@ function isDirectLateHomeEntryReplacement(state, color, candidate, selected) {
       > Number(selected.features.outsideReduction || 0)
     && Number(candidate.features.outsidePipGain || 0)
       > Number(selected.features.outsidePipGain || 0)
-    && Number(candidate.features.primeRunAfter || 0)
-      >= Number(selected.features.primeRunAfter || 0)
-    && Number(candidate.features.maxRouteTowerAfter || 0)
-      <= Number(selected.features.maxRouteTowerAfter || 0)
-    && Number(candidate.features.latentFenceExposureDelta || 0)
-      >= Number(selected.features.latentFenceExposureDelta || 0) - 2;
+    && (
+      opponentHomeReadyRace
+        ? Number(candidate.features.resultSafetyAfter || 0)
+            >= Number(selected.features.resultSafetyAfter || 0)
+          && Number(candidate.features.maxRouteTowerAfter || 0) <= 6
+        : Number(candidate.features.primeRunAfter || 0)
+            >= Number(selected.features.primeRunAfter || 0)
+          && Number(candidate.features.maxRouteTowerAfter || 0)
+            <= Number(selected.features.maxRouteTowerAfter || 0)
+          && Number(candidate.features.latentFenceExposureDelta || 0)
+            >= Number(selected.features.latentFenceExposureDelta || 0) - 2
+    );
 }
 
 function isForcedLateHomeEntryContext(state, color, selected) {
@@ -2965,7 +3035,12 @@ function hasStructuralIntegrityEnvelope(candidate, selected, proofType) {
 
 function prioritizeStructuralIntegrity(state, color, ranked) {
   const selected = ranked[0];
-  if (!selected || homeReady(state, color) || ranked.length < 2) return ranked;
+  if (
+    !selected
+    || homeReady(state, color)
+    || isOpponentHomeReadyRaceState(state, color)
+    || ranked.length < 2
+  ) return ranked;
   const alternatives = ranked.filter(candidate => {
     if (candidate === selected) return false;
     const proofType = structuralIntegrityProofType(candidate, selected);

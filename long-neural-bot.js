@@ -11,7 +11,9 @@ window.NarduNeuralBot = (function () {
   const TEACHER_ENGINE_VERSION = 'long-analytic-v35';
   const TEACHER_POLICY_IMPLEMENTATION_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
   const TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
-  const TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+  const TEACHER_TACTICAL_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+  const TEACHER_PREVIOUS_JSYS_POLICY_IMPLEMENTATION_ID = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
+  const TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
   const POLICY_OPTIONS = Object.freeze({ maxCandidates: 32, replyTopCandidates: 2,
     replyCandidates: 4, replyWeight: 0.35 });
   const DEVELOPMENT_EVALUATION = Object.freeze({
@@ -125,6 +127,8 @@ window.NarduNeuralBot = (function () {
     if (!engine || engine.version !== TEACHER_ENGINE_VERSION
       || (engine.policyImplementationId !== TEACHER_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID
+        && engine.policyImplementationId !== TEACHER_TACTICAL_POLICY_IMPLEMENTATION_ID
+        && engine.policyImplementationId !== TEACHER_PREVIOUS_JSYS_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID)
       || typeof engine.consumeLastDecision !== 'function'
       || typeof teacher?.plan !== 'function'

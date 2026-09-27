@@ -135,14 +135,17 @@ test('native hard factory preserves captured v35 source/policy and selected open
 test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 4);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 6);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
   const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
   assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
   assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['strong-bot.js'], `sha256:${actual.strongBotBytesDigest}`);
-  const previous = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-2);
+  const previous = [...evaluator.APPROVED_V35_RUNTIME_TUPLES]
+    .reverse()
+    .find(tuple => tuple.strongBotBytesDigest !== actual.strongBotBytesDigest);
+  assert.ok(previous, 'the audit history must retain a distinct previous dispatcher');
   assert.equal(evaluator.approvedCurrentHardTuple(actual.policyImplementationId, {
     'game.js': `sha256:${actual.gameBytesDigest}`,
     'long-bot-engine.js': `sha256:${actual.runtimeBytesDigest}`,

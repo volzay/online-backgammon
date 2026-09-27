@@ -113,7 +113,14 @@ export function createNarduGameAdapter(game, options = {}) {
         phase: 'move',
       };
       const limit = Math.max(0, Number(options.limit) || 0);
-      const sequences = limit > 0 && game.sampledMoveSequences
+      const exhaustiveLongDoubles = options.exhaustiveLongDoubles === true
+        && String(prepared.variant || 'long').toLowerCase() === 'long'
+        && Array.isArray(prepared.dice)
+        && prepared.dice.length >= 3
+        && new Set(prepared.dice.map(Number)).size === 1;
+      const sequences = exhaustiveLongDoubles
+        ? game.bestMoveSequences(prepared, color)
+        : limit > 0 && game.sampledMoveSequences
         ? game.sampledMoveSequences(prepared, color, limit)
         : game.bestMoveSequences(prepared, color);
       return sequences

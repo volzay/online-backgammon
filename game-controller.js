@@ -111,7 +111,9 @@ window.NarduController = (function () {
   // The persisted guard ID above remains the frozen neural-room contract; it
   // must not be relabelled as a new model or new playing-strength evidence.
   const NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
-  const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+  const NEURAL_TEACHER_TACTICAL_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
+  const NEURAL_TEACHER_PREVIOUS_JSYS_POLICY_IMPLEMENTATION_ID = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
+  const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -4047,6 +4049,10 @@ window.NarduController = (function () {
           !== NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_RUNTIME_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_TACTICAL_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_PREVIOUS_JSYS_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {

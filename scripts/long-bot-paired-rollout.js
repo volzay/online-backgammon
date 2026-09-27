@@ -42,7 +42,7 @@ const OPTIMIZED_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: '953fd056d24e7491d54af9203c6cf3458cf0b959d4aff23773f134c3302a6187',
 });
-// Current production policy: complete two-candidate live-doubles reply
+// Previous production policy: complete two-candidate live-doubles reply
 // distributions plus the generated-sequence transition fast path. Keep the
 // earlier tuples above immutable because their cache/evidence namespaces are
 // historical artifacts, not aliases for this runtime.
@@ -51,11 +51,29 @@ const TACTICAL_LIVE_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'fe6e2d805d007e03a737c8c765c0d68786ad1820a55fa74212f3ddb0ead130a5',
 });
+// JSYS-DECV priority re-audit: complete double-sequence generation is reduced
+// to the same bounded candidate/tactical envelope before scoring, and the
+// pure-race home-entry gate consumes only canonical points/off-derived state.
+// History, clocks, names and analysis metadata remain irrelevant to cache keys.
+const PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'cc5a6eecd911d9a8413732ee3778f7a26945740c0f7793e1e7db4d3e204d921d',
+});
+// Final JSYS audit guard: malformed/incomplete positions cannot activate the
+// opponent-home-ready race policy used by the exact archived game states.
+const JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'c53a284754c7aa254e7b83064afc73d8aa63edce2993d0bd140dd7ee02fffb9a',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
+  PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -714,6 +732,8 @@ module.exports = {
   HISTORY_FREE_NATIVE_CACHE_POLICY,
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
+  PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
