@@ -76,6 +76,15 @@ const JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: '469d9d3a7a2cabe021a8c3c084549f8ac6d4b38f36eee1d4dde72ab0adcad87c',
 });
+// The f86 learning release changes only the minimum for already confirmed,
+// exact server-causal observations. With frozen empty experience, it makes no
+// different choice and reads no metadata omitted by canonicalNativeState.
+// Keep the c64f tuple above as a distinct historical cache namespace.
+const CAUSAL_TRANSFER_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'b02547a941ec58878d8bfc0ef7a51438e2164eac069da4719458bb1124c70bd9',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -84,6 +93,7 @@ const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -745,6 +755,7 @@ module.exports = {
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,

@@ -72,6 +72,38 @@ test('three causal samples produce an exact correction but never transfer to ano
   }
 });
 
+test('one server causal sample gives a modest exact correction while legacy still needs three', async () => {
+  const { normalizeExperiencePatterns, experienceAdjustment } = await analysisModule();
+  const single = causalPattern({
+    samples: 1,
+    losses: 1,
+    lossWeight: 1.5,
+    signalWeight: 1.5,
+  });
+  const causal = normalizeExperiencePatterns([single]);
+  const exactAdjustment = experienceAdjustment(descriptor(), causal);
+  assert.ok(exactAdjustment < 0 && exactAdjustment > -6000000);
+  assert.equal(experienceAdjustment(descriptor({
+    contextKey: CONTEXT.replace('h1', 'h9'),
+  }), causal), 0);
+  assert.equal(experienceAdjustment(descriptor({
+    actionKey: 'another-exact-action',
+    familyActionKey: ACTION,
+  }), causal), 0);
+
+  const legacy = normalizeExperiencePatterns([{ ...single, creditVersion: 8 }]);
+  assert.equal(experienceAdjustment(descriptor(), legacy), 0);
+  const repeatedLegacy = normalizeExperiencePatterns([{
+    ...single,
+    creditVersion: 8,
+    samples: 3,
+    losses: 3,
+    lossWeight: 4.5,
+    signalWeight: 4.5,
+  }]);
+  assert.ok(experienceAdjustment(descriptor(), repeatedLegacy) < 0);
+});
+
 test('an exact causal entry cannot match another action through a same-context alias', async () => {
   const { normalizeExperiencePatterns, experienceAdjustment } = await analysisModule();
   const normalized = normalizeExperiencePatterns([causalPattern()]);

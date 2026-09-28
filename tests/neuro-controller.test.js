@@ -7,7 +7,8 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-const CURRENT_TEACHER_POLICY_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
+const CURRENT_TEACHER_POLICY_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+const PREVIOUS_TEACHER_POLICY_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 
@@ -117,6 +118,13 @@ test('controller admits the exact current hard runtime while preserving the froz
     h.controller.getState().analysis.neuralTeacherPolicyImplementationId,
     TEACHER_POLICY_ID,
   );
+});
+
+test('neural teacher adapter admits the previous hard runtime for an existing room', () => {
+  const h = harness({ teacherPolicyId: PREVIOUS_TEACHER_POLICY_ID });
+  h.setRolled([3, 3, 3, 3]);
+  assert.ok(h.api.safeBotPlan().length > 0);
+  assert.equal(h.calls.teacher, 1);
 });
 
 test('experimental hard-neuro games remain unrated until the strength gate passes', () => {

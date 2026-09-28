@@ -23,9 +23,12 @@ const DEFAULT_GAME_PATH = path.join(ROOT, 'game.js');
 const REVIEWER_VERSION = 'long-counterfactual-review-v1';
 const SCORE_SEMANTICS = 'long-static-evaluator-v1';
 const DEFAULT_LIMITS = Object.freeze({
-  maxLegalSequences: 512,
+  // Complete late-game doubles in JSYS-DECV reach 1,777 ordered sequences
+  // while still producing at most 132 distinct boards. Keep an explicit
+  // ceiling above that measured cohort; the separate board/time caps remain.
+  maxLegalSequences: 2048,
   maxUniquePositions: 256,
-  maxNodes: 512,
+  maxNodes: 2048,
   maxElapsedMs: 5000,
 });
 
@@ -221,10 +224,54 @@ function clone(value) {
 
 function applyLegalSequence(game, state, sequence) {
   const after = clone(state);
-  for (const move of sequence) {
-    if (!game.applyMove(after, Number(move.from), Number(move.die), { autoEnd: false })) {
-      return null;
+  if (after.variant !== 'long') return null;
+  const color = after.turn;
+  for (let index = 0; index < sequence.length; index += 1) {
+    const move = sequence[index];
+    const from = Number(move?.from);
+    const die = Number(move?.die);
+    const dieIndex = after.dice.indexOf(die);
+    const to = Number(move?.to);
+    if (!Number.isInteger(from) || !Number.isInteger(die) || !Number.isInteger(to)
+      || dieIndex < 0 || game.moveTo(color, from, die, after) !== to) return null;
+    // The sequence came from the native maximum-use enumerator. Check every
+    // intermediate move against native rules without asking applyMove to
+    // regenerate the complete remaining move tree at each of four plies.
+    const check = game.basicLegalMove(after, color, from, to, dieIndex);
+    if (!check?.ok || check.die !== die || check.dieIndex !== dieIndex
+      || Boolean(check.bearOff) !== (to === 0)) return null;
+    const source = after.points[from];
+    if (!source || source.color !== color || source.count < 1) return null;
+    source.count -= 1;
+    if (source.count === 0) delete after.points[from];
+    if (to === 0) {
+      after.off[color] += 1;
+      after.score[color] += 24 - game.pathPos(color, from, after);
+    } else {
+      const target = after.points[to];
+      if (target && target.color !== color) return null;
+      if (!target) after.points[to] = { color, count: 0 };
+      after.points[to].count += 1;
+      after.score[color] += die;
     }
+    after.dice.splice(dieIndex, 1);
+    after.turnMoves.push({ color, from, to, die, bearOff: to === 0 });
+    if (from === game.headPoint(color, after)) after.headPlayedThisTurn[color] = true;
+    if (after.off[color] >= 15) {
+      if (index !== sequence.length - 1) return null;
+      after.winner = color;
+      after.resultType = game.resultTypeFor(after, color);
+      after.phase = 'over';
+    }
+    after.history.unshift({
+      color,
+      from,
+      to: to === 0 ? 'снято' : to,
+      die,
+      hit: false,
+      hitColor: null,
+      at: new Date().toISOString(),
+    });
   }
   return after;
 }
@@ -566,6 +613,7 @@ module.exports = {
   REVIEWER_VERSION,
   SCORE_SEMANTICS,
   afterPositionKey,
+  applyLegalSequence,
   canonicalMoveKey,
   canonicalMoves,
   clearRuntimeCache,

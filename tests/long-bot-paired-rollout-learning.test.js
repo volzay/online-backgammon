@@ -22,6 +22,7 @@ const {
   PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
   PRODUCTION_POLICY_ENVELOPE,
   PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
+  PRODUCTION_CHEAP_BURST_LIMIT,
   POLICY_ROLE,
   analyzeTrainingGame,
   collisionResistantIdentities,
@@ -42,6 +43,7 @@ const {
   archivedStrategicRisk: productionArchivedStrategicRisk,
   productionStrategicReviewPlan,
   reviewStrategicallyBoundedProductionDecision,
+  runProductionCheapBurst,
   trustedReviewSelection,
   uniqueCausalEvidence,
   validateGameEnvelope,
@@ -896,15 +898,75 @@ test('bounded production review validates the full ledger and calls expensive an
   const malformed = strategicProductionReviewFixture();
   malformed.decisions[7].execution.executedActionKey = 'forged-action';
   let replayed = false;
-  const rejected = await reviewStrategicallyBoundedProductionDecision(malformed, 6, {}, async () => {
+  const valid = await reviewStrategicallyBoundedProductionDecision(malformed, 6, {}, async () => {
     replayed = true;
-    throw new Error('invalid full ledger reached expensive replay');
+    return { decisionId: malformed.decisions[6].id, status: 'no-regret', reason: '',
+      evidence: null, outcomeUsed: false, rollout: { coverage: { complete: true } } };
   });
-  assert.equal(replayed, false);
-  assert.equal(rejected.reason, 'production-game-decision-envelope-invalid');
-  assert.equal(rejected.decisionEnvelopeValidation.firstInvalidDecisionIndex, 7);
-  assert.equal(rejected.decisionEnvelopeValidation.firstInvalidReason, 'execution-action-mismatch');
-  assert.equal(rejected.evidence, null);
+  assert.equal(replayed, true, 'an unrelated invalid historical row cannot suppress a valid causal review');
+  assert.equal(valid.status, 'no-regret');
+  assert.equal(valid.decisionEnvelopeValidation.valid, false);
+  assert.equal(valid.decisionEnvelopeValidation.firstInvalidDecisionIndex, 7);
+  assert.equal(valid.decisionEnvelopeValidation.firstInvalidReason, 'execution-action-mismatch');
+  const quarantined = await reviewStrategicallyBoundedProductionDecision(malformed, 7, {}, async () => {
+    throw new Error('invalid target reached expensive replay');
+  });
+  assert.equal(quarantined.reason, 'production-decision-envelope-invalid');
+  assert.equal(quarantined.targetInvalidReason, 'execution-action-mismatch');
+  assert.equal(quarantined.evidence, null);
+  assert.equal(quarantined.outcomeUsed, false);
+});
+
+test('invalid strategic target does not consume a valid causal review slot', async () => {
+  const game = strategicProductionReviewFixture();
+  game.decisions[6].execution.executedActionKey = 'forged-action';
+  const plan = productionStrategicReviewPlan(game);
+  assert.equal(plan.expensiveDecisionIndexes.includes(6), false);
+  assert.deepEqual(plan.expensiveDecisionIndexes, [0, 5, 1, 2]);
+  const reviewed = await reviewStrategicallyBoundedProductionDecision(game, 2, {}, async (_game, decision) => ({
+    decisionId: decision.id, status: 'no-regret', reason: '', evidence: null, outcomeUsed: false,
+    rollout: { coverage: { complete: true } },
+  }));
+  assert.equal(reviewed.status, 'no-regret');
+  assert.equal(reviewed.reviewSelection.selectedForExpensiveReview, true);
+  assert.equal(reviewed.decisionEnvelopeValidation.invalidDecisionCount, 1);
+});
+
+test('production one-shot advances consecutive cheap original indexes and stops at an expensive cohort', async () => {
+  const cheap = reason => ({ status: 'rejected', reason, evidence: null, outcomeUsed: false });
+  const sequence = [
+    { claimed: 1, jobId: 11, review: cheap('production-strategic-risk-budget-skip'), receipt: { status: 'pending' }, completed: 0 },
+    { claimed: 1, jobId: 11, review: cheap('production-decision-envelope-invalid'), receipt: { status: 'pending' }, completed: 1 },
+    { claimed: 1, jobId: 11, review: { status: 'no-regret', reason: '', evidence: null },
+      receipt: { status: 'pending' }, completed: 2 },
+    { claimed: 1, jobId: 11, review: cheap('production-strategic-risk-budget-skip'), receipt: { status: 'pending' }, completed: 3 },
+  ];
+  let calls = 0;
+  const result = await runProductionCheapBurst(async () => sequence[calls++]);
+  assert.equal(calls, 3);
+  assert.deepEqual(result, { claimed: 1, completed: [0, 1, 2] });
+
+  calls = 0;
+  const changedJob = await runProductionCheapBurst(async () => [
+    sequence[0], { ...sequence[1], jobId: 12 }, sequence[2],
+  ][calls++]);
+  assert.equal(calls, 2, 'a different leased game is processed once and then released by its checkpoint');
+  assert.deepEqual(changedJob.completed, [0, 1]);
+
+  calls = 0;
+  const bounded = await runProductionCheapBurst(async () => ({
+    claimed: 1, jobId: 11, review: sequence[0].review, receipt: sequence[0].receipt,
+    completed: calls++,
+  }));
+  assert.equal(calls, PRODUCTION_CHEAP_BURST_LIMIT);
+  assert.equal(bounded.completed.length, PRODUCTION_CHEAP_BURST_LIMIT);
+
+  calls = 0;
+  const finished = await runProductionCheapBurst(async () => ({
+    ...sequence[0], receipt: { status: 'complete' }, completed: calls++,
+  }));
+  assert.equal(calls, 1);
+  assert.deepEqual(finished.completed, [0]);
 });
 
 test('exact observation deduplication is independent of replay order, decision IDs and export IDs', () => {

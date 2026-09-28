@@ -12,6 +12,7 @@ const PREVIOUS_LIVE_DOUBLES_POLICY = '6109e41cae1c8711aed43c7e2f104d621beab314c0
 const PREVIOUS_TACTICAL_LIVE_POLICY = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const PREVIOUS_JSYS_HOME_PRIORITY_POLICY = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
 const PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
+const PREVIOUS_LIVE_JSYS_POLICY = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 
 function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicySourceEntries(),
   engineSource = fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8') } = {}) {
@@ -34,12 +35,14 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
     || !compatibility.compatiblePolicyImplementationIds.includes(PREVIOUS_TACTICAL_LIVE_POLICY)
     || !compatibility.compatiblePolicyImplementationIds.includes(PREVIOUS_JSYS_HOME_PRIORITY_POLICY)
     || !compatibility.compatiblePolicyImplementationIds.includes(PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY)
+    || !compatibility.compatiblePolicyImplementationIds.includes(PREVIOUS_LIVE_JSYS_POLICY)
     || engine.acceptsLearningPolicyImplementationId?.(ORIGINAL_LEARNING_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_PRODUCTION_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_LIVE_DOUBLES_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_TACTICAL_LIVE_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_JSYS_HOME_PRIORITY_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY) !== true
+    || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_LIVE_JSYS_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(actualPolicy) !== true
     || engine.acceptsLearningPolicyImplementationId?.('0'.repeat(64)) !== false) {
     throw new Error('Optimized v35 rules must preserve audited causal learning before publication');

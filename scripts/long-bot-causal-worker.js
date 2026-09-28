@@ -58,6 +58,8 @@ const POLICY_ROLE = 'current-frozen-cold-re-review';
 const RESULT_SCHEMA = 'long-server-causal-review-result-v1';
 const TRUST_DOMAIN = 'nardu/server-long-bot-causal/v1';
 const PRODUCTION_EXPENSIVE_REVIEW_LIMIT = 4;
+const PRODUCTION_CHEAP_BURST_LIMIT = 64;
+const PRODUCTION_CHEAP_BURST_MS = 60000;
 const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v1';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
@@ -469,8 +471,13 @@ function archivedStrategicRisk(game, decision) {
 function productionStrategicReviewPlan(game) {
   const risks = trainingDecisions(game).map((decision, index) => ({ decision, index }))
     .filter(({ decision }) => botDecision(decision, game))
-    .map(({ decision, index }) => ({ index, ...archivedStrategicRisk(game, decision) }))
+    .map(({ decision, index }) => ({ index, ...archivedStrategicRisk(game, decision),
+      envelopeFailure: trustedDecisionEnvelopeFailure(game, decision) }))
     .sort((left, right) => right.tier - left.tier || right.index - left.index);
+  // A malformed archived decision still receives an explicit original-ledger
+  // rejection, but cannot consume one of the four expensive review slots for
+  // independently valid decisions in the same finished game.
+  const reviewable = risks.filter(risk => !risk.envelopeFailure);
   return {
     schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
     strategy: 'strategic-risk',
@@ -478,7 +485,7 @@ function productionStrategicReviewPlan(game) {
     riskRole: 'curriculum-only',
     outcomeUsed: false,
     maximumExpensiveReviews: PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
-    expensiveDecisionIndexes: risks.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
+    expensiveDecisionIndexes: reviewable.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
     risks: risks.map(({ index, tier, signals }) => ({ index, tier, signals: [...signals] })),
   };
 }
@@ -1142,11 +1149,13 @@ async function reviewStrategicallyBoundedProductionDecision(
     reviewSelection,
     decisionEnvelopeValidation,
   };
-  // Fail the entire immutable ledger closed before any selected decision can
-  // mint evidence. SQL still advances this original index with an explicit,
-  // evidence-free rejection and will inspect every remaining original index.
-  if (decisionEnvelopeFailures.length) {
-    return { ...base, reason: 'production-game-decision-envelope-invalid' };
+  // The complete original ledger and every decision envelope are inspected.
+  // A bad historical row cannot establish evidence for itself or prevent an
+  // independently valid row from reaching exact replay and terminal proof.
+  const targetFailure = decisionEnvelopeFailures.find(item => item.index === decisionIndex);
+  if (targetFailure) {
+    return { ...base, reason: 'production-decision-envelope-invalid',
+      targetInvalidReason: targetFailure.reason };
   }
   if (!reviewSelection.selectedForExpensiveReview) {
     return { ...base, reason: 'production-strategic-risk-budget-skip' };
@@ -1299,6 +1308,32 @@ function aggregateProductionResult(game, sliceResult, progress) {
   };
 }
 
+function mayContinueProductionCheapBurst(review, receipt) {
+  return receipt?.status === 'pending'
+    && review?.status === 'rejected'
+    && review.evidence === null
+    && ['production-strategic-risk-budget-skip', 'production-decision-envelope-invalid']
+      .includes(review.reason);
+}
+
+async function runProductionCheapBurst(step) {
+  const completed = [];
+  const startedAt = Date.now();
+  let claimed = 0;
+  let firstJobId = null;
+  for (let index = 0; index < PRODUCTION_CHEAP_BURST_LIMIT; index += 1) {
+    const slice = await step();
+    if (index === 0) claimed = slice.claimed;
+    if (!slice.claimed) break;
+    completed.push(slice.completed);
+    if (firstJobId === null) firstJobId = slice.jobId;
+    if (slice.jobId !== firstJobId
+      || !mayContinueProductionCheapBurst(slice.review, slice.receipt)
+      || Date.now() - startedAt >= PRODUCTION_CHEAP_BURST_MS) break;
+  }
+  return { claimed, completed };
+}
+
 function validateClaimedJobs(claimed, digest, implementationId) {
   if (!Array.isArray(claimed) || claimed.length > 1) throw new Error('Malformed causal review claim envelope');
   return claimed.map(job => {
@@ -1364,17 +1399,23 @@ async function runResumableClaimedBatch(options) {
     fence.assertHeld();
     return supabaseRpc(url, serviceRoleKey, name, args);
   };
-  const jobs = validateClaimedJobs(await fencedRpc('claim_long_bot_causal_review_slices', {
-    p_worker_id: workerId, p_runtime_digest: digest,
-  }), digest, implementationId);
-  // Malformed identities/progress are not caught as job failures: they must
-  // never consume someone else's release or source revision.
-  for (const job of jobs) {
-    validateProductionProgress(job.game, job.progress);
-    job.progress = normalizeProductionProgress(job.game, job.progress);
-  }
-  const completed = [];
-  for (const job of jobs) {
+  // The SQL cursor accepts precisely one original index per checkpoint.
+  // Reclaiming its immediately pending job lets one service invocation cross
+  // many cheap, evidence-free rows without changing that durable contract.
+  // An expensive review, a partial rollout, or another claimed job ends the
+  // burst; the wall clock and count also bound a game with only cheap rows.
+  const burst = await runProductionCheapBurst(async () => {
+    const jobs = validateClaimedJobs(await fencedRpc('claim_long_bot_causal_review_slices', {
+      p_worker_id: workerId, p_runtime_digest: digest,
+    }), digest, implementationId);
+    if (!jobs.length) return { claimed: 0 };
+    // Malformed identities/progress are not caught as job failures: they must
+    // never consume someone else's release or source revision.
+    for (const job of jobs) {
+      validateProductionProgress(job.game, job.progress);
+      job.progress = normalizeProductionProgress(job.game, job.progress);
+    }
+    const job = jobs[0];
     try {
       fence.assertHeld();
       const rejection = validateGameEnvelope(job.game);
@@ -1383,8 +1424,7 @@ async function runResumableClaimedBatch(options) {
         const receipt = await fencedRpc('complete_long_bot_causal_review_job', {
           p_job_id: job.jobId, p_worker_id: workerId, p_result: result,
         });
-        completed.push({ result, receipt });
-        continue;
+        return { claimed: 1, jobId: job.jobId, completed: { result, receipt }, review: null, receipt };
       }
       const { next } = validateProductionProgress(job.game, job.progress);
       if (next === null) throw new Error('Already finished progress was incorrectly leased');
@@ -1397,11 +1437,13 @@ async function runResumableClaimedBatch(options) {
       const scope = Object.freeze({ jobId: job.jobId, archiveFingerprint: job.archiveFingerprint,
         archiveFingerprintSource: job.archiveFingerprintSource });
       VERIFIED_SCOPES.add(scope);
-      const slice = await analyzeTrainingGame(job.game, {
-        [PRODUCTION_SCOPE]: scope, runtimeDigest: digest, reviewDecisionIndexes: [next],
-        trustedOfflineTerminalJournal: { directory: jobJournalDirectory },
-      });
-      VERIFIED_SCOPES.delete(scope);
+      let slice;
+      try {
+        slice = await analyzeTrainingGame(job.game, {
+          [PRODUCTION_SCOPE]: scope, runtimeDigest: digest, reviewDecisionIndexes: [next],
+          trustedOfflineTerminalJournal: { directory: jobJournalDirectory },
+        });
+      } finally { VERIFIED_SCOPES.delete(scope); }
       if (!slice.accepted || slice.reviews.length !== 1) throw new Error('Verified production slice failed its original game envelope');
       const progress = advanceProductionProgress(job.game, job.progress, next, slice.reviews[0]);
       const result = { ...aggregateProductionResult(job.game, slice, progress), archiveFingerprint: job.archiveFingerprint };
@@ -1413,20 +1455,23 @@ async function runResumableClaimedBatch(options) {
         throw new Error('Malformed resumable checkpoint receipt');
       }
       // Do not log entire game, endpoints, evidence or secrets in journald.
-      completed.push({ jobId: job.jobId, status: receipt.status, decisionIndex: next,
-        finishedDecisions: progress.finishedReviews.length, totalBotDecisions: productionDecisionIndexes(job.game).length,
-        completedTerminalOutcomes: progress.currentTerminalOutcomes, slices: progress.slices,
-        evidenceCount: receipt.inserted || 0 });
+      return { claimed: 1, jobId: job.jobId, review: slice.reviews[0], receipt,
+        completed: { jobId: job.jobId, status: receipt.status, decisionIndex: next,
+          finishedDecisions: progress.finishedReviews.length, totalBotDecisions: productionDecisionIndexes(job.game).length,
+          completedTerminalOutcomes: progress.currentTerminalOutcomes, slices: progress.slices,
+          evidenceCount: receipt.inserted || 0 } };
     } catch (error) {
       try {
         await fencedRpc('fail_long_bot_causal_review_job', {
           p_job_id: job.jobId, p_worker_id: workerId, p_error: String(error?.message || error).slice(0, 1000),
         });
       } catch { /* A lost kernel fence must never mutate even a failed job. */ }
-      completed.push({ jobId: job.jobId, accepted: false, reason: 'worker-error', detail: String(error?.message || error) });
+      return { claimed: 1, jobId: job.jobId, review: null, receipt: null,
+        completed: { jobId: job.jobId, accepted: false, reason: 'worker-error',
+          detail: String(error?.message || error) } };
     }
-  }
-  return { workerId, claimed: jobs.length, lifecycle: 'long-server-resumable-slices-v2', completed };
+  });
+  return { workerId, claimed: burst.claimed, lifecycle: 'long-server-resumable-slices-v2', completed: burst.completed };
 }
 
 async function runClaimedBatch(options = {}) {
@@ -1588,6 +1633,9 @@ module.exports = {
   PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
   PRODUCTION_POLICY_ENVELOPE,
   PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
+  PRODUCTION_CHEAP_BURST_LIMIT,
+  mayContinueProductionCheapBurst,
+  runProductionCheapBurst,
   analyzeTrainingGame,
   archivedOutsideCount,
   archivedStrategicRisk,

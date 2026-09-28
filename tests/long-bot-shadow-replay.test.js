@@ -2,12 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  DEFAULT_LIMITS,
   SCORE_SEMANTICS,
   afterPositionKey,
+  applyLegalSequence,
   clearRuntimeCache,
   generateLongBotShadowReplay,
   loadRuntime,
   snapshotFingerprintV2,
+  stateFromSnapshot,
 } = require('../scripts/generate-long-bot-shadow-replay');
 const { analyzeTrainingDocuments } = require('../scripts/review-long-bot-losses');
 
@@ -44,13 +47,13 @@ function startingState(game) {
   return state;
 }
 
-function productionFixture(stateFactory = lateBearoffState) {
+function productionFixture(stateFactory = lateBearoffState, runtimeOptions = {}) {
   clearRuntimeCache();
   const runtime = loadRuntime();
   runtime.engine.setExperience([], 'fixture');
   runtime.engine.freezeExperience('shadow-replay-fixture');
   const state = stateFactory(runtime.game);
-  assert.ok(runtime.engine.plan(state).length > 0);
+  assert.ok(runtime.engine.plan(state, runtimeOptions).length > 0);
   const decision = runtime.engine.consumeLastDecision();
   assert.ok(decision?.selected?.after);
   decision.execution = {
@@ -87,6 +90,155 @@ function productionFixture(stateFactory = lateBearoffState) {
   clearRuntimeCache();
   return { game, decision };
 }
+
+function jsysLargeDoublesStates() {
+  const base = {
+    variant: 'long', phase: 'move', turn: 'dark',
+    off: { white: 0, dark: 0 }, bar: { white: 0, dark: 0 },
+    score: { white: 0, dark: 0 }, turnMoves: [], history: [],
+    firstMoveDone: { white: true, dark: true },
+    headPlayedThisTurn: { white: false, dark: false }, winner: null,
+  };
+  return [
+    {
+      ...base, dice: [3, 3, 3, 3], rolled: [3, 3, 3, 3],
+      points: {
+        1: { color: 'white', count: 3 }, 2: { color: 'dark', count: 2 },
+        3: { color: 'dark', count: 2 }, 4: { color: 'white', count: 5 },
+        5: { color: 'white', count: 2 }, 6: { color: 'dark', count: 1 },
+        8: { color: 'white', count: 1 }, 12: { color: 'white', count: 1 },
+        13: { color: 'white', count: 1 }, 14: { color: 'white', count: 1 },
+        15: { color: 'white', count: 1 }, 17: { color: 'dark', count: 4 },
+        18: { color: 'dark', count: 2 }, 21: { color: 'dark', count: 1 },
+        22: { color: 'dark', count: 1 }, 23: { color: 'dark', count: 1 },
+        24: { color: 'dark', count: 1 },
+      },
+    },
+    {
+      ...base, dice: [3, 3, 3, 3], rolled: [3, 3, 3, 3],
+      points: {
+        1: { color: 'white', count: 3 }, 2: { color: 'dark', count: 1 },
+        3: { color: 'dark', count: 2 }, 4: { color: 'white', count: 6 },
+        5: { color: 'white', count: 3 }, 6: { color: 'dark', count: 1 },
+        12: { color: 'white', count: 1 }, 13: { color: 'white', count: 1 },
+        14: { color: 'white', count: 1 }, 16: { color: 'dark', count: 1 },
+        17: { color: 'dark', count: 4 }, 18: { color: 'dark', count: 3 },
+        20: { color: 'dark', count: 2 }, 21: { color: 'dark', count: 1 },
+      },
+    },
+    {
+      ...base, dice: [1, 1, 1, 1], rolled: [1, 1, 1, 1],
+      points: {
+        1: { color: 'white', count: 3 }, 2: { color: 'dark', count: 1 },
+        3: { color: 'dark', count: 1 }, 4: { color: 'white', count: 6 },
+        5: { color: 'white', count: 4 }, 6: { color: 'dark', count: 1 },
+        12: { color: 'white', count: 1 }, 13: { color: 'white', count: 1 },
+        15: { color: 'dark', count: 1 }, 16: { color: 'dark', count: 1 },
+        17: { color: 'dark', count: 4 }, 18: { color: 'dark', count: 3 },
+        20: { color: 'dark', count: 2 }, 21: { color: 'dark', count: 1 },
+      },
+    },
+  ];
+}
+
+function stateWithoutHistoryTimestamps(state) {
+  const normalized = JSON.parse(JSON.stringify(state));
+  normalized.history = normalized.history.map(({ at, ...entry }) => {
+    assert.match(at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    return entry;
+  });
+  return normalized;
+}
+
+test('fast shadow transitions match public applyMove across complete and large long cohorts', () => {
+  const publicGame = loadRuntime().game;
+  const positions = [
+    lateBearoffState(publicGame),
+    ...[jsysLargeDoublesStates()[0], jsysLargeDoublesStates()[2]]
+      .map(state => ({ ...stateFromSnapshot({ ...state, schema: 'long-state-v2' }), startedAt: 1 })),
+  ];
+  for (const [positionIndex, position] of positions.entries()) {
+    const legal = publicGame.bestMoveSequences(structuredClone(position), position.turn)
+      .filter(sequence => sequence.length > 0);
+    const sampleIndexes = legal.length <= 20
+      ? legal.map((_, index) => index)
+      : [...new Set([0, 1, 2, Math.floor(legal.length / 4), Math.floor(legal.length / 2),
+        Math.floor(legal.length * 3 / 4), legal.length - 3, legal.length - 2, legal.length - 1])];
+    assert.equal(positionIndex === 0 ? sampleIndexes.length === legal.length : legal.length > 512, true);
+    for (const index of sampleIndexes) {
+      const sequence = legal[index];
+      const publicAfter = structuredClone(position);
+      for (const move of sequence) {
+        assert.equal(publicGame.applyMove(publicAfter, move.from, move.die, { autoEnd: false }), true,
+          `public move failed at position ${positionIndex}, sequence ${index}`);
+      }
+      const fastAfter = applyLegalSequence(publicGame, position, sequence);
+      assert.ok(fastAfter, `fast move failed at position ${positionIndex}, sequence ${index}`);
+      assert.deepEqual(stateWithoutHistoryTimestamps(fastAfter),
+        stateWithoutHistoryTimestamps(publicAfter),
+        `position ${positionIndex}, sequence ${index}`);
+    }
+  }
+});
+
+test('JSYS late doubles enumerate complete legal positions under an explicit bounded review budget', async () => {
+  const runtimeOptions = {
+    strategyProfile: 'v25', maxCandidates: 16, initialSequenceLimit: 16,
+    maxTacticalCandidates: 2, analysisNodeBudget: 58,
+  };
+  const expected = [
+    { sequences: 1734, positions: 120 },
+    { sequences: 1082, positions: 87 },
+    { sequences: 1777, positions: 132 },
+  ];
+  assert.equal(DEFAULT_LIMITS.maxLegalSequences, 2048);
+  assert.equal(DEFAULT_LIMITS.maxNodes, 2048);
+  assert.equal(DEFAULT_LIMITS.maxUniquePositions, 256);
+  for (const [index, state] of jsysLargeDoublesStates().entries()) {
+    const { game, decision } = productionFixture(() => state, runtimeOptions);
+    const generated = await generateLongBotShadowReplay(game, decision, {
+      limits: { maxElapsedMs: 30000 },
+    });
+    assert.equal(generated.ok, true, `fixture ${index + 1}: ${generated.reason || ''}`);
+    assert.equal(generated.replay.coverage.complete, true);
+    assert.equal(generated.replay.coverage.legalSequenceCount, expected[index].sequences);
+    assert.equal(generated.replay.coverage.expectedCandidates, expected[index].positions);
+    assert.equal(generated.replay.coverage.evaluatedSequences,
+      generated.replay.coverage.legalSequenceCount);
+    assert.equal(generated.replay.resourceLimits.maxLegalSequences, 2048);
+    assert.equal(generated.replay.resourceLimits.maxNodes, 2048);
+    assert.equal(generated.replay.resourceLimits.maxUniquePositions, 256);
+    assert.ok(generated.replay.coverage.elapsedMs < 30000);
+    if (index === 0 || index === 2) {
+      // Independently compare the generated chosen board with the public
+      // move path, which enforces maximum-use legality at each intermediate
+      // state. The replay's fast native validator must reach the same board.
+      const publicGame = loadRuntime().game;
+      const publicAfter = structuredClone(state);
+      for (const move of decision.selected.moves) {
+        assert.equal(publicGame.applyMove(publicAfter, move.from, move.die, { autoEnd: false }), true);
+      }
+      assert.equal(afterPositionKey(publicAfter), afterPositionKey(decision.selected));
+      assert.ok(generated.replay.candidates.some(candidate => (
+        afterPositionKey(candidate) === afterPositionKey(publicAfter)
+      )));
+    }
+    if (index === 0) {
+      const nodeLimited = await generateLongBotShadowReplay(game, decision, {
+        limits: { maxNodes: 1024, maxElapsedMs: 120000 },
+      });
+      assert.equal(nodeLimited.ok, false);
+      assert.equal(nodeLimited.reason, 'shadow-replay-node-limit');
+      assert.equal(nodeLimited.coverage.complete, false);
+      assert.equal(nodeLimited.coverage.requiredNodes, 1734);
+      const timeLimited = await generateLongBotShadowReplay(game, decision, {
+        limits: { maxElapsedMs: 1 },
+      });
+      assert.equal(timeLimited.ok, false);
+      assert.equal(timeLimited.reason, 'shadow-replay-time-limit');
+    }
+  }
+});
 
 test('bounded shadow replay evaluates every unique legal resulting board', async () => {
   const { game, decision } = productionFixture();

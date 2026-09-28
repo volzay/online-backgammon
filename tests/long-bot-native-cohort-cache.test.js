@@ -1,8 +1,8 @@
 'use strict';
 
-// Toy native-shaped adapters only: this suite performs no real engine rank,
-// training game, or terminal-cohort benchmark. Actual VM loading is identity
-// inspection only, and never calls its planner.
+// Most cache contracts use toy native-shaped adapters. One small real cold
+// position audits the current bundle's metadata independence before pinning
+// its new identity; this suite does no training or terminal-cohort benchmark.
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const vm = require('node:vm');
@@ -14,6 +14,7 @@ const {
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -79,9 +80,9 @@ test('real current native identity enables a separately pinned cache without cal
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -90,6 +91,7 @@ test('real current native identity enables a separately pinned cache without cal
     PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+    CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -118,6 +120,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: '469d9d3a7a2cabe021a8c3c084549f8ac6d4b38f36eee1d4dde72ab0adcad87c',
   });
+  assert.deepEqual(CAUSAL_TRANSFER_NATIVE_CACHE_POLICY, {
+    policyImplementationId: 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'b02547a941ec58878d8bfc0ef7a51438e2164eac069da4719458bb1124c70bd9',
+  });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
   optimizedRuntime.engine.policyImplementationId = OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId;
@@ -127,6 +134,14 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
   assert.equal(oldCache.observation().enabled, true);
   assert.equal(newCache.observation().enabled, true);
   assert.notEqual(oldCache.observation().namespaceFingerprint, newCache.observation().namespaceFingerprint);
+  const latestRuntime = runtime();
+  Object.assign(latestRuntime, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY);
+  latestRuntime.engine.policyImplementationId = CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.policyImplementationId;
+  const latestCache = createNativeColdCohortCache(latestRuntime, limits(), {
+    ...CAUSAL_TRANSFER_NATIVE_CACHE_POLICY, runtimeDigest: 'a'.repeat(64),
+  });
+  assert.equal(latestCache.observation().enabled, true);
+  assert.notEqual(latestCache.observation().namespaceFingerprint, newCache.observation().namespaceFingerprint);
   assert.equal(createNativeColdCohortCache(optimizedRuntime, limits(), attestation()).observation().bypassReason, 'native-attestation-mismatch');
   for (const field of ['policyImplementationId', 'gameBytesDigest', 'runtimeBytesDigest']) {
     const hybrid = runtime();
@@ -174,6 +189,29 @@ test('canonical exact state ignores only audited native metadata and accepts cro
   assert.deepEqual(cache.getPlan(metadata), [{ from: 24, die: 2 }]);
   assert.equal(canonicalNativeState(original), canonicalNativeState(vm.runInNewContext(`(${JSON.stringify(original)})`)));
   assert.deepEqual(original, before);
+});
+
+test('current f86 cold planner and cache key ignore only historical/display metadata', () => {
+  const native = loadRuntime();
+  native.engine.setExperience([], 'native-cache-metadata-audit');
+  const original = state({ phase: 'move', dice: [2, 4], rolled: [2, 4] });
+  const metadata = clone(original);
+  metadata.history = [{ completedRoll: { value: [6, 6], proof: 'historical' } }];
+  metadata.score = { white: 12, dark: 27 };
+  metadata.turnClock = { white: 99, dark: 18, active: 'white', startedAt: 1000 };
+  metadata.matchScore = { white: 4, dark: 2, target: 7, recordedWinner: null };
+  metadata.analysis = { botMemory: { decisions: [{ arbitrary: 'archived' }] } };
+  metadata.openingRoll = { host: { value: 5 }, guest: { value: 1 } };
+  metadata.startedAt = 111;
+  metadata.finishedAt = 222;
+  assert.equal(canonicalNativeState(original), canonicalNativeState(metadata));
+  const before = native.engine.plan(clone(original), limits().policy);
+  const after = native.engine.plan(clone(metadata), limits().policy);
+  assert.deepEqual(before, after);
+  const cache = createNativeColdCohortCache(native, limits());
+  assert.equal(cache.observation().enabled, true);
+  cache.putValidatedPlan(original, before);
+  assert.deepEqual(cache.getPlan(metadata), clone(before));
 });
 
 test('every rule-relevant field, ordered dice/rolled and ordered moves distinguish plan keys', () => {

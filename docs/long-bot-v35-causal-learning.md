@@ -76,6 +76,10 @@ poisoning the server. The playing engine's cold tactical safety envelope still
 limits learned corrections. Corrections are exact descriptor-context/action
 scope; these descriptors are bucketed, not a learned whole-game strategy.
 Family, phase and wildcard transfer is disabled for the new causal format.
+One confirmed server-causal observation can now produce a bounded adjustment
+for that exact context/action; legacy observations retain their previous sample
+thresholds. One archived loss alone teaches nothing: the complete paired
+terminal cohort and statistical regret gate must pass first.
 
 Resource caps are 24 unique resulting boards, 32 samples, 320 future turns and
 five minutes per future-outcome processing invocation by default. Without
@@ -175,6 +179,13 @@ remains pending until the official statistics/CI are reconstructed. Finished
 review evidence is persisted privately with progress and inserted into the
 public pattern ledger only at atomic whole-original-ledger completion.
 The old complete RPC is guarded against incomplete/timeout results.
+The worker quarantines each malformed historical decision individually: it
+records an evidence-free rejection for that original index, while another
+valid decision in the same game may still undergo exact replay. Invalid rows
+do not consume the four expensive strategic-review slots. Within one service
+run, consecutive cheap skips/rejections advance through their original SQL
+indexes, stopping at an expensive review or after a bounded count/time; the
+database still verifies and checkpoints each index separately.
 
 Slices have a 15-minute lease and an eight-minute service hard cap. Three
 crash/failure attempts, ten stalled slices or 10,240 total slices end in honest

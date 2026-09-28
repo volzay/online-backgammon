@@ -1123,7 +1123,12 @@ export function experienceAdjustment(descriptor, experience) {
       )) continue;
       const severeEvidence = pattern.severeLosses >= 2 && pattern.lossWeight >= 4;
       const winningEvidence = pattern.wins >= 3 && pattern.winWeight >= 3;
-      if (pattern.samples < level.minimum && !severeEvidence && !winningEvidence) continue;
+      // A server-reviewed causal regret has already passed its independent
+      // evidence gate. Let one such observation advise the exact decision;
+      // the sample-dependent score remains small and the cold safety envelope
+      // still controls whether the advice can change the selected move.
+      const minimum = pattern.exactOnly === true ? 1 : level.minimum;
+      if (pattern.samples < minimum && !severeEvidence && !winningEvidence) continue;
       matches.push({
         pattern,
         weight: level.weight * (actionWeights[index] || 0.4),
