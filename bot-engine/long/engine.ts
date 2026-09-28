@@ -84,13 +84,15 @@ export function createLongBotEngine(adapter, options = {}) {
     const sequences = adapter.legalSequences(state, color, {
       limit: initialSequenceLimit,
       // A 16-wide static sampler discarded the strongest late-race routes in
-      // three JSYS-DECV doubles before evaluation began. Doubles contain only
-      // four moves, so enumerate their complete legal outcomes and retain the
-      // existing bounded 16-candidate/tactical budgets after prefiltering.
+      // three JSYS-DECV doubles before evaluation began. Enumerate complete
+      // outcomes only after the start zone has been cleared; doing this in an
+      // earlier contact phase regresses the live VYS5 turn latency without
+      // improving the home-entry decision that this path is meant to protect.
       exhaustiveLongDoubles: advancedStrategy
         && Array.isArray(state.dice)
         && state.dice.length >= 3
-        && new Set(state.dice.map(Number)).size === 1,
+        && new Set(state.dice.map(Number)).size === 1
+        && startZoneCount(state, color) === 0,
     }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 

@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-const CURRENT_TEACHER_POLICY_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
+const CURRENT_TEACHER_POLICY_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 

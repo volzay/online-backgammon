@@ -12,6 +12,7 @@ const {
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
@@ -87,6 +88,7 @@ test('real current native identity enables a separately pinned cache without cal
     OPTIMIZED_NATIVE_CACHE_POLICY,
     TACTICAL_LIVE_NATIVE_CACHE_POLICY,
     PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+    PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
@@ -106,10 +108,15 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'fe6e2d805d007e03a737c8c765c0d68786ad1820a55fa74212f3ddb0ead130a5',
   });
-  assert.deepEqual(JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY, {
+  assert.deepEqual(PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY, {
     policyImplementationId: '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a',
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'c53a284754c7aa254e7b83064afc73d8aa63edce2993d0bd140dd7ee02fffb9a',
+  });
+  assert.deepEqual(JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY, {
+    policyImplementationId: 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: '469d9d3a7a2cabe021a8c3c084549f8ac6d4b38f36eee1d4dde72ab0adcad87c',
   });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);

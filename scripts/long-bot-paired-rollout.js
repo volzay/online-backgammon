@@ -60,12 +60,21 @@ const PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'cc5a6eecd911d9a8413732ee3778f7a26945740c0f7793e1e7db4d3e204d921d',
 });
-// Final JSYS audit guard: malformed/incomplete positions cannot activate the
-// opponent-home-ready race policy used by the exact archived game states.
-const JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
+// Final JSYS audit guard before the live-latency scope correction:
+// malformed/incomplete positions cannot activate the opponent-home-ready race
+// policy used by the exact archived game states.
+const PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
   policyImplementationId: '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a',
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'c53a284754c7aa254e7b83064afc73d8aa63edce2993d0bd140dd7ee02fffb9a',
+});
+// Current JSYS policy: exhaustive doubles are limited to positions whose start
+// zone is already clear. This preserves the reviewed late home-entry choices
+// while keeping earlier contact turns inside the live planner budget.
+const JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: '469d9d3a7a2cabe021a8c3c084549f8ac6d4b38f36eee1d4dde72ab0adcad87c',
 });
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
@@ -73,6 +82,7 @@ const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
@@ -733,6 +743,7 @@ module.exports = {
   OPTIMIZED_NATIVE_CACHE_POLICY,
   TACTICAL_LIVE_NATIVE_CACHE_POLICY,
   PREVIOUS_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
+  PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,

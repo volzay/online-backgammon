@@ -19,7 +19,7 @@ const HISTORY_FREE_LEARNING_SOURCES = Object.freeze({
   'bot-engine/long/metrics.ts': '8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31',
   'bot-engine/long/evaluator.ts': '60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6',
   'bot-engine/long/analysis.ts': '6c55c4b1aa172fd7deea86b16057583f2db636ea68a5b6a7218165ca06196940',
-  'bot-engine/long/engine.ts': 'c15707ab9c3f86757fbdd586c8dad8b4de921b4661588ad3d97fb88740fa66d5',
+  'bot-engine/long/engine.ts': 'f920632e9a62045831f3fab9e326b65386c0c00c7f93c5ee1b8cff7d796f423f',
   'bot-engine/long/nardu-game-adapter.ts': 'ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e',
   'bot-engine/long/browser.ts': '6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213',
   'game.js': '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
@@ -30,6 +30,7 @@ const PREVIOUS_PRODUCTION_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7
 const PREVIOUS_LIVE_DOUBLES_POLICY_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
 const PREVIOUS_TACTICAL_LIVE_POLICY_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const PREVIOUS_JSYS_HOME_PRIORITY_POLICY_ID = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
+const PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
 
 function writeOutputAtomically(output, contents, fileSystem = fs) {
   const temporaryOutput = `${output}.${process.pid}.${randomUUID()}.tmp`;
@@ -81,6 +82,7 @@ function learningCompatibility(entries = readPolicySourceEntries()) {
       PREVIOUS_LIVE_DOUBLES_POLICY_ID,
       PREVIOUS_TACTICAL_LIVE_POLICY_ID,
       PREVIOUS_JSYS_HOME_PRIORITY_POLICY_ID,
+      PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY_ID,
     ]),
     sourceFingerprints: Object.freeze(Object.fromEntries(names.map(name => [name, `sha256:${HISTORY_FREE_LEARNING_SOURCES[name]}`]))) });
 }
