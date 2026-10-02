@@ -60,6 +60,19 @@ const TRUST_DOMAIN = 'nardu/server-long-bot-causal/v1';
 const PRODUCTION_EXPENSIVE_REVIEW_LIMIT = 4;
 const PRODUCTION_CHEAP_BURST_LIMIT = 64;
 const PRODUCTION_CHEAP_BURST_MS = 60000;
+const RPC_TIMEOUT_MS = 60000;
+const RPC_PRECONNECT_RETRY_DELAYS_MS = Object.freeze([250, 750]);
+// These failures occur before a TCP request can be delivered. A lost socket or
+// response is deliberately absent: the database may already have committed a
+// claim or checkpoint, so replaying that RPC could consume a second job/slice.
+const RPC_PRECONNECT_CODES = new Set([
+  'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+const RPC_TRANSPORT_DIAGNOSTIC_CODES = new Set([
+  ...RPC_PRECONNECT_CODES, 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+]);
 const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v1';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
@@ -1075,19 +1088,66 @@ function normalizeSupabaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
-async function supabaseRpc(url, serviceRoleKey, name, args = {}) {
-  const response = await fetch(`${normalizeSupabaseUrl(url)}/rest/v1/rpc/${name}`, {
-    method: 'POST',
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(args),
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${name} failed (${response.status}): ${text.slice(0, 500)}`);
-  return text ? JSON.parse(text) : null;
+function rpcPreconnectCode(error) {
+  if (error?.message !== 'fetch failed') return null;
+  const causes = Array.isArray(error.cause?.errors) ? error.cause.errors : [error.cause];
+  if (!causes.length || causes.some(cause => !RPC_PRECONNECT_CODES.has(cause?.code))) return null;
+  return causes.map(cause => cause.code).join('+');
+}
+
+function rpcTransportError(name, error, phase, attempts) {
+  const causes = Array.isArray(error?.cause?.errors) ? error.cause.errors : [error?.cause];
+  const codes = causes.map(cause => cause?.code);
+  const code = codes.length > 1 && new Set(codes).size > 1 ? 'mixed'
+    : RPC_TRANSPORT_DIAGNOSTIC_CODES.has(codes[0]) ? codes[0] : 'unknown';
+  const kind = ['AbortError', 'TimeoutError'].includes(error?.name) ? 'timeout' : 'transport';
+  const failure = new Error(`${name} ${kind} failed (${code}; ${phase}; attempts=${attempts})`);
+  failure.name = 'CausalRpcTransportError';
+  // A response can disappear after commit. Never turn this into a job failure
+  // or retry an ambiguous mutation; the lease and checkpoint remain authoritative.
+  failure.rpcOutcomeUnknown = true;
+  return failure;
+}
+
+async function supabaseRpc(url, serviceRoleKey, name, args = {}, beforeAttempt = () => {}) {
+  const endpoint = `${normalizeSupabaseUrl(url)}/rest/v1/rpc/${name}`;
+  const body = JSON.stringify(args);
+  for (let attempt = 0; ; attempt += 1) {
+    beforeAttempt();
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (rpcPreconnectCode(error) && attempt < RPC_PRECONNECT_RETRY_DELAYS_MS.length) {
+        await new Promise(resolve => setTimeout(resolve, RPC_PRECONNECT_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      if (error?.message === 'fetch failed' || ['AbortError', 'TimeoutError'].includes(error?.name)) {
+        throw rpcTransportError(name, error, 'request', attempt + 1);
+      }
+      throw error;
+    }
+    let responseText;
+    try { responseText = await response.text(); }
+    catch (error) { throw rpcTransportError(name, error, 'response', attempt + 1); }
+    if (!response.ok) throw new Error(`${name} failed (${response.status}): ${responseText.slice(0, 500)}`);
+    if (!responseText) return null;
+    try { return JSON.parse(responseText); }
+    catch {
+      const failure = new Error(`${name} returned malformed JSON`);
+      failure.rpcOutcomeUnknown = true;
+      throw failure;
+    }
+  }
 }
 
 function productionDecisionIndexes(game) {
@@ -1397,7 +1457,7 @@ async function runResumableClaimedBatch(options) {
   const workerId = options.workerId || `long-causal-${crypto.randomUUID()}`;
   const fencedRpc = (name, args) => {
     fence.assertHeld();
-    return supabaseRpc(url, serviceRoleKey, name, args);
+    return supabaseRpc(url, serviceRoleKey, name, args, () => fence.assertHeld());
   };
   // The SQL cursor accepts precisely one original index per checkpoint.
   // Reclaiming its immediately pending job lets one service invocation cross
@@ -1461,6 +1521,13 @@ async function runResumableClaimedBatch(options) {
           completedTerminalOutcomes: progress.currentTerminalOutcomes, slices: progress.slices,
           evidenceCount: receipt.inserted || 0 } };
     } catch (error) {
+      if (error?.rpcOutcomeUnknown === true) {
+        // A checkpoint may have committed even if its response was lost. Leave
+        // this lease to expire; its next claim reads the durable SQL progress.
+        return { claimed: 1, jobId: job.jobId, review: null, receipt: null,
+          completed: { jobId: job.jobId, accepted: false, reason: 'rpc-outcome-unknown',
+            detail: String(error.message) } };
+      }
       try {
         await fencedRpc('fail_long_bot_causal_review_job', {
           p_job_id: job.jobId, p_worker_id: workerId, p_error: String(error?.message || error).slice(0, 1000),
@@ -1519,15 +1586,17 @@ async function runClaimedBatch(options = {}) {
       });
       completed.push(result);
     } catch (error) {
-      await supabaseRpc(url, serviceRoleKey, 'fail_long_bot_causal_review_job', {
-        p_job_id: job.jobId,
-        p_worker_id: workerId,
-        p_error: String(error?.message || error).slice(0, 1000),
-      }).catch(() => {});
+      if (error?.rpcOutcomeUnknown !== true) {
+        await supabaseRpc(url, serviceRoleKey, 'fail_long_bot_causal_review_job', {
+          p_job_id: job.jobId,
+          p_worker_id: workerId,
+          p_error: String(error?.message || error).slice(0, 1000),
+        }).catch(() => {});
+      }
       completed.push({
         schema: RESULT_SCHEMA,
         accepted: false,
-        reason: 'worker-error',
+        reason: error?.rpcOutcomeUnknown === true ? 'rpc-outcome-unknown' : 'worker-error',
         detail: String(error?.message || error),
       });
     }

@@ -85,6 +85,15 @@ const CAUSAL_TRANSFER_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'b02547a941ec58878d8bfc0ef7a51438e2164eac069da4719458bb1124c70bd9',
 });
+// The new clear-final-race gate reads only canonical points/off and game
+// geometry. Keep its cache namespace distinct from every earlier policy; the
+// cold planner's metadata independence is checked with a real archived race
+// position in tests/long-bot-native-cohort-cache.test.js.
+const CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'baf9e0b949af53604a744dce9ac2c760af2114afb758fcf8076fc4441d78bab9',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -94,6 +103,7 @@ const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
+  CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -756,6 +766,7 @@ module.exports = {
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
+  CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,

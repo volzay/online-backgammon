@@ -7,7 +7,8 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
-const CURRENT_TEACHER_POLICY_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+const CURRENT_TEACHER_POLICY_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+const PREVIOUS_CAUSAL_TEACHER_POLICY_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
 const PREVIOUS_TEACHER_POLICY_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 const plain = value => JSON.parse(JSON.stringify(value));
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
@@ -114,10 +115,29 @@ test('controller keeps hard-neuro identity despite an old hard name and 1500 rat
 test('controller admits the exact current hard runtime while preserving the frozen room guard ID', () => {
   const h = harness({ teacherPolicyId: CURRENT_TEACHER_POLICY_ID });
   assert.equal(h.api.validateNeuralBotAvailability(), true);
+  h.setRolled([2, 4]);
+  assert.ok(h.api.safeBotPlan().length > 0);
+  assert.equal(h.calls.teacher, 1);
   assert.equal(
     h.controller.getState().analysis.neuralTeacherPolicyImplementationId,
     TEACHER_POLICY_ID,
   );
+});
+
+test('neural teacher retains the earlier causal runtime for existing rooms', () => {
+  const h = harness({ teacherPolicyId: PREVIOUS_CAUSAL_TEACHER_POLICY_ID });
+  h.setRolled([2, 4]);
+  assert.ok(h.api.safeBotPlan().length > 0);
+  assert.equal(h.calls.teacher, 1);
+  assert.equal(h.controller.getState().analysis.neuralTeacherPolicyImplementationId, TEACHER_POLICY_ID);
+});
+
+test('neural teacher rejects an unreviewed policy ID before planning', () => {
+  const h = harness({ teacherPolicyId: '0'.repeat(64) });
+  assert.equal(h.api.validateNeuralBotAvailability(), false);
+  h.setRolled([2, 4]);
+  assert.throws(() => h.api.safeBotPlan(), /Нейробот недоступен/);
+  assert.equal(h.calls.teacher, 0);
 });
 
 test('neural teacher adapter admits the previous hard runtime for an existing room', () => {

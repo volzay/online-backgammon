@@ -135,13 +135,28 @@ test('native hard factory preserves captured v35 source/policy and selected open
 test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 8);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 9);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
   const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
   assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
   assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['strong-bot.js'], `sha256:${actual.strongBotBytesDigest}`);
+  const historical = evaluator.APPROVED_V35_RUNTIME_TUPLES.find(tuple => tuple.policyImplementationId
+    === 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2');
+  assert.ok(historical, 'the prior causal policy remains a separate approved runtime');
+  assert.equal(historical.strongBotBytesDigest, actual.strongBotBytesDigest);
+  assert.notEqual(historical.runtimeBytesDigest, actual.runtimeBytesDigest);
+  assert.equal(evaluator.approvedCurrentHardTuple(historical.policyImplementationId, {
+    'game.js': `sha256:${historical.gameBytesDigest}`,
+    'long-bot-engine.js': `sha256:${historical.runtimeBytesDigest}`,
+    'strong-bot.js': `sha256:${historical.strongBotBytesDigest}`,
+  }), historical);
+  assert.equal(evaluator.approvedCurrentHardTuple(historical.policyImplementationId, {
+    'game.js': `sha256:${historical.gameBytesDigest}`,
+    'long-bot-engine.js': `sha256:${actual.runtimeBytesDigest}`,
+    'strong-bot.js': `sha256:${historical.strongBotBytesDigest}`,
+  }), null, 'the prior causal policy ID cannot name current runtime bytes');
   const previous = [...evaluator.APPROVED_V35_RUNTIME_TUPLES]
     .reverse()
     .find(tuple => tuple.strongBotBytesDigest !== actual.strongBotBytesDigest);

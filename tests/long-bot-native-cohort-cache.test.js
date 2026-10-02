@@ -15,6 +15,7 @@ const {
   PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
+  CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -76,13 +77,13 @@ function runtime() {
   return value;
 }
 
-test('real current native identity enables a separately pinned cache without calling its planner', () => {
+test('real current clear-final-race identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, CAUSAL_TRANSFER_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -92,6 +93,7 @@ test('real current native identity enables a separately pinned cache without cal
     PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
+    CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -125,6 +127,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'b02547a941ec58878d8bfc0ef7a51438e2164eac069da4719458bb1124c70bd9',
   });
+  assert.deepEqual(CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'baf9e0b949af53604a744dce9ac2c760af2114afb758fcf8076fc4441d78bab9',
+  });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
   optimizedRuntime.engine.policyImplementationId = OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId;
@@ -142,6 +149,14 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
   });
   assert.equal(latestCache.observation().enabled, true);
   assert.notEqual(latestCache.observation().namespaceFingerprint, newCache.observation().namespaceFingerprint);
+  const clearRuntime = runtime();
+  Object.assign(clearRuntime, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY);
+  clearRuntime.engine.policyImplementationId = CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.policyImplementationId;
+  const clearCache = createNativeColdCohortCache(clearRuntime, limits(), {
+    ...CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY, runtimeDigest: 'a'.repeat(64),
+  });
+  assert.equal(clearCache.observation().enabled, true);
+  assert.notEqual(clearCache.observation().namespaceFingerprint, latestCache.observation().namespaceFingerprint);
   assert.equal(createNativeColdCohortCache(optimizedRuntime, limits(), attestation()).observation().bypassReason, 'native-attestation-mismatch');
   for (const field of ['policyImplementationId', 'gameBytesDigest', 'runtimeBytesDigest']) {
     const hybrid = runtime();
@@ -191,7 +206,7 @@ test('canonical exact state ignores only audited native metadata and accepts cro
   assert.deepEqual(original, before);
 });
 
-test('current f86 cold planner and cache key ignore only historical/display metadata', () => {
+test('current clear-final-race cold planner and cache key ignore only historical/display metadata', () => {
   const native = loadRuntime();
   native.engine.setExperience([], 'native-cache-metadata-audit');
   const original = state({ phase: 'move', dice: [2, 4], rolled: [2, 4] });
@@ -204,6 +219,36 @@ test('current f86 cold planner and cache key ignore only historical/display meta
   metadata.openingRoll = { host: { value: 5 }, guest: { value: 1 } };
   metadata.startedAt = 111;
   metadata.finishedAt = 222;
+  assert.equal(canonicalNativeState(original), canonicalNativeState(metadata));
+  const before = native.engine.plan(clone(original), limits().policy);
+  const after = native.engine.plan(clone(metadata), limits().policy);
+  assert.deepEqual(before, after);
+  const cache = createNativeColdCohortCache(native, limits());
+  assert.equal(cache.observation().enabled, true);
+  cache.putValidatedPlan(original, before);
+  assert.deepEqual(cache.getPlan(metadata), clone(before));
+});
+
+test('archived QXKM final-race planner ignores omitted metadata under the new exact cache tuple', () => {
+  const native = loadRuntime();
+  native.engine.setExperience([], 'native-cache-final-race-audit');
+  const original = state({
+    turn: 'dark', phase: 'move', dice: [6, 3], rolled: [6, 3],
+    points: {
+      2: { color: 'white', count: 4 }, 3: { color: 'white', count: 2 },
+      6: { color: 'white', count: 2 }, 14: { color: 'dark', count: 1 },
+      15: { color: 'dark', count: 2 }, 16: { color: 'dark', count: 2 },
+      17: { color: 'dark', count: 3 }, 18: { color: 'dark', count: 6 },
+      22: { color: 'dark', count: 1 },
+    },
+    off: { white: 7, dark: 0 },
+  });
+  const metadata = clone(original);
+  metadata.history = [{ archived: 'different historical telemetry' }];
+  metadata.analysis = { botMemory: { unrelated: true } };
+  metadata.score = { white: 31, dark: 9 };
+  metadata.turnClock = { white: 99, dark: 18, active: 'dark', startedAt: 1000 };
+  metadata.startedAt = 111;
   assert.equal(canonicalNativeState(original), canonicalNativeState(metadata));
   const before = native.engine.plan(clone(original), limits().policy);
   const after = native.engine.plan(clone(metadata), limits().policy);

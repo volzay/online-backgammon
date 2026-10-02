@@ -13,7 +13,10 @@ const builder = require('../scripts/build-long-bot-engine');
 
 const ROOT = path.join(__dirname, '..');
 const BASELINE = '06a9b106944e8fb5e76f772b23b703ec067e2e8b';
+const HISTORICAL_COMPATIBLE_RELEASE = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const ORIGINAL_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
+const COMPATIBLE_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+const CLEAR_FINAL_RACE_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const OLD_GAME_HASH = '769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b';
 const OLD_ENGINE_HASH = '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255';
 // Identical bounded tactical cohorts on both runtimes. This exercises the real
@@ -21,9 +24,11 @@ const OLD_ENGINE_HASH = '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345
 const OPTIONS = Object.freeze({ strategyProfile: 'v25', maxCandidates: 8, analysisNodeBudget: 32 });
 const plain = value => JSON.parse(JSON.stringify(value));
 const digest = value => createHash('sha256').update(value).digest('hex');
-const historical = file => execFileSync('git', ['show', `${BASELINE}:${file}`], { cwd: ROOT, maxBuffer: 4 * 1024 * 1024 });
+const historical = (file, commit = BASELINE) => execFileSync('git', ['show', `${commit}:${file}`], { cwd: ROOT, maxBuffer: 4 * 1024 * 1024 });
 const oldGame = historical('game.js');
 const oldBundle = historical('long-bot-engine.js');
+const compatibleGame = historical('game.js', HISTORICAL_COMPATIBLE_RELEASE);
+const compatibleBundle = historical('long-bot-engine.js', HISTORICAL_COMPATIBLE_RELEASE);
 assert.equal(digest(oldGame), OLD_GAME_HASH, 'Baseline must be the actual reviewed rules source');
 assert.equal(digest(oldBundle), OLD_ENGINE_HASH, 'Baseline must be the actual reviewed executable bundle');
 
@@ -34,7 +39,7 @@ function memoryStorage() {
     removeItem: key => values.delete(String(key)) };
 }
 
-function runtime({ baseline = false, storage = memoryStorage() } = {}) {
+function runtime({ baseline = false, current = false, storage = memoryStorage() } = {}) {
   class FixedDate extends Date {
     constructor(...args) { super(...(args.length ? args : [1789732800000])); }
     static now() { return 1789732800000; }
@@ -45,8 +50,10 @@ function runtime({ baseline = false, storage = memoryStorage() } = {}) {
   window.window = window;
   const context = vm.createContext({ window, sessionStorage: storage, Date: FixedDate, Math: math, JSON,
     console: { log() {}, warn() {}, error() {} }, URL, setTimeout, clearTimeout });
-  vm.runInContext((baseline ? oldGame : fs.readFileSync(path.join(ROOT, 'game.js'))).toString('utf8'), context);
-  vm.runInContext(baseline ? oldBundle.toString('utf8') : builder.renderLongBotBundle(), context);
+  vm.runInContext((baseline ? oldGame : current
+    ? fs.readFileSync(path.join(ROOT, 'game.js')) : compatibleGame).toString('utf8'), context);
+  vm.runInContext(baseline ? oldBundle.toString('utf8') : current
+    ? builder.renderLongBotBundle() : compatibleBundle.toString('utf8'), context);
   return { game: window.NarduGame, engine: window.NarduLongBotEngine, storage };
 }
 
@@ -146,6 +153,7 @@ test('optimized real hard strategy retains identical nonempty old-release lesson
   const old = runtime({ baseline: true });
   const candidate = runtime();
   assert.equal(old.engine.policyImplementationId, ORIGINAL_ID);
+  assert.equal(candidate.engine.policyImplementationId, COMPATIBLE_ID);
   assert.notEqual(candidate.engine.policyImplementationId, ORIGINAL_ID, 'Exact current source identity must remain truthful');
   const cases = positions(old.game);
   const patterns = evidenceFor(old, cases);
@@ -194,8 +202,10 @@ test('a nonempty original frozen session resumes on optimized rules with the sam
     // never reattribute archived worker lessons to that different source ID.
     assert.equal(currentEnvelope.policyImplementationId, candidate.engine.policyImplementationId);
     assert.equal(currentEnvelope.learningPolicyImplementationId, ORIGINAL_ID);
-    const sourceFingerprints = Object.fromEntries(builder.readPolicySourceEntries()
-      .map(([name, bytes]) => [name, `sha256:${digest(bytes)}`]));
+    const sourceFingerprints = Object.fromEntries(
+      [...builder.SOURCES, 'game.js', 'strong-bot.js']
+        .map(name => [name, `sha256:${digest(historical(name, HISTORICAL_COMPATIBLE_RELEASE))}`]),
+    );
     assert.deepEqual(currentEnvelope.runtimeSourceFingerprints, sourceFingerprints);
   }
   assert.deepEqual(plain(candidate.engine.experienceReplaySnapshot()), replay);
@@ -220,4 +230,20 @@ test('learning compatibility also accepts current source evidence but never unkn
     assert.equal(candidate.engine.experienceSize(), 0);
     assert.deepEqual(plain(candidate.engine.experienceReplaySnapshot().patterns), []);
   }
+});
+
+test('new clear-final-race strategy accepts only its own causal evidence', () => {
+  const candidate = runtime({ current: true });
+  const old = runtime({ baseline: true });
+  assert.equal(candidate.engine.policyImplementationId, CLEAR_FINAL_RACE_ID);
+  assert.equal(candidate.engine.learningCompatibility, null);
+  const oldPattern = evidenceFor(old, positions(old.game))[0];
+  for (const oldId of [ORIGINAL_ID, COMPATIBLE_ID]) {
+    candidate.engine.setExperience([{ ...oldPattern, policyImplementationId: oldId }], 'server');
+    assert.equal(candidate.engine.experienceSize(), 0, oldId);
+  }
+  const currentPattern = { ...oldPattern, policyImplementationId: CLEAR_FINAL_RACE_ID };
+  candidate.engine.setExperience([currentPattern], 'server');
+  assert.equal(candidate.engine.experienceSize(), 1);
+  assert.deepEqual(plain(candidate.engine.experienceReplaySnapshot().patterns), [currentPattern]);
 });

@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -13,8 +14,13 @@ const PREVIOUS_TACTICAL_LIVE = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c92
 const PREVIOUS_JSYS = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
 const PREVIOUS_COMPLETE_JSYS = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
 const PREVIOUS_LIVE_JSYS = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
-const ACTUAL = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+const HISTORICAL_ACTUAL = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+const ACTUAL = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+const HISTORICAL_COMMIT = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
+const historicalEntries = () => [...builder.SOURCES, 'game.js', 'strong-bot.js'].map(file => [
+  file, execFileSync('git', ['show', `${HISTORICAL_COMMIT}:${file}`], { cwd: ROOT }),
+]);
 
 function pattern(policyImplementationId = ORIGINAL) {
   return { creditVersion: 9, evidenceSchema: 'long-server-causal-pattern-v1',
@@ -38,18 +44,18 @@ function browser(bundle = read('long-bot-engine.js')) {
   return { context, engine: context.window.NarduLongBotEngine, values };
 }
 
-test('learning compatibility preserves truthful actual identity and pins every reviewed source byte', () => {
-  const entries = builder.readPolicySourceEntries();
-  assert.equal(builder.policyImplementationId(entries), ACTUAL);
+test('the prior learning alias remains pinned to every byte of its reviewed source', () => {
+  const entries = historicalEntries();
+  assert.equal(builder.policyImplementationId(entries), HISTORICAL_ACTUAL);
   const compatibility = builder.learningCompatibility(entries);
-  assert.equal(compatibility.policyImplementationId, ACTUAL);
+  assert.equal(compatibility.policyImplementationId, HISTORICAL_ACTUAL);
   assert.equal(compatibility.learningPolicyImplementationId, ORIGINAL);
   assert.equal(Object.isFrozen(compatibility), true);
   assert.equal(Object.isFrozen(compatibility.compatiblePolicyImplementationIds), true);
   assert.equal(Object.isFrozen(compatibility.sourceFingerprints), true);
-  const { engine } = browser();
-  assert.equal(engine.policyImplementationId, ACTUAL);
-  assert.equal(engine.acceptsLearningPolicyImplementationId(ACTUAL), true);
+  const { engine } = browser(builder.renderLongBotBundle(entries));
+  assert.equal(engine.policyImplementationId, HISTORICAL_ACTUAL);
+  assert.equal(engine.acceptsLearningPolicyImplementationId(HISTORICAL_ACTUAL), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId(ORIGINAL), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId(PREVIOUS), true);
   assert.equal(engine.acceptsLearningPolicyImplementationId(PREVIOUS_LIVE), true);
@@ -63,7 +69,7 @@ test('learning compatibility preserves truthful actual identity and pins every r
       ? Buffer.concat([bytes, Buffer.from('\n// unknown source byte\n')]) : bytes]);
     assert.equal(builder.learningCompatibility(changed), null, changedName);
     const changedActual = builder.policyImplementationId(changed);
-    assert.notEqual(changedActual, ACTUAL, changedName);
+    assert.notEqual(changedActual, HISTORICAL_ACTUAL, changedName);
     const altered = browser(builder.renderLongBotBundle(changed)).engine;
     assert.equal(altered.policyImplementationId, changedActual, changedName);
     assert.equal(altered.learningPolicyImplementationId, changedActual, changedName);
@@ -73,10 +79,26 @@ test('learning compatibility preserves truthful actual identity and pins every r
   }
 });
 
-test('live RPC accepts original and current lessons without rewriting provenance; wrong/local lessons are rejected', async () => {
+test('new clear-race policy has no historical learning alias', () => {
+  const entries = builder.readPolicySourceEntries();
+  assert.equal(builder.policyImplementationId(entries), ACTUAL);
+  assert.equal(builder.learningCompatibility(entries), null);
+  const { engine } = browser();
+  assert.equal(engine.policyImplementationId, ACTUAL);
+  assert.equal(engine.learningPolicyImplementationId, ACTUAL);
+  assert.equal(engine.learningCompatibility, null);
+  assert.equal(engine.acceptsLearningPolicyImplementationId(ACTUAL), true);
+  for (const id of [ORIGINAL, HISTORICAL_ACTUAL, PREVIOUS, PREVIOUS_LIVE,
+    PREVIOUS_TACTICAL_LIVE, PREVIOUS_JSYS, PREVIOUS_COMPLETE_JSYS,
+    PREVIOUS_LIVE_JSYS, '0'.repeat(64)]) {
+    assert.equal(engine.acceptsLearningPolicyImplementationId(id), false, id);
+  }
+});
+
+test('live RPC applies only current clear-race lessons, never historical or forged patterns', async () => {
   for (const source of [pattern(), pattern(PREVIOUS), pattern(PREVIOUS_LIVE),
     pattern(PREVIOUS_TACTICAL_LIVE), pattern(PREVIOUS_JSYS), pattern(PREVIOUS_COMPLETE_JSYS),
-    pattern(PREVIOUS_LIVE_JSYS),
+    pattern(PREVIOUS_LIVE_JSYS), pattern(HISTORICAL_ACTUAL),
     pattern(ACTUAL), pattern('f'.repeat(64)),
     { ...pattern(), reviewerVersion: 'forged-reviewer' }]) {
     const { context, engine, values } = browser();
@@ -89,7 +111,7 @@ test('live RPC accepts original and current lessons without rewriting provenance
     vm.runInContext(read('rooms-client.js'), context);
     const before = JSON.stringify(source);
     const result = await context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' });
-    const accepted = source.policyImplementationId !== 'f'.repeat(64) && source.reviewerVersion !== 'forged-reviewer';
+    const accepted = source.policyImplementationId === ACTUAL && source.reviewerVersion !== 'forged-reviewer';
     assert.equal(result.length, accepted ? 1 : 0);
     assert.equal(applied.some(item => item.trust === 'server-cache' && item.patterns.length), false);
     assert.equal(JSON.stringify(source), before);

@@ -155,7 +155,11 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate.experienceAdjustment = 0;
     });
 
-    let strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+    let strategicallyRanked = prioritizeProvenClearFinalRace(
+      state,
+      color,
+      prioritizeForcedRacePlay(state, color, ranked),
+    )
       .sort((left, right) => right.score - left.score);
     const opponentOffBeforeMove = offCount(state, opponentOf(color));
     if (
@@ -2207,6 +2211,60 @@ function isOpponentHomeReadyRaceState(state, color) {
     && outsideHomeCount(state, color) > 0;
 }
 
+// When every opposing checker is already in its own home and our rearmost
+// checker has passed that entire zone, the opponent can no longer occupy any
+// point on our remaining route.  Only in this provably contact-free endgame
+// may immediate home entry and bear-off outrank obsolete defensive proxies.
+function isProvenClearFinalRace(state, color) {
+  if (!isOpponentHomeReadyRaceState(state, color)
+    || outsideHomeCount(state, color) > 6) return false;
+
+  let ownCheckers = offCount(state, color);
+  let rearmost = 24;
+  for (const [point, stack] of Object.entries(state.points || {})) {
+    if (stack?.color !== color) continue;
+    const position = pathPos(color, Number(point));
+    if (position < 0) return false;
+    ownCheckers += Number(stack.count) || 0;
+    rearmost = Math.min(rearmost, position);
+  }
+  if (ownCheckers !== 15) return false;
+  const opponentHomeFrontier = Math.max(...pathFor(opponentOf(color))
+    .slice(18).map(point => pathPos(color, point)));
+  return rearmost > opponentHomeFrontier;
+}
+
+function prioritizeProvenClearFinalRace(state, color, ranked) {
+  if (!ranked.length || !isProvenClearFinalRace(state, color)) return ranked;
+  const greatest = (items, feature) => Math.max(...items.map(
+    candidate => Number(candidate.features[feature]) || 0,
+  ));
+  const least = (items, feature) => Math.min(...items.map(
+    candidate => Number(candidate.features[feature]) || 0,
+  ));
+  const withGreatest = (items, feature) => {
+    const maximum = greatest(items, feature);
+    return items.filter(candidate => Number(candidate.features[feature] || 0) === maximum);
+  };
+  const withLeast = (items, feature) => {
+    const minimum = least(items, feature);
+    return items.filter(candidate => Number(candidate.features[feature] || 0) === minimum);
+  };
+  // A complete legal turn is selected before reply search.  An immediate
+  // bear-off may follow the last home entry in the same roll, so homeReady
+  // before the turn must not be required to receive this priority.
+  return withGreatest(
+    withLeast(
+      withGreatest(
+        withGreatest(ranked, 'outsideReduction'),
+        'offGain',
+      ),
+      'homeShuffleMoves',
+    ),
+    'outsidePipGain',
+  );
+}
+
 function isUncontestedLateRaceState(state, color, features = {}) {
   const outside = outsideHomeCount(state, color);
   // The deep continuation score is allowed to yield to race progress only when
@@ -2383,6 +2441,7 @@ function policyAwareExperienceAdjustment(descriptor, experience, immediateScore)
 
 function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
   const ready = homeReady(state, color);
+  const clearFinalRace = isProvenClearFinalRace(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
@@ -2482,6 +2541,17 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
     selected.push(item.sequence);
   };
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
+
+  // Reserve the best full-turn entry/bear-off even with a narrow candidate
+  // limit. The later clear-race rule can only choose a move it has seen.
+  if (clearFinalRace) {
+    add(bestBy(item => item.homeEntries > 0, (a, b) => (
+      b.homeEntries - a.homeEntries || b.offMoves - a.offMoves || b.priority - a.priority
+    )));
+    add(bestBy(item => item.offMoves > 0, (a, b) => (
+      b.offMoves - a.offMoves || b.homeEntries - a.homeEntries || b.priority - a.priority
+    )));
+  }
 
   add(bestBy(item => item.structuralSafety, (a, b) => (
     b.structuralSafety.utility - a.structuralSafety.utility

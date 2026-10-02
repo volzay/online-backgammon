@@ -115,7 +115,8 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_PREVIOUS_JSYS_POLICY_IMPLEMENTATION_ID = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
   const NEURAL_TEACHER_COMPLETE_JSYS_POLICY_IMPLEMENTATION_ID = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
   const NEURAL_TEACHER_PREVIOUS_LIVE_POLICY_IMPLEMENTATION_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
-  const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+  const NEURAL_TEACHER_PREVIOUS_CAUSAL_POLICY_IMPLEMENTATION_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+  const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -4059,6 +4060,8 @@ window.NarduController = (function () {
             !== NEURAL_TEACHER_COMPLETE_JSYS_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_PREVIOUS_LIVE_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_PREVIOUS_CAUSAL_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {

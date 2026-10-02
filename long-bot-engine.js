@@ -1,8 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
-  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...{"schema":"long-v35-history-free-learning-compat-v1","policyImplementationId":"f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2","learningPolicyImplementationId":"fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","compatiblePolicyImplementationIds":["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa","904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a","c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9"],"sourceFingerprints":{"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:3b375ae2403a15fae1224e72d9c19b683101215e2c4d2f3cd0ea63eada2e4fe0","bot-engine/long/engine.ts":"sha256:f920632e9a62045831f3fab9e326b65386c0c00c7f93c5ee1b8cff7d796f423f","bot-engine/long/nardu-game-adapter.ts":"sha256:ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}}, compatiblePolicyImplementationIds: Object.freeze(["fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1","4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526","6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690","6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89","541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa","904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a","c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9"]), sourceFingerprints: Object.freeze({"bot-engine/long/metrics.ts":"sha256:8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31","bot-engine/long/evaluator.ts":"sha256:60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6","bot-engine/long/analysis.ts":"sha256:3b375ae2403a15fae1224e72d9c19b683101215e2c4d2f3cd0ea63eada2e4fe0","bot-engine/long/engine.ts":"sha256:f920632e9a62045831f3fab9e326b65386c0c00c7f93c5ee1b8cff7d796f423f","bot-engine/long/nardu-game-adapter.ts":"sha256:ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e","bot-engine/long/browser.ts":"sha256:6962608b7327e7fe12f6a79f0935c04995693859fd91a88f9a6d701579da9213","game.js":"sha256:6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","strong-bot.js":"sha256:96d05e36acbf4591cfbb40509f2e9a1d84e1720f1736c0cc905c745db1c10951"}) });
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 
 /* bot-engine/long/metrics.ts */
 
@@ -2779,7 +2778,11 @@ function createLongBotEngine(adapter, options = {}) {
       candidate.experienceAdjustment = 0;
     });
 
-    let strategicallyRanked = prioritizeForcedRacePlay(state, color, ranked)
+    let strategicallyRanked = prioritizeProvenClearFinalRace(
+      state,
+      color,
+      prioritizeForcedRacePlay(state, color, ranked),
+    )
       .sort((left, right) => right.score - left.score);
     const opponentOffBeforeMove = offCount(state, opponentOf(color));
     if (
@@ -4831,6 +4834,60 @@ function isOpponentHomeReadyRaceState(state, color) {
     && outsideHomeCount(state, color) > 0;
 }
 
+// When every opposing checker is already in its own home and our rearmost
+// checker has passed that entire zone, the opponent can no longer occupy any
+// point on our remaining route.  Only in this provably contact-free endgame
+// may immediate home entry and bear-off outrank obsolete defensive proxies.
+function isProvenClearFinalRace(state, color) {
+  if (!isOpponentHomeReadyRaceState(state, color)
+    || outsideHomeCount(state, color) > 6) return false;
+
+  let ownCheckers = offCount(state, color);
+  let rearmost = 24;
+  for (const [point, stack] of Object.entries(state.points || {})) {
+    if (stack?.color !== color) continue;
+    const position = pathPos(color, Number(point));
+    if (position < 0) return false;
+    ownCheckers += Number(stack.count) || 0;
+    rearmost = Math.min(rearmost, position);
+  }
+  if (ownCheckers !== 15) return false;
+  const opponentHomeFrontier = Math.max(...pathFor(opponentOf(color))
+    .slice(18).map(point => pathPos(color, point)));
+  return rearmost > opponentHomeFrontier;
+}
+
+function prioritizeProvenClearFinalRace(state, color, ranked) {
+  if (!ranked.length || !isProvenClearFinalRace(state, color)) return ranked;
+  const greatest = (items, feature) => Math.max(...items.map(
+    candidate => Number(candidate.features[feature]) || 0,
+  ));
+  const least = (items, feature) => Math.min(...items.map(
+    candidate => Number(candidate.features[feature]) || 0,
+  ));
+  const withGreatest = (items, feature) => {
+    const maximum = greatest(items, feature);
+    return items.filter(candidate => Number(candidate.features[feature] || 0) === maximum);
+  };
+  const withLeast = (items, feature) => {
+    const minimum = least(items, feature);
+    return items.filter(candidate => Number(candidate.features[feature] || 0) === minimum);
+  };
+  // A complete legal turn is selected before reply search.  An immediate
+  // bear-off may follow the last home entry in the same roll, so homeReady
+  // before the turn must not be required to receive this priority.
+  return withGreatest(
+    withLeast(
+      withGreatest(
+        withGreatest(ranked, 'outsideReduction'),
+        'offGain',
+      ),
+      'homeShuffleMoves',
+    ),
+    'outsidePipGain',
+  );
+}
+
 function isUncontestedLateRaceState(state, color, features = {}) {
   const outside = outsideHomeCount(state, color);
   // The deep continuation score is allowed to yield to race progress only when
@@ -5007,6 +5064,7 @@ function policyAwareExperienceAdjustment(descriptor, experience, immediateScore)
 
 function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
   const ready = homeReady(state, color);
+  const clearFinalRace = isProvenClearFinalRace(state, color);
   const entryPressure = lateEntryPressure(state, color);
   const trapPressure = opponentTrapRisk(state, color);
   const development = developmentPressure(state, color);
@@ -5106,6 +5164,17 @@ function prefilterSequences(adapter, state, color, sequences, maxCandidates) {
     selected.push(item.sequence);
   };
   const bestBy = (predicate, compare) => scored.filter(predicate).sort(compare)[0];
+
+  // Reserve the best full-turn entry/bear-off even with a narrow candidate
+  // limit. The later clear-race rule can only choose a move it has seen.
+  if (clearFinalRace) {
+    add(bestBy(item => item.homeEntries > 0, (a, b) => (
+      b.homeEntries - a.homeEntries || b.offMoves - a.offMoves || b.priority - a.priority
+    )));
+    add(bestBy(item => item.offMoves > 0, (a, b) => (
+      b.offMoves - a.offMoves || b.homeEntries - a.homeEntries || b.priority - a.priority
+    )));
+  }
 
   add(bestBy(item => item.structuralSafety, (a, b) => (
     b.structuralSafety.utility - a.structuralSafety.utility

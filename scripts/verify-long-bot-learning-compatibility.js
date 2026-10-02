@@ -7,6 +7,10 @@ const builder = require('./build-long-bot-engine');
 const ROOT = path.join(__dirname, '..');
 const OPTIMIZED_RULES = '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623';
 const ORIGINAL_LEARNING_POLICY = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
+const HISTORICAL_COMPATIBLE_RELEASE = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
+// The clear-final-race policy intentionally changes choices. It may learn only
+// from evidence produced for these exact source bytes, never from an old alias.
+const CLEAR_FINAL_RACE_POLICY = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const PREVIOUS_PRODUCTION_POLICY = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const PREVIOUS_LIVE_DOUBLES_POLICY = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
 const PREVIOUS_TACTICAL_LIVE_POLICY = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
@@ -17,14 +21,32 @@ const PREVIOUS_LIVE_JSYS_POLICY = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925
 function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicySourceEntries(),
   engineSource = fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8') } = {}) {
   const gameSource = new Map(sourceEntries).get('game.js');
-  if (createHash('sha256').update(gameSource).digest('hex') !== OPTIMIZED_RULES) return { required: false };
+  const failure = () => { throw new Error('Published v35 policy must preserve audited causal learning provenance'); };
+  if (!gameSource || createHash('sha256').update(gameSource).digest('hex') !== OPTIMIZED_RULES
+    || engineSource !== builder.renderLongBotBundle(sourceEntries)) failure();
+  const actualPolicy = builder.policyImplementationId(sourceEntries);
+  if (actualPolicy !== CLEAR_FINAL_RACE_POLICY
+    && actualPolicy !== HISTORICAL_COMPATIBLE_RELEASE) failure();
   const context = vm.createContext({ window: {} });
   vm.runInContext(gameSource.toString('utf8'), context, { timeout: 3000 });
   vm.runInContext(engineSource, context, { timeout: 3000 });
   const engine = context.window.NarduLongBotEngine;
-  const actualPolicy = builder.policyImplementationId(sourceEntries);
   const compatibility = engine?.learningCompatibility;
-  if (engine?.version !== 'long-analytic-v35' || engine.policyImplementationId !== actualPolicy
+  if (engine?.version !== 'long-analytic-v35' || engine.policyImplementationId !== actualPolicy) failure();
+  if (actualPolicy === CLEAR_FINAL_RACE_POLICY) {
+    if (builder.learningCompatibility(sourceEntries) !== null
+      || compatibility !== null
+      || engine.learningPolicyImplementationId !== actualPolicy
+      || engine.acceptsLearningPolicyImplementationId?.(actualPolicy) !== true
+      || [ORIGINAL_LEARNING_POLICY, HISTORICAL_COMPATIBLE_RELEASE,
+        PREVIOUS_PRODUCTION_POLICY, PREVIOUS_LIVE_DOUBLES_POLICY,
+        PREVIOUS_TACTICAL_LIVE_POLICY, PREVIOUS_JSYS_HOME_PRIORITY_POLICY,
+        PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY, PREVIOUS_LIVE_JSYS_POLICY,
+        '0'.repeat(64)].some(id => engine.acceptsLearningPolicyImplementationId?.(id) !== false)) failure();
+    return { required: true, policyImplementationId: actualPolicy,
+      learningPolicyImplementationId: actualPolicy, historicalAlias: false };
+  }
+  if (actualPolicy !== HISTORICAL_COMPATIBLE_RELEASE
     || !compatibility || !Object.isFrozen(compatibility)
     || compatibility.schema !== 'long-v35-history-free-learning-compat-v1'
     || compatibility.policyImplementationId !== actualPolicy
@@ -44,10 +66,9 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(PREVIOUS_LIVE_JSYS_POLICY) !== true
     || engine.acceptsLearningPolicyImplementationId?.(actualPolicy) !== true
-    || engine.acceptsLearningPolicyImplementationId?.('0'.repeat(64)) !== false) {
-    throw new Error('Optimized v35 rules must preserve audited causal learning before publication');
-  }
+    || engine.acceptsLearningPolicyImplementationId?.('0'.repeat(64)) !== false) failure();
   return { required: true, policyImplementationId: actualPolicy,
-    learningPolicyImplementationId: ORIGINAL_LEARNING_POLICY };
+    learningPolicyImplementationId: ORIGINAL_LEARNING_POLICY, historicalAlias: true };
 }
-module.exports = { verifyLongBotLearningCompatibility, OPTIMIZED_RULES, ORIGINAL_LEARNING_POLICY };
+module.exports = { verifyLongBotLearningCompatibility, OPTIMIZED_RULES,
+  ORIGINAL_LEARNING_POLICY, HISTORICAL_COMPATIBLE_RELEASE, CLEAR_FINAL_RACE_POLICY };
