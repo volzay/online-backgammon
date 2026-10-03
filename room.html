@@ -954,7 +954,9 @@ function appendChatMessages(messages, { advanceCursor = false } = {}) {
 }
 
 async function pollChat() {
-  if (!chatRemote || chatPollBusy) return;
+  // Spectators have read-only UI but no chat read permission. Polling here
+  // only produced avoidable denied requests while they watched the board.
+  if (!chatRemote || chatSpectator || chatPollBusy) return;
   chatPollBusy = true;
   try {
     const data = await NarduRooms.listChatMessages(chatRoomCode, chatPollAfterId);
@@ -1027,7 +1029,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#emoji-btn, #emoji-popover')) return;
   emojiPopover.hidden = true;
 });
-if (chatRemote) {
+if (chatRemote && !chatSpectator) {
   pollChat();
   chatPollTimer = setInterval(pollChat, 1200);
 }
@@ -1314,6 +1316,8 @@ let networkCountdownTimer = null;
 let networkDeadlineAt = 0;
 const ROOM_HEARTBEAT_REQUEST_STALE_MS = 10000;
 const ROOM_PRESENCE_RESUME_DEBOUNCE_MS = 1000;
+const SPECTATOR_LEAVE_TIMEOUT_MS = 500;
+let spectatorExitStarted = false;
 
 async function apiJson(url, options = {}) {
   const response = await fetch(url, {
@@ -1618,7 +1622,7 @@ function startPresenceProtocol() {
 }
 
 async function sendSpectatorHeartbeat() {
-  if (!isSpectatorRoom || !roomCode) return;
+  if (!isSpectatorRoom || !roomCode || spectatorExitStarted) return;
   const startedAt = Date.now();
   if (spectatorBusy && startedAt - spectatorRequestStartedAt < ROOM_HEARTBEAT_REQUEST_STALE_MS) return;
   if (spectatorBusy) cancelSpectatorHeartbeatRequest();
@@ -1634,13 +1638,20 @@ async function sendSpectatorHeartbeat() {
     const data = await NarduRooms.watchRoom(roomCode, {
       spectatorId,
       name: NarduApp.getUser()?.name || earlyRoomText('spectator'),
-    }, { signal: controller?.signal });
+    }, { signal: controller?.signal, includeState: false });
     if (requestId !== spectatorRequestId) return;
     if (data.state && Number.isFinite(data.version)) {
       window.NarduController?.receiveRemoteState?.(data.state, data.version);
     }
-  } catch {
+  } catch (error) {
     if (requestId !== spectatorRequestId) return;
+    // Finishing a room closes spectator admission. Do not display an outage
+    // panel over a completed match while the 900 ms state poll catches up.
+    if ([403, 404, 410].includes(Number(error?.status)) ||
+        /Просмотр этой комнаты недоступен|Комната не найдена|room.*(?:unavailable|not found)/i.test(String(error?.message || ''))) {
+      void leaveToLobby({ immediate: true });
+      return;
+    }
     showNetworkPanel({
       title: t('room_unavailable_title'),
       text: t('room_unavailable_text'),
@@ -1667,7 +1678,7 @@ function cancelSpectatorHeartbeatRequest() {
 }
 
 function startSpectatorProtocol() {
-  if (!isSpectatorRoom || !roomCode) return;
+  if (!isSpectatorRoom || !roomCode || spectatorExitStarted) return;
   sendSpectatorHeartbeat();
   if (!spectatorTimer) spectatorTimer = setInterval(sendSpectatorHeartbeat, 5000);
 }
@@ -1739,12 +1750,31 @@ async function leaveToLobby({ immediate = false } = {}) {
   presenceTimer = null;
   spectatorTimer = null;
   cancelPresenceHeartbeatRequest();
-  if (immediate) {
+  if (isSpectatorRoom) {
+    if (spectatorExitStarted) return;
+    spectatorExitStarted = true;
+    cancelSpectatorHeartbeatRequest();
+    const leave = NarduRooms.leaveSpectator(roomCode, {
+      spectatorId,
+      name: NarduApp.getUser()?.name || earlyRoomText('spectator'),
+    }).catch(() => {});
+    // Finishing a game must redirect immediately. A manual exit may wait
+    // briefly for presence cleanup, but a stalled network cannot trap a viewer.
+    if (!immediate) {
+      let timeoutId;
+      try {
+        await Promise.race([
+          leave,
+          new Promise(resolve => { timeoutId = setTimeout(resolve, SPECTATOR_LEAVE_TIMEOUT_MS); }),
+        ]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
     location.href = 'index.html';
     return;
   }
-  if (isSpectatorRoom) {
-    await NarduRooms.leaveSpectator(roomCode, { spectatorId, name: NarduApp.getUser()?.name || earlyRoomText('spectator') }).catch(() => {});
+  if (immediate) {
     location.href = 'index.html';
     return;
   }

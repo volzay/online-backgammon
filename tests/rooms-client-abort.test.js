@@ -81,6 +81,68 @@ test("API room reads, joins, presence, and spectator calls forward AbortSignal",
   assert.ok(requests.every(request => request.options.headers["X-Guest-Proof"] === TEST_GUEST_PROOF));
 });
 
+test("a Supabase spectator heartbeat can skip a duplicate full game-state read", async () => {
+  class BeforeHeartbeatDate extends Date {
+    static now() { return 0; }
+  }
+  const calls = [];
+  const profileQuery = {
+    select() { return this; },
+    eq() { return this; },
+    maybeSingle: async () => ({
+      data: { id: "viewer-1", nickname: "Viewer", rating: 1000, rating_eligible: true },
+      error: null,
+    }),
+  };
+  const client = {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: "viewer-1", email: "viewer@example.test", user_metadata: {} } },
+        error: null,
+      }),
+    },
+    from(table) {
+      calls.push(`table:${table}`);
+      if (table !== "profiles") throw new Error("unexpected full room read");
+      return profileQuery;
+    },
+    rpc(name) {
+      calls.push(`rpc:${name}`);
+      return Promise.resolve({ data: 1, error: null });
+    },
+  };
+  const rooms = loadRooms({
+    configured: true,
+    client,
+    user: { id: "viewer-1", name: "Viewer", guest: false },
+    dateImpl: BeforeHeartbeatDate,
+  });
+
+  const result = await rooms.watchRoom(
+    "ABCD-EFGH", { spectatorId: "viewer-1" }, { includeState: false },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.spectators, 1);
+  assert.equal(result.state, undefined);
+  assert.deepEqual(calls, ["table:profiles", "rpc:touch_room_spectator"]);
+});
+
+test("a fallback spectator heartbeat requests presence without a full state payload", async () => {
+  const requests = [];
+  const rooms = loadRooms({
+    configured: false,
+    fetchImpl: async (url) => {
+      requests.push(url);
+      return jsonResponse({ ok: true, spectators: 2 });
+    },
+  });
+
+  const result = await rooms.watchRoom("ABCD-EFGH", { spectatorId: "viewer" }, { includeState: false });
+  assert.equal(result.spectators, 2);
+  assert.equal(result.state, undefined);
+  assert.deepEqual(requests, ["/api/rooms/ABCD-EFGH/spectators?includeState=0"]);
+});
+
 test("a pre-aborted join stops before the API mutation", async () => {
   let fetchCalls = 0;
   const rooms = loadRooms({

@@ -2166,30 +2166,57 @@ async function handleApi(req, res, url) {
 
     if (method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "rating" && parts[2] === "sync") {
       const body = await readJsonBody(req);
-      const userId = String(body.userId || "").trim();
-      const nickname = String(body.nickname || body.name || "").trim();
-      const user = authState.users.find(item => (
-        (userId && item.id === userId)
-        || (nickname && normalizePlayerName(item.nickname) === normalizePlayerName(nickname))
-      )) || null;
+      const user = accountSessionFromRequest(req)?.user || null;
       if (!user) {
-        sendJson(res, 403, { error: "Рейтинг доступен только зарегистрированным игрокам." });
+        sendJson(res, 401, { error: "Для начисления рейтинга необходим вход в аккаунт." });
         return;
       }
-      assignRegisteredRating(user, body.rating);
+      if (body.userId && String(body.userId) !== user.id) {
+        sendJson(res, 403, { error: "Нельзя начислять рейтинг другому аккаунту." });
+        return;
+      }
       const resultKey = String(body.resultKey || "").slice(0, 120);
+      const roomCode = String(body.score?.roomCode || "").trim().toUpperCase();
+      const room = rooms.find(item => item.code === roomCode);
+      const finished = room?.gameState;
+      const mode = String(body.mode || "");
+      const playerColor = room && mode === "remote" && room.opponent !== "bot"
+        ? requestRoomParticipantColor(req, room)
+        : room && mode === "bot" && isBotAnalysisRoom(room) && room.hostUserId === user.id
+          ? (finished?.analysis?.playerColor === "dark" ? "dark" : "white")
+          : "";
+      const winner = finished?.winner;
+      const resultType = finished?.resultType || "normal";
+      const finishedAt = String(finished?.finishedAt || "");
+      if (!playerColor || finished?.phase !== "over" || !["white", "dark"].includes(winner)
+        || !finishedAt || body.winner !== winner
+        || Boolean(body.didWin) !== (winner === playerColor)
+        || String(body.score?.finalState?.finishedAt || "") !== finishedAt
+        || String(body.resultType || "normal") !== resultType
+        || resultKey !== `${finishedAt}:${winner}:${resultType}`) {
+        sendJson(res, 403, { error: "Рейтинг начисляется только участникам завершённой партии." });
+        return;
+      }
       user.ratingHistory = Array.isArray(user.ratingHistory) ? user.ratingHistory : [];
-      if (resultKey && !user.ratingHistory.some(item => item.resultKey === resultKey)) {
+      const duplicate = user.ratingHistory.find(item => item.resultKey === resultKey);
+      let delta = Number(duplicate?.delta || 0);
+      if (!duplicate) {
+        const currentRating = normalizeRating(user.rating);
+        const opponentRating = normalizeRating(playerColor === "white" ? room.guestRating : room.hostRating);
+        const expected = 1 / (1 + Math.pow(10, (opponentRating - currentRating) / 400));
+        const nextRating = Math.round(currentRating + 24 * ((winner === playerColor ? 1 : 0) - expected));
+        delta = nextRating - currentRating;
+        assignRegisteredRating(user, nextRating);
         user.ratingHistory.unshift({
           resultKey,
           ts: Number(body.ts || Date.now()),
           finishedAt: body.finishedAt || new Date(Number(body.ts || Date.now())).toISOString(),
           opponent: String(body.opponent || "").slice(0, 32),
-          opponentRating: Number.isFinite(Number(body.opponentRating)) ? Number(body.opponentRating) : null,
-          didWin: Boolean(body.didWin),
-          mode: String(body.mode || "").slice(0, 20),
-          resultType: ["mars", "koks"].includes(body.resultType) ? body.resultType : "",
-          winner: body.winner === "dark" ? "dark" : (body.winner === "white" ? "white" : ""),
+          opponentRating,
+          didWin: winner === playerColor,
+          mode,
+          resultType: ["mars", "koks"].includes(resultType) ? resultType : "",
+          winner,
           score: body.score && typeof body.score === "object"
             ? {
                 white: Number(body.score.white) || 0,
@@ -2197,7 +2224,7 @@ async function handleApi(req, res, url) {
               }
             : null,
           history: Array.isArray(body.history) ? body.history.slice(0, 500) : [],
-          delta: Number(body.delta || 0),
+          delta,
           ratingAfter: user.rating,
           tierAfter: user.tier,
         });
@@ -2207,7 +2234,7 @@ async function handleApi(req, res, url) {
       touchAdminUser({ name: user.nickname, email: user.email, rating: user.rating, tier: user.tier, registered: true, ip: clientIp(req), source: "account" });
       saveAuthState();
       saveAdminState();
-      sendJson(res, 200, { ok: true, user: publicUser(user) });
+      sendJson(res, 200, { ok: true, duplicate: Boolean(duplicate), delta, user: publicUser(user) });
       return;
     }
 
@@ -2986,7 +3013,7 @@ async function handleApi(req, res, url) {
         sendJson(res, 404, { error: "Комната не найдена." });
         return;
       }
-      if (!room.allowSpectators || room.status !== "joined") {
+      if (method !== "DELETE" && (!room.allowSpectators || room.status !== "joined")) {
         sendJson(res, 403, { error: "Просмотр этой комнаты недоступен." });
         return;
       }
@@ -3005,8 +3032,10 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, {
         ok: true,
         spectators,
-        state: room.gameState || null,
-        version: room.gameVersion || 0,
+        ...(url.searchParams.get("includeState") === "0" ? {} : {
+          state: room.gameState || null,
+          version: room.gameVersion || 0,
+        }),
       });
       return;
     }

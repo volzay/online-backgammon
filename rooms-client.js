@@ -2179,11 +2179,12 @@
   }
 
   async function watchRoom(code, payload = {}, options = {}) {
-    const { signal } = options;
+    const { signal, includeState = true } = options;
     throwIfAborted(signal);
     const normalizedCode = normalizeCode(code);
     if (!configured()) {
-      return apiJson(`/api/rooms/${encodeURIComponent(normalizedCode)}/spectators`, {
+      const endpoint = `/api/rooms/${encodeURIComponent(normalizedCode)}/spectators${includeState ? '' : '?includeState=0'}`;
+      return apiJson(endpoint, {
         method: "POST",
         body: JSON.stringify(payload),
         signal,
@@ -2203,6 +2204,9 @@
     const { data, error } = await awaitWithAbort(query, signal);
     throwIfAborted(signal);
     if (error) throw supabaseError(error, "Could not watch room.");
+    // The game controller already polls the authoritative state. A presence
+    // heartbeat does not need to download that growing JSON document again.
+    if (!includeState) return { ok: true, spectators: Number(data || 0) };
     const stateData = await getGameState(normalizedCode, { signal });
     return {
       ok: true,

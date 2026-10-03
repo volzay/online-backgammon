@@ -99,6 +99,10 @@ window.NarduRating = (function () {
           tier: user.tier,
         };
       }
+      // A remote result must never fall back to a direct profile update or
+      // unguarded rating_events insert. Only the participant-checked RPC may
+      // award it, including while an older schema cache is deployed.
+      if (entry.mode === 'remote') throw resultError;
       if (!/record_rating_result|Could not find the function|schema cache/i.test(resultError.message || '')) {
         throw resultError;
       }
@@ -216,9 +220,12 @@ window.NarduRating = (function () {
     assignProfileRating(user);
     const opponent = normalizeRating(opponentRating);
     const delta = next(user.rating, opponent, didWin ? 1 : 0) - user.rating;
-    user.rating += delta;
-    user.tier   = tierFor(user.rating);
-    user.ratingEligible = true;
+    const projectedRating = user.rating + delta;
+    if (mode !== 'remote') {
+      user.rating = projectedRating;
+      user.tier = tierFor(user.rating);
+      user.ratingEligible = true;
+    }
     const fullHistory = Array.isArray(details.history) ? details.history.map(item => ({ ...item })) : [];
     const syncEntry = {
       resultKey: resultKey || `${mode}:${Date.now()}:${opponentName}:${didWin ? 1 : 0}`,
@@ -233,9 +240,40 @@ window.NarduRating = (function () {
       history: fullHistory,
       finishedAt: details.finishedAt || new Date().toISOString(),
       delta,
-      ratingAfter: user.rating,
-      tierAfter: user.tier,
+      ratingAfter: projectedRating,
+      tierAfter: tierFor(projectedRating),
     };
+    if (mode === 'remote') {
+      // A spectator or stale tab can compute a plausible local result. Keep
+      // the profile unchanged until the server confirms participant identity
+      // and the exact finished room; a rejected result leaves no local +1.
+      const initialUserId = user.id;
+      const submit = window.NarduSupabase?.configured?.()
+        ? syncSupabaseRating({ ...user }, syncEntry)
+        : syncServerRating({ ...user, rating: projectedRating, tier: tierFor(projectedRating) }, syncEntry);
+      const syncPromise = Promise.resolve(submit).then(authoritative => {
+        if (!authoritative) return null;
+        const current = NarduApp.getUser();
+        if (current && !current.guest && current.id === initialUserId) {
+          const compactEntry = compactHistoryEntry({
+            ...syncEntry,
+            delta: Number(authoritative.delta ?? delta),
+            ratingAfter: normalizeRating(authoritative.rating),
+            tierAfter: authoritative.tier || tierFor(authoritative.rating),
+          });
+          const previous = Array.isArray(current.history) ? current.history.map(compactHistoryEntry) : [];
+          persistUserSafely({
+            ...current,
+            rating: normalizeRating(authoritative.rating),
+            tier: authoritative.tier || tierFor(authoritative.rating),
+            ratingEligible: true,
+            history: [compactEntry, ...previous.filter(item => item.resultKey !== compactEntry.resultKey)].slice(0, 50),
+          });
+        }
+        return authoritative;
+      }).catch(() => null);
+      return { delta: 0, rating: null, tier: user.tier, syncPromise, authoritativePending: true };
+    }
     const compactEntry = compactHistoryEntry(syncEntry);
     user.history = [
       compactEntry,

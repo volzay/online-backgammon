@@ -770,7 +770,7 @@ async function loadSupabaseGames(client, userId) {
     error = fallback.error;
   }
   if (error) throw new Error(error.message);
-  const games = mergeGames((data || []).map(row => ({
+  const serverGames = (data || []).map(row => ({
     resultKey: row.result_key,
     ts: Date.parse(row.created_at || '') || Date.now(),
     at: row.created_at || '',
@@ -784,7 +784,12 @@ async function loadSupabaseGames(client, userId) {
     delta: Number(row.delta || 0),
     ratingAfter: row.rating_after,
     history: Array.isArray(row.history) ? row.history : [],
-  })));
+  }));
+  invalidLocalRemoteResults = {
+    userId,
+    keys: await knownNonParticipantLocalResults(client, userId, serverGames),
+  };
+  const games = mergeGames(serverGames);
   const roomHistories = await loadSupabaseRoomHistories(client, userId);
   return attachRoomHistoriesToGames(games, roomHistories);
 }
@@ -886,9 +891,46 @@ function localGames() {
   }));
 }
 
+let invalidLocalRemoteResults = { userId: '', keys: new Set() };
+
+function localRemoteRoomCode(game) {
+  const code = String(game?.score?.roomCode || game?.score?.finalState?.roomCode || '').trim().toUpperCase();
+  return /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(code) ? code : '';
+}
+
+async function knownNonParticipantLocalResults(client, userId, serverGames = []) {
+  if (String(currentUser().id || '') !== String(userId || '')) return new Set();
+  const serverKeys = new Set(serverGames.map(game => game.resultKey).filter(Boolean));
+  const candidates = localGames().filter(game =>
+    game.mode === 'remote' && game.resultKey && !serverKeys.has(game.resultKey) && localRemoteRoomCode(game));
+  const codes = [...new Set(candidates.map(localRemoteRoomCode))].slice(0, 50);
+  if (!codes.length) return new Set();
+  try {
+    // A missing/closed/old room is inconclusive and must not delete a valid
+    // locally pending result. Exclude only a visible room that proves this
+    // account was neither participant.
+    const { data, error } = await client.from('rooms')
+      .select('code,host_user_id,guest_user_id')
+      .in('code', codes)
+      .neq('status', 'closed');
+    if (error) return new Set();
+    const nonParticipantCodes = new Set((data || [])
+      .filter(row => row.host_user_id !== userId && row.guest_user_id !== userId)
+      .map(row => String(row.code || '').toUpperCase()));
+    return new Set(candidates
+      .filter(game => nonParticipantCodes.has(localRemoteRoomCode(game)))
+      .map(game => game.resultKey));
+  } catch {
+    return new Set();
+  }
+}
+
 function mergeGames(serverGames = []) {
   const byKey = new Map();
-  [...serverGames, ...localGames()].forEach(game => {
+  const invalidKeys = String(currentUser().id || '') === String(invalidLocalRemoteResults.userId || '')
+    ? invalidLocalRemoteResults.keys
+    : new Set();
+  [...serverGames, ...localGames().filter(game => !invalidKeys.has(game.resultKey))].forEach(game => {
     const key = game.resultKey || `${game.ts}:${game.opponent}:${game.didWin}`;
     if (!byKey.has(key)) byKey.set(key, game);
   });

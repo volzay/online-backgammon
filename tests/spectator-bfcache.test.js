@@ -25,6 +25,6 @@ test('spectator heartbeat has its own abortable watchdog', () => {
 
   assert.match(heartbeat, /new AbortController\(\)/);
   assert.match(heartbeat, /setTimeout\(\(\) => controller\.abort\(\), ROOM_HEARTBEAT_REQUEST_STALE_MS\)/);
-  assert.match(heartbeat, /NarduRooms\.watchRoom\([\s\S]*\{ signal: controller\?\.signal \}/);
+  assert.match(heartbeat, /NarduRooms\.watchRoom\([\s\S]*\{ signal: controller\?\.signal, includeState: false \}/);
   assert.match(heartbeat, /function cancelSpectatorHeartbeatRequest\(\)[\s\S]*spectatorAbortController\?\.abort\(\)/);
 });

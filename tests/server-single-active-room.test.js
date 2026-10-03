@@ -670,3 +670,107 @@ test("generic deletion and forged leave requests cannot mutate a room", async ()
   assert.equal(ownerLeave.response.status, 200, ownerLeave.body.error);
   assert.equal(ownerLeave.body.removed, true);
 });
+
+test("Node fallback awards a saved game only to its players and lets a spectator leave after it ends", async () => {
+  const host = await register("RatingGuardHost");
+  const guest = await register("RatingGuardGuest");
+  const spectator = await register("RatingGuardViewer");
+  const created = await createHumanRoom(host, { variant: "short", allowSpectators: true });
+  assert.equal(created.response.status, 201, created.body.error);
+  const code = created.body.room.code;
+  const joined = await request(`/api/rooms/${code}/join`, session(guest, {
+    method: "POST",
+    body: JSON.stringify({ guestName: guest.user.nickname, guestUserId: guest.user.id }),
+  }));
+  assert.equal(joined.response.status, 200, joined.body.error);
+  const watching = await request(`/api/rooms/${code}/spectators`, session(spectator, {
+    method: "POST",
+    body: JSON.stringify({ spectatorId: spectator.user.id, name: spectator.user.nickname }),
+  }));
+  assert.equal(watching.response.status, 200, watching.body.error);
+  const leanHeartbeat = await request(`/api/rooms/${code}/spectators?includeState=0`, session(spectator, {
+    method: "POST",
+    body: JSON.stringify({ spectatorId: spectator.user.id, name: spectator.user.nickname }),
+  }));
+  assert.equal(leanHeartbeat.response.status, 200, leanHeartbeat.body.error);
+  assert.equal(leanHeartbeat.body.state, undefined);
+  assert.equal(leanHeartbeat.body.version, undefined);
+
+  const final = game.initialState("short");
+  for (const [point, stack] of Object.entries(final.points)) {
+    if (stack.color === "white") delete final.points[point];
+  }
+  final.off.white = 15;
+  final.phase = "over";
+  final.winner = "white";
+  final.resultType = "normal";
+  final.finishedAt = Date.now();
+  final.mode = "remote";
+  final.roomCode = code;
+  const saved = await request(`/api/rooms/${code}/game`, session(host, {
+    method: "PUT",
+    body: JSON.stringify({ state: final, version: 0 }),
+  }));
+  assert.equal(saved.response.status, 200, saved.body.error);
+
+  const result = {
+    userId: spectator.user.id,
+    mode: "remote",
+    winner: "white",
+    didWin: true,
+    resultType: "normal",
+    resultKey: `${final.finishedAt}:white:normal`,
+    score: { roomCode: code, finalState: { finishedAt: final.finishedAt } },
+    rating: 9000,
+    delta: 8000,
+  };
+  const unauthenticated = await request("/api/rating/sync", {
+    method: "POST", body: JSON.stringify(result),
+  });
+  assert.equal(unauthenticated.response.status, 401);
+  const denied = await request("/api/rating/sync", session(spectator, {
+    method: "POST", body: JSON.stringify(result),
+  }));
+  assert.equal(denied.response.status, 403);
+  const forgedAccount = await request("/api/rating/sync", session(host, {
+    method: "POST", body: JSON.stringify({ ...result, userId: spectator.user.id }),
+  }));
+  assert.equal(forgedAccount.response.status, 403);
+  const falseWinner = await request("/api/rating/sync", session(guest, {
+    method: "POST", body: JSON.stringify({ ...result, userId: guest.user.id }),
+  }));
+  assert.equal(falseWinner.response.status, 403);
+  const viewerProfile = await request("/api/account/profile", session(spectator));
+  assert.equal(viewerProfile.body.user.rating, 1000);
+  assert.equal(viewerProfile.body.stats.gamesPlayed, 0);
+
+  const hostAward = await request("/api/rating/sync", session(host, {
+    method: "POST", body: JSON.stringify({ ...result, userId: host.user.id }),
+  }));
+  assert.equal(hostAward.response.status, 200, hostAward.body.error);
+  assert.equal(hostAward.body.delta, 12);
+  assert.equal(hostAward.body.user.rating, 1012);
+  const retry = await request("/api/rating/sync", session(host, {
+    method: "POST", body: JSON.stringify({ ...result, userId: host.user.id, rating: 9000 }),
+  }));
+  assert.equal(retry.response.status, 200, retry.body.error);
+  assert.equal(retry.body.duplicate, true);
+  assert.equal(retry.body.user.rating, 1012);
+  const guestLoss = await request("/api/rating/sync", session(guest, {
+    method: "POST", body: JSON.stringify({ ...result, userId: guest.user.id, didWin: false }),
+  }));
+  assert.equal(guestLoss.response.status, 200, guestLoss.body.error);
+  assert.equal(guestLoss.body.delta, -12);
+  assert.equal(guestLoss.body.user.rating, 988);
+
+  const lateJoin = await request(`/api/rooms/${code}/spectators`, session(spectator, {
+    method: "POST", body: JSON.stringify({ spectatorId: spectator.user.id }),
+  }));
+  assert.equal(lateJoin.response.status, 403);
+
+  const left = await request(`/api/rooms/${code}/spectators`, session(spectator, {
+    method: "DELETE", body: JSON.stringify({ spectatorId: spectator.user.id }),
+  }));
+  assert.equal(left.response.status, 200, left.body.error);
+  assert.equal(left.body.spectators, 0);
+});
