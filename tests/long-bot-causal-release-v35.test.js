@@ -122,6 +122,8 @@ test('releases and repaired archive revisions append separate jobs and evidence 
 test('patterns bind original stored policy SHA to registry and active release and count positions once', () => {
   const patterns = body('public.get_long_bot_experience_patterns');
   assert.match(patterns, /evidence\.payload->>'policyImplementationId' as policy_implementation_id/);
+  assert.match(patterns, /active\.runtime_digest = evidence\.runtime_digest/,
+    'a newly active release must not republish evidence from an older worker digest');
   assert.match(patterns, /active\.policy_implementation_id = evidence\.payload->>'policyImplementationId'/);
   assert.match(patterns, /release\.policy_implementation_id = evidence\.payload->>'policyImplementationId'/);
   assert.match(patterns, /active\.explicitly_approved/);
@@ -153,6 +155,8 @@ test('rollback smoke is synthetic and covers cold-review, stale claims, revision
   assert.match(fixture, /NULL runtime claimed work/);
   assert.match(fixture, /Old worker consumed a cold-review job for new digest/);
   assert.match(fixture, /New release rewrote\/deleted original job or evidence/);
+  assert.match(fixture, /jsonb_array_elements\(public\.get_long_bot_experience_patterns\(null\)\) p where p->>'runtimeDigest' = digest_a/,
+    'rollback smoke must reject publication of the old digest after release rotation');
   assert.match(fixture, /rollback-decision-duplicate/);
   assert.match(fixture, /p->>'samples' = '1'/);
   assert.match(fixture, /runtime_digest is null\s+and archive_fingerprint is null and result = legacy_result/);

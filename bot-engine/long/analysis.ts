@@ -304,6 +304,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'structuralIntegrityTacticalReservation',
     'homeEntryTacticalReservation',
     'routeContinuityTacticalReservation',
+    'startZoneEscapeTacticalReservation',
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
     'primeSustainabilityTacticalReservation',
@@ -528,6 +529,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  if (Number(features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
   if (Number(features.contestedHeadExitTacticalReservation || 0) > 0) return 4;
   return 100;
@@ -538,6 +540,7 @@ function hasTacticalReservation(candidate) {
   return Number(features.structuralIntegrityTacticalReservation || 0) > 0
     || Number(features.homeEntryTacticalReservation || 0) > 0
     || Number(features.routeContinuityTacticalReservation || 0) > 0
+    || Number(features.startZoneEscapeTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
     || Number(features.primeSustainabilityTacticalReservation || 0) > 0;

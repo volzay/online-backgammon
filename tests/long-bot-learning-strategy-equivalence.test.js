@@ -17,6 +17,7 @@ const HISTORICAL_COMPATIBLE_RELEASE = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3'
 const ORIGINAL_ID = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 const COMPATIBLE_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
 const CLEAR_FINAL_RACE_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+const START_ZONE_ANALYSIS_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const OLD_GAME_HASH = '769c571ad10cefa75a8c128aba5123df47684780fad1136a0ae98f3342f33e4b';
 const OLD_ENGINE_HASH = '6b503dce9c72d2bdec9180dfe63aa2252b71e8c69095eea13bd1345732940255';
 // Identical bounded tactical cohorts on both runtimes. This exercises the real
@@ -232,17 +233,17 @@ test('learning compatibility also accepts current source evidence but never unkn
   }
 });
 
-test('new clear-final-race strategy accepts only its own causal evidence', () => {
+test('new start-zone analytical strategy accepts only its own causal evidence', () => {
   const candidate = runtime({ current: true });
   const old = runtime({ baseline: true });
-  assert.equal(candidate.engine.policyImplementationId, CLEAR_FINAL_RACE_ID);
+  assert.equal(candidate.engine.policyImplementationId, START_ZONE_ANALYSIS_ID);
   assert.equal(candidate.engine.learningCompatibility, null);
   const oldPattern = evidenceFor(old, positions(old.game))[0];
-  for (const oldId of [ORIGINAL_ID, COMPATIBLE_ID]) {
+  for (const oldId of [ORIGINAL_ID, COMPATIBLE_ID, CLEAR_FINAL_RACE_ID]) {
     candidate.engine.setExperience([{ ...oldPattern, policyImplementationId: oldId }], 'server');
     assert.equal(candidate.engine.experienceSize(), 0, oldId);
   }
-  const currentPattern = { ...oldPattern, policyImplementationId: CLEAR_FINAL_RACE_ID };
+  const currentPattern = { ...oldPattern, policyImplementationId: START_ZONE_ANALYSIS_ID };
   candidate.engine.setExperience([currentPattern], 'server');
   assert.equal(candidate.engine.experienceSize(), 1);
   assert.deepEqual(plain(candidate.engine.experienceReplaySnapshot().patterns), [currentPattern]);

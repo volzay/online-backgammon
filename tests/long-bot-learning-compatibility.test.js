@@ -15,7 +15,8 @@ const PREVIOUS_JSYS = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080c
 const PREVIOUS_COMPLETE_JSYS = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
 const PREVIOUS_LIVE_JSYS = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 const HISTORICAL_ACTUAL = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
-const ACTUAL = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+const CLEAR_FINAL_RACE = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+const ACTUAL = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const HISTORICAL_COMMIT = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const historicalEntries = () => [...builder.SOURCES, 'game.js', 'strong-bot.js'].map(file => [
@@ -79,7 +80,7 @@ test('the prior learning alias remains pinned to every byte of its reviewed sour
   }
 });
 
-test('new clear-race policy has no historical learning alias', () => {
+test('new start-zone analysis policy has no historical learning alias', () => {
   const entries = builder.readPolicySourceEntries();
   assert.equal(builder.policyImplementationId(entries), ACTUAL);
   assert.equal(builder.learningCompatibility(entries), null);
@@ -90,15 +91,15 @@ test('new clear-race policy has no historical learning alias', () => {
   assert.equal(engine.acceptsLearningPolicyImplementationId(ACTUAL), true);
   for (const id of [ORIGINAL, HISTORICAL_ACTUAL, PREVIOUS, PREVIOUS_LIVE,
     PREVIOUS_TACTICAL_LIVE, PREVIOUS_JSYS, PREVIOUS_COMPLETE_JSYS,
-    PREVIOUS_LIVE_JSYS, '0'.repeat(64)]) {
+    PREVIOUS_LIVE_JSYS, CLEAR_FINAL_RACE, '0'.repeat(64)]) {
     assert.equal(engine.acceptsLearningPolicyImplementationId(id), false, id);
   }
 });
 
-test('live RPC applies only current clear-race lessons, never historical or forged patterns', async () => {
+test('live RPC applies only current analytical-policy lessons, never historical or forged patterns', async () => {
   for (const source of [pattern(), pattern(PREVIOUS), pattern(PREVIOUS_LIVE),
     pattern(PREVIOUS_TACTICAL_LIVE), pattern(PREVIOUS_JSYS), pattern(PREVIOUS_COMPLETE_JSYS),
-    pattern(PREVIOUS_LIVE_JSYS), pattern(HISTORICAL_ACTUAL),
+    pattern(PREVIOUS_LIVE_JSYS), pattern(HISTORICAL_ACTUAL), pattern(CLEAR_FINAL_RACE),
     pattern(ACTUAL), pattern('f'.repeat(64)),
     { ...pattern(), reviewerVersion: 'forged-reviewer' }]) {
     const { context, engine, values } = browser();

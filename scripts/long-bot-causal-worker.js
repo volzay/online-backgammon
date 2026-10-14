@@ -73,7 +73,7 @@ const RPC_TRANSPORT_DIAGNOSTIC_CODES = new Set([
   ...RPC_PRECONNECT_CODES, 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_SOCKET',
   'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
 ]);
-const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v1';
+const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v2';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
   strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
@@ -481,25 +481,121 @@ function archivedStrategicRisk(game, decision) {
   return { tier: 0, signals: [] };
 }
 
+// Reserve review work for an early, still-contested escape decision before a
+// finished game's late prime changes crowd it out. This reads only the
+// canonical pre-move board and native selected features. It is a scheduling
+// hint, never evidence that an exit existed or that the selected move erred.
+function archivedEarlyStrategicThreat(game, decision) {
+  const features = decision?.selected?.features;
+  if ((game.engine_version || game.engineVersion) !== ENGINE_VERSION
+    || decision?.engineVersion !== ENGINE_VERSION || decision?.source !== 'engine'
+    || !features || typeof features !== 'object' || Array.isArray(features)
+    || !Number.isSafeInteger(decision.choiceCount) || decision.choiceCount < 2
+    || archivedOutsideCount(game, decision) === null) return { priority: 0, fenceBlocked: 0, signals: [] };
+
+  const snapshot = decision.stateSnapshotV2;
+  const color = decision.color;
+  const opponent = color === 'white' ? 'dark' : 'white';
+  const head = color === 'white' ? 24 : 12;
+  let startZoneCheckers = 0;
+  let headFencePriority = 0;
+  let fenceBlocked = 0;
+  for (let offset = 0; offset < 6; offset += 1) {
+    const point = head - offset;
+    const checkers = snapshot.points[point]?.color === color ? snapshot.points[point].count : 0;
+    startZoneCheckers += checkers;
+    if (!checkers) continue;
+    let blocked = 0;
+    for (let die = 1; die <= 6; die += 1) {
+      if (snapshot.points[point - die]?.color === opponent) blocked += 1;
+    }
+    // A closed six-point fence is already past the decision we want to
+    // diagnose. Reserve reviews while escape can still be contested.
+    if (blocked >= 3 && blocked < 6) {
+      fenceBlocked = Math.max(fenceBlocked, blocked);
+      headFencePriority = Math.max(headFencePriority, blocked * 100 + Math.min(checkers, 15) * 5);
+    }
+  }
+
+  // These bounded fields are emitted by the native cold candidate set. Their
+  // values do not establish an alternative's legality or causal advantage;
+  // the expensive reviewer still has to reconstruct both from scratch.
+  const opportunity = nativeFinite(features.koksRescueOpportunity);
+  const missed = nativeFinite(features.missedKoksRescue);
+  const missedRescue = snapshot.off[color] === 0 && startZoneCheckers > 0
+    && Number.isSafeInteger(opportunity) && opportunity >= 1 && opportunity <= 4
+    && Number.isSafeInteger(missed) && missed >= 1 && missed <= opportunity;
+  const priority = Math.max(headFencePriority,
+    missedRescue ? 1000 + missed * 100 + startZoneCheckers : 0);
+  const signals = [];
+  if (missedRescue) signals.push('early-missed-start-zone-rescue');
+  if (headFencePriority) signals.push('early-head-fence-pressure');
+  return { priority, fenceBlocked, signals };
+}
+
+// Shared by the production worker and the offline army curriculum. At most
+// two of four slots come from the first half of bot turns. Prefer the first
+// contested-fence onset and a later, more severe contested fence; a generic
+// missed-rescue hint must not crowd both out. The other slots retain the old
+// tier / reverse-ledger ordering, including late prime-loss reviews.
+function prioritizeStrategicReviewRisks(risks, maximum) {
+  const reserve = Math.min(2, Math.floor(maximum / 2));
+  const early = risks.filter(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  const developing = early.filter(risk => risk.earlyThreat.fenceBlocked >= 3);
+  const contested = developing.filter(risk => risk.earlyThreat.signals.includes('early-missed-start-zone-rescue'));
+  const onsetPool = contested.length ? contested : developing;
+  const onset = [...onsetPool].sort((left, right) => left.index - right.index)[0];
+  const selected = reserve > 0 && onset ? [onset] : [];
+  if (selected.length < reserve && onset) {
+    const laterContested = contested.filter(risk => risk.index !== onset.index);
+    const laterDeveloping = developing.filter(risk => risk.index !== onset.index);
+    const severePool = laterContested.length ? laterContested : laterDeveloping;
+    const severe = [...severePool].sort((left, right) =>
+      right.earlyThreat.fenceBlocked - left.earlyThreat.fenceBlocked
+      || right.earlyThreat.priority - left.earlyThreat.priority
+      || left.index - right.index)[0];
+    if (severe) selected.push(severe);
+  }
+  const reservedIndexes = new Set(selected.map(risk => risk.index));
+  selected.push(...early.filter(risk => !reservedIndexes.has(risk.index))
+    .sort((left, right) => right.earlyThreat.priority - left.earlyThreat.priority
+      || right.tier - left.tier || right.index - left.index)
+    .slice(0, reserve - selected.length));
+  const chosen = selected.slice(0, reserve);
+  const chosenIndexes = new Set(chosen.map(risk => risk.index));
+  return [...chosen, ...risks.filter(risk => !chosenIndexes.has(risk.index))
+    .sort((left, right) => right.tier - left.tier || right.index - left.index)];
+}
+
 function productionStrategicReviewPlan(game) {
-  const risks = trainingDecisions(game).map((decision, index) => ({ decision, index }))
-    .filter(({ decision }) => botDecision(decision, game))
-    .map(({ decision, index }) => ({ index, ...archivedStrategicRisk(game, decision),
-      envelopeFailure: trustedDecisionEnvelopeFailure(game, decision) }))
-    .sort((left, right) => right.tier - left.tier || right.index - left.index);
+  const botRows = trainingDecisions(game).map((decision, index) => ({ decision, index }))
+    .filter(({ decision }) => botDecision(decision, game));
+  const risks = botRows.map(({ decision, index }, ordinal) => ({
+    index, ...archivedStrategicRisk(game, decision),
+    earlyWindow: ordinal < Math.ceil(botRows.length / 2),
+    earlyThreat: archivedEarlyStrategicThreat(game, decision),
+    envelopeFailure: trustedDecisionEnvelopeFailure(game, decision),
+  }));
   // A malformed archived decision still receives an explicit original-ledger
   // rejection, but cannot consume one of the four expensive review slots for
   // independently valid decisions in the same finished game.
-  const reviewable = risks.filter(risk => !risk.envelopeFailure);
+  const reviewable = prioritizeStrategicReviewRisks(
+    risks.filter(risk => !risk.envelopeFailure), PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
+  const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure)
+    .sort((left, right) => right.tier - left.tier || right.index - left.index)];
+  const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
   return {
     schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
     strategy: 'strategic-risk',
-    ordering: 'strategic-tier-then-reverse-original-bot-ledger',
+    ordering: reserved ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+      : 'strategic-tier-then-reverse-original-bot-ledger',
     riskRole: 'curriculum-only',
     outcomeUsed: false,
     maximumExpensiveReviews: PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
     expensiveDecisionIndexes: reviewable.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
-    risks: risks.map(({ index, tier, signals }) => ({ index, tier, signals: [...signals] })),
+    risks: ordered.map(({ index, tier, signals, earlyWindow, earlyThreat }) => ({
+      index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : [])],
+    })),
   };
 }
 
@@ -1708,6 +1804,8 @@ module.exports = {
   analyzeTrainingGame,
   archivedOutsideCount,
   archivedStrategicRisk,
+  archivedEarlyStrategicThreat,
+  prioritizeStrategicReviewRisks,
   botDecision,
   collisionResistantIdentities,
   emptyFrozenExperience,

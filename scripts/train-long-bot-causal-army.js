@@ -512,10 +512,22 @@ function selectReviewDecisionIndexes(game, options) {
     strategy, ordering: 'reverse-original-bot-ledger', indexes: candidates.slice(-maximum).reverse().map(({ index }) => index),
     riskRole: 'curriculum-only', outcomeUsed: false, risks: [],
   };
-  const selected = candidates.map(({ decision, index }) => ({ index, ...archivedStrategicRisk(game, decision) }))
-    .sort((left, right) => right.tier - left.tier || right.index - left.index).slice(0, maximum);
-  return { strategy, ordering: 'strategic-tier-then-reverse-original-bot-ledger',
-    indexes: selected.map(({ index }) => index), riskRole: 'curriculum-only', outcomeUsed: false, risks: selected };
+  const risks = candidates.map(({ decision, index }, ordinal) => ({
+    index, ...archivedStrategicRisk(game, decision),
+    earlyWindow: ordinal < Math.ceil(candidates.length / 2),
+    earlyThreat: causalWorker.archivedEarlyStrategicThreat(game, decision),
+  }));
+  const ordered = causalWorker.prioritizeStrategicReviewRisks(risks, maximum);
+  const selected = ordered.slice(0, maximum);
+  const reserved = selected.slice(0, Math.min(2, Math.floor(maximum / 2)))
+    .some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  return { strategy, ordering: reserved
+    ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+    : 'strategic-tier-then-reverse-original-bot-ledger',
+  indexes: selected.map(({ index }) => index), riskRole: 'curriculum-only', outcomeUsed: false,
+  risks: selected.map(({ index, tier, signals, earlyWindow, earlyThreat }) => ({
+    index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : [])],
+  })) };
 }
 
 async function reviewTrainingGames(games, options, workerOptions, analyzer = causalWorker.analyzeTrainingGame) {

@@ -207,6 +207,12 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       strategicallyRanked,
     );
+    strategicallyRanked = reserveThreatenedStartZoneEscapeForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+      runtimeOptions.maxTacticalCandidates,
+    );
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
     const maxEntry = Math.max(...strategicallyRanked.map(
@@ -1994,6 +2000,52 @@ export function reserveDevelopingFenceEscapeForTacticalAnalysis(
   return reorderTacticalReservations(ranked, slotCount);
 }
 
+function reserveThreatenedStartZoneEscapeForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || ranked.length < 2
+    || offCount(state, color) > 0
+    || startZoneCount(state, color) === 0
+    || homeReady(state, color)
+    || Number(selected.features.opponentFenceRunBefore || 0) < 3
+    || Number(selected.features.latentFenceExposureBefore || 0) < 100
+  ) return ranked;
+
+  // During D3FM-HS3D the live beam contained legal rear exits, but the
+  // static fence score removed every one before even a two-ply reply check.
+  // Reserve one plausible exit for analysis, not for automatic promotion:
+  // vacating an anchor can be worse than keeping it, and a later Koks result
+  // alone cannot establish which earlier move was correct.
+  const selectedExit = Number(selected.features.startZoneReduction || 0);
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.startZoneReduction || 0) > selectedExit
+    && Number(candidate.features.headGain || 0)
+      >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && scoreWithoutExperience(candidate)
+      >= scoreWithoutExperience(selected) - 1000000000
+  ));
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    Number(right.features.startZoneReduction || 0)
+      - Number(left.features.startZoneReduction || 0)
+    || scoreWithoutExperience(right) - scoreWithoutExperience(left)
+  ));
+  alternatives[0].features.startZoneEscapeTacticalReservation = 1;
+  return reorderTacticalReservations(
+    ranked,
+    Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES),
+  );
+}
+
 export function reservePrimeSustainabilityForTacticalAnalysis(
   state,
   color,
@@ -2057,6 +2109,7 @@ function reorderTacticalReservations(ranked, limit) {
       || Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0
       || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
       || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+      || Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0
       || Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0
     )
   ));
@@ -2091,6 +2144,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  if (Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   return 3;
 }
 

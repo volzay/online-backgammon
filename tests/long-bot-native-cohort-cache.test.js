@@ -16,6 +16,7 @@ const {
   JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
   CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
   CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
+  THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -77,13 +78,13 @@ function runtime() {
   return value;
 }
 
-test('real current clear-final-race identity enables a separately pinned cache without calling its planner', () => {
+test('real current threatened-start-zone identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -94,6 +95,7 @@ test('real current clear-final-race identity enables a separately pinned cache w
     JSYS_HOME_PRIORITY_NATIVE_CACHE_POLICY,
     CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
     CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
+    THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -132,6 +134,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'baf9e0b949af53604a744dce9ac2c760af2114afb758fcf8076fc4441d78bab9',
   });
+  assert.deepEqual(THREATENED_START_ZONE_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: 'd7852ca2fccee86d0a9b9f2bae2c31d712eeaf41abc726a621d0224fd962a681',
+  });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);
   optimizedRuntime.engine.policyImplementationId = OPTIMIZED_NATIVE_CACHE_POLICY.policyImplementationId;
@@ -157,6 +164,14 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
   });
   assert.equal(clearCache.observation().enabled, true);
   assert.notEqual(clearCache.observation().namespaceFingerprint, latestCache.observation().namespaceFingerprint);
+  const threatenedRuntime = runtime();
+  Object.assign(threatenedRuntime, THREATENED_START_ZONE_NATIVE_CACHE_POLICY);
+  threatenedRuntime.engine.policyImplementationId = THREATENED_START_ZONE_NATIVE_CACHE_POLICY.policyImplementationId;
+  const threatenedCache = createNativeColdCohortCache(threatenedRuntime, limits(), {
+    ...THREATENED_START_ZONE_NATIVE_CACHE_POLICY, runtimeDigest: 'a'.repeat(64),
+  });
+  assert.equal(threatenedCache.observation().enabled, true);
+  assert.notEqual(threatenedCache.observation().namespaceFingerprint, clearCache.observation().namespaceFingerprint);
   assert.equal(createNativeColdCohortCache(optimizedRuntime, limits(), attestation()).observation().bypassReason, 'native-attestation-mismatch');
   for (const field of ['policyImplementationId', 'gameBytesDigest', 'runtimeBytesDigest']) {
     const hybrid = runtime();
@@ -206,7 +221,7 @@ test('canonical exact state ignores only audited native metadata and accepts cro
   assert.deepEqual(original, before);
 });
 
-test('current clear-final-race cold planner and cache key ignore only historical/display metadata', () => {
+test('current threatened-start-zone cold planner and cache key ignore only historical/display metadata', () => {
   const native = loadRuntime();
   native.engine.setExperience([], 'native-cache-metadata-audit');
   const original = state({ phase: 'move', dice: [2, 4], rolled: [2, 4] });
@@ -217,6 +232,39 @@ test('current clear-final-race cold planner and cache key ignore only historical
   metadata.matchScore = { white: 4, dark: 2, target: 7, recordedWinner: null };
   metadata.analysis = { botMemory: { decisions: [{ arbitrary: 'archived' }] } };
   metadata.openingRoll = { host: { value: 5 }, guest: { value: 1 } };
+  metadata.startedAt = 111;
+  metadata.finishedAt = 222;
+  assert.equal(canonicalNativeState(original), canonicalNativeState(metadata));
+  const before = native.engine.plan(clone(original), limits().policy);
+  const after = native.engine.plan(clone(metadata), limits().policy);
+  assert.deepEqual(before, after);
+  const cache = createNativeColdCohortCache(native, limits());
+  assert.equal(cache.observation().enabled, true);
+  cache.putValidatedPlan(original, before);
+  assert.deepEqual(cache.getPlan(metadata), clone(before));
+});
+
+test('D3FM threatened-start-zone reservation ignores history, clocks and archived analysis', () => {
+  const native = loadRuntime();
+  native.engine.setExperience([], 'native-cache-d3fm-audit');
+  const original = state({
+    turn: 'dark', phase: 'move', dice: [3, 3, 3, 3], rolled: [3, 3, 3, 3],
+    off: { white: 0, dark: 0 },
+    points: {
+      6: { color: 'dark', count: 3 }, 7: { color: 'dark', count: 1 },
+      8: { color: 'white', count: 1 }, 9: { color: 'white', count: 1 },
+      11: { color: 'white', count: 1 }, 12: { color: 'dark', count: 9 },
+      16: { color: 'white', count: 1 }, 17: { color: 'dark', count: 2 },
+      20: { color: 'white', count: 1 }, 21: { color: 'white', count: 1 },
+      22: { color: 'white', count: 1 }, 24: { color: 'white', count: 8 },
+    },
+  });
+  const metadata = clone(original);
+  metadata.history = [{ completedRoll: [6, 1], unrelated: true }];
+  metadata.analysis = { botMemory: { decisions: [{ unrelated: 'large archive' }] } };
+  metadata.score = { white: 95, dark: 11 };
+  metadata.turnClock = { white: 123, dark: 456, active: 'dark', startedAt: 1000 };
+  metadata.matchScore = { white: 3, dark: 0, target: 5, recordedWinner: null };
   metadata.startedAt = 111;
   metadata.finishedAt = 222;
   assert.equal(canonicalNativeState(original), canonicalNativeState(metadata));

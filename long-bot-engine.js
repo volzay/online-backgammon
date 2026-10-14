@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 
 /* bot-engine/long/metrics.ts */
 
@@ -1651,6 +1651,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'structuralIntegrityTacticalReservation',
     'homeEntryTacticalReservation',
     'routeContinuityTacticalReservation',
+    'startZoneEscapeTacticalReservation',
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
     'primeSustainabilityTacticalReservation',
@@ -1875,6 +1876,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  if (Number(features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
   if (Number(features.contestedHeadExitTacticalReservation || 0) > 0) return 4;
   return 100;
@@ -1885,6 +1887,7 @@ function hasTacticalReservation(candidate) {
   return Number(features.structuralIntegrityTacticalReservation || 0) > 0
     || Number(features.homeEntryTacticalReservation || 0) > 0
     || Number(features.routeContinuityTacticalReservation || 0) > 0
+    || Number(features.startZoneEscapeTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
     || Number(features.primeSustainabilityTacticalReservation || 0) > 0;
@@ -2829,6 +2832,12 @@ function createLongBotEngine(adapter, options = {}) {
       state,
       color,
       strategicallyRanked,
+    );
+    strategicallyRanked = reserveThreatenedStartZoneEscapeForTacticalAnalysis(
+      state,
+      color,
+      strategicallyRanked,
+      runtimeOptions.maxTacticalCandidates,
     );
     const outside = outsideHomeCount(state, color);
     const trapPressure = opponentTrapRisk(state, color);
@@ -4617,6 +4626,52 @@ function reserveDevelopingFenceEscapeForTacticalAnalysis(
   return reorderTacticalReservations(ranked, slotCount);
 }
 
+function reserveThreatenedStartZoneEscapeForTacticalAnalysis(
+  state,
+  color,
+  ranked,
+  limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = ranked[0];
+  if (
+    !selected
+    || ranked.length < 2
+    || offCount(state, color) > 0
+    || startZoneCount(state, color) === 0
+    || homeReady(state, color)
+    || Number(selected.features.opponentFenceRunBefore || 0) < 3
+    || Number(selected.features.latentFenceExposureBefore || 0) < 100
+  ) return ranked;
+
+  // During D3FM-HS3D the live beam contained legal rear exits, but the
+  // static fence score removed every one before even a two-ply reply check.
+  // Reserve one plausible exit for analysis, not for automatic promotion:
+  // vacating an anchor can be worse than keeping it, and a later Koks result
+  // alone cannot establish which earlier move was correct.
+  const selectedExit = Number(selected.features.startZoneReduction || 0);
+  const alternatives = ranked.filter(candidate => (
+    candidate !== selected
+    && Number(candidate.features.startZoneReduction || 0) > selectedExit
+    && Number(candidate.features.headGain || 0)
+      >= Number(selected.features.headGain || 0)
+    && Number(candidate.features.maxRouteTowerAfter || 0)
+      <= Number(selected.features.maxRouteTowerAfter || 0) + 1
+    && scoreWithoutExperience(candidate)
+      >= scoreWithoutExperience(selected) - 1000000000
+  ));
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => (
+    Number(right.features.startZoneReduction || 0)
+      - Number(left.features.startZoneReduction || 0)
+    || scoreWithoutExperience(right) - scoreWithoutExperience(left)
+  ));
+  alternatives[0].features.startZoneEscapeTacticalReservation = 1;
+  return reorderTacticalReservations(
+    ranked,
+    Math.max(2, Number(limit) || MAX_TACTICAL_CANDIDATES),
+  );
+}
+
 function reservePrimeSustainabilityForTacticalAnalysis(
   state,
   color,
@@ -4680,6 +4735,7 @@ function reorderTacticalReservations(ranked, limit) {
       || Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0
       || Number(candidate.features.routeContinuityTacticalReservation || 0) > 0
       || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
+      || Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0
       || Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0
     )
   ));
@@ -4714,6 +4770,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(candidate.features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
+  if (Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   return 3;
 }
 

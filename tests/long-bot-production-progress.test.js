@@ -105,7 +105,7 @@ test('a completed review advances one original index and cannot mutate prior fin
 test('strategic-budget skips still advance every original SQL decision index without evidence', () => {
   const skipped = { decisionId: 'bot-a', positionId: 'synthetic-only', status: 'rejected',
     reason: 'production-strategic-risk-budget-skip', outcomeUsed: false, evidence: null,
-    reviewSelection: { schema: 'long-server-causal-strategic-risk-selection-v1',
+    reviewSelection: { schema: 'long-server-causal-strategic-risk-selection-v2',
       selectedForExpensiveReview: false, maximumExpensiveReviews: 4 } };
   const first = advanceProductionProgress(game, initial(), 1, skipped);
   assert.equal(first.currentDecisionIndex, 3);
