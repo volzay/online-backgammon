@@ -34,11 +34,12 @@ test('v40 bounds expensive validation to selected locked sources and keeps v39 f
   assert.match(claim, /'archiveFingerprintSource', private\.long_bot_causal_archive_payload\(game\)::text/);
 });
 
-test('fresh schema ends with the exact v40 migration after historical v39', () => {
+test('fresh schema retains the exact v40 migration after historical v39', () => {
   const schema = read('supabase/schema.sql');
   const marker = '-- v40 indexed causal archive identity: bounded claims without relaxing proof.\n';
   assert.ok(schema.indexOf(marker) > schema.indexOf('-- v39 fair causal claim scheduling:'));
-  assert.equal(schema.slice(schema.indexOf(marker) + marker.length).trim(), sql.trim());
+  const next = '-- v41 publish independently complete decision lessons at their durable checkpoint.\n';
+  assert.equal(schema.slice(schema.indexOf(marker) + marker.length, schema.indexOf(next)).trim(), sql.trim());
 });
 
 test('v40 rollback smoke checks source repairs, recovery, invalidation and deletion', () => {

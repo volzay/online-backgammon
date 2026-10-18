@@ -117,6 +117,7 @@ test('entire worker and generator closure preserves relative paths and remains i
     const frozen = freezeTrainingRuntime(snapshot, temporary);
     const expected = new Set(runtimeClosureFiles().map(([name]) => name));
     expected.add('scripts/train-long-bot-causal-army.js');
+    expected.add('lib/long-bot-review-curriculum.js');
     for (const name of expected) {
       assert.deepEqual(fs.readFileSync(path.join(frozen.directory, name)), fs.readFileSync(path.join(ROOT, name)));
       assert.equal(fs.statSync(path.join(frozen.directory, name)).mode & 0o222, 0);

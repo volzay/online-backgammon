@@ -224,8 +224,9 @@ test('v36 SQL upgrades only stopped v1 endpoint boundaries and authenticates per
   const migration = fs.readFileSync(path.join(__dirname,
     '../supabase/long-bot-causal-ply-checkpoint-v36.sql'), 'utf8');
   const marker = '-- v36 per-ply authenticated causal rollout checkpoint.\n';
+  const next = '-- v39 fair causal claim scheduling: preserve proof and per-ply progress.\n';
   assert.equal(schema.slice(schema.indexOf(marker) + marker.length,
-    schema.lastIndexOf("notify pgrst, 'reload schema';")).trim(),
+    schema.lastIndexOf("notify pgrst, 'reload schema';", schema.indexOf(next))).trim(),
   migration.trim());
   assert.match(migration, /lock table private\.long_bot_causal_review_jobs in share row exclusive mode/);
   assert.match(migration, /status = 'leased'[\s\S]*Stop the causal worker/);

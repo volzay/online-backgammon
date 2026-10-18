@@ -28,7 +28,10 @@ const {
   stableStringify,
 } = require('./generate-long-bot-shadow-replay');
 const causalWorker = require('./long-bot-causal-worker');
+const { preThreatDecisionHints } = require('../lib/long-bot-review-curriculum');
 const CAPTURED_GENERATOR_BYTES = fs.readFileSync(__filename);
+const CURRICULUM_PATH = path.join(__dirname, '..', 'lib', 'long-bot-review-curriculum.js');
+const CAPTURED_CURRICULUM_BYTES = fs.readFileSync(CURRICULUM_PATH);
 
 const ROOT = path.join(__dirname, '..');
 const SCHEMA = 'long-causal-army-training-v1';
@@ -89,8 +92,8 @@ function validateOptions(options) {
     || options.opponentProfiles.some(profile => !['v19', 'v25'].includes(profile))) {
     throw new Error('opponentProfiles must contain unique v19/v25 profiles');
   }
-  if (!['last', 'strategic-risk'].includes(options.reviewSelection)) {
-    throw new Error('reviewSelection must be last or strategic-risk');
+  if (!['last', 'strategic-risk', 'pre-threat'].includes(options.reviewSelection)) {
+    throw new Error('reviewSelection must be last, strategic-risk or pre-threat');
   }
   if (options.pairs * options.seedCount * options.opponentProfiles.length * 2 > MAX_GAMES) {
     throw new Error(`requested training run exceeds the ${MAX_GAMES}-game cap`);
@@ -212,7 +215,11 @@ function freezeTrainingRuntime(snapshot, parentDirectory = os.tmpdir(), worker =
   if (!fs.readFileSync(__filename).equals(CAPTURED_GENERATOR_BYTES)) {
     throw new Error('Training generator changed after load; restart the immutable generator');
   }
+  if (!fs.readFileSync(CURRICULUM_PATH).equals(CAPTURED_CURRICULUM_BYTES)) {
+    throw new Error('Training curriculum changed after load; restart the immutable generator');
+  }
   files.set('scripts/train-long-bot-causal-army.js', CAPTURED_GENERATOR_BYTES);
+  files.set('lib/long-bot-review-curriculum.js', CAPTURED_CURRICULUM_BYTES);
   for (const [targetPath, bytes] of files) {
     const destination = path.join(directory, targetPath);
     if (fs.existsSync(destination)) {
@@ -503,11 +510,21 @@ function selectReviewDecisionIndexes(game, options) {
   const maximum = options.reviewWorkDecisions;
   const strategy = options.reviewSelection === undefined ? DEFAULT_OPTIONS.reviewSelection : options.reviewSelection;
   if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 8) throw new Error('reviewWorkDecisions must be 1..8');
-  if (!['last', 'strategic-risk'].includes(strategy)) throw new Error('reviewSelection must be last or strategic-risk');
+  if (!['last', 'strategic-risk', 'pre-threat'].includes(strategy)) throw new Error('reviewSelection must be last, strategic-risk or pre-threat');
   const decisions = Array.isArray(game?.decisions) ? game.decisions : [];
   if (decisions.length > 320) throw new Error('review-selection-ledger-cap');
   const candidates = decisions.map((decision, index) => ({ decision, index }))
     .filter(({ decision }) => causalWorker.botDecision(decision, game));
+  if (strategy === 'pre-threat') {
+    const hints = preThreatDecisionHints(game).slice(0, maximum);
+    const fallback = selectReviewDecisionIndexes(game, { ...options, reviewSelection: 'strategic-risk' });
+    const chosen = new Set(hints.map(hint => hint.index));
+    const indexes = [...chosen, ...fallback.indexes.filter(index => !chosen.has(index))].slice(0, maximum);
+    return { strategy, ordering: 'pre-threat-original-predecessor-then-strategic-risk',
+      indexes, riskRole: 'curriculum-only', outcomeUsed: false,
+      risks: hints.map(hint => ({ ...hint, signals: [hint.signal] })),
+      predecessorHints: hints };
+  }
   if (strategy === 'last') return {
     strategy, ordering: 'reverse-original-bot-ledger', indexes: candidates.slice(-maximum).reverse().map(({ index }) => index),
     riskRole: 'curriculum-only', outcomeUsed: false, risks: [],
@@ -557,7 +574,8 @@ async function reviewTrainingGames(games, options, workerOptions, analyzer = cau
       reviewCoverage: {
         schema: 'long-server-game-review-coverage-v1', fullGameEnvelopeValidated: false,
         decisionSnapshotsVerified: 'reviewed-only', scope: reviewSelection.strategy === 'last'
-          ? 'trusted-offline-last-n' : 'trusted-offline-strategic-risk',
+          ? 'trusted-offline-last-n' : reviewSelection.strategy === 'pre-threat'
+            ? 'trusted-offline-pre-threat' : 'trusted-offline-strategic-risk',
         ordering: reviewSelection.ordering, totalLedgerDecisions: decisions.length,
         totalBotDecisions: botDecisions, requestedDecisionIndexes: indexes,
         attemptedDecisionIndexes: [], finishedDecisionIndexes: [], failedDecisionIndexes: [],
@@ -749,7 +767,7 @@ function helpText() {
   return 'Usage: train-long-bot-causal-army.js [--pairs N] [--seed N] [--seed-count N] [--opponent-profiles v19,v25]\n'
     + '  [--nodes N] [--candidates N] [--max-plies N] [--game-ms N] [--workers 1..8] [--runtime-dir DIR] [--output NEW.json]\n'
     + '  [--review-games 0..8] [--review-decisions 1..160 ledger cap] [--review-work-decisions 1..8 work cap]\n'
-    + '  [--review-selection last|strategic-risk (default last)]\n'
+    + '  [--review-selection last|strategic-risk|pre-threat (default last)]\n'
     + '  [--review-samples 32..128]\n'
     + '  [--review-positions 2..24] [--review-max-plies N] [--review-ms N]\n'
     + 'The entire executable closure is frozen; games/reviews use isolated processes with a 256 MB old-space heap cap and hard timeouts.\n'

@@ -177,7 +177,9 @@ returns to `pending`, not `complete`, and restores the successful slice's
 attempt budget. It produces no evidence. Even a fully saved raw slot set
 remains pending until the official statistics/CI are reconstructed. Finished
 review evidence is persisted privately with progress and inserted into the
-public pattern ledger only at atomic whole-original-ledger completion.
+public pattern ledger only at atomic whole-original-ledger completion in the
+original resumable installer. The incremental v41 migration described below
+publishes an individually finished, fully confirmed decision earlier.
 The old complete RPC is guarded against incomplete/timeout results.
 The worker quarantines each malformed historical decision individually: it
 records an evidence-free rejection for that original index, while another
@@ -204,6 +206,26 @@ cross-partition reuse are rejected. A crash before manifest publication still
 fails closed and requires operator investigation; it is not silently repaired.
 Completed unrelated historical partitions do not exhaust the recovery scan.
 Signed recursive XP remains unimplemented.
+
+## Incremental confirmed experience (SQL v41)
+
+Apply `supabase/long-bot-causal-incremental-evidence-v41.sql` on the existing
+v36/v39/v40 installation, after backup and the rollback smoke. Do not replay
+the old combined installer. The public checkpoint delegates to the retained,
+private v36 implementation first: approval, source fingerprint, original-index
+prefix, lease, full terminal cohort and lock ordering remain mandatory.
+
+Within that same transaction, only an exact persisted `confirmed-regret`
+review may publish its lesson. The evidence validation/insertion loop is
+byte-identical to the original v35 completion loop. Rejected/diagnostic reviews,
+partial outcomes and fully saved but not reconstructed cohorts publish zero.
+A later insertion failure rolls back the checkpoint and lease release too.
+First-observation de-duplication is retained; final whole-ledger completion
+does not insert the same lesson again. Archive repairs still invalidate it.
+
+This removes head-of-line blocking by unrelated later decisions. It does not
+create a lesson where no statistically confirmed action defect exists. SQL-only
+v41 preserves playing C, native worker D, current jobs and authenticated journals.
 
 ## Training orchestration
 
@@ -253,6 +275,19 @@ playing resources, paired seeds or confidence gates. The historical four-game
 strategic-risk batch used two workers to avoid oversubscribing its still-running
 control checks; it did not weaken either policy's search budget and keeps its
 original generator/source identities.
+
+The opt-in offline curriculum `--review-selection pre-threat` reviews the
+immediate original bot decision **before** the next native snapshot shows a
+worsening head-side fence (three or more blocked die landings, including a
+newly closed six). It uses canonical pre-move boards and requires a genuine
+multiple-choice predecessor. Invalid/recovery bot rows break adjacency;
+opponent rows retain the original indexes. Remaining capacity falls back to
+the existing strategic-risk ordering. Loss severity, client regrets and
+evaluation scores never change this ordering. The hint locates review work;
+it neither proves the previous move caused the fence nor labels it an error.
+The immutable training artifact includes the exact curriculum module bytes.
+Production's existing four-slot selector is unchanged; this new mode alone
+does not replace already approved queue work or invalidate its saved outcomes.
 
 The trusted offline API is `reviewDecisionIndexes`; production claimed jobs
 reject caller-selected indexes and keep their private server cursor over every
