@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { Worker } = require('node:worker_threads');
 const { ENGINE_VERSION, policyImplementationId, runClaimedBatch, runtimeDigest, supabaseRpc } =
   require('../scripts/long-bot-causal-worker');
 
@@ -36,7 +37,39 @@ test('RPC retries only a pre-connect failure and rechecks the production fence',
     assert.equal(calls[0].url, calls[1].url);
     assert.equal(calls[0].options.body, calls[1].options.body);
     assert.ok(calls.every(call => call.options.signal instanceof AbortSignal));
+    assert.ok(calls.every(call => call.options.headers.Connection === 'close'));
   } finally { global.fetch = original; }
+});
+
+test('RPC checkpoint opens a fresh connection after CPU-bound review outlives the server idle socket', async () => {
+  // The server must run independently: a server on this event loop would not
+  // close its idle socket while the simulated synchronous search is running.
+  const server = new Worker(`
+    const http = require('node:http');
+    const { parentPort } = require('node:worker_threads');
+    const server = http.createServer((request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ ok: true, connection: request.headers.connection,
+        clientPort: request.socket.remotePort }));
+      response.on('finish', () => setTimeout(() => request.socket.destroy(), 50));
+    });
+    server.listen(0, '127.0.0.1', () => parentPort.postMessage(server.address().port));
+  `, { eval: true });
+  try {
+    const port = await new Promise((resolve, reject) => {
+      server.once('message', resolve);
+      server.once('error', reject);
+    });
+    const endpoint = `http://127.0.0.1:${port}`;
+    const first = await supabaseRpc(endpoint, 'synthetic-key', 'fixture');
+    await new Promise(resolve => setImmediate(resolve));
+    const until = Date.now() + 300;
+    while (Date.now() < until) { /* Simulate a synchronous terminal rollout. */ }
+    const next = await supabaseRpc(endpoint, 'synthetic-key', 'fixture');
+    assert.equal(first.connection, 'close');
+    assert.equal(next.connection, 'close');
+    assert.notEqual(first.clientPort, next.clientPort);
+  } finally { await server.terminate(); }
 });
 
 test('RPC never replays an ambiguous lost request or exposes its private cause', async () => {

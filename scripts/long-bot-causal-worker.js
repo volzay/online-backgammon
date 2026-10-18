@@ -1218,6 +1218,11 @@ async function supabaseRpc(url, serviceRoleKey, name, args = {}, beforeAttempt =
           apikey: serviceRoleKey,
           Authorization: `Bearer ${serviceRoleKey}`,
           'Content-Type': 'application/json',
+          // Terminal search blocks this event loop beyond the proxy's idle
+          // timeout. Do not reuse a socket whose FIN has not yet been handled:
+          // the next checkpoint would fail UND_ERR_SOCKET and hold its lease.
+          // A fresh connection avoids that race without replaying a mutation.
+          Connection: 'close',
         },
         body,
         signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
