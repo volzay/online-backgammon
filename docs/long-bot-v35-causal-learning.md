@@ -290,6 +290,14 @@ and test results separately in `docs/long-bot-v35-audit.md`.
    `supabase/long-bot-causal-learning-v35.sql`, then
    `supabase/long-bot-causal-resume-v35.sql`. A clean install uses the matching
    final block in `supabase/schema.sql`.
+   For an existing v36/v39 installation, do **not** replay the combined v35
+   installer: it replaces newer RPCs. Apply only
+   `supabase/long-bot-causal-archive-index-v40.sql` after a backup and the
+   v39/v40 rollback smokes. This atomically maintains a private source index
+   so claim need not decode every archive before LIMIT 1. Selected sources
+   still undergo authoritative fingerprint/eligibility validation under the
+   archive lock. SQL-only v40 preserves the active runtime, existing jobs,
+   checkpoints, source identities and all evidence/proof gates.
 2. Install an immutable checkout and generated runtime in
    `/opt/online-backgammon-causal-worker`. Create a non-login `nardy-worker` user
    that can read this checkout. Verify that **`/usr/bin/node`**, the exact binary

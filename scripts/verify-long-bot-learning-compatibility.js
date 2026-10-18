@@ -12,6 +12,7 @@ const HISTORICAL_COMPATIBLE_RELEASE = 'f86ffd7312a574935eaa4dc158aee777336762cd2
 // choices. Neither may learn from a previous policy's evidence by alias.
 const CLEAR_FINAL_RACE_POLICY = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const START_ZONE_ANALYSIS_POLICY = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
+const SEPARATED_RACE_POLICY = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
 const PREVIOUS_PRODUCTION_POLICY = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const PREVIOUS_LIVE_DOUBLES_POLICY = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
 const PREVIOUS_TACTICAL_LIVE_POLICY = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
@@ -26,7 +27,8 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
   if (!gameSource || createHash('sha256').update(gameSource).digest('hex') !== OPTIMIZED_RULES
     || engineSource !== builder.renderLongBotBundle(sourceEntries)) failure();
   const actualPolicy = builder.policyImplementationId(sourceEntries);
-  if (actualPolicy !== START_ZONE_ANALYSIS_POLICY
+  if (actualPolicy !== SEPARATED_RACE_POLICY
+    && actualPolicy !== START_ZONE_ANALYSIS_POLICY
     && actualPolicy !== CLEAR_FINAL_RACE_POLICY
     && actualPolicy !== HISTORICAL_COMPATIBLE_RELEASE) failure();
   const context = vm.createContext({ window: {} });
@@ -35,7 +37,7 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
   const engine = context.window.NarduLongBotEngine;
   const compatibility = engine?.learningCompatibility;
   if (engine?.version !== 'long-analytic-v35' || engine.policyImplementationId !== actualPolicy) failure();
-  if (actualPolicy === START_ZONE_ANALYSIS_POLICY || actualPolicy === CLEAR_FINAL_RACE_POLICY) {
+  if ([SEPARATED_RACE_POLICY, START_ZONE_ANALYSIS_POLICY, CLEAR_FINAL_RACE_POLICY].includes(actualPolicy)) {
     if (builder.learningCompatibility(sourceEntries) !== null
       || compatibility !== null
       || engine.learningPolicyImplementationId !== actualPolicy
@@ -44,7 +46,7 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
         PREVIOUS_PRODUCTION_POLICY, PREVIOUS_LIVE_DOUBLES_POLICY,
         PREVIOUS_TACTICAL_LIVE_POLICY, PREVIOUS_JSYS_HOME_PRIORITY_POLICY,
         PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY, PREVIOUS_LIVE_JSYS_POLICY,
-        CLEAR_FINAL_RACE_POLICY, START_ZONE_ANALYSIS_POLICY,
+        CLEAR_FINAL_RACE_POLICY, START_ZONE_ANALYSIS_POLICY, SEPARATED_RACE_POLICY,
         '0'.repeat(64)].filter(id => id !== actualPolicy)
         .some(id => engine.acceptsLearningPolicyImplementationId?.(id) !== false)) failure();
     return { required: true, policyImplementationId: actualPolicy,
@@ -76,4 +78,4 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
 }
 module.exports = { verifyLongBotLearningCompatibility, OPTIMIZED_RULES,
   ORIGINAL_LEARNING_POLICY, HISTORICAL_COMPATIBLE_RELEASE, CLEAR_FINAL_RACE_POLICY,
-  START_ZONE_ANALYSIS_POLICY };
+  START_ZONE_ANALYSIS_POLICY, SEPARATED_RACE_POLICY };

@@ -47,8 +47,10 @@ test('v39 changes only claim order, retaining release gates, archive locks, leas
 test('fresh schema applies the exact v39 migration after v36 without rewriting its historical contracts', () => {
   const marker = '-- v39 fair causal claim scheduling: preserve proof and per-ply progress.\n';
   assert.ok(schema.includes(marker));
-  assert.equal(schema.slice(schema.indexOf(marker) + marker.length).trim(), migration.trim());
-  assert.equal(claimBody(schema, true), claimBody(migration));
+  const historical = schema.slice(schema.indexOf(marker) + marker.length)
+    .split('-- v40 indexed causal archive identity:')[0];
+  assert.equal(historical.trim(), migration.trim());
+  assert.equal(claimBody(historical), claimBody(migration));
 });
 
 test('v39 rollback smoke exercises locality, fairness, source identity and privilege gates', () => {

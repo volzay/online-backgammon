@@ -291,3 +291,42 @@ test('contact position does not force the clear-race bear-off policy', async () 
     'a live opponent checker on the route keeps the tactical choice available');
   assert.equal(ranked[0].features.offGain, 0);
 });
+
+function epuzLateRaceState(color = 'dark') {
+  // EPUZ-BN9E, bot decision 40: the opponent still has two checkers at 11,
+  // but neither player's remaining route intersects the other's route.
+  const state = raceState('dark', {});
+  state.dice = [5, 6];
+  state.rolled = [5, 6];
+  state.points = {
+    1: { color: 'white', count: 1 }, 2: { color: 'white', count: 1 },
+    4: { color: 'white', count: 4 }, 5: { color: 'white', count: 6 },
+    6: { color: 'white', count: 1 }, 11: { color: 'white', count: 2 },
+    16: { color: 'dark', count: 5 }, 17: { color: 'dark', count: 3 },
+    18: { color: 'dark', count: 6 }, 24: { color: 'dark', count: 1 },
+  };
+  if (color === 'white') {
+    state.turn = 'white';
+    state.points = Object.fromEntries(Object.entries(state.points).map(([point, stack]) => [
+      ((Number(point) + 11) % 24) + 1,
+      { color: stack.color === 'white' ? 'dark' : 'white', count: stack.count },
+    ]));
+  }
+  return state;
+}
+
+for (const color of ['dark', 'white']) {
+  test(`${color} EPUZ contact-free race bears off before the opponent is home-ready`, async () => {
+    const game = loadGame();
+    const state = epuzLateRaceState(color);
+    const opponent = color === 'dark' ? 'white' : 'dark';
+    assert.equal(game.homeReady(state, opponent), false);
+    const legal = game.bestMoveSequences(state, color);
+    const stats = legal.map(sequence => legalTurnStats(game, state, color, sequence));
+    assert.ok(stats.some(item => item.offGain === 1 && item.outsideReduction === 1));
+    const engine = await loadEngine(game);
+    const selected = engine.rank(state, color, POLICY)[0];
+    assert.equal(selected.features.outsideReduction, 1);
+    assert.equal(selected.features.offGain, 1, JSON.stringify(selected.sequence));
+  });
+}

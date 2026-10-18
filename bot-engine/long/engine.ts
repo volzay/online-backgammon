@@ -2265,27 +2265,32 @@ function isOpponentHomeReadyRaceState(state, color) {
     && outsideHomeCount(state, color) > 0;
 }
 
-// When every opposing checker is already in its own home and our rearmost
-// checker has passed that entire zone, the opponent can no longer occupy any
-// point on our remaining route.  Only in this provably contact-free endgame
-// may immediate home entry and bear-off outrank obsolete defensive proxies.
+// Prove separation from both remaining routes, not from homeReady(opponent).
+// In EPUZ-BN9E the opponent still had two checkers outside home, but they had
+// already passed our entire remaining route. Requiring homeReady kept paying
+// for obsolete defensive/distribution proxies instead of entering + bearing
+// off. Occupied points alone are not sufficient: future reachable points must
+// be disjoint too. Fail closed on incomplete or invalid boards.
 function isProvenClearFinalRace(state, color) {
-  if (!isOpponentHomeReadyRaceState(state, color)
-    || outsideHomeCount(state, color) > 6) return false;
-
-  let ownCheckers = offCount(state, color);
-  let rearmost = 24;
-  for (const [point, stack] of Object.entries(state.points || {})) {
-    if (stack?.color !== color) continue;
-    const position = pathPos(color, Number(point));
-    if (position < 0) return false;
-    ownCheckers += Number(stack.count) || 0;
-    rearmost = Math.min(rearmost, position);
+  const outside = outsideHomeCount(state, color);
+  if (outside <= 0 || outside > 6) return false;
+  const remainingRoutes = [];
+  for (const actor of [color, opponentOf(color)]) {
+    if (Number(state.bar?.[actor] || 0) !== 0) return false;
+    let total = offCount(state, actor);
+    let rearmost = 24;
+    for (const [point, stack] of Object.entries(state.points || {})) {
+      if (stack?.color !== actor) continue;
+      const position = pathPos(actor, Number(point));
+      const count = Number(stack.count);
+      if (position < 0 || !Number.isInteger(count) || count <= 0) return false;
+      total += count;
+      rearmost = Math.min(rearmost, position);
+    }
+    if (total !== 15) return false;
+    remainingRoutes.push(new Set(pathFor(actor).slice(rearmost)));
   }
-  if (ownCheckers !== 15) return false;
-  const opponentHomeFrontier = Math.max(...pathFor(opponentOf(color))
-    .slice(18).map(point => pathPos(color, point)));
-  return rearmost > opponentHomeFrontier;
+  return [...remainingRoutes[0]].every(point => !remainingRoutes[1].has(point));
 }
 
 function prioritizeProvenClearFinalRace(state, color, ranked) {

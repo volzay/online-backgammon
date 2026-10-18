@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname, '..');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const CURRENT_TEACHER_POLICY_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const START_ZONE_ANALYSIS_POLICY_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
+const SEPARATED_RACE_POLICY_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
 const PREVIOUS_CAUSAL_TEACHER_POLICY_ID = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2';
 const PREVIOUS_TEACHER_POLICY_ID = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -131,6 +132,15 @@ test('controller admits the new analytical runtime without relabeling existing n
   h.setRolled([2, 4]);
   assert.ok(h.api.safeBotPlan().length > 0);
   assert.equal(h.calls.teacher, 1);
+  assert.equal(h.controller.getState().analysis.neuralTeacherPolicyImplementationId, TEACHER_POLICY_ID);
+  assert.equal(h.controller.getState().analysis.neuralModel.v2CompletedTrainingGames, 32);
+});
+
+test('controller admits the separated-race teacher without relabeling frozen neural training', () => {
+  const h = harness({ teacherPolicyId: SEPARATED_RACE_POLICY_ID });
+  assert.equal(h.api.validateNeuralBotAvailability(), true);
+  h.setRolled([2, 4]);
+  assert.ok(h.api.safeBotPlan().length > 0);
   assert.equal(h.controller.getState().analysis.neuralTeacherPolicyImplementationId, TEACHER_POLICY_ID);
   assert.equal(h.controller.getState().analysis.neuralModel.v2CompletedTrainingGames, 32);
 });

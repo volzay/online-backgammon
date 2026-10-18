@@ -17,6 +17,7 @@ const {
   CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
   CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
+  SEPARATED_RACE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -78,13 +79,13 @@ function runtime() {
   return value;
 }
 
-test('real current threatened-start-zone identity enables a separately pinned cache without calling its planner', () => {
+test('real separated-race identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, THREATENED_START_ZONE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, SEPARATED_RACE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, SEPARATED_RACE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, SEPARATED_RACE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -96,6 +97,7 @@ test('real current threatened-start-zone identity enables a separately pinned ca
     CAUSAL_TRANSFER_NATIVE_CACHE_POLICY,
     CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
     THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
+    SEPARATED_RACE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -138,6 +140,11 @@ test('historical tuple is preserved; optimized, historical and mixed tuples neve
     policyImplementationId: '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d',
     gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     runtimeBytesDigest: 'd7852ca2fccee86d0a9b9f2bae2c31d712eeaf41abc726a621d0224fd962a681',
+  });
+  assert.deepEqual(SEPARATED_RACE_NATIVE_CACHE_POLICY, {
+    policyImplementationId: '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605',
+    gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    runtimeBytesDigest: '33f6861711beec59ea9eb03b073736f36822d6af3b96e088ef350d931a3be9df',
   });
   const oldRuntime = runtime(), optimizedRuntime = runtime();
   Object.assign(optimizedRuntime, OPTIMIZED_NATIVE_CACHE_POLICY);

@@ -11,6 +11,7 @@ const buildModel = require('../scripts/build-long-neural-model');
 const buildV2Model = require('../scripts/build-long-neural-v2-public-model');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const START_ZONE_ANALYSIS_POLICY_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
+const SEPARATED_RACE_POLICY_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
 const { fingerprint } = require('../lib/long-neural-artifact');
 const ROOT = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
@@ -221,7 +222,7 @@ test('hard-neuro evaluates its saved network but executes the verified hard-v35 
 
 test('production neural guard executes the exact real hard-v35 plan with a frozen experience snapshot', () => {
   const { game, neuro, hard, engine } = realTeacherEnvironment();
-  assert.equal(engine.policyImplementationId, START_ZONE_ANALYSIS_POLICY_ID);
+  assert.equal(engine.policyImplementationId, SEPARATED_RACE_POLICY_ID);
   const state = rolled(game, [2, 4]);
   engine.beginExperienceSession('neural-teacher-regression');
   const frozen = engine.freezeExperience('neural-teacher-regression');
