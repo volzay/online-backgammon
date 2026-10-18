@@ -47,6 +47,9 @@ async function concurrentOperations(t, directory, operations) {
     const context = JSON.parse(process.argv[3]);
     const operation = JSON.parse(process.argv[4]);
     process.on('message', message => {
+      // Flush-to-IPC does not mean the parent has consumed the response.
+      // Keep the channel alive until the parent acknowledges that response.
+      if (message === 'ack') { process.disconnect(); return; }
       if (message !== 'go') return;
       let result;
       try {
@@ -54,9 +57,9 @@ async function concurrentOperations(t, directory, operations) {
         result = operation.command === 'prepare'
           ? journal.prepare(context)
           : journal.reveal(context, operation.commitment, operation.clientSeed);
-        process.send({ ok: true, result }, () => process.disconnect());
+        process.send({ ok: true, result });
       } catch (error) {
-        process.send({ ok: false, code: error.code }, () => process.disconnect());
+        process.send({ ok: false, code: error.code });
       }
     });
     process.send({ ready: true });
@@ -74,10 +77,13 @@ async function concurrentOperations(t, directory, operations) {
     const finished = new Promise((resolve, reject) => {
       child.on('message', message => {
         if (message.ready) readyResolve();
-        else response = message;
+        else {
+          response = message;
+          child.send('ack');
+        }
       });
       child.on('error', error => { readyReject(error); reject(error); });
-      child.on('exit', (code, signal) => {
+      child.on('close', (code, signal) => {
         if (code !== 0 || signal || !response) {
           const error = new Error('Fixture child failed: ' + code + '/' + signal + ' ' + errors);
           readyReject(error);
