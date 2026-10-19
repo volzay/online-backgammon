@@ -598,7 +598,8 @@ test('telemetry from another game, history branch or frozen policy cannot attach
   for (const change of [local => { local.startedAt = 999; },
     local => { local.history[0].sha256 = 'b'.repeat(64); },
     local => { local.analysis.botMemory.experienceLoad.fingerprint = 'other'; },
-    local => { local.history.unshift({ roll: '3:4', color: 'white', sha256: 'c'.repeat(64) }); }]) {
+    local => { local.history.unshift({ roll: '3:4', color: 'white', sha256: 'c'.repeat(64) }); },
+    (_local, remote) => { remote.analysis.botMemory.decisions = [{ id: 'authoritative-server-ledger' }]; }]) {
     const storage = memoryStorage();
     let remote;
     const harness = controllerHarness({ localStorage: storage, getGameState: async () => ({ state: remote, version: 9 }) });
@@ -610,11 +611,13 @@ test('telemetry from another game, history branch or frozen policy cannot attach
     const local = JSON.parse(JSON.stringify(remote));
     local.analysis.botMemory.decisions = [{ id: 'must-not-attach', color: 'dark', source: 'engine',
       engineVersion: 'long-analytic-v35', execution: { complete: true } }];
-    change(local);
+    change(local, remote);
     storage.setItem(SNAPSHOT_KEY, JSON.stringify({ v: 1, at: Date.now(), signature: `/room.html${ROOM_SEARCH}`,
       mode: 'bot', playerColor: 'white', roomCode: 'SAFE-BOT', state: local }));
     init(harness.controller);
     await new Promise(setImmediate);
-    assert.equal(harness.controller.getState().analysis.botMemory.decisions.length, 0);
+    const actual = harness.controller.getState().analysis.botMemory.decisions;
+    assert.equal(actual.length, remote.analysis.botMemory.decisions.length);
+    assert.equal(actual.map(row => row.id).join(','), remote.analysis.botMemory.decisions.map(row => row.id).join(','));
   }
 });

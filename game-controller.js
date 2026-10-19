@@ -655,6 +655,7 @@ window.NarduController = (function () {
     const remoteMemory = restored.analysis?.botMemory;
     if (localMemory?.engineVersion !== 'long-analytic-v35'
       || remoteMemory?.engineVersion !== localMemory.engineVersion
+      || !Array.isArray(remoteMemory.decisions) || remoteMemory.decisions.length !== 0
       || !Array.isArray(localMemory.decisions)
       || localMemory.decisions.length > BOT_MEMORY_MAX_DECISIONS
       || String(localMemory.experienceLoad?.fingerprint || '')
@@ -672,8 +673,9 @@ window.NarduController = (function () {
       if (local.history.some((event, index) => (
         canonical(event) !== canonical(restored.history[index + offset])
       ))) return restored;
-      const existing = Array.isArray(remoteMemory.decisions) ? remoteMemory.decisions : [];
-      const ids = new Set(existing.map(decision => decision?.id));
+      // Repair only an intentionally empty compact checkpoint. Never splice a
+      // local list around a nonempty server ledger: its ordering is authoritative.
+      const ids = new Set();
       const botColor = NarduGame.opponentOf(playerColor);
       const retained = localMemory.decisions.filter(decision => {
         if (!decision || decision.source !== 'engine' || decision.color !== botColor
@@ -683,14 +685,14 @@ window.NarduController = (function () {
         ids.add(decision.id);
         return true;
       });
-      if (!retained.length || existing.length + retained.length > BOT_MEMORY_MAX_DECISIONS) return restored;
+      if (!retained.length) return restored;
       return {
         ...restored,
         analysis: {
           ...restored.analysis,
           botMemory: {
             ...remoteMemory,
-            decisions: [...cloneStateForRestore(retained), ...existing],
+            decisions: cloneStateForRestore(retained),
             telemetryRestore: { schema: 'long-local-telemetry-prefix-v1',
               retainedDecisions: retained.length, trustedEvidence: false },
           },
