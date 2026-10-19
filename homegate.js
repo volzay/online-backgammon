@@ -20,6 +20,8 @@ const state = {
   retentionHours: ROOM_ARCHIVE_RETENTION_HOURS,
   adminTab: localStorage.getItem(TAB_KEY) || "rooms",
   adminPasswordOpen: false,
+  adminLoginPending: false,
+  adminLoginEmail: "",
   active: [],
   archive: [],
   users: [],
@@ -77,6 +79,14 @@ const adminDict = {
     admin_email: "Email администратора",
     password: "Пароль",
     sign_in: "Войти",
+    signing_in: "Входим…",
+    err_admin_credentials: "Неверный email или пароль администратора.",
+    err_admin_timeout: "Сервер авторизации Timeweb не ответил вовремя. Проверьте соединение и повторите вход.",
+    err_admin_network: "Не удалось связаться с сервером авторизации Timeweb. Проверьте соединение или VPN и повторите вход.",
+    err_admin_email_confirmation: "Email администратора не подтверждён. Подтвердите адрес через письмо или обратитесь к владельцу портала.",
+    err_admin_rate_limit: "Слишком много попыток входа. Подождите немного и повторите.",
+    err_admin_access: "Этот аккаунт не входит в список администраторов.",
+    err_admin_auth: "Не удалось войти в админ-панель. Повторите попытку.",
     room_monitor: "Экран монитора",
     room_detail: "Просмотр комнаты",
     room_archive: "Архив комнат",
@@ -216,6 +226,14 @@ const adminDict = {
     admin_email: "Admin email",
     password: "Password",
     sign_in: "Sign in",
+    signing_in: "Signing in…",
+    err_admin_credentials: "Invalid administrator email or password.",
+    err_admin_timeout: "The Timeweb authentication server did not respond in time. Check your connection and try again.",
+    err_admin_network: "Could not reach the Timeweb authentication server. Check your connection or VPN and try again.",
+    err_admin_email_confirmation: "The administrator email is not confirmed. Confirm it using the email or contact the portal owner.",
+    err_admin_rate_limit: "Too many sign-in attempts. Please wait and try again.",
+    err_admin_access: "This account is not on the administrator list.",
+    err_admin_auth: "Could not sign in to the admin panel. Please try again.",
     room_monitor: "Monitor screen",
     room_detail: "Room preview",
     room_archive: "Room archive",
@@ -390,25 +408,33 @@ function supabaseAdminActionsEnabled() {
 }
 
 function isInvalidSupabaseCredentials(error) {
-  return /invalid login credentials/i.test(String(error?.message || ""));
+  return error?.code === "invalid_credentials"
+    || /invalid (?:login )?credentials/i.test(String(error?.message || ""));
 }
 
 function adminAuthErrorMessage(error) {
   const message = String(error?.message || error || "");
   if (isInvalidSupabaseCredentials(error)) {
-    return "Неверный пароль или такой Auth-пользователь ещё не создан. Используйте пароль игрового аккаунта администратора.";
+    return t("err_admin_credentials");
+  }
+  if (error?.name === "TimeoutError" || /timeout|timed out/i.test(message)) {
+    return t("err_admin_timeout");
+  }
+  if (/failed to fetch|fetch failed|network(?:error| request failed)|load failed|could not reach/i.test(message)) {
+    return t("err_admin_network");
   }
   if (/email not confirmed/i.test(message)) {
-    return "Email администратора ещё не подтверждён в Supabase Auth. Подтвердите письмо или временно отключите Confirm email.";
+    return t("err_admin_email_confirmation");
   }
-  if (/email rate limit exceeded/i.test(message)) {
-    return "Supabase временно ограничил отправку писем. Для теста отключите Confirm email или подключите SMTP.";
+  if (error?.status === 429 || /rate limit|too many requests/i.test(message)) {
+    return t("err_admin_rate_limit");
   }
-  return message || "Ошибка входа в админ-панель.";
+  if (/supabase/i.test(message)) return t("err_admin_auth");
+  return message || t("err_admin_auth");
 }
 
 async function supabaseClient() {
-  if (!window.NarduSupabase?.client) throw new Error("Supabase не подключён.");
+  if (!window.NarduSupabase?.client) throw new Error("Модуль подключения к серверу Timeweb недоступен.");
   return window.NarduSupabase.client();
 }
 
@@ -420,29 +446,48 @@ function setSupabaseAdmin(user) {
   state.retentionHours = 0;
 }
 
-async function signInOrCreateSupabaseAdmin(client, email, password) {
-  const normalizedEmail = String(email || "").trim();
+async function signInTimewebAdmin(client, email, password) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!isAllowedSupabaseAdminEmail(normalizedEmail)) {
-    throw new Error("Этот email не входит в список администраторов.");
+    throw new Error(t("err_admin_access"));
   }
 
   const { data, error } = await client.auth.signInWithPassword({ email: normalizedEmail, password });
-  if (!error) return data.user;
-  if (!isInvalidSupabaseCredentials(error)) throw new Error(adminAuthErrorMessage(error));
+  if (error) throw new Error(adminAuthErrorMessage(error));
+  if (!data?.user) throw new Error(t("err_admin_auth"));
+  return data.user;
+}
 
-  const { data: signUpData, error: signUpError } = await client.auth.signUp({
-    email: normalizedEmail,
-    password,
-    options: {
-      data: { nickname: normalizedEmail.split("@")[0], name: normalizedEmail.split("@")[0], admin: true },
-      emailRedirectTo: window.NarduSupabase?.config?.().siteBaseUrl
-        ? `${window.NarduSupabase.config().siteBaseUrl.replace(/\/+$/, "")}/homegate.html`
-        : new URL("homegate.html", location.href).href,
-    },
-  });
-  if (signUpError) throw new Error(adminAuthErrorMessage(signUpError));
-  if (signUpData.session?.user) return signUpData.session.user;
-  throw new Error("Auth-пользователь администратора создан. Подтвердите email или отключите Confirm email в Supabase, затем войдите этим же паролем.");
+async function submitAdminLogin(form, data) {
+  if (state.adminLoginPending) return;
+  state.adminLoginPending = true;
+  state.adminLoginEmail = String(data["admin-login-email"] || data.email || "").trim();
+  const button = form.querySelector('button[type="submit"]');
+  if (button) { button.disabled = true; button.textContent = t("signing_in"); }
+  try {
+    if (supabaseAdminMode()) {
+      const password = String(data.password || "");
+      if (!state.adminLoginEmail || !password) throw new Error("Введите email и пароль администратора.");
+      const client = await supabaseClient();
+      const user = await signInTimewebAdmin(client, state.adminLoginEmail, password);
+      if (!isAllowedSupabaseAdmin(user)) {
+        await client.auth.signOut();
+        throw new Error(t("err_admin_access"));
+      }
+      setSupabaseAdmin(user);
+    } else {
+      const response = await api("/api/admin/login", { method: "POST", body: data });
+      state.admin = response.admin;
+    }
+    state.notice = "";
+    await refresh();
+  } finally {
+    state.adminLoginPending = false;
+    if (button?.isConnected !== false && button) {
+      button.disabled = false;
+      button.textContent = t("sign_in");
+    }
+  }
 }
 
 function escapeHtml(value) {
@@ -1041,7 +1086,7 @@ function loginView() {
   const supabaseMode = state.backend === "supabase" || supabaseAdminMode();
   const fields = supabaseMode
     ? `
-          <div class="field"><label>${t("admin_email")}</label><input name="admin-login-email" type="email" autocomplete="off" autocapitalize="none" spellcheck="false" value="" autofocus /></div>
+          <div class="field"><label>${t("admin_email")}</label><input name="admin-login-email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" value="${escapeHtml(state.adminLoginEmail)}" autofocus /></div>
           <div class="field"><label>${t("password")}</label><div class="password-field"><input name="password" type="password" autocomplete="current-password" />${passwordToggleHtml()}</div></div>`
     : `
           <input name="login" type="hidden" value="admin" />
@@ -1057,7 +1102,7 @@ function loginView() {
         ${state.configured ? "" : `<p class="admin-warning">На сервере не задан админ-пароль.</p>`}
         <form data-form="admin-login" autocomplete="off">
           ${fields}
-          <button class="btn full">${t("sign_in")}</button>
+          <button type="submit" class="btn full" ${state.adminLoginPending ? "disabled" : ""}>${t(state.adminLoginPending ? "signing_in" : "sign_in")}</button>
         </form>
         ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
       </section>
@@ -1343,7 +1388,7 @@ async function loadMe() {
       render();
       return;
     } catch (error) {
-      state.notice = error.message;
+      state.notice = adminAuthErrorMessage(error);
       render();
       return;
     }
@@ -1502,7 +1547,7 @@ async function refresh() {
       }
     } catch (error) {
       state.users = [];
-      state.usersError = error.message;
+      state.usersError = adminAuthErrorMessage(error);
     }
     saveWatch();
     if (state.detailKey && !roomByKey(state.detailKey)) clearRoomDetail();
@@ -1535,7 +1580,7 @@ async function refresh() {
     state.usersError = "";
   } catch (error) {
     state.users = [];
-    state.usersError = error.message;
+    state.usersError = adminAuthErrorMessage(error);
   }
   saveWatch();
   if (state.detailKey && !roomByKey(state.detailKey)) clearRoomDetail();
@@ -1568,7 +1613,7 @@ async function openRoom(key) {
 
 async function closeRoom(key) {
   if (state.readonlyAdmin) {
-    state.notice = "На GitHub Pages закрытие комнаты требует серверной Supabase Edge Function.";
+    state.notice = "Закрытие комнаты недоступно: серверная операция Timeweb не настроена.";
     renderPreservingScroll();
     return;
   }
@@ -1855,25 +1900,7 @@ document.addEventListener("submit", async event => {
     if (form.dataset.form === "admin-direct-message") return await sendAdminDirectMessage(form);
     if (form.dataset.form === "admin-broadcast") return await sendAdminBroadcast(form);
     if (form.dataset.form === "admin-login") {
-      if (supabaseAdminMode()) {
-        const client = await supabaseClient();
-        const email = String(data["admin-login-email"] || data.email || "").trim();
-        const password = String(data.password || "");
-        if (!email || !password) throw new Error("Введите email и пароль администратора.");
-        const user = await signInOrCreateSupabaseAdmin(client, email, password);
-        if (!isAllowedSupabaseAdmin(user)) {
-          await client.auth.signOut();
-          throw new Error("Этот Supabase-аккаунт не входит в список администраторов.");
-        }
-        setSupabaseAdmin(user);
-        state.notice = "";
-        await refresh();
-        return;
-      }
-      const response = await api("/api/admin/login", { method: "POST", body: data });
-      state.admin = response.admin;
-      state.notice = "";
-      await refresh();
+      return await submitAdminLogin(form, data);
     }
     if (form.dataset.form === "admin-password") {
       if (state.readonlyAdmin) throw new Error("Смена пароля администратора недоступна в режиме GitHub Pages.");
@@ -1893,7 +1920,7 @@ document.addEventListener("submit", async event => {
       await refresh();
     }
   } catch (error) {
-    state.notice = error.message;
+    state.notice = adminAuthErrorMessage(error);
     render();
   }
 });
@@ -1991,7 +2018,7 @@ document.addEventListener("click", async event => {
       renderPreservingScroll();
     }
   } catch (error) {
-    state.notice = error.message;
+    state.notice = adminAuthErrorMessage(error);
     renderPreservingScroll();
   }
 });
@@ -2000,7 +2027,7 @@ document.addEventListener("change", event => {
   if (!event.target.matches("[data-message-player-select]")) return;
   state.selectedMessagePlayerId = event.target.value;
   loadAdminThread().catch(error => {
-    state.notice = error.message;
+    state.notice = adminAuthErrorMessage(error);
     state.messageLoading = false;
     renderPreservingScroll();
   });
@@ -2035,7 +2062,7 @@ app.addEventListener("touchmove", markAdminScrollInteraction, { passive: true })
 app.addEventListener("pointerdown", markAdminScrollInteraction, { passive: true });
 
 window.setInterval(() => {
-  if (!state.admin || document.hidden || adminMessageEditorActive() || Date.now() < adminScrollInteractionUntil || autoRefreshInFlight) return;
+  if (!state.admin || state.adminLoginPending || document.hidden || adminMessageEditorActive() || Date.now() < adminScrollInteractionUntil || autoRefreshInFlight) return;
   autoRefreshInFlight = true;
   refresh().catch(() => {}).finally(() => {
     autoRefreshInFlight = false;
@@ -2043,6 +2070,6 @@ window.setInterval(() => {
 }, 5000);
 
 loadMe().catch(error => {
-  state.notice = error.message;
+  state.notice = adminAuthErrorMessage(error);
   render();
 });

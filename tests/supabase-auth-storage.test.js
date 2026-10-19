@@ -28,11 +28,13 @@ async function loadClient(storage, {
   fetchImpl = globalThis.fetch,
   setTimeoutImpl = setTimeout,
   clearTimeoutImpl = clearTimeout,
+  env = {},
+  adminDocument = false,
 } = {}) {
   let clientOptions = null;
   const context = {
     window: {
-      NARDU_ENV: { supabaseUrl: 'https://example.supabase.co', supabaseAnonKey: 'anon' },
+      NARDU_ENV: { supabaseUrl: 'https://example.supabase.co', supabaseAnonKey: 'anon', ...env },
       supabase: {
         createClient(url, key, options) {
           clientOptions = options;
@@ -40,10 +42,11 @@ async function loadClient(storage, {
         },
       },
     },
-    document: { querySelector() { return null; }, createElement() { return {}; }, head: { appendChild() {} } },
+    document: { querySelector(selector) { return adminDocument && selector === '#admin-app' ? {} : null; }, createElement() { return {}; }, head: { appendChild() {} } },
     localStorage: storage,
     console,
     Set,
+    URL,
     AbortController,
     fetch: fetchImpl,
     setTimeout: setTimeoutImpl,
@@ -55,6 +58,25 @@ async function loadClient(storage, {
   await context.window.NarduSupabase.client();
   return { storage: clientOptions.auth.storage, options: clientOptions, api: context.window.NarduSupabase };
 }
+
+test('only the admin document uses the configured HTTPS alias and preserves the portal token key', async () => {
+  const env = { adminApiUrl: 'https://api.dual-stack.example.test' };
+  const admin = await loadClient(quotaStorage(), { env, adminDocument: true });
+  assert.equal(admin.api.config().url, env.adminApiUrl);
+  assert.equal(admin.options.auth.storageKey, 'sb-example-auth-token');
+  const player = await loadClient(quotaStorage(), { env });
+  assert.equal(player.api.config().url, 'https://example.supabase.co');
+  assert.equal(player.options.auth.storageKey, undefined);
+});
+
+test('an invalid or plaintext admin alias cannot redirect credentials away from the normal portal', async () => {
+  for (const adminApiUrl of ['http://example.test', 'https://user:password@example.test',
+    'https://example.test/some/path', 'https://example.test/?query=1', 'not-a-url']) {
+    const result = await loadClient(quotaStorage(), { env: { adminApiUrl }, adminDocument: true });
+    assert.equal(result.api.config().url, 'https://example.supabase.co');
+    assert.equal(result.options.auth.storageKey, undefined);
+  }
+});
 
 test('Supabase auth token storage evicts reproducible game caches before losing a session', async () => {
   const storage = quotaStorage({

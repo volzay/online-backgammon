@@ -639,6 +639,68 @@ window.NarduController = (function () {
     };
   }
 
+  function retainMatchedBotTelemetry(restored, local) {
+    // Live checkpoints deliberately omit the large decision archive. A server
+    // board must still win on reload, but must not erase an intact local
+    // telemetry prefix for that same game. This is UNTRUSTED diagnostic data;
+    // the server's native replay/evidence gates remain the training authority.
+    if (mode !== 'bot' || variant !== 'long' || botDifficulty !== 'hard'
+      || !restored || !local || !remoteCode
+      || restored.roomCode !== remoteCode || local.roomCode !== remoteCode
+      || !restored.startedAt || local.startedAt !== restored.startedAt
+      || !Array.isArray(local.history) || !Array.isArray(restored.history)
+      || local.history.length > restored.history.length
+      || !local.history.some(event => event?.roll && /^[0-9a-f]{64}$/.test(event.sha256 || ''))) return restored;
+    const localMemory = local.analysis?.botMemory;
+    const remoteMemory = restored.analysis?.botMemory;
+    if (localMemory?.engineVersion !== 'long-analytic-v35'
+      || remoteMemory?.engineVersion !== localMemory.engineVersion
+      || !Array.isArray(localMemory.decisions)
+      || localMemory.decisions.length > BOT_MEMORY_MAX_DECISIONS
+      || String(localMemory.experienceLoad?.fingerprint || '')
+        !== String(remoteMemory.experienceLoad?.fingerprint || '')) return restored;
+    const canonical = (value, depth = 0) => {
+      if (depth > 32) throw new Error('Snapshot event nesting exceeds restore bound.');
+      if (Array.isArray(value)) return `[${value.map(item => canonical(item, depth + 1)).join(',')}]`;
+      if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => (
+        `${JSON.stringify(key)}:${canonical(value[key], depth + 1)}`
+      )).join(',')}}`;
+      return JSON.stringify(value);
+    };
+    try {
+      const offset = restored.history.length - local.history.length;
+      if (local.history.some((event, index) => (
+        canonical(event) !== canonical(restored.history[index + offset])
+      ))) return restored;
+      const existing = Array.isArray(remoteMemory.decisions) ? remoteMemory.decisions : [];
+      const ids = new Set(existing.map(decision => decision?.id));
+      const botColor = NarduGame.opponentOf(playerColor);
+      const retained = localMemory.decisions.filter(decision => {
+        if (!decision || decision.source !== 'engine' || decision.color !== botColor
+          || decision.engineVersion !== localMemory.engineVersion
+          || typeof decision.id !== 'string' || !decision.id || ids.has(decision.id)
+          || decision.execution?.complete !== true) return false;
+        ids.add(decision.id);
+        return true;
+      });
+      if (!retained.length || existing.length + retained.length > BOT_MEMORY_MAX_DECISIONS) return restored;
+      return {
+        ...restored,
+        analysis: {
+          ...restored.analysis,
+          botMemory: {
+            ...remoteMemory,
+            decisions: [...cloneStateForRestore(retained), ...existing],
+            telemetryRestore: { schema: 'long-local-telemetry-prefix-v1',
+              retainedDecisions: retained.length, trustedEvidence: false },
+          },
+        },
+      };
+    } catch {
+      return restored;
+    }
+  }
+
   function attachRuntimeStateFields(roomCode) {
     state.hints = [];
     state.fullHints = [];
@@ -847,7 +909,7 @@ window.NarduController = (function () {
         throw new Error('Bot room reservation was not confirmed.');
       }
       if (restored) {
-        state = restored;
+        state = retainMatchedBotTelemetry(restored, state);
         adoptBotIdentity(state, true);
         attachRuntimeStateFields(roomCode);
         validateNeuralBotAvailability();

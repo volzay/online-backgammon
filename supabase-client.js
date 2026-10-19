@@ -131,8 +131,26 @@
 
   function config() {
     const env = window.NARDU_ENV || {};
+    const portalUrl = String(env.supabaseUrl || "").trim();
+    let url = portalUrl;
+    let authStorageKey;
+    // Only the administrator page uses the dual-stack alias. Keep the
+    // existing portal token key so this is a transport repair, not a new
+    // account/session namespace. Player/game endpoints remain unchanged.
+    if (portalUrl && env.adminApiUrl && document.querySelector?.("#admin-app")) {
+      try {
+        const adminUrl = new URL(String(env.adminApiUrl).trim());
+        const originalUrl = new URL(portalUrl);
+        if (adminUrl.protocol === "https:" && !adminUrl.username && !adminUrl.password
+          && adminUrl.pathname === "/" && !adminUrl.search && !adminUrl.hash) {
+          url = adminUrl.origin;
+          authStorageKey = `sb-${originalUrl.hostname.split(".")[0]}-auth-token`;
+        }
+      } catch { /* Invalid optional transport configuration cannot replace the portal. */ }
+    }
     return {
-      url: String(env.supabaseUrl || "").trim(),
+      url,
+      authStorageKey,
       anonKey: String(env.supabaseAnonKey || "").trim(),
       siteBaseUrl: String(env.siteBaseUrl || "").trim(),
       adminEmails: String(env.adminEmails || "").trim(),
@@ -267,7 +285,7 @@
       return response;
     } catch (error) {
       if (!timedOut) throw error;
-      const timeoutError = new Error("Supabase request timed out.");
+      const timeoutError = new Error("Game server request timed out.");
       timeoutError.name = "TimeoutError";
       timeoutError.code = "SUPABASE_FETCH_TIMEOUT";
       timeoutError.cause = error;
@@ -338,12 +356,12 @@
         errors.push(error);
       }
     }
-    throw new Error("Не удалось загрузить Supabase SDK. Проверьте интернет, блокировщик рекламы или попробуйте другой браузер.");
+    throw new Error("Не удалось загрузить модуль подключения к игровому серверу. Проверьте соединение и блокировщик рекламы.");
   }
 
   async function client() {
     if (!configured()) {
-      throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY for GitHub Pages.");
+      throw new Error("Игровой сервер не настроен. Обратитесь к администратору портала.");
     }
     if (!clientPromise) {
       const pending = (async () => {
@@ -358,6 +376,7 @@
             autoRefreshToken: true,
             detectSessionInUrl: true,
             storage: authStorage,
+            ...(cfg.authStorageKey ? { storageKey: cfg.authStorageKey } : {}),
           },
           realtime: {
             params: { eventsPerSecond: 20 },

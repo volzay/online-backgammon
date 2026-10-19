@@ -564,3 +564,57 @@ test('a local reload snapshot remains writable after the server room is restored
   assert.equal(harness.calls.finish, 1);
   assert.equal(harness.calls.rating, 1);
 });
+
+test('compact authoritative restore retains the complete local telemetry prefix without restoring its board or coverage', async () => {
+  const storage = memoryStorage();
+  let remote;
+  const harness = controllerHarness({ localStorage: storage, getGameState: async () => ({ state: remote, version: 9 }) });
+  remote = harness.window.NarduGame.initialState('long');
+  Object.assign(remote, { mode: 'bot', botDifficulty: 'hard', roomCode: 'SAFE-BOT',
+    startedAt: 1000, phase: 'roll', turn: 'white',
+    history: [{ roll: '1:2', color: 'dark', sha256: 'a'.repeat(64), at: 'server-event' }],
+    analysis: { botMemory: { engineVersion: 'long-analytic-v35',
+      experienceLoad: { fingerprint: 'same-frozen-empty' }, decisions: [] } } });
+  const local = JSON.parse(JSON.stringify(remote));
+  local.points[12].count = 1; // Local board is not authoritative, even on a matching history.
+  local.analysis.botMemory.coverage = { complete: true, recordedBotDecisions: 999 };
+  local.analysis.botMemory.decisions = [{ id: 'synthetic-retained-prefix', color: 'dark', source: 'engine',
+    engineVersion: 'long-analytic-v35', execution: { complete: true }, diagnosticOnlyFixture: true }];
+  storage.setItem(SNAPSHOT_KEY, JSON.stringify({ v: 1, at: Date.now(),
+    signature: `/room.html${ROOM_SEARCH}`, mode: 'bot', playerColor: 'white', roomCode: 'SAFE-BOT', state: local }));
+  init(harness.controller);
+  await new Promise(setImmediate);
+  const actual = harness.controller.getState();
+  assert.equal(actual.points[12].count, 15);
+  assert.equal(actual.analysis.botMemory.decisions.length, 1);
+  assert.equal(actual.analysis.botMemory.decisions[0].id, 'synthetic-retained-prefix');
+  assert.equal(actual.analysis.botMemory.coverage, undefined);
+  assert.equal(actual.analysis.botMemory.telemetryRestore.trustedEvidence, false);
+  assert.deepEqual(remote.analysis.botMemory.decisions, []);
+  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
+});
+
+test('telemetry from another game, history branch or frozen policy cannot attach to a restored server board', async () => {
+  for (const change of [local => { local.startedAt = 999; },
+    local => { local.history[0].sha256 = 'b'.repeat(64); },
+    local => { local.analysis.botMemory.experienceLoad.fingerprint = 'other'; },
+    local => { local.history.unshift({ roll: '3:4', color: 'white', sha256: 'c'.repeat(64) }); }]) {
+    const storage = memoryStorage();
+    let remote;
+    const harness = controllerHarness({ localStorage: storage, getGameState: async () => ({ state: remote, version: 9 }) });
+    remote = harness.window.NarduGame.initialState('long');
+    Object.assign(remote, { mode: 'bot', botDifficulty: 'hard', roomCode: 'SAFE-BOT', startedAt: 1000,
+      history: [{ roll: '1:2', color: 'dark', sha256: 'a'.repeat(64) }],
+      analysis: { botMemory: { engineVersion: 'long-analytic-v35',
+        experienceLoad: { fingerprint: 'same' }, decisions: [] } } });
+    const local = JSON.parse(JSON.stringify(remote));
+    local.analysis.botMemory.decisions = [{ id: 'must-not-attach', color: 'dark', source: 'engine',
+      engineVersion: 'long-analytic-v35', execution: { complete: true } }];
+    change(local);
+    storage.setItem(SNAPSHOT_KEY, JSON.stringify({ v: 1, at: Date.now(), signature: `/room.html${ROOM_SEARCH}`,
+      mode: 'bot', playerColor: 'white', roomCode: 'SAFE-BOT', state: local }));
+    init(harness.controller);
+    await new Promise(setImmediate);
+    assert.equal(harness.controller.getState().analysis.botMemory.decisions.length, 0);
+  }
+});

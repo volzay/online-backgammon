@@ -539,10 +539,10 @@ test('a stalled Supabase CDN load times out and the next client call retries', a
   vm.createContext(context);
   vm.runInContext(read('supabase-client.js'), context, { filename: 'supabase-client.js' });
 
-  await assert.rejects(context.window.NarduSupabase.client(), /Не удалось загрузить Supabase SDK/);
+  await assert.rejects(context.window.NarduSupabase.client(), /Не удалось загрузить модуль подключения к игровому серверу/);
   assert.equal(timeoutId, 2, 'both CDN candidates should receive a bounded attempt');
 
-  await assert.rejects(context.window.NarduSupabase.client(), /Не удалось загрузить Supabase SDK/);
+  await assert.rejects(context.window.NarduSupabase.client(), /Не удалось загрузить модуль подключения к игровому серверу/);
   assert.equal(timeoutId, 4, 'a rejected singleton promise must not poison later retries');
 });
 

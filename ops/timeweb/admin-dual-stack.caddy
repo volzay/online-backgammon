@@ -1,0 +1,20 @@
+{$PROXY_DOMAIN}, api.201-51-7-193.2a03-6f00-a--ae1e.sslip.io {
+    handle /fair-dice/v1/* {
+        reverse_proxy fair-dice:3895
+    }
+
+    @supabase_api path /auth/v1/* /rest/v1/* /graphql/v1 /realtime/v1/* /storage/v1/* /functions/v1/* /mcp /sso/*
+
+    handle @supabase_api {
+        reverse_proxy kong:8000
+    }
+
+    handle {
+        basic_auth {
+            {$PROXY_AUTH_USERNAME} {$PROXY_AUTH_PASSWORD}
+        }
+        reverse_proxy studio:3000
+    }
+
+    header -server
+}

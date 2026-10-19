@@ -12,6 +12,7 @@ const FAIR_DICE_CONFIG = fairDiceBuildConfig();
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
 const DEFAULT_SUPABASE_URL = "https://api.201-51-7-193.sslip.io";
+const DEFAULT_ADMIN_API_URL = "https://api.201-51-7-193.2a03-6f00-a--ae1e.sslip.io";
 const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_kWyPnUGXGMJ0afLvIdRNNr_j7tZjhXC";
 const DEFAULT_SITE_BASE_URL = "https://volzay.github.io/online-backgammon";
 const DEFAULT_ADMIN_EMAILS = "volzay@yandex.ru,openthedoorcap@gmail.com";
@@ -93,8 +94,11 @@ function versionStaticAssets() {
 }
 
 function writeRuntimeConfig() {
+  const portalUrl = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
   const config = {
-    supabaseUrl: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
+    supabaseUrl: portalUrl,
+    adminApiUrl: process.env.ADMIN_API_URL
+      || (portalUrl === DEFAULT_SUPABASE_URL ? DEFAULT_ADMIN_API_URL : ""),
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
     siteBaseUrl: process.env.SITE_BASE_URL || DEFAULT_SITE_BASE_URL,
     adminEmails: process.env.ADMIN_EMAILS || DEFAULT_ADMIN_EMAILS,
