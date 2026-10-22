@@ -1654,14 +1654,6 @@
     }
   }
 
-  async function rematchRoom(code, action, requestId) {
-    if (configured()) throw roomError("Этот способ реванша доступен только локальному серверу.", 409);
-    return apiJson(`/api/rooms/${encodeURIComponent(normalizeCode(code))}/rematch`, {
-      method: "POST",
-      body: JSON.stringify({ action, requestId }),
-    });
-  }
-
   async function putGameState(code, state, version = 0) {
     const normalizedCode = normalizeCode(code);
     state = publishedBotState(state);
@@ -2366,7 +2358,6 @@
     fairDicePolicy,
     requestFairDice,
     putGameState,
-    rematchRoom,
     finishRoomGame,
     archiveBotTrainingGame,
     loadLongBotExperience,

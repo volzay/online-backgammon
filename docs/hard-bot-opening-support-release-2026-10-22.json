@@ -20,8 +20,7 @@
     "bot-engine/long/metrics.ts": "4ea8e7d377133810c9cb6318d6771ef2bfeab6e1aecc9d48a1a437a1be37d630",
     "bot-engine/long/engine.ts": "fb4cf1f2afe858f3e7aad3d27c4bd21759818de37936ad0318ab91af636a473a",
     "long-bot-engine.js": "dfc49fd55f9e40145a871ed7e08fdeee907f5774c32c416086fbf4379f2db457",
-    "game-controller.js": "985dcd4f9c4f66e00ecbac4766433c386d4c1572fe8d552354222d7f7b7f3912",
-    "rooms-client.js": "2afb8fdec104e6d113dbe8469febc69624818ebaa65466a83d08d64cad111a6f",
+    "game-controller.js": "4becb17d64188e069bb67b8b7e79d65f8d5d0108892d35d696a7f1c0303b9ebd",
     "long-neural-bot.js": "82f81b751fcdce13daf40ac64611d0b477ba26b0f3c8cdacc10987dccd3e6825",
     "scripts/long-bot-paired-rollout.js": "92bca98ab6ae20007340e9fcecab81d5b2b0ea1dceab0f99c3a429992bfb71a6",
     "scripts/evaluate-long-bot-neural.js": "6ab1fb70c1eeb1350fe0649b2d6a39b90e08a2c095b0a04eb17c40846a3669cd",
@@ -35,5 +34,7 @@
     "tests/neuro-controller.test.js": "6407923106b057b2508d904f87be08c323ae7fd81de871c14993771eae7d52c1",
     "tests/neuro-runtime.test.js": "a88b6a68fc5cc7910d0587421a66aa370e72c9bd86274aa3e874ba5bd56f45e8",
     "scripts/verify-long-bot-real-games.js": "bdced7c10e0642f098cc69b0840ba6bde2fddfe49b45b15a680287e580c3298d"
-  }
+  },
+  "frontendScope": "Only opening-support analytics, matching policy/cache/teacher identities and verification; earlier local rematch changes excluded.",
+  "updatedAt": "2026-10-22T12:48:55.423623+00:00"
 }

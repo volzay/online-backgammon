@@ -72,8 +72,6 @@ window.NarduController = (function () {
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
-  let rematchError = '';
-  let rematchInFlight = false;
   let gameOverActionStarted = null;
   let botTurnActive = false;
   let botTurnGeneration = 0;
@@ -813,8 +811,6 @@ window.NarduController = (function () {
     botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
     rematchRestartToken = null;
-    rematchError = '';
-    rematchInFlight = false;
     gameOverActionStarted = null;
     if (remotePollTimer) clearInterval(remotePollTimer);
     remotePollTimer = null;
@@ -1866,12 +1862,7 @@ window.NarduController = (function () {
         body: JSON.stringify({ state: payload, version }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const error = new Error(data.error || (lang() === 'en' ? 'Could not save the game.' : 'Не удалось сохранить партию.'));
-        error.status = response.status;
-        throw error;
-      }
-      if (Number.isFinite(data.version)) remoteVersion = data.version;
+      if (response.ok && Number.isFinite(data.version)) remoteVersion = data.version;
     } catch (error) {
       if (error?.status === 409) {
         const rejectedState = state;
@@ -2046,21 +2037,6 @@ window.NarduController = (function () {
     if (spectatorMode && (state.phase === 'over' || state.winner)) {
       isApplyingRemote = false;
       onGameOver();
-      return;
-    }
-    if (state.phase === 'over' && state.rematch?.status === 'accepted'
-      && state.rematch.nextRoomCode && !window.NarduRooms?.configured?.()) {
-      isApplyingRemote = false;
-      clearRoomSnapshots();
-      clearAll();
-      const url = new URL(location.href);
-      url.searchParams.set('room', state.rematch.nextRoomCode);
-      url.searchParams.delete('waiting');
-      const config = { code: state.rematch.nextRoomCode, opponent: 'player', variant,
-        role: playerColor === 'white' ? 'host' : 'guest' };
-      window.NarduApp?.safeStorageSet?.('narduh-active-room', JSON.stringify(config));
-      if (playerColor === 'white') window.NarduApp?.safeStorageSet?.(CREATE_GAME_KEY, JSON.stringify(config));
-      location.href = url.toString();
       return;
     }
     if (state.phase === 'over' && state.rematch?.status === 'accepted' && isRemoteHost()) {
@@ -5378,7 +5354,6 @@ window.NarduController = (function () {
         ${gameOverNoticeBlock()}
         ${resultBlock}
         ${ratingBlock}
-        ${rematchError ? `<div class="go-note strong" role="alert">${String(rematchError).replace(/[&<>"']/g, escapeHtml)}</div>` : ''}
         ${rematchMarkup()}
       </div>
     `;
@@ -5406,28 +5381,6 @@ window.NarduController = (function () {
     return true;
   }
 
-  function usesLocalRematch() {
-    return mode === 'remote' && !window.NarduRooms?.configured?.()
-      && typeof window.NarduRooms?.rematchRoom === 'function';
-  }
-
-  async function updateLocalRematch(action) {
-    if (rematchInFlight) return false;
-    rematchInFlight = true;
-    rematchError = '';
-    try {
-      const saved = await window.NarduRooms.rematchRoom(remoteCode, action, state.rematch?.id);
-      applyRemoteState(saved.state, saved.version);
-      return true;
-    } catch (error) {
-      rematchError = error?.message || (lang() === 'en' ? 'Could not send the invitation. Try again.' : 'Не удалось отправить приглашение. Повторите попытку.');
-      renderGameOverModal();
-      return false;
-    } finally {
-      rematchInFlight = false;
-    }
-  }
-
   async function requestRematchOrStart() {
     if (mode !== 'remote') {
       if (!claimGameOverAction('again')) return;
@@ -5440,7 +5393,6 @@ window.NarduController = (function () {
       return;
     }
     if (!(await ensureRemoteFinalStatePublished())) return;
-    if (usesLocalRematch()) { await updateLocalRematch('request'); return; }
     state.rematch = {
       id: `${Date.now()}-${Math.random()}`,
       status: 'pending',
@@ -5454,7 +5406,6 @@ window.NarduController = (function () {
   async function acceptRematch() {
     if (mode !== 'remote') return;
     if (!(await ensureRemoteFinalStatePublished())) return;
-    if (usesLocalRematch()) { await updateLocalRematch('accept'); return; }
     const id = state.rematch?.id || `${Date.now()}-${Math.random()}`;
     state.rematch = {
       ...(state.rematch || {}),
@@ -5474,10 +5425,6 @@ window.NarduController = (function () {
   async function declineRematch() {
     if (mode === 'remote') {
       if (!(await ensureRemoteFinalStatePublished())) return;
-      if (usesLocalRematch()) {
-        if (await updateLocalRematch('decline')) leaveRoomToLobby(true);
-        return;
-      }
       state.rematch = {
         ...(state.rematch || {}),
         status: 'declined',
