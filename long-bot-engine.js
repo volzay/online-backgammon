@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
 
 /* bot-engine/long/metrics.ts */
 
@@ -57,6 +57,37 @@ function checkersInTrackRange(state, color, start, end) {
 
 function startZoneCount(state, color) {
   return checkersInTrackRange(state, color, 0, 5);
+}
+
+// Early support geometry from Chebotarov's 1-4-6 / 2-5-6 lesson:
+// distances are forward offsets from this player's head, not board labels.
+// A face is covered when two OWN occupied stations differ by that value.
+// This describes future support, not a legal full turn or its probability;
+// the native move generator still enforces dice use and the head restriction.
+function openingSupportProfile(state, color) {
+  const head = headCheckers(state, color);
+  const active = String(state.variant || 'long').toLowerCase() === 'long'
+    && !state.winner && head >= 7
+    && offCount(state, color) === 0
+    && offCount(state, opponentOf(color)) === 0
+    && !homeReady(state, opponentOf(color));
+  const stations = head > 0 ? [0] : [];
+  if (head > 0) {
+    const path = pathFor(color);
+    for (let offset = 1; offset <= 6; offset += 1) {
+      if (countAt(state, path[offset], color) > 0) stations.push(offset);
+    }
+  }
+  let mask = 0;
+  for (let from = 0; from < stations.length; from += 1) {
+    for (let to = from + 1; to < stations.length; to += 1) {
+      mask |= 1 << (stations[to] - stations[from] - 1);
+    }
+  }
+  const faceCount = [1, 2, 3, 4, 5, 6].filter(face => mask & (1 << (face - 1))).length;
+  const anchorCount = Math.max(0, stations.length - 1);
+  return { active, mask, faceCount, anchorCount,
+    efficient: faceCount === 6 && anchorCount === 3 ? 1 : 0 };
 }
 
 function startZoneExitMoveCount(sequence = [], color) {
@@ -2737,6 +2768,9 @@ function createLongBotEngine(adapter, options = {}) {
           after,
           color,
         ));
+        if (advancedBeforeMetrics.openingSupport.active) {
+          features.openingSupportAdjustment = openingSupportAdjustment(features);
+        }
       }
       ranked.push({
         sequence,
@@ -3368,6 +3402,8 @@ function advancedStrategyAdjustment(state, color, features) {
     * Math.max(0.55, 1 / (1 + trapBefore / 1800));
   let score = 0;
 
+  score += Number(features.openingSupportAdjustment) || 0;
+
   score += primeGain * (primeGain >= 0
     ? 42000 * constructivePressure
     : 90000 * preservationPressure * primePreservationScale);
@@ -3445,6 +3481,7 @@ function advancedStrategyAdjustment(state, color, features) {
 
 function advancedStateMetrics(state, color) {
   return {
+    openingSupport: openingSupportProfile(state, color),
     primeScore: blockingPrimeScore(state, color),
     primeRun: blockingPrimeRun(state, color),
     opponentMoveBlock: opponentMoveBlockScore(state, color),
@@ -3462,7 +3499,21 @@ function advancedSequenceStats(beforeMetrics, after, color) {
   const prospectiveFenceExtensionAfter = prospectiveFenceExtensionRisk(after, color);
   const primeSustainabilityAfter = primeSustainability(after, color);
   const primeCrunchRiskAfter = primeCrunchRisk(after, color);
+  // Keep the phase decision at the start of the move. Taking the seventh
+  // checker off the head must not abruptly erase all support in this turn.
+  const support = beforeMetrics.openingSupport.active
+    ? openingSupportProfile(after, color) : null;
   return {
+    ...(support ? {
+      openingSupportMaskBefore: beforeMetrics.openingSupport.mask,
+      openingSupportMaskAfter: support.mask,
+      openingSupportFacesBefore: beforeMetrics.openingSupport.faceCount,
+      openingSupportFacesAfter: support.faceCount,
+      openingSupportFaceDelta: support.faceCount - beforeMetrics.openingSupport.faceCount,
+      openingSupportAnchorsAfter: support.anchorCount,
+      openingSupportEfficientBefore: beforeMetrics.openingSupport.efficient,
+      openingSupportEfficientAfter: support.efficient,
+    } : {}),
     primeScoreBefore: beforeMetrics.primeScore,
     primeScoreAfter,
     primeScoreGain: primeScoreAfter - beforeMetrics.primeScore,
@@ -3485,6 +3536,26 @@ function advancedSequenceStats(beforeMetrics, after, color) {
     primeCrunchRiskAfter,
     primeCrunchRiskDelta: beforeMetrics.primeCrunchRisk - primeCrunchRiskAfter,
   };
+}
+
+function openingSupportAdjustment(features) {
+  // A small cold-policy preference only in an unthreatened opening. It
+  // cannot buy support by worsening an escape route or dismantling a lock.
+  if (Number(features.trapBefore) >= 120
+    || Number(features.fenceClosureBefore) !== 0
+    || Number(features.latentFenceExposureBefore) >= 24
+    || Number(features.prospectiveFenceExtensionBefore) >= 60
+    || Number(features.opponentFenceRunBefore) >= 3) return 0;
+  const score = features.openingSupportFaceDelta * 120000
+    + (features.openingSupportEfficientAfter - features.openingSupportEfficientBefore) * 240000;
+  if (score > 0 && (
+    ['trapDelta', 'fenceClosureDelta', 'escapeGatewayDelta', 'latentFenceExposureDelta',
+      'prospectiveFenceExtensionDelta'].some(key => !Number.isFinite(features[key]) || features[key] < 0)
+    || Number(features.headLandingBreak) !== 0
+    || Number(features.primeRunAfter) < Number(features.primeRunBefore)
+    || Number(features.opponentMoveBlockGain) < 0
+  )) return 0;
+  return score;
 }
 
 function advancedTacticalAdjustment(state, color, candidate) {

@@ -72,6 +72,8 @@ window.NarduController = (function () {
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
+  let rematchError = '';
+  let rematchInFlight = false;
   let gameOverActionStarted = null;
   let botTurnActive = false;
   let botTurnGeneration = 0;
@@ -120,6 +122,7 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
   const NEURAL_TEACHER_START_ZONE_ANALYSIS_POLICY_IMPLEMENTATION_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
   const NEURAL_TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
+  const NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -810,6 +813,8 @@ window.NarduController = (function () {
     botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
     rematchRestartToken = null;
+    rematchError = '';
+    rematchInFlight = false;
     gameOverActionStarted = null;
     if (remotePollTimer) clearInterval(remotePollTimer);
     remotePollTimer = null;
@@ -1861,7 +1866,12 @@ window.NarduController = (function () {
         body: JSON.stringify({ state: payload, version }),
       });
       const data = await response.json().catch(() => ({}));
-      if (response.ok && Number.isFinite(data.version)) remoteVersion = data.version;
+      if (!response.ok) {
+        const error = new Error(data.error || (lang() === 'en' ? 'Could not save the game.' : 'Не удалось сохранить партию.'));
+        error.status = response.status;
+        throw error;
+      }
+      if (Number.isFinite(data.version)) remoteVersion = data.version;
     } catch (error) {
       if (error?.status === 409) {
         const rejectedState = state;
@@ -2036,6 +2046,21 @@ window.NarduController = (function () {
     if (spectatorMode && (state.phase === 'over' || state.winner)) {
       isApplyingRemote = false;
       onGameOver();
+      return;
+    }
+    if (state.phase === 'over' && state.rematch?.status === 'accepted'
+      && state.rematch.nextRoomCode && !window.NarduRooms?.configured?.()) {
+      isApplyingRemote = false;
+      clearRoomSnapshots();
+      clearAll();
+      const url = new URL(location.href);
+      url.searchParams.set('room', state.rematch.nextRoomCode);
+      url.searchParams.delete('waiting');
+      const config = { code: state.rematch.nextRoomCode, opponent: 'player', variant,
+        role: playerColor === 'white' ? 'host' : 'guest' };
+      window.NarduApp?.safeStorageSet?.('narduh-active-room', JSON.stringify(config));
+      if (playerColor === 'white') window.NarduApp?.safeStorageSet?.(CREATE_GAME_KEY, JSON.stringify(config));
+      location.href = url.toString();
       return;
     }
     if (state.phase === 'over' && state.rematch?.status === 'accepted' && isRemoteHost()) {
@@ -4159,7 +4184,9 @@ window.NarduController = (function () {
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_START_ZONE_ANALYSIS_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
-            !== NEURAL_TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID)
+            !== NEURAL_TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {
         throw new Error('Verified long-analytic-v35 teacher assets missing');
       }
@@ -4177,6 +4204,7 @@ window.NarduController = (function () {
       state.analysis.neuralModel = { ...current };
       state.analysis.neuralExecutionPolicy = NEURAL_TEACHER_GUARD_SCHEMA;
       state.analysis.neuralTeacherPolicyImplementationId = NEURAL_TEACHER_POLICY_IMPLEMENTATION_ID;
+      state.analysis.neuralTeacherRuntimePolicyImplementationId = window.NarduLongBotEngine.policyImplementationId;
       botPlannerError = '';
       return true;
     } catch (error) {
@@ -5350,6 +5378,7 @@ window.NarduController = (function () {
         ${gameOverNoticeBlock()}
         ${resultBlock}
         ${ratingBlock}
+        ${rematchError ? `<div class="go-note strong" role="alert">${String(rematchError).replace(/[&<>"']/g, escapeHtml)}</div>` : ''}
         ${rematchMarkup()}
       </div>
     `;
@@ -5377,6 +5406,28 @@ window.NarduController = (function () {
     return true;
   }
 
+  function usesLocalRematch() {
+    return mode === 'remote' && !window.NarduRooms?.configured?.()
+      && typeof window.NarduRooms?.rematchRoom === 'function';
+  }
+
+  async function updateLocalRematch(action) {
+    if (rematchInFlight) return false;
+    rematchInFlight = true;
+    rematchError = '';
+    try {
+      const saved = await window.NarduRooms.rematchRoom(remoteCode, action, state.rematch?.id);
+      applyRemoteState(saved.state, saved.version);
+      return true;
+    } catch (error) {
+      rematchError = error?.message || (lang() === 'en' ? 'Could not send the invitation. Try again.' : 'Не удалось отправить приглашение. Повторите попытку.');
+      renderGameOverModal();
+      return false;
+    } finally {
+      rematchInFlight = false;
+    }
+  }
+
   async function requestRematchOrStart() {
     if (mode !== 'remote') {
       if (!claimGameOverAction('again')) return;
@@ -5389,6 +5440,7 @@ window.NarduController = (function () {
       return;
     }
     if (!(await ensureRemoteFinalStatePublished())) return;
+    if (usesLocalRematch()) { await updateLocalRematch('request'); return; }
     state.rematch = {
       id: `${Date.now()}-${Math.random()}`,
       status: 'pending',
@@ -5402,6 +5454,7 @@ window.NarduController = (function () {
   async function acceptRematch() {
     if (mode !== 'remote') return;
     if (!(await ensureRemoteFinalStatePublished())) return;
+    if (usesLocalRematch()) { await updateLocalRematch('accept'); return; }
     const id = state.rematch?.id || `${Date.now()}-${Math.random()}`;
     state.rematch = {
       ...(state.rematch || {}),
@@ -5421,6 +5474,10 @@ window.NarduController = (function () {
   async function declineRematch() {
     if (mode === 'remote') {
       if (!(await ensureRemoteFinalStatePublished())) return;
+      if (usesLocalRematch()) {
+        if (await updateLocalRematch('decline')) leaveRoomToLobby(true);
+        return;
+      }
       state.rematch = {
         ...(state.rematch || {}),
         status: 'declined',

@@ -19,6 +19,7 @@ window.NarduNeuralBot = (function () {
   const TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
   const TEACHER_START_ZONE_ANALYSIS_POLICY_IMPLEMENTATION_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
   const TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
+  const TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
   const POLICY_OPTIONS = Object.freeze({ maxCandidates: 32, replyTopCandidates: 2,
     replyCandidates: 4, replyWeight: 0.35 });
   const DEVELOPMENT_EVALUATION = Object.freeze({
@@ -139,7 +140,8 @@ window.NarduNeuralBot = (function () {
         && engine.policyImplementationId !== TEACHER_PREVIOUS_CAUSAL_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_CURRENT_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_START_ZONE_ANALYSIS_POLICY_IMPLEMENTATION_ID
-        && engine.policyImplementationId !== TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID)
+        && engine.policyImplementationId !== TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID
+        && engine.policyImplementationId !== TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID)
       || typeof engine.consumeLastDecision !== 'function'
       || typeof teacher?.plan !== 'function'
       || typeof publicBot?.plan !== 'function') {
@@ -173,6 +175,7 @@ window.NarduNeuralBot = (function () {
     }
     return {
       moves,
+      runtimePolicyImplementationId: engine.policyImplementationId,
       source: engineDecision ? 'long-analytic-engine'
         : fallbackDecision ? 'long-hard-certified-fallback'
           : moves.length ? 'long-hard-game-fallback' : 'rules-certified-pass',
@@ -221,6 +224,7 @@ window.NarduNeuralBot = (function () {
       teacherGuardActive: true,
       teacherEngineVersion: TEACHER_ENGINE_VERSION,
       teacherPolicyImplementationId: TEACHER_POLICY_IMPLEMENTATION_ID,
+      teacherRuntimePolicyImplementationId: guarded.runtimePolicyImplementationId,
       teacherChoiceSource: guarded.source,
       teacherExperienceFingerprint: guarded.experience.fingerprint,
       teacherExperienceSize: guarded.experience.size,

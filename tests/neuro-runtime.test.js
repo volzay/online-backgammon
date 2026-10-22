@@ -12,6 +12,7 @@ const buildV2Model = require('../scripts/build-long-neural-v2-public-model');
 const TEACHER_POLICY_ID = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const START_ZONE_ANALYSIS_POLICY_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const SEPARATED_RACE_POLICY_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
+const OPENING_SUPPORT_POLICY_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
 const { fingerprint } = require('../lib/long-neural-artifact');
 const ROOT = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
@@ -222,7 +223,7 @@ test('hard-neuro evaluates its saved network but executes the verified hard-v35 
 
 test('production neural guard executes the exact real hard-v35 plan with a frozen experience snapshot', () => {
   const { game, neuro, hard, engine } = realTeacherEnvironment();
-  assert.equal(engine.policyImplementationId, SEPARATED_RACE_POLICY_ID);
+  assert.equal(engine.policyImplementationId, OPENING_SUPPORT_POLICY_ID);
   const state = rolled(game, [2, 4]);
   engine.beginExperienceSession('neural-teacher-regression');
   const frozen = engine.freezeExperience('neural-teacher-regression');
@@ -236,14 +237,16 @@ test('production neural guard executes the exact real hard-v35 plan with a froze
   assert.equal(decision.teacherExperienceFingerprint, frozen.fingerprint);
   assert.equal(decision.teacherExperienceFrozen, true);
   assert.equal(decision.teacherChoiceSource, 'long-analytic-engine');
+  assert.equal(decision.teacherRuntimePolicyImplementationId, OPENING_SUPPORT_POLICY_ID);
 });
 
 test('teacher guard admits the current analytical runtime without changing the frozen model record', () => {
   const { context, game, neuro } = environment();
-  context.window.NarduLongBotEngine.policyImplementationId = START_ZONE_ANALYSIS_POLICY_ID;
+  context.window.NarduLongBotEngine.policyImplementationId = OPENING_SUPPORT_POLICY_ID;
   assert.ok(neuro.plan(rolled(game)).length > 0);
   assert.equal(neuro.getLastDecision().teacherPolicyImplementationId, TEACHER_POLICY_ID);
   assert.equal(neuro.getLastDecision().v2CompletedTrainingGames, 32);
+  assert.equal(neuro.getLastDecision().teacherRuntimePolicyImplementationId, OPENING_SUPPORT_POLICY_ID);
 });
 
 test('teacher guard fails closed on an unpinned v35 build or an unfrozen experience snapshot', () => {

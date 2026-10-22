@@ -54,6 +54,37 @@ export function startZoneCount(state, color) {
   return checkersInTrackRange(state, color, 0, 5);
 }
 
+// Early support geometry from Chebotarov's 1-4-6 / 2-5-6 lesson:
+// distances are forward offsets from this player's head, not board labels.
+// A face is covered when two OWN occupied stations differ by that value.
+// This describes future support, not a legal full turn or its probability;
+// the native move generator still enforces dice use and the head restriction.
+export function openingSupportProfile(state, color) {
+  const head = headCheckers(state, color);
+  const active = String(state.variant || 'long').toLowerCase() === 'long'
+    && !state.winner && head >= 7
+    && offCount(state, color) === 0
+    && offCount(state, opponentOf(color)) === 0
+    && !homeReady(state, opponentOf(color));
+  const stations = head > 0 ? [0] : [];
+  if (head > 0) {
+    const path = pathFor(color);
+    for (let offset = 1; offset <= 6; offset += 1) {
+      if (countAt(state, path[offset], color) > 0) stations.push(offset);
+    }
+  }
+  let mask = 0;
+  for (let from = 0; from < stations.length; from += 1) {
+    for (let to = from + 1; to < stations.length; to += 1) {
+      mask |= 1 << (stations[to] - stations[from] - 1);
+    }
+  }
+  const faceCount = [1, 2, 3, 4, 5, 6].filter(face => mask & (1 << (face - 1))).length;
+  const anchorCount = Math.max(0, stations.length - 1);
+  return { active, mask, faceCount, anchorCount,
+    efficient: faceCount === 6 && anchorCount === 3 ? 1 : 0 };
+}
+
 export function startZoneExitMoveCount(sequence = [], color) {
   return sequence.reduce((total, move) => {
     const fromPos = pathPos(color, move.from);

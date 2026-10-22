@@ -108,6 +108,14 @@ const SEPARATED_RACE_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: '33f6861711beec59ea9eb03b073736f36822d6af3b96e088ef350d931a3be9df',
 });
+// Opening support reads only canonical points/off/winner/variant. Its native
+// metadata-independence test covers an active 2-5-6 decision. This is a new
+// strategy identity; all historical tuples and namespaces remain unchanged.
+const OPENING_SUPPORT_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'dfc49fd55f9e40145a871ed7e08fdeee907f5774c32c416086fbf4379f2db457',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -120,6 +128,7 @@ const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   SEPARATED_RACE_NATIVE_CACHE_POLICY,
+  OPENING_SUPPORT_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -785,6 +794,7 @@ module.exports = {
   CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   SEPARATED_RACE_NATIVE_CACHE_POLICY,
+  OPENING_SUPPORT_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,

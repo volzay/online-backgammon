@@ -10,6 +10,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 const builder = require('../scripts/build-long-bot-engine');
+const { OPENING_SUPPORT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 
 const ROOT = path.join(__dirname, '..');
 const BASELINE = '06a9b106944e8fb5e76f772b23b703ec067e2e8b';
@@ -234,17 +235,17 @@ test('learning compatibility also accepts current source evidence but never unkn
   }
 });
 
-test('new separated-race analytical strategy accepts only its own causal evidence', () => {
+test('new opening-support analytical strategy accepts only its own causal evidence', () => {
   const candidate = runtime({ current: true });
   const old = runtime({ baseline: true });
-  assert.equal(candidate.engine.policyImplementationId, SEPARATED_RACE_ID);
+  assert.equal(candidate.engine.policyImplementationId, OPENING_SUPPORT_POLICY);
   assert.equal(candidate.engine.learningCompatibility, null);
   const oldPattern = evidenceFor(old, positions(old.game))[0];
-  for (const oldId of [ORIGINAL_ID, COMPATIBLE_ID, CLEAR_FINAL_RACE_ID, START_ZONE_ANALYSIS_ID]) {
+  for (const oldId of [ORIGINAL_ID, COMPATIBLE_ID, CLEAR_FINAL_RACE_ID, START_ZONE_ANALYSIS_ID, SEPARATED_RACE_ID]) {
     candidate.engine.setExperience([{ ...oldPattern, policyImplementationId: oldId }], 'server');
     assert.equal(candidate.engine.experienceSize(), 0, oldId);
   }
-  const currentPattern = { ...oldPattern, policyImplementationId: SEPARATED_RACE_ID };
+  const currentPattern = { ...oldPattern, policyImplementationId: OPENING_SUPPORT_POLICY };
   candidate.engine.setExperience([currentPattern], 'server');
   assert.equal(candidate.engine.experienceSize(), 1);
   assert.deepEqual(plain(candidate.engine.experienceReplaySnapshot().patterns), [currentPattern]);

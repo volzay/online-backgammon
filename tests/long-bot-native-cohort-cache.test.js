@@ -18,6 +18,7 @@ const {
   CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
   THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   SEPARATED_RACE_NATIVE_CACHE_POLICY,
+  OPENING_SUPPORT_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -79,13 +80,13 @@ function runtime() {
   return value;
 }
 
-test('real separated-race identity enables a separately pinned cache without calling its planner', () => {
+test('real opening-support identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, SEPARATED_RACE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, SEPARATED_RACE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, SEPARATED_RACE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, OPENING_SUPPORT_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, OPENING_SUPPORT_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, OPENING_SUPPORT_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -98,8 +99,29 @@ test('real separated-race identity enables a separately pinned cache without cal
     CLEAR_FINAL_RACE_NATIVE_CACHE_POLICY,
     THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
     SEPARATED_RACE_NATIVE_CACHE_POLICY,
+    OPENING_SUPPORT_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
+});
+
+test('active opening-support decisions are independent of metadata omitted from native cache keys', () => {
+  const native=loadRuntime();native.engine.setExperience([], 'opening-support-cache-audit');
+  const original=state({phase:'move',dice:[2,3],rolled:[2,3],
+    points:{24:{color:'white',count:12},22:{color:'white',count:1},18:{color:'white',count:1},16:{color:'white',count:1},12:{color:'dark',count:15}},
+    off:{white:0,dark:0}});
+  const metadata=clone(original);
+  Object.assign(metadata,{history:[{arbitrary:'display-only'}],analysis:{botMemory:{decisions:[{unrelated:true}]}},
+    score:{white:40,dark:19},startedAt:999,finishedAt:888,openingRoll:{host:{value:5}},
+    turnClock:{white:50,dark:70,active:'dark',startedAt:100},matchScore:{white:2,dark:4,target:7,recordedWinner:null}});
+  assert.equal(canonicalNativeState(original),canonicalNativeState(metadata));
+  const options={strategyProfile:'v25',maxCandidates:64,analysisNodeBudget:480};
+  const before=clone(native.engine.rank(clone(original),options)),after=clone(native.engine.rank(clone(metadata),options));
+  const fingerprint=rows=>rows.map(c=>({sequence:c.sequence,score:c.score,features:c.features}));
+  assert.equal(before[0].features.openingSupportAdjustment,600000);
+  assert.deepEqual(fingerprint(before),fingerprint(after));
+  const cache=createNativeColdCohortCache(native,limits());assert.equal(cache.observation().enabled,true);
+  cache.putValidatedPlan(original,before[0].sequence.map(({from,die})=>({from,die})));
+  assert.deepEqual(cache.getPlan(metadata),before[0].sequence.map(({from,die})=>({from,die})));
 });
 
 test('historical tuple is preserved; optimized, historical and mixed tuples never share a cache namespace', () => {

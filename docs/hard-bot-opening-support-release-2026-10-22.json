@@ -1,0 +1,39 @@
+{
+  "schema": "long-bot-opening-support-release-v1",
+  "preparedAt": "2026-10-22T12:40:37.938693+00:00",
+  "policyImplementationId": "944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3",
+  "bundleSha256": "dfc49fd55f9e40145a871ed7e08fdeee907f5774c32c416086fbf4379f2db457",
+  "source": {
+    "url": "https://www.youtube.com/watch?v=TPRAhnXwphw",
+    "title": "Длинные нарды. Что закрывать в начале игры.",
+    "author": "Rodion Chebotarov"
+  },
+  "change": "Advanced hard opening support geometry for stations 1/4/6 and 2/5/6, gated by native tactical safety. Single-face geometry is not a full-roll playability claim.",
+  "rulesAndNativeAnalysisBudgetsChanged": false,
+  "historicalExperienceAlias": false,
+  "serverAnalyzersReplacedByFrontendDeployment": false,
+  "preservedNativeRuntimeDigest": "532943b39b76a6abc54248bcb3d3df3a9b6547e9340842cdafbc975de3a12b1f",
+  "preservedCompatibleReleaseDigest": "2952314881dc5f347eb6e4ffd2948aff8a6749cd5b159a808182568fc456a8e1",
+  "oldArchivesAndCheckpointsMustRemain": true,
+  "winRateImprovementMeasured": false,
+  "files": {
+    "bot-engine/long/metrics.ts": "4ea8e7d377133810c9cb6318d6771ef2bfeab6e1aecc9d48a1a437a1be37d630",
+    "bot-engine/long/engine.ts": "fb4cf1f2afe858f3e7aad3d27c4bd21759818de37936ad0318ab91af636a473a",
+    "long-bot-engine.js": "dfc49fd55f9e40145a871ed7e08fdeee907f5774c32c416086fbf4379f2db457",
+    "game-controller.js": "985dcd4f9c4f66e00ecbac4766433c386d4c1572fe8d552354222d7f7b7f3912",
+    "rooms-client.js": "2afb8fdec104e6d113dbe8469febc69624818ebaa65466a83d08d64cad111a6f",
+    "long-neural-bot.js": "82f81b751fcdce13daf40ac64611d0b477ba26b0f3c8cdacc10987dccd3e6825",
+    "scripts/long-bot-paired-rollout.js": "92bca98ab6ae20007340e9fcecab81d5b2b0ea1dceab0f99c3a429992bfb71a6",
+    "scripts/evaluate-long-bot-neural.js": "6ab1fb70c1eeb1350fe0649b2d6a39b90e08a2c095b0a04eb17c40846a3669cd",
+    "scripts/verify-long-bot-learning-compatibility.js": "25b46feccad77e54b81285144e1f5b1fdef05180877d51dde1fe914f773d4a1c",
+    "tests/long-bot-opening-support.test.js": "ed68f39929fa4e42b25a94cd35b66631c391b6bef99a97136a050fb9333e1766",
+    "tests/long-bot-learning-compatibility.test.js": "d625be1b1fafe7b318ad7b60d51d3c5677fad4669f0e7eeb9b04fd48ba28ee85",
+    "tests/long-bot-learning-publication.test.js": "4fb7122d8ae1cdc71ba0e9b61f1a8722932ab0d452f887ff0c9557d9ce3ead80",
+    "tests/long-bot-learning-strategy-equivalence.test.js": "6747379a7c83e9dbb6a112c83d58faae302a456a7eeb0e1b736e8f762bc2143d",
+    "tests/long-bot-native-cohort-cache.test.js": "d39293235bacd9bfe7a5d2053755d7b045d9917942f2d7d07c5f59a49e81678c",
+    "tests/long-bot-neural-evaluation-50.test.js": "6ed2c27306de4bc4ff6b62350ffa3d4b04fab856bb10de4e180cfd9dfdcc5cd0",
+    "tests/neuro-controller.test.js": "6407923106b057b2508d904f87be08c323ae7fd81de871c14993771eae7d52c1",
+    "tests/neuro-runtime.test.js": "a88b6a68fc5cc7910d0587421a66aa370e72c9bd86274aa3e874ba5bd56f45e8",
+    "scripts/verify-long-bot-real-games.js": "bdced7c10e0642f098cc69b0840ba6bde2fddfe49b45b15a680287e580c3298d"
+  }
+}
