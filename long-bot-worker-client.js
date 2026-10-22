@@ -139,7 +139,9 @@
     return {
       stale: false,
       moves: normalizedMoves(result.moves),
-      decision: result.decision && typeof result.decision === 'object' ? result.decision : null,
+      decision: result.decision && typeof result.decision === 'object'
+        ? { ...result.decision, policyImplementationId: expected.policyImplementationId }
+        : null,
     };
   }
 

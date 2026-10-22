@@ -1066,6 +1066,8 @@ window.NarduController = (function () {
         }
         recordLongBotExperienceLoad({
           status: 'ready',
+          lessonAvailability: experienceSize > 0 ? 'available' : 'empty',
+          policyImplementationId: String(window.NarduLongBotEngine?.policyImplementationId || ''),
           durationMs: Date.now() - startedAt,
           attempts: attempt,
           patternCount: Array.isArray(patterns) ? patterns.length : 0,

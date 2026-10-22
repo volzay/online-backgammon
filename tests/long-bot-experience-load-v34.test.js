@@ -330,6 +330,20 @@ test('hard long game retries a failed memory load before freezing the session', 
   assert.equal(telemetry.patternCount, 1);
   assert.equal(telemetry.experienceSize, 17);
   assert.equal(telemetry.error, '');
+  assert.equal(telemetry.lessonAvailability, 'available');
+});
+
+test('an empty successful load is explicitly distinguished from applied learned experience', async () => {
+  const context = loadController(async () => []);
+  context.window.NarduLongBotEngine.__setExperienceSize(0);
+  context.window.NarduLongBotEngine.policyImplementationId = 'c'.repeat(64);
+  await context.window.NarduController.__test.loadLongBotExperienceBeforeStart();
+  const load = context.window.NarduController.getState().analysis.botMemory.experienceLoad;
+  assert.equal(load.status, 'ready');
+  assert.equal(load.lessonAvailability, 'empty');
+  assert.equal(load.patternCount, 0);
+  assert.equal(load.experienceSize, 0);
+  assert.equal(load.policyImplementationId, 'c'.repeat(64));
 });
 
 test('a fetched but unapplied experience snapshot is reported as a failure', async () => {

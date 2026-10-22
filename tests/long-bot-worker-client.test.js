@@ -135,7 +135,10 @@ test('long-bot client creates one versioned worker and sends immutable provenanc
   const result = await pending;
   assert.equal(result.stale, false);
   assert.deepEqual(JSON.parse(JSON.stringify(result.moves)), [{ from: 12, die: 3 }]);
-  assert.equal(result.decision, decision);
+  assert.notEqual(result.decision, decision);
+  assert.equal(result.decision.id, decision.id);
+  assert.equal(result.decision.policyImplementationId, 'policy-test');
+  assert.equal(decision.policyImplementationId, undefined);
 });
 
 test('long-bot client correlates concurrent plans by request id', async () => {
