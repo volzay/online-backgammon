@@ -932,7 +932,11 @@ window.NarduController = (function () {
       botAnalysisOwnershipUnknown = false;
       botAnalysisRestorePending = false;
       render();
-      queueBotAnalysisPublish(publishDelay);
+      // An authoritative restore already has an accepted board and version.
+      // Echoing it in the background can pause known dice on an unrelated
+      // metadata write failure. New games still publish their initial state;
+      // protected roll boundaries retain their awaited checkpoints.
+      if (!restored) queueBotAnalysisPublish(publishDelay);
       if (!skipAutoStart) {
         ensureAutoProgressAfterExperience(
           650,

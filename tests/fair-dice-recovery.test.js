@@ -338,3 +338,114 @@ for (const method of ['openingRoll', 'autoRoll']) test(`${method}: old request r
   assertNoLegacy(r.calls);
 });
 
+
+function startupEchoRig({ restored = true, rejectBackground = true, deferredRestore = null } = {}) {
+  const r = rig('autoRoll');
+  const c = r.context;
+  const saved = committedState(r, 'autoRoll', issue('autoRoll'));
+  recoverFrom(r, saved, 2);
+  const timers = [];
+  const writes = [];
+  Object.assign(c, {
+    state: clone(saved), botAnalysisStartupPromise: null,
+    botAnalysisConflictRedirected: false, botAnalysisReady: false,
+    botAnalysisDisabled: false, botAnalysisOwnershipUnknown: false,
+    botAnalysisRestorePending: true, gameOverPublishPromise: null,
+    variant: 'long', botDifficulty: 'hard', pending: {}, undoStack: [],
+    BOT_ANALYSIS_RESTORE_TIMEOUT_MS: 5000, LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS: 1000,
+    promiseWithTimeout: value => Promise.resolve(value),
+    restoreBotAnalysisState: async () => {
+      if (deferredRestore) return deferredRestore.promise;
+      c.botAnalysisReady = true;
+      c.botAnalysisVersion = restored ? 2 : 0;
+      return restored ? clone(saved) : null;
+    },
+    retainMatchedBotTelemetry: value => value,
+    adoptBotIdentity: () => r.calls.push('startup-adopt-identity'),
+    attachRuntimeStateFields: () => {},
+    validateNeuralBotAvailability: () => true,
+    longBotExperienceSessionKey: () => 'same-game',
+    persistBotGameConfig: () => {},
+    restoreCurrentTurnUndo: () => [],
+    persistRoomSnapshot: () => r.calls.push('startup-snapshot'),
+    ensureAutoProgressAfterExperience: () => r.calls.push('startup-progress'),
+    invalidateBotAnalysisEnsureAttempt: () => {},
+    canPublishBotAnalysis: () => true,
+    ensureBotAnalysisRoomReady: async () => true,
+  });
+  c.window.setTimeout = (callback, ms) => { timers.push({ callback, ms }); return timers.length; };
+  c.window.NarduRooms.putGameState = async () => {
+    r.calls.push('startup-background-put');
+    if (rejectBackground) throw Object.assign(new Error('Unneeded metadata checkpoint rejected'), { status: 422 });
+    return { version: 3 };
+  };
+  c.publishBotAnalysisState = () => {
+    const writing = c.writeBotAnalysisPayload({ payload: clone(c.state),
+      generation: c.botAnalysisStartupGeneration, code: c.remoteCode });
+    writes.push(writing); return writing;
+  };
+  vm.runInContext([
+    'function runBotAnalysisStartup(', 'function queueBotAnalysisPublish(',
+    'async function writeBotAnalysisPayload(',
+  ].map(extractFunction).join('\n'), c);
+  return { ...r, saved, timers,
+    start: () => c.runBotAnalysisStartup({ url: new URL(c.location.href), roomCode: c.remoteCode,
+      startupGeneration: c.botAnalysisStartupGeneration, publishDelay: 200, skipAutoStart: false }),
+    drain: async () => {
+      for (const timer of timers.splice(0)) timer.callback();
+      await Promise.all(writes);
+      await flush();
+    } };
+}
+
+test('startup restored: a failed unnecessary metadata echo cannot pause an already authoritative move', async () => {
+  const r = startupEchoRig();
+  assert.equal(await r.start(), true);
+  assert.deepEqual(clone(r.context.state), clone(r.saved));
+  assert.equal(r.context.botAnalysisVersion, 2);
+  await r.drain();
+  assert.equal(r.context.fairDiceError, '', 'An accepted saved move must not be frozen by a startup echo');
+  assert.equal(count(r.calls, 'startup-background-put'), 0, 'Authoritative restore needs no additional metadata PUT');
+  assert.equal(count(r.calls, 'startup-snapshot'), 1);
+  assert.equal(count(r.calls, 'startup-progress'), 1);
+  assert.equal(count(r.calls, 'request'), 0);
+  assert.equal(r.context.botAnalysisRestorePending, false);
+  assert.equal(r.context.botAnalysisReady, true);
+  assertNoLegacy(r.calls);
+});
+
+test('startup new room: an initial confirmed reservation still queues its initial state publication', async () => {
+  const r = startupEchoRig({ restored: false, rejectBackground: false });
+  assert.equal(await r.start(), true);
+  assert.equal(r.timers.length, 1);
+  await r.drain();
+  assert.equal(count(r.calls, 'startup-background-put'), 1);
+  assert.equal(count(r.calls, 'startup-progress'), 1);
+  assert.equal(r.context.botAnalysisVersion, 3);
+  assert.equal(r.context.fairDiceError, '');
+  assertNoLegacy(r.calls);
+});
+
+test('startup old generation: a late restore cannot queue a publication or change the new game', async () => {
+  const pendingRestore = deferred();
+  const r = startupEchoRig({ deferredRestore: pendingRestore });
+  const running = r.start();
+  await flush();
+  const fresh = clone(r.saved);
+  fresh.startedAt += 10000;
+  r.context.state = fresh;
+  r.context.botAnalysisStartupGeneration += 1;
+  const newerStartup = Promise.resolve('new startup owns this slot');
+  r.context.botAnalysisStartupPromise = newerStartup;
+  r.context.botAnalysisReady = true;
+  r.context.botAnalysisRestorePending = false;
+  pendingRestore.resolve(r.saved);
+  assert.equal(await running, false);
+  assert.deepEqual(clone(r.context.state), fresh);
+  assert.equal(r.context.botAnalysisStartupPromise, newerStartup);
+  assert.equal(r.timers.length, 0);
+  assert.equal(count(r.calls, 'startup-progress'), 0);
+  assert.equal(count(r.calls, 'startup-background-put'), 0);
+  assert.equal(r.context.fairDiceError, '');
+  assertNoLegacy(r.calls);
+});
