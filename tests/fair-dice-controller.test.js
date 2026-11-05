@@ -40,7 +40,7 @@ function extractFunction(signature) {
 const sources = [
   'function compactRollText(', 'function expandRollValues(', 'function boardDiceFaces(',
   'function visualAnimationWithDeadline(',
-  'async function shaDiceRoll(', 'async function handleFairDiceFailure(',
+  'async function shaDiceRoll(', 'async function verifyRestoredFairDiceState(', 'async function handleFairDiceFailure(',
   'function ensureAutoProgress(', 'async function openingRoll(', 'async function autoRoll(',
 ].map(extractFunction).join('\n');
 

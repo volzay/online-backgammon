@@ -1880,11 +1880,48 @@ window.NarduController = (function () {
     }
   }
 
+  async function verifyRestoredFairDiceState(current, policy, roomCode) {
+    const saved = current?.state;
+    if (!saved || !Number.isSafeInteger(current.version) || current.version < 0
+      || saved.roomCode !== roomCode || saved.variant !== state.variant
+      || !['move', 'opening-result'].includes(saved.phase)
+      || typeof window.NarduFairDice?.verifyProof !== 'function'
+      || !/^[0-9a-f]{64}$/.test(window.NARDU_ENV?.fairDicePublicKey || '')) return false;
+    const event = saved.history?.find(item => item.opening || item.roll);
+    const proof = event?.fairDiceProof;
+    const opening = saved.phase === 'opening-result';
+    const protocol = policy.protocol || 'drand-quicknet-v1';
+    if (!proof || proof.protocol !== protocol || Boolean(event.opening) !== opening
+      || !['drand-quicknet-v1', 'system-csprng-v1'].includes(protocol)
+      || !Array.isArray(proof.dice) || proof.dice.length !== 2
+      || event.sha256 !== proof.sha256) return false;
+    if (opening) {
+      if (saved.openingRoll?.fairDiceProof?.request?.id !== proof.request?.id
+        || saved.openingRoll?.host?.die !== proof.dice[0]
+        || saved.openingRoll?.guest?.die !== proof.dice[1]) return false;
+    } else if (event.color !== saved.turn
+      || JSON.stringify(saved.rolled) !== JSON.stringify(expandRollValues(proof.dice))) return false;
+    try {
+      const verified = await window.NarduFairDice.verifyProof(proof, {
+        publicKey: window.NARDU_ENV.fairDicePublicKey,
+        context: { roomCode, gameId: policy.gameId, variant: saved.variant,
+          label: opening ? 'opening' : 'roll', color: opening ? 'none' : saved.turn },
+      });
+      return verified.reservationVerified === true
+        && (protocol === 'system-csprng-v1' ? verified.commitmentVerified === true : verified.sourceVerified === true);
+    } catch { return false; }
+  }
+
   async function handleFairDiceFailure(error) {
     if (!remoteCode || mode === 'hotseat') return false;
+    const code = remoteCode;
+    const generation = botAnalysisStartupGeneration;
+    const startedAt = state?.startedAt;
+    const sameGame = () => code === remoteCode && generation === botAnalysisStartupGeneration
+      && startedAt === state?.startedAt;
     let policy;
-    try { policy = await window.NarduRooms?.fairDicePolicy?.(remoteCode); } catch { return false; }
-    if (!policy?.required) return false;
+    try { policy = await window.NarduRooms?.fairDicePolicy?.(code); } catch { return false; }
+    if (!policy?.required || !sameGame()) return false;
     fairDiceError = lang() === 'en'
       ? 'Verified dice are temporarily unavailable. Refresh the page: the same roll is preserved.'
       : 'Подтверждённый бросок временно недоступен. Обновите страницу: этот же бросок сохранён.';
@@ -1892,14 +1929,28 @@ window.NarduController = (function () {
     cancelBotTurnActivity();
     undoStack = [];
     try {
-      const current = await window.NarduRooms.getGameState(remoteCode);
+      const current = await window.NarduRooms.getGameState(code);
+      if (!sameGame()) return false;
+      const status = Number(error?.status);
+      // An uncertain write may already have committed. Resume only the
+      // authoritative saved roll, after checking its signed proof again.
+      // Rejected signatures, protocols and client input stay paused.
+      const retryable = (!Number.isInteger(status) || status >= 500 || [408, 409, 429].includes(status))
+        && (!/^FAIR_/.test(error?.code || '')
+          || ['FAIR_DICE_UNAVAILABLE', 'FAIR_DICE_STORE_ERROR'].includes(error.code));
+      const recovered = retryable && current.state?.startedAt === startedAt
+        && await verifyRestoredFairDiceState(current, policy, code);
+      if (!sameGame()) return false;
+      const latestVersion = mode === 'bot' ? botAnalysisVersion : remoteVersion;
+      if (!Number.isSafeInteger(current.version) || current.version < latestVersion
+        || current.state?.startedAt !== startedAt || current.state?.roomCode !== code) return false;
       if (current.state) state = normalizeRestoredState(current.state, new URL(location.href));
-      if (Number.isFinite(current.version)) {
-        if (mode === 'bot') botAnalysisVersion = current.version;
-        else remoteVersion = current.version;
-      }
+      if (mode === 'bot') botAnalysisVersion = current.version;
+      else remoteVersion = current.version;
+      if (recovered) fairDiceError = '';
     } catch { /* Remain paused; do not synthesize a replacement roll. */ }
     render();
+    if (!fairDiceError) ensureAutoProgress(200);
     return true;
   }
 
@@ -3154,6 +3205,7 @@ window.NarduController = (function () {
     const user = window.NarduApp?.getUser?.();
     const startedAt = state.startedAt;
     const generation = botAnalysisStartupGeneration;
+    const rollingRoom = remoteCode;
     isRolling = true;
     try {
       NarduSound.prime();
@@ -3219,8 +3271,10 @@ window.NarduController = (function () {
           finishOpeningRollAnimation(error);
         });
     } catch (error) {
+      if (generation !== botAnalysisStartupGeneration || state.startedAt !== startedAt || remoteCode !== rollingRoom) return;
       console.warn('Opening roll failed', error?.message || error);
       await handleFairDiceFailure(error);
+      if (generation !== botAnalysisStartupGeneration || state.startedAt !== startedAt || remoteCode !== rollingRoom) return;
       isRolling = false;
       render();
       ensureAutoProgress(800);
@@ -3246,6 +3300,7 @@ window.NarduController = (function () {
     const rollingTurn = state.turn;
     const startedAt = state.startedAt;
     const generation = botAnalysisStartupGeneration;
+    const rollingRoom = remoteCode;
     isRolling = true;
     try {
       NarduSound.prime();
@@ -3303,8 +3358,10 @@ window.NarduController = (function () {
           finishTurnRollAnimation(rollingTurn, error);
         });
     } catch (error) {
+      if (generation !== botAnalysisStartupGeneration || state.startedAt !== startedAt || remoteCode !== rollingRoom) return;
       console.warn('Turn roll failed', error?.message || error);
       await handleFairDiceFailure(error);
+      if (generation !== botAnalysisStartupGeneration || state.startedAt !== startedAt || remoteCode !== rollingRoom) return;
       isRolling = false;
       render();
       ensureAutoProgress(800);
