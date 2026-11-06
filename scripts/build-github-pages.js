@@ -31,6 +31,11 @@ const STATIC_FILES = [
   "homegate.css",
   "verify-game.css",
   "roll-verification.css",
+  "ultrabot/index.html",
+  "ultrabot/styles.css",
+  "ultrabot/match.js",
+  "experiments/ultrabot/player-test.js",
+  "experiments/ultrabot/worker.js",
   "app.js",
   "runtime-config.js",
   "supabase-client.js",
@@ -80,14 +85,14 @@ function copyFile(file) {
 
 function versionStaticAssets() {
   const htmlFiles = STATIC_FILES.filter(file => file.endsWith(".html"));
-  const assetFiles = STATIC_FILES
-    .filter(file => file.endsWith(".js") || file.endsWith(".css"))
-    .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const assetFiles = STATIC_FILES.filter(file => file.endsWith(".js") || file.endsWith(".css"));
   if (!assetFiles.length) return;
-  const assetPattern = new RegExp(`(src|href)="(${assetFiles.join("|")})(?:\\?v=[^"]*)?"`, "g");
   htmlFiles.forEach(file => {
     const target = path.join(DIST, file);
     if (!fs.existsSync(target)) return;
+    const assets = assetFiles.map(asset => path.posix.relative(path.posix.dirname(file), asset))
+      .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const assetPattern = new RegExp(`(src|href)="(${assets.join("|")})(?:\\?v=[^"]*)?"`, "g");
     const html = fs.readFileSync(target, "utf8").replace(assetPattern, `$1="$2?v=${BUILD_VERSION}"`);
     fs.writeFileSync(target, html);
   });

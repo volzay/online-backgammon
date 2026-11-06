@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Тестовая партия в длинные нарды с Ultrabot без рейтинга и входа в аккаунт.">
+  <meta name="theme-color" content="#f5eee3">
+  <title>Партия с Ultrabot — длинные нарды</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23ce9b55%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2710%27 fill=%27none%27 stroke=%27%23694727%27 stroke-width=%272%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="../game.js" defer></script>
+  <script src="../experiments/ultrabot/player-test.js" defer></script>
+  <script src="match.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="intro">
+      <p class="eyebrow">Длинные нарды</p>
+      <h1>Партия с Ultrabot</h1>
+      <p class="trial-label">Тестовая партия · Без рейтинга</p>
+      <p class="intro-note">Состояние партии остаётся в браузере на этом устройстве. Вход в аккаунт не нужен.</p>
+    </header>
+
+    <section class="match" aria-label="Партия в длинные нарды">
+      <div class="table">
+        <div class="turn-panel">
+          <div class="turn-message">
+            <span class="caption">Ход партии</span>
+            <p id="status" role="status">Подготавливаем доску…</p>
+          </div>
+          <div class="dice-panel">
+            <span class="caption">Кубики</span>
+            <strong id="dice">—</strong>
+          </div>
+        </div>
+
+        <div class="board-frame">
+          <div id="board" class="board" role="group" aria-label="Доска длинных нард" aria-describedby="board-help"></div>
+        </div>
+        <p id="board-help" class="board-help">Выберите шашку, затем нажмите на подсвеченный пункт.</p>
+      </div>
+
+      <aside class="tools" aria-label="Управление партией">
+        <h2>Снятые шашки</h2>
+        <dl class="off-counts">
+          <div class="off-count">
+            <dt><span class="checker white" aria-hidden="true"></span>Белые</dt>
+            <dd id="white-off">0</dd>
+          </div>
+          <div class="off-count">
+            <dt><span class="checker dark" aria-hidden="true"></span>Тёмные</dt>
+            <dd id="dark-off">0</dd>
+          </div>
+        </dl>
+        <div class="controls">
+          <button id="roll" class="primary" type="button" disabled>Бросить кубики</button>
+          <button id="bear-off" type="button" disabled>Снять шашку</button>
+          <button id="undo" type="button" disabled>Отменить</button>
+          <button id="new-game" type="button">Новая партия</button>
+        </div>
+      </aside>
+    </section>
+    <noscript><p class="notice">Для игры в этом браузере нужен JavaScript.</p></noscript>
+  </main>
+</body>
+</html>
