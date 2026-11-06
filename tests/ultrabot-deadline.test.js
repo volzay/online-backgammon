@@ -79,7 +79,7 @@ test('typed frozen-model inference preserves the original numeric result', () =>
   assert.equal(checks, 2);
 });
 
-function workerMessages(state, cutOff) {
+function workerMessages(state, cutOffSearch) {
   const workerDir = path.join(root, 'experiments/ultrabot');
   const messages = [];
   let clock = 0;
@@ -93,27 +93,47 @@ function workerMessages(state, cutOff) {
   };
   context.postMessage = message => {
     messages.push(plain(message));
-    if (cutOff && message.stage === 'provisional' && message.search === 'static') clock = 9000;
+    if (message.stage === 'provisional' && message.search === cutOffSearch) clock = 9000;
   };
   vm.runInContext(read('experiments/ultrabot/worker.js'), context);
   context.onmessage({ data: { id: 'ultrabot-player-test-v1', state } });
   return messages;
 }
 
-test('completed forecast matches V2; deadline returns the already certified neural plan', () => {
+test('a deadline returns the latest certified neural forecast', () => {
   const game = nativeGame();
   const state = roll(game, [3, 4]);
   const expected = neural.createNeuralBot(game, model, {
-    maxCandidates: 32, replyTopCandidates: 4, replyCandidates: 4, replyWeight: 0.35,
+    maxCandidates: 32, replyTopCandidates: 6, replyCandidates: 4, replyWeight: 0.35,
   }).plan(state);
-  const full = workerMessages(state, false);
+  const full = workerMessages(state, 'full');
   assert.equal(full.at(-1).stage, 'complete');
   assert.equal(full.at(-1).search, 'full');
   assert.deepEqual(full.at(-1).moves, plain(expected));
-  const cutOff = workerMessages(state, true);
+  const cutOff = workerMessages(state, 'static');
   assert.equal(cutOff.at(-1).stage, 'complete');
   assert.equal(cutOff.at(-1).search, 'static');
   assert.deepEqual(cutOff.at(-1).moves, cutOff.at(-2).moves);
+});
+
+test('positional review prefers home entry over rearranging two checkers already home', () => {
+  const game = nativeGame();
+  const stacks = (color, counts) => Object.fromEntries(Object.entries(counts)
+    .map(([point, count]) => [point, { color, count }]));
+  const state = roll(game, [4, 1], {
+    points: {
+      ...stacks('white', { 1: 1, 3: 4, 4: 4, 5: 2, 6: 2, 11: 1, 20: 1 }),
+      ...stacks('dark', { 13: 3, 14: 1, 15: 1, 16: 3, 17: 2, 18: 4, 21: 1 }),
+    },
+    firstMoveDone: { white: true, dark: true },
+  });
+  const messages = workerMessages(state);
+  const neural = messages.find(message => message.stage === 'provisional' && message.search === 'full');
+  const selected = messages.at(-1);
+  assert.deepEqual(neural.moves, [{ from: 6, die: 1 }, { from: 5, die: 4 }]);
+  assert.equal(selected.stage, 'complete');
+  assert.equal(selected.search, 'full');
+  assert.deepEqual(selected.moves, [{ from: 11, die: 1 }, { from: 10, die: 4 }]);
 });
 
 test('client keeps the latest certified provisional move when the 12-second watchdog fires', async () => {

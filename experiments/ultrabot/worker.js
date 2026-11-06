@@ -3,7 +3,7 @@
 const id = 'ultrabot-player-test-v1';
 const searchOptions = Object.freeze({
   maxCandidates: 32,
-  replyTopCandidates: 4,
+  replyTopCandidates: 6,
   replyCandidates: 4,
   replyWeight: 0.35,
 });
@@ -25,12 +25,44 @@ const originalCore = self.NarduLongNeural;
 self.NarduLongNeural = self.NarduUltrabotInference.createCore(originalCore, checkBudget);
 load('../../lib/long-bot-neural-v2.js');
 self.NarduLongNeural = originalCore;
-load('../../vendor/long-neural/model-v2.js', '../../long-neural-bot.js');
+load('../../vendor/long-neural/model-v2.js', '../../long-neural-bot.js', '../../long-bot-engine.js');
 
 const rules = self.NarduUltrabotRules.createAdapter(self.NarduGame, checkBudget);
 const movesOnly = sequence => sequence.map(({ from, die }) => ({ from, die }));
 const sameMoves = (sequence, moves) => sequence.length === moves.length
   && sequence.every(({ from, die }, index) => from === moves[index].from && die === moves[index].die);
+
+function reviewCloseMoves(state, rows, certifiedSequence) {
+  const [neuralChoice, ...alternatives] = rows;
+  if (!alternatives.length || neuralChoice.afterState.winner || neuralChoice.forcedNextTurnLoss) {
+    return neuralChoice.moves;
+  }
+
+  // The analytic evaluator prices fences, escape routes and home entry.
+  // Its raw units are unrelated to the neural utility, so bound its influence.
+  const maxBonus = 0.04;
+  const review = row => {
+    checkBudget();
+    return self.NarduLongBotEngine.reviewSequenceStatic(state, certifiedSequence(row.moves))?.score;
+  };
+  const baseline = review(neuralChoice);
+  if (!Number.isFinite(baseline)) return neuralChoice.moves;
+  let best = neuralChoice;
+  let bestScore = best.score;
+  for (const row of alternatives) {
+    if (row.score + maxBonus <= bestScore || row.forcedNextTurnLoss
+      || row.opponentImmediateWinProbability > neuralChoice.opponentImmediateWinProbability) continue;
+    const score = review(row);
+    if (!Number.isFinite(score)) return neuralChoice.moves;
+    const combined = row.score + Math.min(maxBonus, (score - baseline) / 1e9);
+    if (combined > bestScore) {
+      best = row;
+      bestScore = combined;
+    }
+  }
+  checkBudget();
+  return best.moves;
+}
 
 self.onmessage = ({ data }) => {
   const start = performance.now();
@@ -65,13 +97,18 @@ self.onmessage = ({ data }) => {
         return rules.bestMoveSequences(position, color);
       },
     };
+    function certifiedSequence(moves) {
+      const sequence = rootSequences.find(candidate => sameMoves(candidate, moves));
+      if (!sequence) throw new Error('Ultrabot preview turn rejected by the rules');
+      return sequence;
+    }
+
     function search(options, name) {
       const bot = self.NarduLongNeuralV2.createNeuralBot(searchRules, model, options);
-      const moves = bot.plan(state);
-      if (!rootSequences.some(sequence => sameMoves(sequence, moves))) {
-        throw new Error('Ultrabot preview turn rejected by the rules');
-      }
+      const rows = bot.rank(state);
+      const moves = movesOnly(certifiedSequence(rows[0].moves));
       incumbent = { moves, search: name };
+      return rows;
     }
 
     deadline = start + staticBudgetMs;
@@ -83,7 +120,10 @@ self.onmessage = ({ data }) => {
     }
     deadline = start + searchBudgetMs;
     try {
-      search(searchOptions, 'full');
+      const rows = search(searchOptions, 'full');
+      post('provisional');
+      const moves = reviewCloseMoves(state, rows, certifiedSequence);
+      incumbent = { moves: movesOnly(certifiedSequence(moves)), search: 'full' };
     } catch (error) {
       if (error !== budgetExpired) throw error;
     }
