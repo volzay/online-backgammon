@@ -25,7 +25,7 @@ const originalCore = self.NarduLongNeural;
 self.NarduLongNeural = self.NarduUltrabotInference.createCore(originalCore, checkBudget);
 load('../../lib/long-bot-neural-v2.js');
 self.NarduLongNeural = originalCore;
-load('../../vendor/long-neural/model-v2.js', '../../long-neural-bot.js', '../../long-bot-engine.js');
+load('../../vendor/long-neural/model-v2.js', '../../long-neural-bot.js');
 
 const rules = self.NarduUltrabotRules.createAdapter(self.NarduGame, checkBudget);
 const movesOnly = sequence => sequence.map(({ from, die }) => ({ from, die }));
@@ -38,12 +38,31 @@ function reviewCloseMoves(state, rows, certifiedSequence) {
     return neuralChoice.moves;
   }
 
+  checkBudget();
+  try {
+    if (!self.NarduLongBotEngine) load('../../long-bot-engine.js');
+  } catch {
+    return neuralChoice.moves;
+  }
+  const engine = self.NarduLongBotEngine;
+  if (typeof engine?.reviewSequenceStatic !== 'function') return neuralChoice.moves;
+
   // The analytic evaluator prices fences, escape routes and home entry.
   // Its raw units are unrelated to the neural utility, so bound its influence.
   const maxBonus = 0.04;
   const review = row => {
     checkBudget();
-    return self.NarduLongBotEngine.reviewSequenceStatic(state, certifiedSequence(row.moves))?.score;
+    const sequence = certifiedSequence(row.moves);
+    try {
+      const result = engine.reviewSequenceStatic(state, sequence);
+      if (result?.scoreSemantics === 'long-static-evaluator-v1'
+        && result.scoreIncludesTacticalSearch === false && result.scoreIncludesExperience === false) {
+        return result.score;
+      }
+    } catch {
+      // The completed neural plan remains playable if the adviser fails.
+    }
+    return null;
   };
   const baseline = review(neuralChoice);
   if (!Number.isFinite(baseline)) return neuralChoice.moves;

@@ -79,7 +79,7 @@ test('typed frozen-model inference preserves the original numeric result', () =>
   assert.equal(checks, 2);
 });
 
-function workerMessages(state, cutOffSearch) {
+function workerMessages(state, cutOffSearch, loadAdviser = true) {
   const workerDir = path.join(root, 'experiments/ultrabot');
   const messages = [];
   let clock = 0;
@@ -89,7 +89,10 @@ function workerMessages(state, cutOffSearch) {
   });
   context.self = context;
   context.importScripts = (...paths) => {
-    for (const file of paths) vm.runInContext(fs.readFileSync(path.resolve(workerDir, file), 'utf8'), context);
+    for (const file of paths) {
+      if (!loadAdviser && file.endsWith('/long-bot-engine.js')) throw new Error('Test adviser unavailable');
+      vm.runInContext(fs.readFileSync(path.resolve(workerDir, file), 'utf8'), context);
+    }
   };
   context.postMessage = message => {
     messages.push(plain(message));
@@ -134,6 +137,10 @@ test('positional review prefers home entry over rearranging two checkers already
   assert.equal(selected.stage, 'complete');
   assert.equal(selected.search, 'full');
   assert.deepEqual(selected.moves, [{ from: 11, die: 1 }, { from: 10, die: 4 }]);
+  const missingAdviser = workerMessages(state, undefined, false).at(-1);
+  assert.equal(missingAdviser.stage, 'complete');
+  assert.equal(missingAdviser.search, 'full');
+  assert.deepEqual(missingAdviser.moves, neural.moves);
 });
 
 test('client keeps the latest certified provisional move when the 12-second watchdog fires', async () => {
