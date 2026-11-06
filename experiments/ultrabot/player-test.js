@@ -27,9 +27,16 @@
   function plan(detachedRulesState) {
     return new Promise((resolve, reject) => {
       const worker = new Worker(workerUrl, { name: id });
-      const timeout = setTimeout(() => finish(new Error('Ультработ не успел выбрать ход.')), timeoutMs);
+      let provisional = null;
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (provisional !== null) finish(null, provisional);
+        else finish(new Error('Ультработ не успел выбрать ход.'));
+      }, timeoutMs);
 
       function finish(error, moves) {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeout);
         worker.terminate();
         if (error) reject(error);
@@ -44,7 +51,9 @@
           finish(new Error('Ультработ не смог выбрать допустимый ход.'));
           return;
         }
-        finish(null, data.moves);
+        if (data.stage === 'provisional') provisional = data.moves;
+        else if (data.stage === 'complete') finish(null, data.moves);
+        else finish(new Error('Не удалось прочитать ход Ультработа.'));
       };
       worker.onerror = () => finish(new Error('Не удалось запустить Ультработа.'));
       worker.onmessageerror = () => finish(new Error('Не удалось прочитать ход Ультработа.'));

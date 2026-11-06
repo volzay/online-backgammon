@@ -142,7 +142,7 @@
         render();
       }
       const rules = { ...structuredClone(state), history: [] };
-      const moves = game.hasAnyMoves(rules) ? await bot.plan(rules) : [];
+      const moves = game.legalNextMoves(rules).length ? await bot.plan(rules) : [];
       if (pendingBot !== request) return;
       // Apply to a copy so an invalid or incomplete plan cannot change the game.
       const next = structuredClone(state);
