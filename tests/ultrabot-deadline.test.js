@@ -143,6 +143,31 @@ test('positional review prefers home entry over rearranging two checkers already
   assert.deepEqual(missingAdviser.moves, neural.moves);
 });
 
+test('under Mars pressure the forecast helps the rear checker around occupied points', () => {
+  const game = nativeGame();
+  const stacks = (color, counts) => Object.fromEntries(Object.entries(counts)
+    .map(([point, count]) => [point, { color, count }]));
+  const state = roll(game, [3, 1], {
+    turn: 'dark',
+    points: {
+      ...stacks('white', { 1: 4, 5: 2, 6: 5, 9: 3, 10: 1 }),
+      ...stacks('dark', { 3: 1, 4: 1, 7: 1, 8: 1, 11: 1, 13: 1, 15: 1, 16: 5, 17: 2, 18: 1 }),
+    },
+    firstMoveDone: { white: true, dark: true },
+  });
+  const messages = workerMessages(state);
+  const prior = messages.at(-2);
+  const rescue = messages.at(-1);
+  assert.equal(prior.stage, 'provisional');
+  assert.equal(prior.search, 'full');
+  assert.deepEqual(prior.moves, [{ from: 3, die: 1 }, { from: 2, die: 3 }]);
+  assert.equal(rescue.stage, 'complete');
+  assert.deepEqual(rescue.moves, [{ from: 11, die: 3 }, { from: 3, die: 1 }]);
+  assert(game.bestMoveSequences(state).some(sequence => sequence.length === rescue.moves.length
+    && sequence.every(({ from, die }, index) => from === rescue.moves[index].from
+      && die === rescue.moves[index].die)));
+});
+
 test('client keeps the latest certified provisional move when the 12-second watchdog fires', async () => {
   const location = new URL('https://example.test/online-backgammon/ultrabot/');
   let worker;

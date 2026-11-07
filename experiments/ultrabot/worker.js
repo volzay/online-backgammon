@@ -83,6 +83,74 @@ function reviewCloseMoves(state, rows, certifiedSequence) {
   return best.moves;
 }
 
+// Estimate how many single dice a checker needs to enter home if the
+// opponent's points stay put. Blocked faces wait, and routes can jump blocks.
+function homeRouteCosts(state, color, opponent) {
+  const path = rules.pathFor(color, state);
+  const costs = new Map();
+  const unreachable = 6 * path.length + 1;
+  for (let index = path.length - 1; index >= 0; index--) {
+    const point = path[index];
+    if (state.points[point]?.color === opponent) continue;
+    if (index >= 18) {
+      costs.set(point, 0);
+      continue;
+    }
+    let sum = 6;
+    let exits = 0;
+    for (const next of path.slice(index + 1, index + 7)) {
+      const cost = costs.get(next);
+      if (cost === undefined || cost === unreachable) continue;
+      sum += cost;
+      exits++;
+    }
+    costs.set(point, exits ? sum / exits : unreachable);
+  }
+  return costs;
+}
+
+function preferFirstBearOff(state, rows, moves, certifiedSequence) {
+  const color = state.turn;
+  const opponent = rules.opponentOf(color);
+  if (state.off[color] > 0 || rows.length < 2
+    || rules.pipsFor(state, color) - rules.pipsFor(state, opponent) < 36) return moves;
+  const opponentHome = rules.pathFor(opponent, state).slice(18).reduce((total, point) => {
+    const stack = state.points[point];
+    return total + (stack?.color === opponent ? stack.count : 0);
+  }, state.off[opponent]);
+  if (opponentHome < 8) return moves;
+
+  const choice = rows.find(row => row.moves === moves);
+  if (choice.afterState.winner || choice.afterState.off[color] > 0) return moves;
+  const costs = homeRouteCosts(state, color, opponent);
+  const routeGain = row => certifiedSequence(row.moves).reduce((gain, move) =>
+    gain + costs.get(move.from) - (move.bearOff ? 0 : costs.get(move.to)), 0);
+  const initialGain = routeGain(choice);
+  const initialResult = rules.resultTypeFor(choice.afterState, opponent);
+  let best = choice;
+  let bestScore = choice.score;
+  for (const row of rows) {
+    checkBudget();
+    if (row === choice || row.opponentImmediateWinProbability > choice.opponentImmediateWinProbability) continue;
+    if (row.afterState.off[color] > 0) {
+      if (choice.opponentImmediateWinProbability > 0 || row.score + 0.04 > choice.score) return row.moves;
+      continue;
+    }
+    if (choice.forcedNextTurnLoss || (initialResult === 'mars'
+      && rules.resultTypeFor(row.afterState, opponent) === 'koks')) continue;
+    const improvement = routeGain(row) - initialGain;
+    if (improvement < 0.5) continue;
+    // Preserve the forecast unless the open route makes up the utility gap.
+    const score = row.score + Math.min(0.04, 0.018 * improvement);
+    if (score > bestScore) {
+      best = row;
+      bestScore = score;
+    }
+  }
+  checkBudget();
+  return best.moves;
+}
+
 self.onmessage = ({ data }) => {
   const start = performance.now();
   deadline = start + searchBudgetMs;
@@ -142,7 +210,12 @@ self.onmessage = ({ data }) => {
       const rows = search(searchOptions, 'full');
       post('provisional');
       const moves = reviewCloseMoves(state, rows, certifiedSequence);
-      incumbent = { moves: movesOnly(certifiedSequence(moves)), search: 'full' };
+      if (moves !== rows[0].moves) {
+        incumbent = { moves: movesOnly(certifiedSequence(moves)), search: 'full' };
+        post('provisional');
+      }
+      const rescue = preferFirstBearOff(state, rows, moves, certifiedSequence);
+      incumbent = { moves: movesOnly(certifiedSequence(rescue)), search: 'full' };
     } catch (error) {
       if (error !== budgetExpired) throw error;
     }
