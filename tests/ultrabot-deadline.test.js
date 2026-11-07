@@ -119,10 +119,11 @@ test('a deadline returns the latest certified neural forecast', () => {
   assert.deepEqual(cutOff.at(-1).moves, cutOff.at(-2).moves);
 });
 
+const stacks = (color, counts) => Object.fromEntries(Object.entries(counts)
+  .map(([point, count]) => [point, { color, count }]));
+
 test('positional review prefers home entry over rearranging two checkers already home', () => {
   const game = nativeGame();
-  const stacks = (color, counts) => Object.fromEntries(Object.entries(counts)
-    .map(([point, count]) => [point, { color, count }]));
   const state = roll(game, [4, 1], {
     points: {
       ...stacks('white', { 1: 1, 3: 4, 4: 4, 5: 2, 6: 2, 11: 1, 20: 1 }),
@@ -145,8 +146,6 @@ test('positional review prefers home entry over rearranging two checkers already
 
 test('under Mars pressure the forecast helps the rear checker around occupied points', () => {
   const game = nativeGame();
-  const stacks = (color, counts) => Object.fromEntries(Object.entries(counts)
-    .map(([point, count]) => [point, { color, count }]));
   const state = roll(game, [3, 1], {
     turn: 'dark',
     points: {
@@ -166,6 +165,20 @@ test('under Mars pressure the forecast helps the rear checker around occupied po
   assert(game.bestMoveSequences(state).some(sequence => sequence.length === rescue.moves.length
     && sequence.every(({ from, die }, index) => from === rescue.moves[index].from
       && die === rescue.moves[index].die)));
+});
+
+test('route advice cannot override the plan if it leaves the slowest checkers blocked', () => {
+  const game = nativeGame();
+  const state = roll(game, [4, 1], {
+    points: {
+      ...stacks('white', { 1: 2, 3: 1, 5: 1, 8: 1, 10: 5, 11: 2, 19: 1, 23: 2 }),
+      ...stacks('dark', { 2: 1, 6: 1, 9: 1, 13: 4, 14: 2, 15: 3, 16: 1, 17: 1, 18: 1 }),
+    },
+    firstMoveDone: { white: true, dark: true },
+  });
+  const messages = workerMessages(state);
+  assert.equal(messages.at(-1).stage, 'complete');
+  assert.deepEqual(messages.at(-1).moves, [{ from: 8, die: 1 }, { from: 7, die: 4 }]);
 });
 
 test('client keeps the latest certified provisional move when the 12-second watchdog fires', async () => {

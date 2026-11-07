@@ -125,7 +125,10 @@ function preferFirstBearOff(state, rows, moves, certifiedSequence) {
   const costs = homeRouteCosts(state, color, opponent);
   const routeGain = row => certifiedSequence(row.moves).reduce((gain, move) =>
     gain + costs.get(move.from) - (move.bearOff ? 0 : costs.get(move.to)), 0);
+  const longestRoute = row => Object.entries(row.afterState.points).reduce((longest, [point, stack]) =>
+    stack.color === color ? Math.max(longest, costs.get(Number(point))) : longest, 0);
   const initialGain = routeGain(choice);
+  const initialLongestRoute = longestRoute(choice);
   const initialResult = rules.resultTypeFor(choice.afterState, opponent);
   let best = choice;
   let bestScore = choice.score;
@@ -139,7 +142,7 @@ function preferFirstBearOff(state, rows, moves, certifiedSequence) {
     if (choice.forcedNextTurnLoss || (initialResult === 'mars'
       && rules.resultTypeFor(row.afterState, opponent) === 'koks')) continue;
     const improvement = routeGain(row) - initialGain;
-    if (improvement < 0.5) continue;
+    if (improvement < 0.5 || longestRoute(row) >= initialLongestRoute) continue;
     // Preserve the forecast unless the open route makes up the utility gap.
     const score = row.score + Math.min(0.04, 0.018 * improvement);
     if (score > bestScore) {
