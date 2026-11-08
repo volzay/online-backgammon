@@ -1029,7 +1029,16 @@ test('v35 consumes causal v9 only from live server RPC and never from local cach
   const context = {
     window: {
       NarduLongBotEngine: { version: ENGINE_VERSION, policyImplementationId: policyImplementationId(), setExperience(patterns, source) { applied.push({ patterns, source }); } },
-      NarduSupabase: { configured() { return true; }, async client() { return { async rpc() { return { data: [pattern], error: null }; } }; } },
+      NarduSupabase: {
+        configured() { return true; },
+        async client() {
+          return { async rpc(name, args) {
+            assert.equal(name, 'load_current_long_bot_experience');
+            assert.equal(args.p_policy_implementation_id, pattern.policyImplementationId);
+            return { data: { policyImplementationId: pattern.policyImplementationId, patterns: [pattern] }, error: null };
+          } };
+        },
+      },
     },
     localStorage: { getItem(key) { return storage.get(key) ?? null; }, setItem(key, value) { storage.set(key, value); }, removeItem(key) { storage.delete(key); } },
     Date, Math, JSON, Map, Uint8Array, TextEncoder, fetch, console,
@@ -1056,8 +1065,10 @@ test('a v35 tab rejects live causal patterns from another policy implementation 
     };
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8'), context);
-    const result = await context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' });
-    assert.equal(result.length, 0);
+    await assert.rejects(
+      context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' }),
+      { code: 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE' },
+    );
     assert.equal(applied.some(patterns => patterns.length > 0), false);
   }
   const { createBrowserLongBotEngine: createRawBrowserEngine } = await import(pathToFileURL(path.join(ROOT, 'bot-engine/long/browser.ts')).href);
