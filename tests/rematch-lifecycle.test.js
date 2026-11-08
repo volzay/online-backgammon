@@ -310,6 +310,7 @@ function finishedGameContext({
     opponent: mode === "remote" ? "Opponent" : "Hard bot",
     opponentRating: 1500,
     skipAutoStart: true,
+    freshGame: mode === "bot",
   });
   const state = controller.getState();
   state.phase = autoFinish ? "over" : "move";
