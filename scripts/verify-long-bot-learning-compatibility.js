@@ -14,12 +14,18 @@ const CLEAR_FINAL_RACE_POLICY = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316
 const START_ZONE_ANALYSIS_POLICY = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const SEPARATED_RACE_POLICY = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
 const OPENING_SUPPORT_POLICY = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
+const FIRST_ENTRY_FENCE_DEFENSE_POLICY = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
 const PREVIOUS_PRODUCTION_POLICY = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
 const PREVIOUS_LIVE_DOUBLES_POLICY = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
 const PREVIOUS_TACTICAL_LIVE_POLICY = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const PREVIOUS_JSYS_HOME_PRIORITY_POLICY = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
 const PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY = '904e7062dcb499ed120ab92d3818e1b77227d5df51c8dfdb55d05f238ba52d6a';
 const PREVIOUS_LIVE_JSYS_POLICY = 'c64f47e25f0580f7a42f11c0adf01b42bf60739a4c925039ed33c4d7339049b9';
+
+const SELF_BOUND_POLICIES = Object.freeze([
+  FIRST_ENTRY_FENCE_DEFENSE_POLICY, OPENING_SUPPORT_POLICY, SEPARATED_RACE_POLICY,
+  START_ZONE_ANALYSIS_POLICY, CLEAR_FINAL_RACE_POLICY,
+]);
 
 function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicySourceEntries(),
   engineSource = fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8') } = {}) {
@@ -28,18 +34,14 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
   if (!gameSource || createHash('sha256').update(gameSource).digest('hex') !== OPTIMIZED_RULES
     || engineSource !== builder.renderLongBotBundle(sourceEntries)) failure();
   const actualPolicy = builder.policyImplementationId(sourceEntries);
-  if (actualPolicy !== OPENING_SUPPORT_POLICY
-    && actualPolicy !== SEPARATED_RACE_POLICY
-    && actualPolicy !== START_ZONE_ANALYSIS_POLICY
-    && actualPolicy !== CLEAR_FINAL_RACE_POLICY
-    && actualPolicy !== HISTORICAL_COMPATIBLE_RELEASE) failure();
+  if (!SELF_BOUND_POLICIES.includes(actualPolicy) && actualPolicy !== HISTORICAL_COMPATIBLE_RELEASE) failure();
   const context = vm.createContext({ window: {} });
   vm.runInContext(gameSource.toString('utf8'), context, { timeout: 3000 });
   vm.runInContext(engineSource, context, { timeout: 3000 });
   const engine = context.window.NarduLongBotEngine;
   const compatibility = engine?.learningCompatibility;
   if (engine?.version !== 'long-analytic-v35' || engine.policyImplementationId !== actualPolicy) failure();
-  if ([OPENING_SUPPORT_POLICY, SEPARATED_RACE_POLICY, START_ZONE_ANALYSIS_POLICY, CLEAR_FINAL_RACE_POLICY].includes(actualPolicy)) {
+  if (SELF_BOUND_POLICIES.includes(actualPolicy)) {
     if (builder.learningCompatibility(sourceEntries) !== null
       || compatibility !== null
       || engine.learningPolicyImplementationId !== actualPolicy
@@ -48,8 +50,7 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
         PREVIOUS_PRODUCTION_POLICY, PREVIOUS_LIVE_DOUBLES_POLICY,
         PREVIOUS_TACTICAL_LIVE_POLICY, PREVIOUS_JSYS_HOME_PRIORITY_POLICY,
         PREVIOUS_COMPLETE_JSYS_HOME_PRIORITY_POLICY, PREVIOUS_LIVE_JSYS_POLICY,
-        CLEAR_FINAL_RACE_POLICY, START_ZONE_ANALYSIS_POLICY, SEPARATED_RACE_POLICY, OPENING_SUPPORT_POLICY,
-        '0'.repeat(64)].filter(id => id !== actualPolicy)
+        ...SELF_BOUND_POLICIES, '0'.repeat(64)].filter(id => id !== actualPolicy)
         .some(id => engine.acceptsLearningPolicyImplementationId?.(id) !== false)) failure();
     return { required: true, policyImplementationId: actualPolicy,
       learningPolicyImplementationId: actualPolicy, historicalAlias: false };
@@ -80,4 +81,4 @@ function verifyLongBotLearningCompatibility({ sourceEntries = builder.readPolicy
 }
 module.exports = { verifyLongBotLearningCompatibility, OPTIMIZED_RULES,
   ORIGINAL_LEARNING_POLICY, HISTORICAL_COMPATIBLE_RELEASE, CLEAR_FINAL_RACE_POLICY,
-  START_ZONE_ANALYSIS_POLICY, SEPARATED_RACE_POLICY, OPENING_SUPPORT_POLICY };
+  START_ZONE_ANALYSIS_POLICY, SEPARATED_RACE_POLICY, OPENING_SUPPORT_POLICY, FIRST_ENTRY_FENCE_DEFENSE_POLICY };

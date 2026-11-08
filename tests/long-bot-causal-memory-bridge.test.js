@@ -297,11 +297,12 @@ test('v35 server loading rejects both legacy and self-asserted causal v8 pattern
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'rooms-client.js'), 'utf8'), context, {
       filename: 'rooms-client.js',
     });
-    const loaded = await context.window.NarduRooms.loadLongBotExperience({
+    let rejection;
+    await context.window.NarduRooms.loadLongBotExperience({
       refresh: true,
       playerName: 'causal-tester',
-    });
-    return { applied, loaded, storage };
+    }).catch(error => { rejection = error; });
+    return { applied, rejection, storage };
   }
 
   const outcomePattern = {
@@ -313,7 +314,7 @@ test('v35 server loading rejects both legacy and self-asserted causal v8 pattern
     lossWeight: 40,
   };
   const rejected = await loadServerPatterns([outcomePattern]);
-  assert.deepEqual(Array.from(rejected.loaded), []);
+  assert.equal(rejected.rejection?.code, 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE');
   assert.equal(rejected.applied.some(item => item.patterns.length > 0), false);
   assert.equal(
     rejected.storage.getItem('narduh-long-bot-server-experience-v15'),
@@ -325,9 +326,9 @@ test('v35 server loading rejects both legacy and self-asserted causal v8 pattern
     evidenceVersion: REVIEWER_VERSION,
     outcomeUsed: false,
   };
-  const accepted = await loadServerPatterns([causalPattern]);
-  assert.equal(accepted.loaded.length, 0);
-  assert.equal(accepted.applied.some(item => item.patterns.length > 0), false);
+  const untrusted = await loadServerPatterns([causalPattern]);
+  assert.equal(untrusted.rejection?.code, 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE');
+  assert.equal(untrusted.applied.some(item => item.patterns.length > 0), false);
 });
 
 test('the offline reviewer report remains diagnostic and cannot feed browser policy', async () => {

@@ -30,9 +30,10 @@ test('one RPC aggregate changes an eligible native decision, not merely the expe
   const values = new Map();
   const context = { window: { NarduLongBotEngine: engine,
     NarduSupabase: { configured: () => true, client: async () => ({
-      rpc: async name => {
-        assert.equal(name, 'get_long_bot_experience_patterns');
-        return { data: [pattern], error: null };
+      rpc: async (name, args) => {
+        assert.equal(name, 'load_current_long_bot_experience');
+        assert.equal(args.p_policy_implementation_id, engine.policyImplementationId);
+        return { data: { policyImplementationId: engine.policyImplementationId, patterns: [pattern] }, error: null };
       },
     }) } },
     localStorage: { getItem: key => values.get(key) ?? null,

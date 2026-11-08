@@ -277,6 +277,45 @@ for (const [color, opponentPoints] of [
   });
 }
 
+for (const outside of [7, 8]) {
+  test(`clear race with ${outside} outside checkers prioritizes home entry on a live double`, async () => {
+    const game = loadGame();
+    const state = raceState('dark', {});
+    state.dice = [2, 2, 2, 2];
+    state.rolled = [...state.dice];
+    state.points = {
+      1: { color: 'white', count: 6 },
+      3: { color: 'white', count: 8 },
+      5: { color: 'white', count: 1 },
+      16: { color: 'dark', count: 2 },
+      18: { color: 'dark', count: 5 },
+      20: { color: 'dark', count: 3 },
+      22: { color: 'dark', count: 2 },
+      24: { color: 'dark', count: outside - 5 },
+    };
+    if (outside === 7) state.points[14] = { color: 'dark', count: 1 };
+
+    const legal = game.bestMoveSequences(state, 'dark');
+    const entries = sequence => sequence.filter(move => (
+      game.pathPos('dark', move.from, state) < 18 && game.pathPos('dark', move.to, state) >= 18
+    )).length;
+    const engine = await loadEngine(game);
+    const selected = engine.rank(state, 'dark', {
+      ...POLICY,
+      maxCandidates: 16,
+      initialSequenceLimit: 16,
+      maxTacticalCandidates: 2,
+      analysisNodeBudget: 58,
+    })[0];
+
+    assert.equal(outsideCount(game, state, 'dark'), outside);
+    assert.equal(Math.max(...legal.map(entries)), 3);
+    assert.ok(legal.some(sequence => homeShuffleCount(game, state, 'dark', sequence) > 0));
+    assert.equal(selected.features.outsideReduction, 3);
+    assert.equal(selected.features.homeShuffleMoves, 0);
+  });
+}
+
 test('contact position does not force the clear-race bear-off policy', async () => {
   const game = loadGame();
   const state = raceState('dark', { 1: 14, 20: 1 });

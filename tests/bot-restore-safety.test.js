@@ -144,7 +144,7 @@ function controllerHarness({
     .replace('const BOT_GAME_EXIT_WAIT_MS = 12500;', 'const BOT_GAME_EXIT_WAIT_MS = 15;')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver, fairDiceError: () => fairDiceError },\n  };',
+      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver, persistRoomSnapshot, safeBotPlan, recordBotMoveApplied, completeBotDecisionExecution, fairDiceError: () => fairDiceError },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
 
@@ -592,6 +592,72 @@ test('compact authoritative restore retains the complete local telemetry prefix 
   assert.equal(actual.analysis.botMemory.telemetryRestore.trustedEvidence, false);
   assert.deepEqual(remote.analysis.botMemory.decisions, []);
   assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
+});
+
+test('a newer browser checkpoint restores only compact genuine decisions that reached the authoritative history', async () => {
+  const first = controllerHarness();
+  init(first.controller);
+  await new Promise(setImmediate);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8'), first.context);
+  const engine = first.window.NarduLongBotEngine;
+  const game = first.window.NarduGame;
+  const state = first.controller.getState();
+  const controls = first.controller.__restoreSafetyTest;
+  const frozen = engine.freezeExperience('SAFE-BOT');
+  state.analysis = { botMemory: { engineVersion: engine.version,
+    experienceLoad: { fingerprint: frozen.fingerprint }, decisions: [] } };
+  state.firstMoveDone = { white: true, dark: true };
+  first.context.NarduBot = { plan: source => engine.plan(source) };
+
+  const play = (dice, rollHash) => {
+    state.phase = 'roll';
+    state.turn = 'dark';
+    game.applyRoll(state, dice);
+    state.history.unshift({ color: 'dark', roll: dice.join(':'), sha256: rollHash });
+    const moves = controls.safeBotPlan();
+    assert.ok(moves.length);
+    for (const [index, move] of moves.entries()) {
+      const to = game.moveTo(state.turn, move.from, move.die, state);
+      assert.equal(game.applyMove(state, move.from, move.die), true);
+      controls.recordBotMoveApplied(move, to, index);
+    }
+    const decision = controls.completeBotDecisionExecution();
+    assert.equal(decision.execution.selectedMatchesExecuted, true);
+    assert.equal(decision.execution.historyAnchor.rollHash, rollHash);
+    assert.equal(decision.policyImplementationId, engine.policyImplementationId);
+    return decision;
+  };
+
+  const committed = play([6, 5], 'a'.repeat(64));
+  let remote;
+  first.window.NarduRooms.putGameState = async (_code, payload) => {
+    remote = payload;
+    return { ok: true, version: 10 };
+  };
+  assert.equal(await controls.publishBotAnalysisState(), true);
+  assert.deepEqual(Array.from(remote.analysis.botMemory.decisions), []);
+  const uncommitted = play([3, 2], 'b'.repeat(64));
+  state.analysis.botMemory.decisions.push({ ...committed, id: 'oversized',
+    selected: { ...committed.selected, experience: { ...committed.selected.experience,
+      contextKey: 'ж'.repeat(8192) } } },
+  { ...committed, id: 'incomplete', execution: { ...committed.execution, complete: false } });
+  assert.equal(controls.persistRoomSnapshot(), true);
+  const saved = JSON.parse(first.localStorage.getItem(SNAPSHOT_KEY)).state.analysis.botMemory;
+  assert.deepEqual(saved.decisions.map(row => row.id), [committed.id, uncommitted.id]);
+  assert.equal(Object.hasOwn(saved.decisions[0], 'alternatives'), false);
+  assert.deepEqual(saved.decisions[0].stateSnapshotV2, JSON.parse(JSON.stringify(committed.stateSnapshotV2)));
+  assert.deepEqual(saved.decisions[0].execution.executed, JSON.parse(JSON.stringify(committed.execution.executed)));
+  assert.equal(saved.decisions[0].policyImplementationId, engine.policyImplementationId);
+
+  const resumed = controllerHarness({ localStorage: first.localStorage,
+    getGameState: async () => ({ state: remote, version: 10 }) });
+  init(resumed.controller);
+  await new Promise(setImmediate);
+  const actual = resumed.controller.getState();
+  assert.equal(actual.history.length, remote.history.length);
+  assert.deepEqual(JSON.parse(JSON.stringify(actual.points)), JSON.parse(JSON.stringify(remote.points)));
+  assert.deepEqual(Array.from(actual.analysis.botMemory.decisions, row => row.id), [committed.id]);
+  assert.equal(actual.analysis.botMemory.telemetryRestore.trustedEvidence, false);
 });
 
 test('telemetry from another game, history branch or frozen policy cannot attach to a restored server board', async () => {

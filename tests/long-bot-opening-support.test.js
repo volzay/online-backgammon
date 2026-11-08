@@ -104,3 +104,38 @@ test('opponent already home disables opening preferences before the first bear-o
  assert.ok(now.length);assert.ok(now.every(c=>c.features.openingSupportAdjustment===undefined));
  assert.deepEqual(behavior(now),behavior(ranked(previous.engine,s)));
 });
+
+test('first-entry defense requires complete replies and better absolute safety', async () => {
+  const [{ prioritizeFirstEntryFenceDefense }, { evaluateState, mergeWeights }] = await Promise.all([
+    import('../bot-engine/long/engine.ts'), import('../bot-engine/long/evaluator.ts'),
+  ]);
+  const state = position('white', [1, 4, 6], 6);
+  const weights = mergeWeights();
+  const playedAfter = plain(state);
+  playedAfter.points[18].count--;
+  playedAfter.points[6] = { color: 'white', count: 1 };
+  const defenseAfter = plain(state);
+  const reply = { plies: 2, rolls: 21, distributionWeight: 36, distributionComplete: true, doublesExpanded: true };
+  const selected = {
+    after: playedAfter, score: 10,
+    features: { homeEntryMoves: 1, opponentFenceRunBefore: 3, fenceClosureBefore: 80,
+      primeRunAfter: 4, headGain: 1, outsidePipGain: 15, maxRouteTowerAfter: 4,
+      resultSafetyAfter: 0, escapeGatewayDelta: 0, fenceClosureDelta: 10, prospectiveFenceExtensionDelta: 40 },
+    tactical: { ...reply, expectedImpact: -100000000, worstImpact: -200000000 },
+  };
+  const valueDifference = evaluateState(playedAfter, 'white', weights) - evaluateState(defenseAfter, 'white', weights);
+  const defense = {
+    after: defenseAfter, score: 0,
+    features: { homeEntryMoves: 0, homeShuffleMoves: 0, primeRunAfter: 3, headGain: 1,
+      outsidePipGain: 20, maxRouteTowerAfter: 4, resultSafetyAfter: 0, trapDelta: 8,
+      escapeGatewayDelta: -3, headLandingBreak: 30, fenceClosureDelta: 50, prospectiveFenceExtensionDelta: 150 },
+    tactical: { ...reply, expectedImpact: -50000000 + valueDifference, worstImpact: -100000000 + valueDifference },
+  };
+  const rank = (candidate = defense) => prioritizeFirstEntryFenceDefense(
+    state, 'white', [plain(selected), plain(candidate)], weights,
+  );
+  assert.equal(rank()[0].features.homeEntryMoves, 0);
+  assert.equal(rank({ ...defense, tactical: { ...defense.tactical, distributionComplete: false } })[0].features.homeEntryMoves, 1);
+  assert.equal(rank({ ...defense, tactical: { ...defense.tactical, expectedImpact: -100000001 + valueDifference } })[0].features.homeEntryMoves, 1);
+  assert.equal(rank({ ...defense, features: { ...defense.features, primeRunAfter: 2 } })[0].features.homeEntryMoves, 1);
+});

@@ -443,6 +443,7 @@ export function createLongBotEngine(adapter, options = {}) {
       color,
       coldRanked,
     );
+    coldRanked = prioritizeFirstEntryFenceDefense(state, color, coldRanked, weights);
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -2314,7 +2315,8 @@ function isOpponentHomeReadyRaceState(state, color) {
 // be disjoint too. Fail closed on incomplete or invalid boards.
 function isProvenClearFinalRace(state, color) {
   const outside = outsideHomeCount(state, color);
-  if (outside <= 0 || outside > 6) return false;
+  // The routes can separate while seven or eight checkers are still outside.
+  if (outside <= 0 || outside > 8) return false;
   const remainingRoutes = [];
   for (const actor of [color, opponentOf(color)]) {
     if (Number(state.bar?.[actor] || 0) !== 0) return false;
@@ -4193,6 +4195,50 @@ export function isComparableFenceEscape(candidate, selected) {
       <= Number(selected.features.homeShuffleMoves || 0)
     && Number(candidate.features.headLandingBreak || 0)
       <= Number(selected.features.headLandingBreak || 0) + 24;
+}
+
+export function prioritizeFirstEntryFenceDefense(state, color, ranked, weights) {
+  const selected = ranked[0];
+  const base = selected?.features;
+  const completeReplies = candidate => candidate.tactical?.plies === 2
+    && candidate.tactical.rolls === 21
+    && candidate.tactical.distributionWeight === 36
+    && candidate.tactical.distributionComplete === true
+    && candidate.tactical.doublesExpanded === true
+    && hasFiniteTacticalMetrics(candidate, ['expectedImpact', 'worstImpact']);
+  if (!base || base.homeEntryMoves !== 1 || outsideHomeCount(state, color) !== 15
+    || headCheckers(state, color) < 4
+    || !(base.opponentFenceRunBefore >= 3 && base.fenceClosureBefore >= 12 && base.primeRunAfter >= 4)
+    || !completeReplies(selected)) return ranked;
+
+  const selectedValue = evaluateState(selected.after, color, weights);
+  // Reply impacts are relative to different after-boards. Compare absolute
+  // reply values before sacrificing an anchor or delaying the first entry.
+  const alternatives = [];
+  for (const candidate of ranked.slice(1)) {
+    const features = candidate.features;
+    if (features.homeEntryMoves !== 0 || features.homeShuffleMoves !== 0
+      || features.headGain < base.headGain || features.outsidePipGain < base.outsidePipGain
+      || features.primeRunAfter < base.primeRunAfter - 1
+      || features.maxRouteTowerAfter > base.maxRouteTowerAfter
+      || features.resultSafetyAfter < base.resultSafetyAfter || features.trapDelta < 0
+      || features.escapeGatewayDelta < base.escapeGatewayDelta - 4 || features.headLandingBreak > 70
+      || !(features.fenceClosureDelta > base.fenceClosureDelta
+        && features.fenceClosureDelta >= base.fenceClosureBefore / 2
+        && features.prospectiveFenceExtensionDelta > base.prospectiveFenceExtensionDelta)
+      || !completeReplies(candidate)) continue;
+
+    const value = evaluateState(candidate.after, color, weights);
+    const expected = value + candidate.tactical.expectedImpact;
+    const worst = value + candidate.tactical.worstImpact;
+    if (expected > selectedValue + selected.tactical.expectedImpact
+      && worst >= selectedValue + selected.tactical.worstImpact + 30000000) {
+      alternatives.push({ candidate, expected, worst });
+    }
+  }
+  if (!alternatives.length) return ranked;
+  alternatives.sort((left, right) => right.worst - left.worst || right.expected - left.expected);
+  return promoteCandidate(ranked, alternatives[0].candidate, 'firstEntryFenceDefenseAdjustment');
 }
 
 export function isDeepFenceSafetyRegression(candidate, selected) {

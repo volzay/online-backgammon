@@ -11,6 +11,7 @@
   const LONG_BOT_SERVER_CAUSAL_SCHEMA = "long-server-causal-pattern-v1";
   const LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1";
   const LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu/server-long-bot-causal/v1";
+  const LONG_BOT_ATTESTED_EXPERIENCE_POLICY_ID = "d3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109";
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -1796,15 +1797,26 @@
     return data || { ok: true };
   }
 
-  function supersededLongBotExperienceError() {
-    const error = new Error("Long-bot experience load was superseded.");
-    error.code = "LONG_BOT_EXPERIENCE_SUPERSEDED";
+  function longBotExperienceError(code, message) {
+    const error = new Error(message);
+    error.code = code;
     return error;
   }
 
   async function loadLongBotExperience({ refresh = false, playerName = "" } = {}) {
-    if (!configured()) return [];
     const engine = window.NarduLongBotEngine;
+    const causalOnly = longBotRequiresCausalExperience();
+    const policyImplementationId = engine?.policyImplementationId;
+    const requiresAttestation = causalOnly && policyImplementationId === LONG_BOT_ATTESTED_EXPERIENCE_POLICY_ID;
+    const invalidResponse = () => longBotExperienceError(
+      "LONG_BOT_EXPERIENCE_INVALID_RESPONSE", "Invalid long-bot experience response for the active policy.",
+    );
+    if (!configured()) {
+      if (causalOnly) throw longBotExperienceError(
+        "LONG_BOT_EXPERIENCE_UNAVAILABLE", "Long-bot experience service is unavailable.",
+      );
+      return [];
+    }
     const resolvedPlayerName = String(
       playerName
       || window.NarduApp?.getUser?.()?.nickname
@@ -1812,6 +1824,7 @@
       || "",
     ).trim().slice(0, 32);
     const playerKey = resolvedPlayerName.toLocaleLowerCase();
+    const requestKey = requiresAttestation ? `${policyImplementationId}:${playerKey}` : playerKey;
     const loadGeneration = ++longBotExperienceLoadGeneration;
     const cachedPatterns = refresh ? [] : readLongBotExperienceCache(playerKey);
     engine?.setExperience?.([], "server");
@@ -1819,35 +1832,47 @@
     if (cachedPatterns.length) {
       engine?.setExperience?.(cachedPatterns, "server-cache");
     }
-    let experiencePromise = !refresh ? longBotExperiencePromises.get(playerKey) : null;
+    let experiencePromise = !refresh ? longBotExperiencePromises.get(requestKey) : null;
     if (!experiencePromise) {
       experiencePromise = (async () => {
         const client = await supabase();
-        const { data, error } = await client.rpc("get_long_bot_experience_patterns", {
+        const rpcName = requiresAttestation
+          ? "load_current_long_bot_experience"
+          : "get_long_bot_experience_patterns";
+        const { data, error } = await client.rpc(rpcName, {
           p_player_name: resolvedPlayerName || null,
+          ...(requiresAttestation ? { p_policy_implementation_id: policyImplementationId } : {}),
         });
         if (error) throw supabaseError(error, "Could not load long-bot experience.");
-        const patterns = validatedLongBotExperience(data, { trustedRpc: true });
+        if (requiresAttestation && data?.policyImplementationId !== policyImplementationId) {
+          throw invalidResponse();
+        }
+        const patterns = validatedLongBotExperience(requiresAttestation ? data.patterns : data, { trustedRpc: true });
         if (!patterns) {
+          if (causalOnly) throw invalidResponse();
           console.warn("Ignored incompatible long-bot experience generation.");
           return { patterns: cachedPatterns, fresh: false };
         }
         return { patterns, fresh: true };
       })();
-      longBotExperiencePromises.set(playerKey, experiencePromise);
+      longBotExperiencePromises.set(requestKey, experiencePromise);
       experiencePromise.finally(() => {
-        if (longBotExperiencePromises.get(playerKey) === experiencePromise) {
-          longBotExperiencePromises.delete(playerKey);
+        if (longBotExperiencePromises.get(requestKey) === experiencePromise) {
+          longBotExperiencePromises.delete(requestKey);
         }
       }).catch(() => {});
     }
     const currentPromise = experiencePromise.then(result => {
-      if (loadGeneration !== longBotExperienceLoadGeneration) {
-        throw supersededLongBotExperienceError();
+      if (loadGeneration !== longBotExperienceLoadGeneration || (causalOnly && (
+        window.NarduLongBotEngine !== engine || engine.policyImplementationId !== policyImplementationId
+      ))) {
+        throw longBotExperienceError("LONG_BOT_EXPERIENCE_SUPERSEDED", "Long-bot experience load was superseded.");
       }
-      const patterns = validatedLongBotExperience(result?.patterns, {
+      const validated = validatedLongBotExperience(result?.patterns, {
         trustedRpc: result?.fresh === true,
-      }) || [];
+      });
+      if (!validated && causalOnly) throw invalidResponse();
+      const patterns = validated || [];
       if (result?.fresh === true) {
         engine?.setExperience?.([], "server-cache");
         engine?.setExperience?.(patterns, "server");

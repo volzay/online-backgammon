@@ -92,6 +92,17 @@ window.NarduController = (function () {
   const ROOM_PERSIST_SNAPSHOT_PRUNE_LIMIT = 32;
   const ROOM_PERSIST_QUOTA_RECOVERY_REMOVALS = 4;
   const BOT_MEMORY_MAX_DECISIONS = 180;
+  const LONG_BOT_LOCAL_CHECKPOINT_SCHEMA = 'long-local-telemetry-checkpoint-v1';
+  const LONG_BOT_LOCAL_DECISION_MAX_BYTES = 8 * 1024;
+  const LONG_BOT_LOCAL_LEDGER_MAX_BYTES = 768 * 1024;
+  const LONG_BOT_LOCAL_DECISION_FEATURES = [
+    'primeRunBefore', 'primeRunAfter', 'primeScoreBefore', 'opponentMoveBlockBefore', 'opponentMoveBlockGain',
+    'headLandingBreak', 'latentFenceExposureDelta', 'fenceClosureDelta', 'escapeGatewayDelta',
+    'homeShuffleMoves', 'koksRescueOpportunity', 'missedKoksRescue',
+    'offGain', 'homeGain', 'pipGain', 'headGain', 'outsideReduction', 'startZoneBefore',
+    'startZoneAfter', 'startZoneReduction', 'bearOffMoves',
+  ];
+  const longBotLocalDecisionCache = new WeakMap();
   const LONG_BOT_REPLAY_EXPERIENCE_MAX_PATTERNS = 1024;
   const LONG_BOT_REPLAY_EXPERIENCE_MAX_CHARS = 512 * 1024;
   const OPENING_RESULT_PAUSE_MS = 2600;
@@ -121,6 +132,7 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_START_ZONE_ANALYSIS_POLICY_IMPLEMENTATION_ID = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
   const NEURAL_TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
   const NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
+  const NEURAL_TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -378,6 +390,7 @@ window.NarduController = (function () {
         // both storage tiers still receive one identical detached JSON text.
         state: {
           ...state,
+          analysis: roomSnapshotAnalysis(),
           selected: null,
           hints: [],
           fullHints: [],
@@ -386,6 +399,122 @@ window.NarduController = (function () {
     } catch {
       return null;
     }
+  }
+
+  function localDecisionCheckpoint(decision) {
+    if (!decision || typeof decision !== 'object') return null;
+    const { execution, selected, replayInput, stateSnapshotV2 } = decision;
+    const cached = longBotLocalDecisionCache.get(decision);
+    if (cached && cached.execution === execution) return cached.checkpoint;
+    if (decision.source !== 'engine' || decision.actor === 'opponent'
+      || decision.fallback === true || decision.fallbackReason
+      || decision.engineVersion !== 'long-analytic-v35'
+      || typeof decision.id !== 'string' || !decision.id
+      || !/^lb4-[a-f0-9]{8}$/.test(decision.positionId || '')
+      || stateSnapshotV2?.schema !== 'long-state-v2' || stateSnapshotV2.variant !== 'long'
+      || stateSnapshotV2.phase !== 'move' || stateSnapshotV2.turnMoves?.length !== 0
+      || stateSnapshotV2.turn !== decision.color || !stateSnapshotV2.points
+      || !Array.isArray(stateSnapshotV2.dice) || botDecisionPositionId(stateSnapshotV2) !== decision.positionId
+      || !/^lbs2-[a-f0-9]{8}$/.test(decision.stateFingerprintV2 || '')
+      || replayInput?.schema !== 'long-shadow-replay-input-v1'
+      || replayInput.engineVersion !== decision.engineVersion
+      || replayInput.stateFingerprintV2 !== decision.stateFingerprintV2
+      || !/^lbe8-[a-f0-9]{8}$/.test(decision.experienceFingerprint || '') || decision.experienceFrozen !== true
+      || replayInput.experienceFingerprint !== decision.experienceFingerprint
+      || replayInput.experienceSize !== decision.experienceSize || replayInput.experienceFrozen !== true
+      || !replayInput.runtime?.strategyProfile || !Number.isSafeInteger(replayInput.runtime.maxCandidates)
+      || !Number.isSafeInteger(replayInput.runtime.analysisNodeBudget)
+      || execution?.complete !== true || execution.fallback !== false || execution.substituted !== false
+      || (Array.isArray(execution.substitutions) && execution.substitutions.length)
+      || execution.selectedMatchesExecuted !== true || !selected?.after?.points
+      || !execution.executed?.after?.points || !Array.isArray(selected.moves)
+      || selected.moves.length < 1 || selected.moves.length > 4
+      || !Array.isArray(execution.executed.moves) || execution.executed.moves.length !== selected.moves.length
+      || !selected.experience?.contextKey || !selected.experience?.actionKey
+      || execution.executedActionKey !== selected.experience.actionKey
+      || botExecutionBoardKey(selected.after) !== botExecutionBoardKey(execution.executed.after)
+      || JSON.stringify(canonicalBotExecutionMoves(selected.moves))
+        !== JSON.stringify(canonicalBotExecutionMoves(execution.executed.moves))) return null;
+
+    // Preserve the actual selection and execution separately for native replay.
+    // The local snapshot is a recovery copy and carries no alternative cohort.
+    const tactical = selected.tactical;
+    const row = {
+      id: decision.id,
+      positionId: decision.positionId,
+      source: decision.source,
+      at: decision.at,
+      engineVersion: decision.engineVersion,
+      policyImplementationId: decision.policyImplementationId,
+      color: decision.color,
+      dice: decision.dice,
+      position: decision.position,
+      choiceCount: decision.choiceCount,
+      stateSnapshotV2,
+      stateFingerprintV2: decision.stateFingerprintV2,
+      experienceFingerprint: decision.experienceFingerprint,
+      experienceSize: decision.experienceSize,
+      experienceFrozen: decision.experienceFrozen,
+      experience: decision.experience && {
+        contextKey: decision.experience.contextKey,
+        actionKey: decision.experience.actionKey,
+      },
+      replayInput: {
+        schema: replayInput.schema,
+        stateFingerprintV2: replayInput.stateFingerprintV2,
+        engineVersion: replayInput.engineVersion,
+        experienceFingerprint: replayInput.experienceFingerprint,
+        experienceSize: replayInput.experienceSize,
+        experienceFrozen: replayInput.experienceFrozen,
+        runtime: replayInput.runtime,
+      },
+      selected: {
+        moves: selected.moves,
+        after: selected.after,
+        // Preserve the native curriculum signals and mechanical teacher inputs.
+        features: Object.fromEntries(LONG_BOT_LOCAL_DECISION_FEATURES
+          .filter(key => Number.isFinite(selected.features?.[key]))
+          .map(key => [key, selected.features[key]])),
+        tactical: tactical && {
+          distributionComplete: tactical.distributionComplete,
+          recoveryDistributionComplete: tactical.recoveryDistributionComplete,
+          continuationCoverageComplete: tactical.continuationCoverageComplete,
+        },
+        experience: { contextKey: selected.experience.contextKey, actionKey: selected.experience.actionKey },
+        experienceAdjustment: selected.experienceAdjustment,
+      },
+      execution: {
+        complete: execution.complete,
+        fallback: execution.fallback,
+        substituted: execution.substituted,
+        selectedMatchesExecuted: execution.selectedMatchesExecuted,
+        executedActionKey: execution.executedActionKey,
+        executed: execution.executed,
+        historyAnchor: execution.historyAnchor,
+      },
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(row)).length;
+    const checkpoint = bytes <= LONG_BOT_LOCAL_DECISION_MAX_BYTES ? { row, bytes } : null;
+    longBotLocalDecisionCache.set(decision, { execution, checkpoint });
+    return checkpoint;
+  }
+
+  function roomSnapshotAnalysis() {
+    const analysis = state.analysis;
+    const memory = analysis?.botMemory;
+    if (mode !== 'bot' || variant !== 'long' || botDifficulty !== 'hard' || !remoteCode
+      || state.winner || state.phase === 'over' || memory?.engineVersion !== 'long-analytic-v35'
+      || !Array.isArray(memory.decisions)) return analysis;
+    const decisions = [];
+    let bytes = 2;
+    for (const decision of memory.decisions.slice(-BOT_MEMORY_MAX_DECISIONS)) {
+      const checkpoint = localDecisionCheckpoint(decision);
+      if (!checkpoint || bytes + checkpoint.bytes + 1 > LONG_BOT_LOCAL_LEDGER_MAX_BYTES) continue;
+      decisions.push(checkpoint.row);
+      bytes += checkpoint.bytes + 1;
+    }
+    return { ...analysis, botMemory: { ...memory, decisions,
+      telemetryCheckpoint: LONG_BOT_LOCAL_CHECKPOINT_SCHEMA } };
   }
 
   function roomSnapshotStorageError(error) {
@@ -649,9 +778,7 @@ window.NarduController = (function () {
       || !restored || !local || !remoteCode
       || restored.roomCode !== remoteCode || local.roomCode !== remoteCode
       || !restored.startedAt || local.startedAt !== restored.startedAt
-      || !Array.isArray(local.history) || !Array.isArray(restored.history)
-      || local.history.length > restored.history.length
-      || !local.history.some(event => event?.roll && /^[0-9a-f]{64}$/.test(event.sha256 || ''))) return restored;
+      || !Array.isArray(local.history) || !Array.isArray(restored.history)) return restored;
     const localMemory = local.analysis?.botMemory;
     const remoteMemory = restored.analysis?.botMemory;
     if (localMemory?.engineVersion !== 'long-analytic-v35'
@@ -661,6 +788,9 @@ window.NarduController = (function () {
       || localMemory.decisions.length > BOT_MEMORY_MAX_DECISIONS
       || String(localMemory.experienceLoad?.fingerprint || '')
         !== String(remoteMemory.experienceLoad?.fingerprint || '')) return restored;
+    const checkpoint = localMemory.telemetryCheckpoint === LONG_BOT_LOCAL_CHECKPOINT_SCHEMA;
+    const localAhead = local.history.length > restored.history.length;
+    if (localAhead && !checkpoint) return restored;
     const canonical = (value, depth = 0) => {
       if (depth > 32) throw new Error('Snapshot event nesting exceeds restore bound.');
       if (Array.isArray(value)) return `[${value.map(item => canonical(item, depth + 1)).join(',')}]`;
@@ -670,19 +800,28 @@ window.NarduController = (function () {
       return JSON.stringify(value);
     };
     try {
-      const offset = restored.history.length - local.history.length;
-      if (local.history.some((event, index) => (
-        canonical(event) !== canonical(restored.history[index + offset])
-      ))) return restored;
+      const [shorter, longer] = localAhead ? [restored.history, local.history] : [local.history, restored.history];
+      const offset = longer.length - shorter.length;
+      if (!shorter.some(event => event?.roll && /^[0-9a-f]{64}$/.test(event.sha256 || ''))
+        || shorter.some((event, index) => canonical(event) !== canonical(longer[index + offset]))) return restored;
       // Repair only an intentionally empty compact checkpoint. Never splice a
       // local list around a nonempty server ledger: its ordering is authoritative.
       const ids = new Set();
+      const anchors = new Set();
       const botColor = NarduGame.opponentOf(playerColor);
       const retained = localMemory.decisions.filter(decision => {
         if (!decision || decision.source !== 'engine' || decision.color !== botColor
           || decision.engineVersion !== localMemory.engineVersion
           || typeof decision.id !== 'string' || !decision.id || ids.has(decision.id)
           || decision.execution?.complete !== true) return false;
+        if (checkpoint && !localDecisionCheckpoint(decision)) return false;
+        const anchor = decision.execution.historyAnchor;
+        if (anchor) {
+          if (anchors.has(anchor.eventCount)
+            || !matchesDecisionHistory(restored.history, anchor, decision.color,
+              decision.execution.executed?.moves)) return false;
+          anchors.add(anchor.eventCount);
+        } else if (localAhead) return false;
         ids.add(decision.id);
         return true;
       });
@@ -4225,7 +4364,9 @@ window.NarduController = (function () {
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
-            !== NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID)
+            !== NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {
         throw new Error('Verified long-analytic-v35 teacher assets missing');
       }
@@ -4431,7 +4572,11 @@ window.NarduController = (function () {
     try {
       const planned = NarduBot.plan(state, { difficulty: botDifficulty });
       if (Array.isArray(planned)) {
-        const engineDecision = engine?.consumeLastDecision?.();
+        let engineDecision = engine?.consumeLastDecision?.();
+        if (variant === 'long' && botDifficulty === 'hard' && engineDecision?.source === 'engine'
+          && engineDecision.engineVersion === engine.version && /^[a-f0-9]{64}$/.test(engine.policyImplementationId || '')) {
+          engineDecision = { ...engineDecision, policyImplementationId: engine.policyImplementationId };
+        }
         const fallbackDecision = variant === 'long'
           ? window.NarduStrongBot?.consumeLastFallbackDecision?.()
           : null;
@@ -4597,6 +4742,20 @@ window.NarduController = (function () {
     }));
   }
 
+  function matchesDecisionHistory(history, anchor, color, moves) {
+    if (!Number.isSafeInteger(anchor?.eventCount) || anchor.eventCount > history.length
+      || !Array.isArray(moves) || moves.length < 1 || moves.length > 4
+      || anchor.eventCount <= moves.length || !/^[a-f0-9]{64}$/.test(anchor.rollHash || '')) return false;
+    const offset = history.length - anchor.eventCount;
+    const roll = history[offset + moves.length];
+    return roll?.color === color && Boolean(roll.roll) && roll.sha256 === anchor.rollHash
+      && moves.every((move, index) => {
+        const event = history[offset + moves.length - 1 - index];
+        return event?.color === color && event.from === move.from && event.die === move.die
+          && (event.to === 'снято' ? 0 : event.to) === move.to;
+      });
+  }
+
   function initialBotDecisionExecution(decision) {
     const current = decision?.execution && typeof decision.execution === 'object'
       ? decision.execution
@@ -4681,6 +4840,10 @@ window.NarduController = (function () {
       const executedActionKey = actionMatches && positionMatches === true
         ? selectedActionKey
         : '';
+      const historyAnchor = {
+        eventCount: state.history.length,
+        rollHash: state.history[executedMoves.length]?.sha256,
+      };
       return {
         ...execution,
         complete: true,
@@ -4694,6 +4857,8 @@ window.NarduController = (function () {
         selectedPositionMatches: positionMatches,
         selectedMatchesExecuted: actionMatches && positionMatches === true && Boolean(executedActionKey),
         executedActionKey,
+        historyAnchor: executedActionKey && matchesDecisionHistory(state.history, historyAnchor, decision.color, executedMoves)
+          ? historyAnchor : undefined,
         executed: {
           moves: executedMoves,
           after,
@@ -5037,7 +5202,6 @@ window.NarduController = (function () {
           }
           if (i >= moves.length) {
             if (botDifficulty === 'hard-neuro') recordNeuralExecution();
-            completeBotDecisionExecution();
             releaseBotTurnActivity(generation);
             if (state.winner) onGameOver();
             else afterTurn();
@@ -5086,6 +5250,9 @@ window.NarduController = (function () {
               return;
             }
             recordBotMoveApplied(m, to, i - 1);
+            if (i === moves.length || state.winner) {
+              completeBotDecisionExecution(state.winner ? 'game-ended-during-sequence' : 'planned-sequence-complete');
+            }
             botTurnStartedAt = Date.now();
             if (botDifficulty === 'hard-neuro') recordNeuralExecution(m, to);
             playMoveSound(m);
@@ -5093,7 +5260,6 @@ window.NarduController = (function () {
             persistRoomSnapshot();
             if (state.winner) {
               if (botDifficulty === 'hard-neuro') recordNeuralExecution();
-              completeBotDecisionExecution('game-ended-during-sequence');
               releaseBotTurnActivity(generation);
               onGameOver();
               return;

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const builder = require('../scripts/build-long-bot-engine');
-const { OPENING_SUPPORT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+const { OPENING_SUPPORT_POLICY, FIRST_ENTRY_FENCE_DEFENSE_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 const ROOT = path.join(__dirname, '..');
 const ORIGINAL = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 const PREVIOUS = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
@@ -19,7 +19,7 @@ const HISTORICAL_ACTUAL = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa73
 const CLEAR_FINAL_RACE = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const START_ZONE_ANALYSIS = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const SEPARATED_RACE = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
-const ACTUAL = OPENING_SUPPORT_POLICY;
+const ACTUAL = FIRST_ENTRY_FENCE_DEFENSE_POLICY;
 const HISTORICAL_COMMIT = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const historicalEntries = () => [...builder.SOURCES, 'game.js', 'strong-bot.js'].map(file => [
@@ -83,7 +83,7 @@ test('the prior learning alias remains pinned to every byte of its reviewed sour
   }
 });
 
-test('new opening-support policy has no historical learning alias', () => {
+test('new fence-defense policy has no historical learning alias', () => {
   const entries = builder.readPolicySourceEntries();
   assert.equal(builder.policyImplementationId(entries), ACTUAL);
   assert.equal(builder.learningCompatibility(entries), null);
@@ -94,7 +94,7 @@ test('new opening-support policy has no historical learning alias', () => {
   assert.equal(engine.acceptsLearningPolicyImplementationId(ACTUAL), true);
   for (const id of [ORIGINAL, HISTORICAL_ACTUAL, PREVIOUS, PREVIOUS_LIVE,
     PREVIOUS_TACTICAL_LIVE, PREVIOUS_JSYS, PREVIOUS_COMPLETE_JSYS,
-    PREVIOUS_LIVE_JSYS, CLEAR_FINAL_RACE, START_ZONE_ANALYSIS, SEPARATED_RACE, '0'.repeat(64)]) {
+    PREVIOUS_LIVE_JSYS, CLEAR_FINAL_RACE, START_ZONE_ANALYSIS, SEPARATED_RACE, OPENING_SUPPORT_POLICY, '0'.repeat(64)]) {
     assert.equal(engine.acceptsLearningPolicyImplementationId(id), false, id);
   }
 });
@@ -103,7 +103,7 @@ test('live RPC applies only current analytical-policy lessons, never historical 
   for (const source of [pattern(), pattern(PREVIOUS), pattern(PREVIOUS_LIVE),
     pattern(PREVIOUS_TACTICAL_LIVE), pattern(PREVIOUS_JSYS), pattern(PREVIOUS_COMPLETE_JSYS),
     pattern(PREVIOUS_LIVE_JSYS), pattern(HISTORICAL_ACTUAL), pattern(CLEAR_FINAL_RACE),
-    pattern(SEPARATED_RACE), pattern(ACTUAL), pattern('f'.repeat(64)),
+    pattern(SEPARATED_RACE), pattern(OPENING_SUPPORT_POLICY), pattern(ACTUAL), pattern('f'.repeat(64)),
     { ...pattern(), reviewerVersion: 'forged-reviewer' }]) {
     const { context, engine, values } = browser();
     values.set('narduh-long-bot-server-experience-v15', JSON.stringify({ savedAt: Date.now(), playerKey: 'tester',
@@ -111,14 +111,85 @@ test('live RPC applies only current analytical-policy lessons, never historical 
     const applied = [];
     engine.setExperience = (patterns, trust) => applied.push({ patterns, trust });
     context.window.NarduSupabase = { configured: () => true,
-      client: async () => ({ rpc: async () => ({ data: [source], error: null }) }) };
+      client: async () => ({ rpc: async (name, args) => {
+        assert.equal(name, 'load_current_long_bot_experience');
+        assert.equal(args.p_policy_implementation_id, ACTUAL);
+        assert.equal(args.p_player_name, 'tester');
+        return { data: { policyImplementationId: ACTUAL, patterns: [source] }, error: null };
+      } }) };
     vm.runInContext(read('rooms-client.js'), context);
     const before = JSON.stringify(source);
-    const result = await context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' });
     const accepted = source.policyImplementationId === ACTUAL && source.reviewerVersion !== 'forged-reviewer';
-    assert.equal(result.length, accepted ? 1 : 0);
+    const load = context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' });
+    if (accepted) {
+      const result = await load;
+      assert.equal(result.length, 1);
+      assert.equal(JSON.stringify(result[0]), before);
+    } else {
+      await assert.rejects(load, { code: 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE' });
+    }
     assert.equal(applied.some(item => item.trust === 'server-cache' && item.patterns.length), false);
     assert.equal(JSON.stringify(source), before);
-    if (accepted) assert.equal(JSON.stringify(result[0]), before);
   }
+});
+
+test('verified empty experience is distinct from an unavailable, unattested, or malformed response', async () => {
+  const { context } = browser();
+  let configured = false;
+  let data = { policyImplementationId: ACTUAL, patterns: [] };
+  const calls = [];
+  context.window.NarduSupabase = {
+    configured: () => configured,
+    client: async () => ({ rpc: async (name, args) => {
+      calls.push([name, args.p_policy_implementation_id, args.p_player_name]);
+      return { data, error: null };
+    } }),
+  };
+  vm.runInContext(read('rooms-client.js'), context);
+  const load = () => context.window.NarduRooms.loadLongBotExperience({ refresh: true });
+  await assert.rejects(load(), { code: 'LONG_BOT_EXPERIENCE_UNAVAILABLE' });
+  assert.equal(calls.length, 0);
+  configured = true;
+  assert.deepEqual(Array.from(await load()), []);
+  for (const invalid of [
+    null, [], { patterns: [] }, { policyImplementationId: null, patterns: [] },
+    { policyImplementationId: OPENING_SUPPORT_POLICY, patterns: [] },
+    { policyImplementationId: OPENING_SUPPORT_POLICY, patterns: [pattern(ACTUAL)] },
+    { policyImplementationId: ACTUAL, patterns: null },
+  ]) {
+    data = invalid;
+    await assert.rejects(load(), { code: 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE' });
+  }
+  assert.equal(calls.length, 8);
+  assert.ok(calls.every(([name, policy, player]) =>
+    name === 'load_current_long_bot_experience' && policy === ACTUAL && player === null));
+});
+
+test('an in-flight opening-support RPC cannot satisfy the new policy for the same player', async () => {
+  const { context, engine } = browser();
+  context.window.NarduLongBotEngine = { ...engine, policyImplementationId: OPENING_SUPPORT_POLICY };
+  const calls = [];
+  let resolvePriorRequest;
+  const priorResponse = new Promise(resolve => { resolvePriorRequest = resolve; });
+  context.window.NarduSupabase = {
+    configured: () => true,
+    client: async () => ({ rpc: (name, args) => {
+      calls.push([name, args.p_policy_implementation_id]);
+      return name === 'get_long_bot_experience_patterns'
+        ? priorResponse
+        : Promise.resolve({ data: { policyImplementationId: ACTUAL, patterns: [] }, error: null });
+    } }),
+  };
+  vm.runInContext(read('rooms-client.js'), context);
+  const load = () => context.window.NarduRooms.loadLongBotExperience({ playerName: 'tester' });
+  const previous = assert.rejects(load(), { code: 'LONG_BOT_EXPERIENCE_SUPERSEDED' });
+  context.window.NarduLongBotEngine = engine;
+  const current = load();
+  resolvePriorRequest({ data: [], error: null });
+  await previous;
+  assert.deepEqual(Array.from(await current), []);
+  assert.deepEqual(calls, [
+    ['get_long_bot_experience_patterns', undefined],
+    ['load_current_long_bot_experience', ACTUAL],
+  ]);
 });

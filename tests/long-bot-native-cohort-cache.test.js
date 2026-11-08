@@ -19,6 +19,7 @@ const {
   THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
   SEPARATED_RACE_NATIVE_CACHE_POLICY,
   OPENING_SUPPORT_NATIVE_CACHE_POLICY,
+  FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -80,13 +81,13 @@ function runtime() {
   return value;
 }
 
-test('real opening-support identity enables a separately pinned cache without calling its planner', () => {
+test('first-entry fence defense identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, OPENING_SUPPORT_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, OPENING_SUPPORT_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, OPENING_SUPPORT_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -100,6 +101,7 @@ test('real opening-support identity enables a separately pinned cache without ca
     THREATENED_START_ZONE_NATIVE_CACHE_POLICY,
     SEPARATED_RACE_NATIVE_CACHE_POLICY,
     OPENING_SUPPORT_NATIVE_CACHE_POLICY,
+    FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
