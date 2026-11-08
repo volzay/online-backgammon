@@ -98,7 +98,7 @@ function evaluateTurnStatus(state, flags = {}, language = 'ru') {
   const evaluate = new Function('state', 'flags', 'lang', 'window', 'tr', 'sideName', 'localizedName', 'opponentName', 'NarduGame', `
     const {
       spectatorMode = false, mode = 'remote', playerColor = 'white',
-      isRolling = false, botAnalysisRestorePending = false,
+      isRolling = false, botAnalysisRestorePending = false, botAnalysisRestoreError = '',
       fairDiceError = '', fairDiceInFlight = false,
       botPlannerError = '',
     } = flags;

@@ -27,9 +27,12 @@ function controllerHarness({
   putGameState,
   finishRoomGame,
   restoreTimeoutMs = 10,
+  restoreRetryDelayMs = 400,
 } = {}) {
   const sessionStorage = memoryStorage();
   const calls = { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 };
+  const events = new Map();
+  const listen = (type, callback) => events.set(type, callback);
   let gameOverModal = null;
   const document = {
     hidden: false,
@@ -39,7 +42,7 @@ function controllerHarness({
         if (node?.id === 'game-over') gameOverModal = node;
       },
     },
-    addEventListener() {},
+    addEventListener: listen,
     getElementById(id) { return id === 'game-over' ? gameOverModal : null; },
     querySelector() { return null; },
     querySelectorAll() { return []; },
@@ -60,7 +63,7 @@ function controllerHarness({
     return setTimeout(callback, ms);
   };
   const window = {
-    addEventListener() {},
+    addEventListener: listen,
     setTimeout: boundedSetTimeout,
     NarduApp: {
       getUser() { return { id: 'user-1', name: 'Tester', guest: false }; },
@@ -111,6 +114,7 @@ function controllerHarness({
     Math,
     JSON,
     URL,
+    AbortController,
     Uint8Array,
     TextEncoder,
     setTimeout: boundedSetTimeout,
@@ -139,12 +143,13 @@ function controllerHarness({
 
   const source = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8')
     .replace(/const BOT_ANALYSIS_RESTORE_TIMEOUT_MS = \d+;/, `const BOT_ANALYSIS_RESTORE_TIMEOUT_MS = ${restoreTimeoutMs};`)
+    .replace(/const BOT_ANALYSIS_RESTORE_RETRY_DELAY_MS = \d+;/, `const BOT_ANALYSIS_RESTORE_RETRY_DELAY_MS = ${restoreRetryDelayMs};`)
     .replace('const BOT_ANALYSIS_ENSURE_TIMEOUT_MS = 5000;', 'const BOT_ANALYSIS_ENSURE_TIMEOUT_MS = 10;')
     .replace('const BOT_ANALYSIS_WRITE_TIMEOUT_MS = 5000;', 'const BOT_ANALYSIS_WRITE_TIMEOUT_MS = 10;')
     .replace('const BOT_GAME_EXIT_WAIT_MS = 12500;', 'const BOT_GAME_EXIT_WAIT_MS = 15;')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver, persistRoomSnapshot, safeBotPlan, recordBotMoveApplied, completeBotDecisionExecution, fairDiceError: () => fairDiceError },\n  };',
+      '    preferredMoveAction,\n    __restoreSafetyTest: { publishBotAnalysisState, ensureBotFinalStatePublished, archiveBotTrainingGame, waitForFinishedBotPersistence, onGameOver, persistRoomSnapshot, safeBotPlan, recordBotMoveApplied, completeBotDecisionExecution, currentTurnStatus, fairDiceError: () => fairDiceError },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
 
@@ -154,14 +159,15 @@ function controllerHarness({
     controller: window.NarduController,
     localStorage,
     window,
+    fire: type => events.get(type)?.(),
   };
 }
 
-function init(controller) {
+function init(controller, variant = 'long') {
   controller.init({
     mode: 'bot',
     roomCode: 'SAFE-BOT',
-    variant: 'long',
+    variant,
     difficulty: 'hard',
     opponent: 'Hard bot',
     opponentRating: 1500,
@@ -241,6 +247,95 @@ test('a local bot board stays read-only until its server restore is verified', a
   assert.equal(harness.controller.getState().selected, 24, 'the verified server board becomes interactive');
   assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
   assert.deepEqual(harness.calls, { ensure: 0, put: 1, finish: 0, archive: 0, rating: 0 });
+});
+
+function savedShortBotPosition(game) {
+  const state = game.initialState('short');
+  return Object.assign(state, { mode: 'bot', botDifficulty: 'hard', roomCode: 'SAFE-BOT',
+    phase: 'move', turn: 'white', dice: [1, 2], rolled: [1, 2],
+    history: [{ color: 'white', roll: '1:2', fairDiceProof: { request: { id: 'already-signed' } } }] });
+}
+
+test('a short Hard room retries transient restore twice, keeps the signed roll, and ignores a late same-room read', async () => {
+  let releaseLateRead;
+  const lateRead = new Promise(resolve => { releaseLateRead = resolve; });
+  const signals = [];
+  const sentVersions = [];
+  let saved;
+  const harness = controllerHarness({ restoreTimeoutMs: 20, restoreRetryDelayMs: 1,
+    getGameState: async (_code, { signal }) => {
+      signals.push(signal);
+      if (signals.length === 1) throw Object.assign(new Error('Temporary failure'), { status: 503 });
+      if (signals.length === 2) return lateRead; // An uncooperative SDK still cannot win after timeout.
+      return { state: saved, version: 12 };
+    },
+    putGameState: async (_code, _payload, version) => {
+      sentVersions.push(version);
+      return { version: 13 };
+    } });
+  saved = savedShortBotPosition(harness.window.NarduGame);
+  init(harness.controller, 'short');
+  const restore = harness.controller.retryBotAnalysisStartup();
+  assert.equal(harness.controller.retryBotAnalysisStartup(), restore, 'foreground attempts share one startup');
+  assert.equal(await restore, true);
+  assert.equal(signals.length, 3);
+  assert.equal(signals[1].aborted, true, 'the timed-out read is aborted');
+  assert.equal(signals[2].aborted, false);
+  assert.equal(harness.controller.getState().history[0].fairDiceProof.request.id, 'already-signed');
+  assert.deepEqual(Array.from(harness.controller.getState().dice), [1, 2]);
+  assert.deepEqual(harness.calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 });
+
+  releaseLateRead({ state: { ...saved, history: [] }, version: 99 });
+  await new Promise(setImmediate);
+  assert.equal(harness.controller.getState().history[0].fairDiceProof.request.id, 'already-signed');
+  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
+  assert.deepEqual(sentVersions, [12]);
+});
+
+test('exhausted transient reads stay locked with Refresh guidance and may retry on a new online event', async () => {
+  let reads = 0;
+  let saved;
+  const harness = controllerHarness({ restoreRetryDelayMs: 1, getGameState: async () => {
+    if (++reads <= 3) throw Object.assign(new Error('Busy'), { status: 429 });
+    return { state: saved, version: 12 };
+  } });
+  saved = savedShortBotPosition(harness.window.NarduGame);
+  init(harness.controller, 'short');
+  assert.equal(await harness.controller.retryBotAnalysisStartup(), false);
+  assert.equal(reads, 3);
+  assert.match(harness.controller.__restoreSafetyTest.currentTurnStatus().text, /Обновить/);
+  assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), false);
+  harness.fire('online');
+  assert.equal(await harness.controller.retryBotAnalysisStartup(), true);
+  assert.equal(reads, 4);
+  assert.equal(harness.controller.getState().history[0].fairDiceProof.request.id, 'already-signed');
+  assert.deepEqual(harness.calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 });
+});
+
+test('definitive auth, conflict, missing signed room, and non-bot responses never retry or reserve', async () => {
+  for (const failure of [{ status: 401 }, { status: 403 }, { status: 409 }, { status: 500, code: 'PGRST301' },
+    { status: 404 }, null]) {
+    let reads = 0;
+    let saved;
+    const harness = controllerHarness({ restoreRetryDelayMs: 1, getGameState: async () => {
+      reads += 1;
+      if (failure) throw Object.assign(new Error('Definitive restore failure'), failure);
+      return { state: { ...saved, mode: 'remote', botDifficulty: 'easy' }, version: 12 };
+    } });
+    saved = savedShortBotPosition(harness.window.NarduGame);
+    harness.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ v: 1, at: Date.now(),
+      signature: `/room.html${ROOM_SEARCH}`, mode: 'bot', playerColor: 'white', roomCode: 'SAFE-BOT', state: saved }));
+    init(harness.controller, 'short');
+    assert.equal(await harness.controller.retryBotAnalysisStartup(), false);
+    harness.fire('online');
+    harness.fire('visibilitychange');
+    await new Promise(setImmediate);
+    assert.equal(reads, 1);
+    assert.match(harness.controller.__restoreSafetyTest.currentTurnStatus().text, /Обновить/);
+    assert.equal(harness.controller.getState().history[0].fairDiceProof.request.id, 'already-signed');
+    assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), false);
+    assert.deepEqual(harness.calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 });
+  }
 });
 
 test('a delayed CDN fallback can still complete the authoritative restore', async () => {
