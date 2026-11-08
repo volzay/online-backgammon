@@ -243,6 +243,25 @@ test('whole-game clicks use the bound room or archive context independently and 
   ui.assertLocal();
 });
 
+test('passive context refresh does not read old proofs and a later verification uses the latest bound game', async () => {
+  const proof = signedProof();
+  const game = { roomCode: 'ABCD-EFGH', variant: 'long', history: [signedHistory(proof)] };
+  let proofReads = 0;
+  Object.defineProperty(game.history[0], 'fairDiceProof', {
+    enumerable: true,
+    get() { proofReads += 1; return proof; },
+  });
+  const ui = createInlineUI({ loadCore: true, env: { fairDicePublicKey: FIXTURE_PUBLIC_KEY } });
+  const control = wholeGameControl(ui, { roomCode: 'OLD-ROOM', history: [fullRoll('previous room')] });
+  for (let index = 0; index < 20; index += 1) ui.api.setGameContext(control.parent, game);
+  assert.equal(proofReads, 0, 'passive refresh does not traverse signed history');
+  await ui.click(control.button);
+  assert.equal(ui.calls[0].input, game);
+  assert.ok(proofReads > 0, 'explicit verification still reads the full proof');
+  assert.equal(control.output.dataset.status, 'verified');
+  ui.assertLocal();
+});
+
 test('whole-game mismatches report the correct displayed history-entry numbers', async () => {
   const wrong = fullRoll('archived wrong roll');
   wrong.sha256Input += ' wrong';
@@ -326,6 +345,24 @@ test('a pending whole-game result cannot certify a newer history rebound to the 
   await ui.finish();
   assert.notEqual(control.output.dataset.status, 'verified');
   assert.doesNotMatch(control.output.textContent, /Бросков: 1\./);
+  assert.equal(control.button.disabled, false);
+  ui.assertLocal();
+});
+
+test('returning to the same history does not revive a check invalidated by an intervening room', async () => {
+  const game = { roomCode: 'ROOM-A', history: [fullRoll('original history')] };
+  const oldResult = await verifier.verifyGameRolls(game);
+  let resolve;
+  const work = new Promise(done => { resolve = done; });
+  const ui = createInlineUI({ api: { ...verifier, verifyGameRolls: () => work } });
+  const control = wholeGameControl(ui, game);
+  ui.beginClick(control.button);
+  ui.api.setGameContext(control.parent, { roomCode: 'ROOM-B', history: [] });
+  ui.api.setGameContext(control.parent, plain(game));
+  resolve(oldResult);
+  await ui.finish();
+  assert.equal(control.output.dataset.status, undefined);
+  assert.equal(control.output.textContent, '');
   assert.equal(control.button.disabled, false);
   ui.assertLocal();
 });

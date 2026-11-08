@@ -57,12 +57,24 @@
   }
   function setGameContext(element, game) {
     if (!element) return;
-    const previous = sources.get(element);
-    const signature = gameSignature(game);
-    const changed = previous && previous.signature !== signature;
-    if (changed) clearResult(element.querySelector('[data-game-result]'));
-    sources.set(element, { game, signature, revision: (previous?.revision || 0) + (changed ? 1 : 0) });
+    let check = sources.get(element)?.check;
+    // Ordinary board renders only bind the game. Compare the full journal
+    // when a whole-game check is pending or its result is still displayed.
+    if (check && gameSignature(game) !== check.signature) {
+      clearResult(element.querySelector('[data-game-result]'));
+      check = undefined;
+    }
+    sources.set(element, { game, check });
     element.setAttribute('data-verifier-context', '');
+  }
+
+  function currentGameCheck(parent, check, output) {
+    const current = sources.get(parent);
+    if (current?.check !== check) return false;
+    if (check && gameSignature(current.game) === check.signature) return true;
+    if (current) current.check = undefined;
+    clearResult(output);
+    return false;
   }
   function summary(result, lang) {
     const dice = result.dice.join(':');
@@ -149,6 +161,8 @@
     if (!output) return;
     const lang = language();
     const context = wholeGame ? sources.get(parent) : null;
+    const check = context ? { signature: gameSignature(context.game) } : undefined;
+    if (context) context.check = check;
     const signature = wholeGame ? null : rollSignature(button);
     output.hidden = false;
     output.dataset.status = 'incomplete';
@@ -161,13 +175,7 @@
         : await root.NarduVerify[Object.prototype.hasOwnProperty.call(options, 'proof') ? 'verifyFairRoll' : 'verifyPortalRoll'](options);
       if (output.isConnected === false) return;
       if (!wholeGame && rollSignature(button) !== signature) { clearResult(output); return; }
-      if (wholeGame) {
-        const current = sources.get(parent);
-        if (!context || current?.revision !== context.revision || gameSignature(current?.game) !== context.signature) {
-          clearResult(output);
-          return;
-        }
-      }
+      if (wholeGame && !currentGameCheck(parent, check, output)) return;
       const resultLanguage = language();
       const signed = wholeGame ? Boolean(result.sourceCounts) : ['drand', 'drand-quicknet-v1', 'system-csprng-v1'].includes(result.protocol);
       const fullSource = wholeGame ? result.sourceCounts && result.sourceCounts.signed === result.counts.rolls
@@ -184,13 +192,7 @@
     } catch (error) {
       if (output.isConnected === false) return;
       if (!wholeGame && rollSignature(button) !== signature) { clearResult(output); return; }
-      if (wholeGame) {
-        const current = sources.get(parent);
-        if (!context || current?.revision !== context.revision || gameSignature(current?.game) !== context.signature) {
-          clearResult(output);
-          return;
-        }
-      }
+      if (wholeGame && !currentGameCheck(parent, check, output)) return;
       output.dataset.status = 'incomplete';
       output.textContent = errorSummary(error, language());
     } finally {

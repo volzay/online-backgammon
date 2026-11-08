@@ -1409,7 +1409,16 @@ window.NarduController = (function () {
   }
 
   /* ── re-render orchestration ──────────────── */
-  function render() {
+  function render({ diceTransition = false } = {}) {
+    if (diceTransition) {
+      // The checkers have not moved. Update the waiting controls without
+      // reprocessing the signed journal before the request or animation.
+      renderDice();
+      renderTurn();
+      renderUndo();
+      renderResign();
+      return;
+    }
     clearStaleDragClones();
     if (onRender) onRender();
     paintOpponent();
@@ -3203,7 +3212,7 @@ window.NarduController = (function () {
       if (policy.required !== true) policy = await window.NarduRooms.fairDicePolicy(remoteCode, { refresh: true });
       if (policy.required) {
         fairDiceInFlight = true;
-        render();
+        render({ diceTransition: true });
         await publishRemoteState();
         if (fairDiceError) throw new Error('The protected room is paused.');
         const proof = await window.NarduRooms.requestFairDice(remoteCode, {
@@ -3391,7 +3400,7 @@ window.NarduController = (function () {
         const saved = await publishRemoteState();
         if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified opening dice.');
       } else publishRemoteState();
-      render();
+      render({ diceTransition: Boolean(fair.proof) });
 
       const boardDiceLayer = document.getElementById('board-dice-layer');
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
@@ -3476,7 +3485,7 @@ window.NarduController = (function () {
         const saved = await publishRemoteState();
         if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified turn dice.');
       } else publishRemoteState();
-      render();
+      render({ diceTransition: Boolean(fair.proof) });
       const boardFaces = boardDiceFaces(r);
       const boardDiceLayer = document.getElementById('board-dice-layer');
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
@@ -4092,6 +4101,9 @@ window.NarduController = (function () {
   function cloneStateForUndo(source) {
     return JSON.parse(JSON.stringify({
       ...source,
+      // Undo changes only this roll's board and journal. The previous Hard
+      // turns' search archive can be large and belongs to the live game.
+      analysis: mode === 'bot' && variant === 'long' && botDifficulty === 'hard' ? undefined : source.analysis,
       selected: null,
       hints: [],
       fullHints: [],
@@ -4239,6 +4251,7 @@ window.NarduController = (function () {
     syncTurnClock();
     const currentTurnClock = normalizedTurnClock(state.turnClock);
     const previous = undoStack.pop();
+    if (mode === 'bot' && variant === 'long' && botDifficulty === 'hard') previous.analysis = state.analysis;
     state = previous;
     state.turnClock = currentTurnClock;
     clearSelection();

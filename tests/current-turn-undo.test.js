@@ -52,7 +52,8 @@ function harness() {
   vm.runInContext(source.replace(marker, `    preferredMoveAction,
     __undoTest: { restoreCurrentTurnUndo, cloneStateForUndo, undoLastMove, applyRemoteState,
       getUndo: () => undoStack, startup: () => botAnalysisStartupPromise,
-      setState(next, ownColor = next.turn) { state = next; variant = next.variant; mode = 'hotseat';
+      setState(next, ownColor = next.turn, playMode = 'hotseat') { state = next; variant = next.variant; mode = playMode;
+        botDifficulty = next.botDifficulty;
         playerColor = ownColor; remoteCode = ''; botAnalysisRestorePending = false; },
       setUndo(next) { undoStack = next; } },
   };`), context);
@@ -205,6 +206,31 @@ test('restored undo never rolls back elapsed clocks or unrelated analysis/eviden
   assert.deepEqual(actual, { ...expected[0], turnClock: { white: 46678, dark: 34567, active: 'white', startedAt: NOW } });
   assert.equal(h.api.getUndo().length, 0);
   assert.equal(h.undoButton.disabled, true);
+});
+
+test('long Hard undo preserves live analysis and the signed roll without cloning the decision archive', () => {
+  const h = harness();
+  const state = position(h, { rolled: [2, 4], historyLength: 216 });
+  state.botDifficulty = 'hard';
+  state.analysis = { botMemory: { decisions: [{ alternatives: { toJSON() {
+    throw new Error('Undo must never serialize the decision archive');
+  } } }] } };
+  h.api.setState(state, 'white', 'bot');
+  const [snapshot] = acceptedMoves(h, state, [{ from: 24, die: 2 }]);
+  assert.equal(Object.hasOwn(snapshot, 'analysis'), false);
+  const restoredSnapshots = h.api.restoreCurrentTurnUndo(state);
+  assert.deepEqual(clone(restoredSnapshots), [snapshot]);
+
+  const updatedAnalysis = { ...state.analysis, experienceLoad: 'finished' };
+  state.analysis = updatedAnalysis;
+  h.api.setUndo(restoredSnapshots);
+  h.api.undoLastMove();
+  const actual = h.controller.getState();
+  assert.equal(actual.analysis, updatedAnalysis);
+  assert.deepEqual(clone(actual.points), snapshot.points);
+  assert.deepEqual(clone(actual.history), snapshot.history);
+  assert.equal(actual.rollToken, snapshot.rollToken);
+  assert.equal(actual.fairDice.gameId, snapshot.fairDice.gameId);
 });
 
 test('incomplete, illegal, mismatched or ended-turn states fail closed without partial undo snapshots', () => {

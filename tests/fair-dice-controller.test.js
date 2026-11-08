@@ -92,7 +92,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     isRemoteHost: () => true, isMyTurn: () => true,
     normalizeRestoredState: source => clone(source),
     cancelBotTurnActivity: () => calls.push('cancel-bot'),
-    render: () => calls.push('render'),
+    render: ({ diceTransition } = {}) => calls.push(diceTransition ? 'render-dice-transition' : 'render'),
     scheduleOpeningRoll: () => calls.push('progress-opening'),
     scheduleOpeningTurnRoll: () => calls.push('progress-opening-result'),
     scheduleAutoRoll: () => calls.push('progress-roll'),
@@ -341,6 +341,27 @@ test('a stalled dice animation continues the same saved roll without requesting 
 for (const method of ['openingRoll', 'autoRoll']) {
   const application = method === 'openingRoll' ? 'apply-opening' : 'apply-roll';
   const animation = method === 'openingRoll' ? 'animate-opening' : 'animate-roll';
+
+  test(`${method}: confirmed dice skip full rendering until the visual transition`, async () => {
+    const saved = deferred();
+    const r = rig(method, { persistProof: () => saved.promise });
+    const running = r.run();
+    await flush();
+    assert.equal(count(r.calls, 'render-dice-transition'), 1);
+    assert.equal(count(r.calls, 'render'), 0);
+    r.requested.resolve(clone(proof));
+    await flush();
+    assert.equal(count(r.calls, 'persist-proof'), 1);
+    assert.equal(count(r.calls, animation), 0);
+    saved.resolve(true);
+    await running;
+    await flush();
+    assert.equal(count(r.calls, 'render-dice-transition'), 2);
+    assert.equal(count(r.calls, 'render'), 0);
+    assert.equal(count(r.calls, animation), 1);
+    assert.equal(count(r.calls, 'finish-animation'), 1);
+    assertNoLegacy(r.calls);
+  });
 
   test(`${method}: an authoritative proof applied during the await is never applied twice`, async () => {
     const r = rig(method);
