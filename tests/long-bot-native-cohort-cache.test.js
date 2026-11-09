@@ -20,6 +20,7 @@ const {
   SEPARATED_RACE_NATIVE_CACHE_POLICY,
   OPENING_SUPPORT_NATIVE_CACHE_POLICY,
   FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
+  CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -85,9 +86,9 @@ test('first-entry fence defense identity enables a separately pinned cache witho
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -102,6 +103,7 @@ test('first-entry fence defense identity enables a separately pinned cache witho
     SEPARATED_RACE_NATIVE_CACHE_POLICY,
     OPENING_SUPPORT_NATIVE_CACHE_POLICY,
     FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
+    CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });

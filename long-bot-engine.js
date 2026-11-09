@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
 
 /* bot-engine/long/metrics.ts */
 
@@ -2932,7 +2932,19 @@ function createLongBotEngine(adapter, options = {}) {
     // Tactical work is intentionally delayed until every structural policy has
     // selected its shortlist. Otherwise the budget can be spent on candidates
     // which are later discarded, leaving the actual move without dice analysis.
-    const tacticalPool = tacticalCoveragePool(strategicallyEligible, strategicallyRanked);
+    let tacticalPool = tacticalCoveragePool(strategicallyEligible, strategicallyRanked);
+    const contactDefense = advancedStrategy
+      ? reserveContactFenceDefense(
+        state, strategicallyEligible, strategicallyRanked, runtimeOptions.maxTacticalCandidates,
+      )
+      : null;
+    if (contactDefense) {
+      tacticalPool = [
+        tacticalPool[0],
+        contactDefense,
+        ...tacticalPool.slice(1).filter(candidate => candidate !== contactDefense),
+      ];
+    }
     const advancedTacticallyAdjusted = new Set();
     const applyAdvancedTacticalAdjustment = (candidate) => {
       if (!advancedStrategy || advancedTacticallyAdjusted.has(candidate)) return;
@@ -3100,6 +3112,7 @@ function createLongBotEngine(adapter, options = {}) {
       coldRanked,
     );
     coldRanked = prioritizeFirstEntryFenceDefense(state, color, coldRanked, weights);
+    coldRanked = prioritizeContactFenceDefense(color, coldRanked, contactDefense, weights);
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -6895,6 +6908,94 @@ function prioritizeFirstEntryFenceDefense(state, color, ranked, weights) {
   if (!alternatives.length) return ranked;
   alternatives.sort((left, right) => right.worst - left.worst || right.expected - left.expected);
   return promoteCandidate(ranked, alternatives[0].candidate, 'firstEntryFenceDefenseAdjustment');
+}
+
+function contactFenceDefenseGain(candidate, selected) {
+  return selected.features.prospectiveFenceExtensionAfter
+    - candidate.features.prospectiveFenceExtensionAfter;
+}
+
+function isContactFenceDefense(color, candidate, selected) {
+  const features = candidate?.features;
+  const baseline = selected?.features;
+  if (!features || !baseline || candidate === selected
+    || features.resultSafetyAfter < baseline.resultSafetyAfter
+    || features.maxRouteTowerAfter > baseline.maxRouteTowerAfter
+    || features.homeShuffleMoves > baseline.homeShuffleMoves
+    || features.outsidePipGain < baseline.outsidePipGain
+    || features.trapDelta < Math.max(0, baseline.trapDelta - 300)
+    || features.fenceClosureDelta < baseline.fenceClosureDelta
+    || !(contactFenceDefenseGain(candidate, selected)
+      >= Math.max(120, baseline.prospectiveFenceExtensionAfter / 2))) return false;
+
+  // Allow one fewer home entry only when it both reduces the threat and
+  // strengthens our own block. Head release still takes priority here.
+  if (baseline.opponentFenceRunBefore >= 5) {
+    return baseline.trapBefore >= 850
+      && features.missedKoksRescue <= baseline.missedKoksRescue
+      && features.homeEntryMoves === baseline.homeEntryMoves - 1
+      && features.headGain >= baseline.headGain
+      && features.startZoneReduction >= baseline.startZoneReduction
+      && features.primeRunAfter > baseline.primeRunAfter
+      && features.opponentMoveBlockAfter >= baseline.opponentMoveBlockAfter + 20
+      && features.fenceClosureDelta >= baseline.fenceClosureDelta + 30
+      && features.escapeGatewayDelta >= baseline.escapeGatewayDelta - 40;
+  }
+
+  // A threatened landing can justify spending the dice on the board
+  // instead of taking one more checker off the head.
+  return baseline.opponentFenceRunBefore >= 2
+    && offCount(selected.after, opponentOf(color)) === 0
+    && baseline.prospectiveFenceExtensionAfter >= 200
+    && features.headGain === baseline.headGain - 1
+    && features.headGain >= 0
+    && features.startZoneReduction >= baseline.startZoneReduction - 2
+    && features.primeRunAfter >= baseline.primeRunAfter - 1
+    && features.homeEntryMoves >= baseline.homeEntryMoves
+    && features.escapeGatewayDelta >= baseline.escapeGatewayDelta - 22;
+}
+
+function reserveContactFenceDefense(state, eligible, ranked, limit = MAX_TACTICAL_CANDIDATES) {
+  const selected = eligible[0];
+  const rolled = state.rolled?.length ? state.rolled : state.dice;
+  if (!selected || state.dice?.length !== 2 || rolled?.length !== 2
+    || rolled[0] === rolled[1]) return null;
+  const eligiblePositions = new Set(eligible.map(candidatePositionKey));
+  // Use an open slot in the existing beam. A defensive reference may not
+  // displace a distinct move that was already eligible for the search.
+  const slots = Math.max(1, Math.min(MAX_TACTICAL_CANDIDATES, Math.floor(Number(limit) || MAX_TACTICAL_CANDIDATES)));
+  if (eligiblePositions.size >= slots) return null;
+  const alternatives = ranked.filter(candidate => (
+    !eligiblePositions.has(candidatePositionKey(candidate))
+    && isContactFenceDefense(state.turn, candidate, selected)
+  ));
+  if (!alternatives.length) return null;
+  alternatives.sort((left, right) => (
+    contactFenceDefenseGain(right, selected) - contactFenceDefenseGain(left, selected)
+    || right.features.fenceClosureDelta - left.features.fenceClosureDelta
+  ));
+  const candidate = alternatives[0];
+  candidate.features.fenceEscapeTacticalReservation = 1;
+  return candidate;
+}
+
+function prioritizeContactFenceDefense(color, ranked, candidate, weights) {
+  const selected = ranked[0];
+  if (!isContactFenceDefense(color, candidate, selected)
+    || !hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(selected)) return ranked;
+  const tactic = candidate.tactical;
+  const baseline = selected.tactical;
+  const valueGain = evaluateState(candidate.after, color, weights)
+    - evaluateState(selected.after, color, weights);
+  const expectedGain = valueGain + tactic.expectedImpact - baseline.expectedImpact;
+  const worstGain = valueGain + tactic.worstImpact - baseline.worstImpact;
+  // Reply impacts have different starting boards. Compare absolute values,
+  // and require the bounded continuation to retain the tactical margin.
+  if (expectedGain < 15000000 || worstGain < 30000000
+    || tactic.recoveryExpected < baseline.recoveryExpected
+    || tactic.continuationExpected < baseline.continuationExpected - expectedGain
+    || tactic.continuationTailRisk < baseline.continuationTailRisk - worstGain / 2) return ranked;
+  return promoteCandidate(ranked, candidate, 'contactFenceDefenseAdjustment');
 }
 
 function isDeepFenceSafetyRegression(candidate, selected) {

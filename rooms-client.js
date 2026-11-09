@@ -11,7 +11,10 @@
   const LONG_BOT_SERVER_CAUSAL_SCHEMA = "long-server-causal-pattern-v1";
   const LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1";
   const LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu/server-long-bot-causal/v1";
-  const LONG_BOT_ATTESTED_EXPERIENCE_POLICY_ID = "d3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109";
+  const LONG_BOT_ATTESTED_EXPERIENCE_POLICY_IDS = new Set([
+    "d3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109",
+    "91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac",
+  ]);
   const SHORT_BOT_EXPERIENCE_CACHE_KEY = "narduh-short-bot-server-experience-v6";
   const SHORT_BOT_EXPERIENCE_CREDIT_VERSION = 6;
   const LONG_BOT_EXPERIENCE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -1807,7 +1810,7 @@
     const engine = window.NarduLongBotEngine;
     const causalOnly = longBotRequiresCausalExperience();
     const policyImplementationId = engine?.policyImplementationId;
-    const requiresAttestation = causalOnly && policyImplementationId === LONG_BOT_ATTESTED_EXPERIENCE_POLICY_ID;
+    const requiresAttestation = causalOnly && LONG_BOT_ATTESTED_EXPERIENCE_POLICY_IDS.has(policyImplementationId);
     const invalidResponse = () => longBotExperienceError(
       "LONG_BOT_EXPERIENCE_INVALID_RESPONSE", "Invalid long-bot experience response for the active policy.",
     );

@@ -14,7 +14,7 @@ const START_ZONE_ANALYSIS_POLICY_ID = '68d4a4f645374a29af252518d4391ddebe7ea2009
 const SEPARATED_RACE_POLICY_ID = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
 const OPENING_SUPPORT_POLICY_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
 const { fingerprint } = require('../lib/long-neural-artifact');
-const { FIRST_ENTRY_FENCE_DEFENSE_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+const { CONTACT_FENCE_DEFENSE_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 const ROOT = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(ROOT, name), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -224,7 +224,7 @@ test('hard-neuro evaluates its saved network but executes the verified hard-v35 
 
 test('production neural guard executes the exact real hard-v35 plan with a frozen experience snapshot', () => {
   const { game, neuro, hard, engine } = realTeacherEnvironment();
-  assert.equal(engine.policyImplementationId, FIRST_ENTRY_FENCE_DEFENSE_POLICY);
+  assert.equal(engine.policyImplementationId, CONTACT_FENCE_DEFENSE_POLICY);
   const state = rolled(game, [2, 4]);
   engine.beginExperienceSession('neural-teacher-regression');
   const frozen = engine.freezeExperience('neural-teacher-regression');
@@ -238,7 +238,7 @@ test('production neural guard executes the exact real hard-v35 plan with a froze
   assert.equal(decision.teacherExperienceFingerprint, frozen.fingerprint);
   assert.equal(decision.teacherExperienceFrozen, true);
   assert.equal(decision.teacherChoiceSource, 'long-analytic-engine');
-  assert.equal(decision.teacherRuntimePolicyImplementationId, FIRST_ENTRY_FENCE_DEFENSE_POLICY);
+  assert.equal(decision.teacherRuntimePolicyImplementationId, CONTACT_FENCE_DEFENSE_POLICY);
 });
 
 test('teacher guard admits the current analytical runtime without changing the frozen model record', () => {

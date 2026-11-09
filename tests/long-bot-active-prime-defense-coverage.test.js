@@ -27,6 +27,8 @@ function runtime() {
       .replace(/^export\s+\{[^}]+\};?\s*$/gm, '')).join('\n');
   vm.runInContext(`(function () { ${body}\nwindow.primeDefenseHelpers = {
     reserveStructuralIntegrityForTacticalAnalysis, hasBoundedFourPlyTactical,
+    reserveContactFenceDefense, prioritizeContactFenceDefense, evaluateState, mergeWeights,
+    analyzeOpponentReplies, createAnalysisBudget,
     createLongBotEngine, createNarduGameAdapter,
   };
   const originalAnalyze = analyzeOpponentReplies;
@@ -86,6 +88,100 @@ function pair() {
 const reserve = (position, ranked) => runtime().helpers.reserveStructuralIntegrityForTacticalAnalysis(
   position, 'dark', ranked,
 );
+
+function contactFencePair(severeFence) {
+  const white = { 24: 4, 4: 3, 7: 4, 9: 4 };
+  const position = state({ 12: 2, 8: 4, 21: 1, 16: 2, 15: 2, 14: 4 }, white);
+  const attackAfter = severeFence
+    ? state({ 12: 2, 8: 4, 18: 1, 16: 2, 15: 2, 14: 4 }, white)
+    : state({ 12: 1, 11: 1, 8: 4, 21: 1, 16: 1, 15: 2, 14: 5 }, white);
+  const defenseAfter = state({ 12: 2, 8: 3, 5: 1, 21: 1, 16: 2, 15: 2, 14: 4 }, white);
+  // Synthetic measurements isolate the policy boundary for these after-boards.
+  const features = {
+    opponentFenceRunBefore: severeFence ? 5 : 3,
+    trapBefore: 900, trapDelta: 40, fenceClosureDelta: 10,
+    prospectiveFenceExtensionAfter: 320, escapeGatewayDelta: 8,
+    headGain: severeFence ? 0 : 1, homeEntryMoves: severeFence ? 1 : 0,
+    primeRunAfter: 4, opponentMoveBlockAfter: 100,
+    outsidePipGain: severeFence ? 3 : 1, startZoneReduction: 0,
+    homeShuffleMoves: 0, resultSafetyAfter: 0, maxRouteTowerAfter: 5, missedKoksRescue: 0,
+  };
+  const attack = { after: attackAfter, score: 100, features };
+  const defense = { after: defenseAfter, score: 90, features: {
+    ...features, headGain: 0, homeEntryMoves: 0, outsidePipGain: 3,
+    prospectiveFenceExtensionAfter: 120, fenceClosureDelta: 50, maxRouteTowerAfter: 4,
+    primeRunAfter: severeFence ? 5 : 3, opponentMoveBlockAfter: severeFence ? 125 : 100,
+    missedKoksRescue: severeFence ? 0 : 1,
+  } };
+  return { position, attack, defense };
+}
+
+test('an ordinary roll reserves a defense that trades one head release or one home entry for fence relief', () => {
+  const { reserveContactFenceDefense } = runtime().helpers;
+  for (const severeFence of [false, true]) {
+    const { position, attack, defense } = contactFencePair(severeFence);
+    const eligible = [attack];
+    const ranked = [attack, defense];
+    assert.equal(reserveContactFenceDefense(position, eligible, ranked), defense);
+    assert.equal(defense.features.fenceEscapeTacticalReservation, 1);
+    assert.deepEqual(eligible, [attack], 'reserving a reference leaves the normal winner pool intact');
+    assert.deepEqual(ranked.map(candidate => candidate.score), [100, 90]);
+  }
+});
+
+test('contact defense skips doubles, weak relief, and unsafe trade-offs', () => {
+  const { reserveContactFenceDefense } = runtime().helpers;
+  const controls = [
+    ({ position }) => { position.dice = position.rolled = [2, 2, 2, 2]; },
+    ({ position }) => { position.rolled = [2, 2]; },
+    ({ defense }) => { defense.features.prospectiveFenceExtensionAfter = 240; },
+    ({ attack }) => { attack.features.resultSafetyAfter = 1; },
+    ({ attack }) => { attack.after.off.white = 1; },
+  ];
+  for (const mutate of controls) {
+    const fixture = contactFencePair(false);
+    mutate(fixture);
+    const { position, attack, defense } = fixture;
+    assert.equal(reserveContactFenceDefense(position, [attack], [attack, defense]), null);
+    assert.equal(defense.features.fenceEscapeTacticalReservation, undefined);
+  }
+  const severe = contactFencePair(true);
+  severe.defense.features.missedKoksRescue = 1;
+  assert.equal(reserveContactFenceDefense(
+    severe.position, [severe.attack], [severe.attack, severe.defense],
+  ), null);
+});
+
+test('contact defense needs complete comparable replies and survives the deep-tail check', () => {
+  const { analyzeOpponentReplies, createAnalysisBudget, evaluateState, mergeWeights,
+    prioritizeContactFenceDefense } = runtime().helpers;
+  const { attack, defense } = contactFencePair(false);
+  const weights = mergeWeights(production.weights);
+  const [dummy] = analyzeOpponentReplies(
+    { legalSequences: () => [] }, 'dark', [{ ...attack, score: 0 }],
+    weights, createAnalysisBudget(100), { expandDoubles: true },
+  );
+  const valueGain = evaluateState(defense.after, 'dark', weights)
+    - evaluateState(attack.after, 'dark', weights);
+  assert.notEqual(valueGain, 0);
+  const tactical = { ...dummy.tactical, expectedImpact: -100000000, worstImpact: -200000000 };
+  const better = { ...tactical, expectedImpact: tactical.expectedImpact + 20000000 - valueGain,
+    worstImpact: tactical.worstImpact + 40000000 - valueGain };
+  const select = (overrides = {}, leaderOverrides = {}) => {
+    const leader = { ...attack, tactical: { ...tactical, ...leaderOverrides } };
+    const reference = { ...defense, features: { ...defense.features },
+      tactical: { ...better, ...overrides } };
+    return prioritizeContactFenceDefense('dark', [leader], reference, weights)[0];
+  };
+  assert.equal(select().after, defense.after);
+  assert.equal(select({ plies: 3 }).after, attack.after);
+  assert.equal(select({ recoveryDistributionComplete: false }).after, attack.after);
+  assert.equal(select({}, { distributionWeight: 35 }).after, attack.after);
+  assert.equal(select({ expectedImpact: tactical.expectedImpact + 14000000 - valueGain }).after,
+    attack.after, 'the absolute expectation must clear the margin');
+  assert.equal(select({ continuationTailRisk: tactical.continuationTailRisk - 21000000 }).after,
+    attack.after, 'primary gains cannot cover a worse deep tail beyond its envelope');
+});
 
 test('normal last-head release reserves exactly one active-prime defender without changing scores', () => {
   const { position, head, keeper, candidate } = pair();
