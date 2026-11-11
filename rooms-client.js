@@ -1806,7 +1806,9 @@
     return error;
   }
 
-  async function loadLongBotExperience({ refresh = false, playerName = "", isCurrent = () => true } = {}) {
+  async function loadLongBotExperience({
+    refresh = false, playerName = "", isCurrent = () => true, signedRound = undefined,
+  } = {}) {
     const superseded = () => longBotExperienceError(
       "LONG_BOT_EXPERIENCE_SUPERSEDED", "Long-bot experience load was superseded.",
     );
@@ -1831,7 +1833,13 @@
       || "",
     ).trim().slice(0, 32);
     const playerKey = resolvedPlayerName.toLocaleLowerCase();
-    const requestKey = requiresAttestation ? `${policyImplementationId}:${playerKey}` : playerKey;
+    const roundRoomCode = normalizeCode(signedRound?.roomCode);
+    const roundStartedAt = signedRound?.roundStartedAt;
+    const requiresSignedRound = requiresAttestation && !!roundRoomCode
+      && Number.isSafeInteger(roundStartedAt) && roundStartedAt > 0;
+    const requestKey = requiresSignedRound
+      ? `${policyImplementationId}:${roundRoomCode}:${roundStartedAt}`
+      : requiresAttestation ? `${policyImplementationId}:${playerKey}` : playerKey;
     const loadGeneration = ++longBotExperienceLoadGeneration;
     const cachedPatterns = refresh ? [] : readLongBotExperienceCache(playerKey);
     engine?.setExperience?.([], "server");
@@ -1843,13 +1851,14 @@
     if (!experiencePromise) {
       experiencePromise = (async () => {
         const client = await supabase();
-        const rpcName = requiresAttestation
-          ? "load_current_long_bot_experience"
-          : "get_long_bot_experience_patterns";
-        const { data, error } = await client.rpc(rpcName, {
-          p_player_name: resolvedPlayerName || null,
-          ...(requiresAttestation ? { p_policy_implementation_id: policyImplementationId } : {}),
-        });
+        const rpcName = requiresSignedRound ? "load_signed_long_bot_experience"
+          : requiresAttestation ? "load_current_long_bot_experience" : "get_long_bot_experience_patterns";
+        const parameters = requiresSignedRound
+          ? { p_policy_implementation_id: policyImplementationId,
+            p_room_code: roundRoomCode, p_round_started_at: roundStartedAt }
+          : { p_player_name: resolvedPlayerName || null,
+            ...(requiresAttestation ? { p_policy_implementation_id: policyImplementationId } : {}) };
+        const { data, error } = await client.rpc(rpcName, parameters);
         if (error) throw supabaseError(error, "Could not load long-bot experience.");
         if (requiresAttestation && data?.policyImplementationId !== policyImplementationId) {
           throw invalidResponse();

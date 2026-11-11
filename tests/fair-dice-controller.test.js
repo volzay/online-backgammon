@@ -74,6 +74,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
   const context = {
     state, mode, remoteCode: 'TEST-ROOM', playerColor: 'white', opponentName: 'Bot',
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
+    waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,
     fairDiceError: '', fairDiceInFlight: false, undoStack: [],
     botAnalysisVersion: 1, remoteVersion: 1, Date, Math: math, URL,
@@ -191,6 +192,14 @@ test('a failed policy refresh never downgrades into legacy dice generation', asy
   assertNoLegacy(r.calls);
 });
 
+test('opening dice wait until the server can freeze the experience for this round', async () => {
+  const r = rig('openingRoll');
+  r.context.waitingForLongBotExperience = () => true;
+  await r.context.openingRoll();
+  assert.equal(count(r.calls, 'request'), 0);
+  assert.equal(r.context.state.phase, 'opening');
+});
+
 test('healthy roll and bot scheduling use short fixed pauses independent of archived game length', () => {
   const source = ['function scheduleAutoRoll(', 'function scheduleOpeningRoll(',
     'function ensureAutoProgress(', 'function finishTurnRollAnimation('].map(extractFunction).join('\n');
@@ -198,6 +207,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
     const scheduled = [];
     const context = { state: { phase: 'roll', turn: 'dark', history: Array(historyLength).fill({}) },
       mode: 'bot', botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '',
+      waitingForLongBotExperience: () => false,
       isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
       isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
       autoRoll() {}, openingRoll() {}, playBotTurn() {}, maybeScheduleAutoEndTurn() {},

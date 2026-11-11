@@ -1190,6 +1190,12 @@ window.NarduController = (function () {
       throw new Error('Long-bot experience loader is unavailable');
     }
 
+    const startedAtRound = Number(state?.startedAt);
+    const signedRound = botDifficulty === 'hard' && botAnalysisReady && remoteCode
+      && window.NarduApp?.getUser?.()?.guest !== true
+      && Number.isSafeInteger(startedAtRound) && startedAtRound > 0
+      ? { roomCode: remoteCode, roundStartedAt: startedAtRound }
+      : undefined;
     let lastError = null;
     for (let attempt = 1; attempt <= LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS; attempt += 1) {
       recordLongBotExperienceLoad({
@@ -1200,7 +1206,7 @@ window.NarduController = (function () {
       });
       try {
         const patterns = await promiseWithTimeout(
-          loader({ refresh: refresh || attempt > 1, isCurrent }),
+          loader({ refresh: refresh || attempt > 1, isCurrent, signedRound }),
           LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS,
           'Long-bot experience request timed out',
         );
@@ -3347,7 +3353,8 @@ window.NarduController = (function () {
   }
 
   function scheduleOpeningRoll(ms = 200) {
-    if (botAnalysisRestorePending || state.phase !== 'opening' || state.phase === 'over' || isRolling || autoRollTimer) return;
+    if (botAnalysisRestorePending || waitingForLongBotExperience()
+      || state.phase !== 'opening' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     autoRollTimer = schedule(() => {
       autoRollTimer = null;
@@ -3420,7 +3427,7 @@ window.NarduController = (function () {
 
   async function openingRoll() {
     if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
-    if (botAnalysisRestorePending || state.phase !== 'opening' || isRolling) return;
+    if (botAnalysisRestorePending || waitingForLongBotExperience() || state.phase !== 'opening' || isRolling) return;
     if (mode === 'remote' && !isRemoteHost()) return;
     const user = window.NarduApp?.getUser?.();
     const startedAt = state.startedAt;

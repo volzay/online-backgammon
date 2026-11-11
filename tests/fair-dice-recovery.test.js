@@ -80,6 +80,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
   const context = {
     state, mode, remoteCode: 'ABCD-EFGH', playerColor: 'white', opponentName: 'Bot',
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
+    waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,
     fairDiceError: '', fairDiceInFlight: false, undoStack: [],
     botAnalysisVersion: 1, remoteVersion: 1, Date, Math: math, URL,

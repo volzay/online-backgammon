@@ -28,13 +28,19 @@ test('a published lesson changes an eligible native decision in the next round',
     samples: 1, losses: 1, wins: 0, lossWeight: 1.5, signalWeight: 1.5,
     severeLosses: 0, winWeight: 0, outcomeUsed: false };
   let published = [];
+  const signedRounds = new Map();
   const values = new Map();
   const context = { window: { NarduLongBotEngine: engine,
     NarduSupabase: { configured: () => true, client: async () => ({
       rpc: async (name, args) => {
-        assert.equal(name, 'load_current_long_bot_experience');
+        assert.equal(name, 'load_signed_long_bot_experience');
         assert.equal(args.p_policy_implementation_id, engine.policyImplementationId);
-        return { data: { policyImplementationId: engine.policyImplementationId, patterns: published }, error: null };
+        assert.equal(args.p_room_code, 'TEST-ROOM');
+        const round = args.p_round_started_at;
+        assert.ok(Number.isSafeInteger(round));
+        if (!signedRounds.has(round)) signedRounds.set(round, published);
+        return { data: { policyImplementationId: engine.policyImplementationId, patterns: signedRounds.get(round) },
+          error: null };
       },
     }) } },
     localStorage: { getItem: key => values.get(key) ?? null,
@@ -43,20 +49,23 @@ test('a published lesson changes an eligible native decision in the next round',
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../rooms-client.js'), 'utf8'), context);
   try {
-    const fetchLatest = () => context.window.NarduRooms.loadLongBotExperience({
+    const fetchLatest = roundStartedAt => context.window.NarduRooms.loadLongBotExperience({
       playerName: 'Synthetic contract test', refresh: true,
+      signedRound: { roomCode: 'TEST-ROOM', roundStartedAt },
     });
+    const firstRound = 1789689600000;
+    const secondRound = firstRound + 1000;
     engine.beginExperienceSession('synthetic-round-1');
-    assert.equal((await fetchLatest()).length, 0);
+    assert.equal((await fetchLatest(firstRound)).length, 0);
     engine.freezeExperience('synthetic-round-1');
 
     published = [pattern];
-    assert.equal((await fetchLatest()).length, 1);
+    assert.equal((await fetchLatest(firstRound)).length, 0);
     assert.equal(engine.experienceSize(), 0);
     assert.equal(canonicalMoveKey(engine.rank(state, options)[0].sequence), canonicalMoveKey(cold.sequence));
 
     engine.beginExperienceSession('synthetic-round-2');
-    assert.equal((await fetchLatest()).length, 1);
+    assert.equal((await fetchLatest(secondRound)).length, 1);
     engine.freezeExperience('synthetic-round-2');
     assert.equal(engine.experienceSize(), 1);
     const learned = engine.rank(state, options);
