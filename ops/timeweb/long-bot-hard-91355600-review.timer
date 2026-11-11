@@ -1,0 +1,10 @@
+[Unit]
+Description=Continue bounded analysis for long-backgammon Hard policy 91355600
+
+[Timer]
+OnCalendar=*-*-* *:00/10:00
+AccuracySec=10s
+Unit=long-bot-hard-91355600-review.service
+
+[Install]
+WantedBy=timers.target

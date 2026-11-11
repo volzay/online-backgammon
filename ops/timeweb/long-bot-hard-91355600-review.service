@@ -1,0 +1,35 @@
+[Unit]
+Description=Review archived long-backgammon Hard losses for policy 91355600
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/online-backgammon-hard-91355600-review/pause-admission
+
+[Service]
+Type=oneshot
+User=nardy-worker
+Group=nardy-worker
+WorkingDirectory=/opt/online-backgammon-hard-contact-defense-91355600
+EnvironmentFile=/etc/online-backgammon/long-bot-causal-worker.env
+StateDirectory=online-backgammon-hard-91355600-review
+StateDirectoryMode=0700
+UMask=0077
+ExecCondition=/usr/bin/node -e 'const s=require("node:fs").statfsSync("/var/lib/online-backgammon-hard-91355600-review",{bigint:true}); process.exit(s.bavail*s.bsize >= 2147483648n ? 0 : 1)'
+ExecStart=/usr/bin/flock --exclusive --nonblock --no-fork /var/lib/online-backgammon-hard-91355600-review/worker.flock /usr/bin/node scripts/long-bot-causal-worker.js --once --production-journal-dir /var/lib/online-backgammon-hard-91355600-review/terminal-journal
+TimeoutStartSec=9min
+TimeoutStopSec=20s
+KillMode=control-group
+MemoryMax=512M
+CPUQuota=30%
+CPUWeight=5
+Nice=19
+StandardOutput=null
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=

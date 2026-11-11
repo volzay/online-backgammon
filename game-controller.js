@@ -57,6 +57,7 @@ window.NarduController = (function () {
   let botAnalysisStartupPromise = null;
   let botAnalysisStartupRetry = null;
   let botAnalysisStartupGeneration = 0;
+  let longBotExperienceStartupPending = false;
   let botRatingPersistenceKey = null;
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
@@ -911,6 +912,7 @@ window.NarduController = (function () {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     attachRuntimeStateFields(roomCode);
+    longBotExperienceStartupPending = opts.skipAutoStart !== true;
     if (mode === 'bot' && variant === 'long'
       && (botDifficulty === 'hard' || botDifficulty === 'hard-neuro')) {
       window.NarduLongBotEngine?.beginExperienceSession?.(
@@ -1106,18 +1108,26 @@ window.NarduController = (function () {
     return attempt;
   }
 
+  function waitingForLongBotExperience() {
+    return longBotExperienceStartupPending && mode === 'bot' && variant === 'long'
+      && botDifficulty === 'hard';
+  }
+
   function ensureAutoProgressAfterExperience(delay, maxExperienceWaitMs = LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS) {
     if (mode !== 'bot' || (botDifficulty !== 'hard' && botDifficulty !== 'hard-neuro')) {
       ensureAutoProgress(delay);
       return;
     }
+    const startupGeneration = botAnalysisStartupGeneration;
+    const sessionKey = longBotExperienceSessionKey();
+    const isCurrent = () => startupGeneration === botAnalysisStartupGeneration
+      && sessionKey === longBotExperienceSessionKey();
     const startWithFrozenExperience = () => {
+      if (!isCurrent()) return;
       try {
         if (variant === 'long') {
           window.NarduStrongBot?.syncLocalExperience?.();
-          const snapshot = window.NarduLongBotEngine?.freezeExperience?.(
-            longBotExperienceSessionKey(),
-          );
+          const snapshot = window.NarduLongBotEngine?.freezeExperience?.(sessionKey);
           recordLongBotExperienceLoad({
             frozen: true,
             fingerprint: snapshot?.fingerprint || '',
@@ -1127,17 +1137,23 @@ window.NarduController = (function () {
       } catch (error) {
         console.warn('Could not freeze bot experience before resuming', error?.message || error);
       } finally {
+        longBotExperienceStartupPending = false;
         ensureAutoProgress(delay);
       }
     };
     if (variant === 'long') {
-      const loadExperience = loadLongBotExperienceBeforeStart().catch(error => {
+      const restoredExperience = window.NarduLongBotEngine?.experienceSnapshot?.()?.frozen === true;
+      longBotExperienceStartupPending = botDifficulty === 'hard' && !restoredExperience;
+      const loadExperience = loadLongBotExperienceBeforeStart({
+        isCurrent,
+        refresh: waitingForLongBotExperience(),
+      }).catch(error => {
         console.warn('Could not load shared bot experience', error?.message || error);
       });
       // A restored game already owns an immutable evidence snapshot. Network
       // refreshes are intentionally queued for the next session, so waiting
       // here cannot improve this game's decisions and only stalls its resume.
-      if (window.NarduLongBotEngine?.experienceSnapshot?.()?.frozen === true) {
+      if (restoredExperience) {
         loadExperience.catch(() => {});
         startWithFrozenExperience();
         return;
@@ -1161,7 +1177,8 @@ window.NarduController = (function () {
     ]).finally(startWithFrozenExperience);
   }
 
-  async function loadLongBotExperienceBeforeStart() {
+  async function loadLongBotExperienceBeforeStart({ isCurrent = () => true, refresh = false } = {}) {
+    if (!isCurrent()) return [];
     const loader = window.NarduRooms?.loadLongBotExperience;
     const startedAt = Date.now();
     if (typeof loader !== 'function') {
@@ -1183,10 +1200,11 @@ window.NarduController = (function () {
       });
       try {
         const patterns = await promiseWithTimeout(
-          loader({ refresh: attempt > 1 }),
+          loader({ refresh: refresh || attempt > 1, isCurrent }),
           LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS,
           'Long-bot experience request timed out',
         );
+        if (!isCurrent()) return [];
         const experienceSize = Number(window.NarduLongBotEngine?.experienceSize?.()) || 0;
         const engineSnapshot = window.NarduLongBotEngine?.experienceSnapshot?.();
         const experienceDeferred = Number(engineSnapshot?.pendingPatternCount) > 0;
@@ -1227,6 +1245,7 @@ window.NarduController = (function () {
         });
         return patterns;
       } catch (error) {
+        if (!isCurrent()) return [];
         lastError = error;
         recordLongBotExperienceLoad({
           status: attempt < LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS ? 'retrying' : 'failed',
@@ -3079,7 +3098,8 @@ window.NarduController = (function () {
   }
 
   function scheduleBotTurn(ms = 180) {
-    if (mode !== 'bot' || !state || state.phase !== 'move' || isMyTurn() || state.winner) return;
+    if (mode !== 'bot' || !state || state.phase !== 'move' || isMyTurn() || state.winner
+      || waitingForLongBotExperience()) return;
     const delay = Math.max(0, Number(ms) || 0);
     if (botTurnTimer) {
       const staleAfter = Math.max(2000, delay + 1500);
@@ -5226,6 +5246,7 @@ window.NarduController = (function () {
       fairDiceError ||
       (typeof botPlannerError !== 'undefined' && botPlannerError) ||
       botAnalysisRestorePending ||
+      waitingForLongBotExperience() ||
       !state ||
       state.phase !== 'move' ||
       state.winner ||

@@ -1101,7 +1101,7 @@ test('bot startup is guarded by the server room while room presence remains resu
   assert.match(controller, /promiseWithTimeout\(\s*window\.NarduRooms\.getGameState\(roomCode, \{ signal: controller\?\.signal \}\),\s*BOT_ANALYSIS_RESTORE_TIMEOUT_MS/);
   assert.match(controller, /error\?\.status === 404[\s\S]*ensureBotAnalysisRoomReady\(botAnalysisPayload\(\)\)/);
   assert.match(controller, /ensureAutoProgressAfterExperience\(\s*650,\s*LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS/);
-  assert.match(controller, /const loadExperience = loadLongBotExperienceBeforeStart\(\)/);
+  assert.match(controller, /const loadExperience = loadLongBotExperienceBeforeStart\(\{\s*isCurrent,\s*refresh: waitingForLongBotExperience\(\),/);
   assert.match(controller, /Promise\.race\(\[\s*loadExperience,[\s\S]*Number\(maxExperienceWaitMs\)/);
   assert.match(controller, /botAnalysisOwnershipUnknown = true/);
   assert.match(controller, /Promise\.resolve\(botPublishPromise\)\.then\(persisted => \{[\s\S]*!persisted \|\| botAnalysisOwnershipUnknown[\s\S]*recordRating\(\)/);

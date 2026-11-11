@@ -1806,7 +1806,11 @@
     return error;
   }
 
-  async function loadLongBotExperience({ refresh = false, playerName = "" } = {}) {
+  async function loadLongBotExperience({ refresh = false, playerName = "", isCurrent = () => true } = {}) {
+    const superseded = () => longBotExperienceError(
+      "LONG_BOT_EXPERIENCE_SUPERSEDED", "Long-bot experience load was superseded.",
+    );
+    if (!isCurrent()) throw superseded();
     const engine = window.NarduLongBotEngine;
     const causalOnly = longBotRequiresCausalExperience();
     const policyImplementationId = engine?.policyImplementationId;
@@ -1866,11 +1870,9 @@
       }).catch(() => {});
     }
     const currentPromise = experiencePromise.then(result => {
-      if (loadGeneration !== longBotExperienceLoadGeneration || (causalOnly && (
+      if (!isCurrent() || loadGeneration !== longBotExperienceLoadGeneration || (causalOnly && (
         window.NarduLongBotEngine !== engine || engine.policyImplementationId !== policyImplementationId
-      ))) {
-        throw longBotExperienceError("LONG_BOT_EXPERIENCE_SUPERSEDED", "Long-bot experience load was superseded.");
-      }
+      ))) throw superseded();
       const validated = validatedLongBotExperience(result?.patterns, {
         trustedRpc: result?.fresh === true,
       });

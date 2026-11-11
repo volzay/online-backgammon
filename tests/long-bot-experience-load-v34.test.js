@@ -39,7 +39,7 @@ function loadRoomsClient({ localStorage, window }) {
   return context.window.NarduRooms;
 }
 
-function loadController(loadLongBotExperience) {
+function loadController(loadLongBotExperience, plan) {
   const localStorage = memoryStorage();
   const sessionStorage = memoryStorage();
   const document = {
@@ -61,6 +61,7 @@ function loadController(loadLongBotExperience) {
       paintUser() {},
     },
     NarduRooms: { loadLongBotExperience },
+    NarduLongBotWorker: { plan },
     NarduLongBotEngine: {
       beginExperienceSession() {},
       experienceSize() { return engineExperienceSize; },
@@ -103,6 +104,7 @@ function loadController(loadLongBotExperience) {
     clearInterval() {},
     localStorage,
     sessionStorage,
+    NarduSound: { prime() {} },
     location: {
       href: 'https://example.test/room.html?mode=bot&game=LOAD-V33&variant=long&difficulty=hard',
       pathname: '/room.html',
@@ -120,7 +122,7 @@ function loadController(loadLongBotExperience) {
   const source = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __test: { loadLongBotExperienceBeforeStart, ensureAutoProgressAfterExperience },\n  };',
+      '    preferredMoveAction,\n    __test: { loadLongBotExperienceBeforeStart, ensureAutoProgressAfterExperience, playBotTurn },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
   window.NarduController.init({
@@ -417,4 +419,89 @@ test('v34 ignores server experience cached for longer than ten minutes', async (
   assert.equal(applied.some(item => (
     item.source === 'server-cache' && item.patterns[0]?.actionKey === 'route:expired'
   )), false);
+});
+
+test('a new hard-long turn waits for the fresh lesson before asking the worker to plan', async () => {
+  let finishLoad;
+  const loading = new Promise(resolve => { finishLoad = resolve; });
+  const refreshes = [];
+  const plannedWith = [];
+  const context = loadController(async ({ refresh }) => {
+    refreshes.push(refresh);
+    await loading;
+    context.window.NarduLongBotEngine.__setExperienceSize(1);
+    return [{ creditVersion: 9, actionKey: 'confirmed-lesson' }];
+  }, ({ engine }) => {
+    plannedWith.push(engine.experienceSize());
+    return new Promise(() => {});
+  });
+  const controller = context.window.NarduController;
+  const engine = context.window.NarduLongBotEngine;
+  engine.__setExperienceSize(0);
+  Object.assign(controller.getState(), { phase: 'move', turn: 'dark' });
+
+  controller.__test.ensureAutoProgressAfterExperience(0, 100);
+  controller.__test.playBotTurn();
+  assert.deepEqual(refreshes, [true]);
+  assert.deepEqual(plannedWith, []);
+
+  finishLoad();
+  await new Promise(resolve => setImmediate(resolve));
+  controller.__test.playBotTurn();
+  assert.deepEqual(plannedWith, [1]);
+  assert.equal(controller.getState().analysis.botMemory.experienceLoad.frozen, true);
+});
+
+test('late experience completion cannot freeze or release the next round', async () => {
+  const requests = [];
+  const context = loadController(options => new Promise(resolve => { requests.push({ options, resolve }); }));
+  const controller = context.window.NarduController;
+  const engine = context.window.NarduLongBotEngine;
+  controller.getState().phase = 'waiting';
+  controller.__test.ensureAutoProgressAfterExperience(0, 100);
+  controller.init({
+    mode: 'bot', roomCode: 'NEXT-ROUND', variant: 'long', difficulty: 'hard',
+    opponent: 'Hard bot', opponentRating: 1500, freshGame: true, skipAutoStart: true,
+  });
+  controller.getState().phase = 'waiting';
+  controller.__test.ensureAutoProgressAfterExperience(0, 100);
+  assert.equal(requests.length, 2);
+
+  assert.equal(requests[0].options.isCurrent(), false);
+  requests[0].resolve([]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.__frozenSnapshots.length, 0);
+  assert.equal(controller.getState().analysis.botMemory.experienceLoad.status, 'loading');
+
+  engine.__setExperienceSize(1);
+  requests[1].resolve([{ creditVersion: 9, actionKey: 'confirmed-lesson' }]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.__frozenSnapshots.length, 1);
+  assert.equal(engine.__frozenSnapshots[0].size, 1);
+  assert.equal(controller.getState().analysis.botMemory.experienceLoad.status, 'ready');
+});
+
+test('a superseded room cannot apply a late experience response without a replacement request', async () => {
+  let resolveResponse;
+  const response = new Promise(resolve => { resolveResponse = resolve; });
+  const applied = [];
+  let current = true;
+  const rooms = loadRoomsClient({
+    localStorage: memoryStorage(),
+    window: {
+      NarduSupabase: {
+        configured: () => true,
+        client: async () => ({ rpc: () => response }),
+      },
+      NarduLongBotEngine: {
+        setExperience(patterns, source) { applied.push({ patterns, source }); },
+      },
+    },
+  });
+  const check = assert.rejects(rooms.loadLongBotExperience({ isCurrent: () => current }),
+    { code: 'LONG_BOT_EXPERIENCE_SUPERSEDED' });
+  current = false;
+  resolveResponse({ data: [{ creditVersion: 8, contextKey: 'route|old', actionKey: 'route:old' }], error: null });
+  await check;
+  assert.equal(applied.some(({ patterns }) => patterns.length), false);
 });

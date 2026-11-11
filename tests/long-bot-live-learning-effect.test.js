@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { clearRuntimeCache, loadRuntime, canonicalMoveKey } = require('../scripts/generate-long-bot-shadow-replay');
 
-test('one RPC aggregate changes an eligible native decision, not merely the experience counter', async () => {
+test('a published lesson changes an eligible native decision in the next round', async () => {
   // Contract fixture only, NOT a claimed real regret or training observation.
   // Board from H7VV-VWUS; the mocked aggregate deliberately penalizes one
   // action so the entire RPC -> validation -> engine -> choice path is tested.
@@ -27,13 +27,14 @@ test('one RPC aggregate changes an eligible native decision, not merely the expe
     contextKey: cold.experience.contextKey, actionKey: cold.experience.actionKey,
     samples: 1, losses: 1, wins: 0, lossWeight: 1.5, signalWeight: 1.5,
     severeLosses: 0, winWeight: 0, outcomeUsed: false };
+  let published = [];
   const values = new Map();
   const context = { window: { NarduLongBotEngine: engine,
     NarduSupabase: { configured: () => true, client: async () => ({
       rpc: async (name, args) => {
         assert.equal(name, 'load_current_long_bot_experience');
         assert.equal(args.p_policy_implementation_id, engine.policyImplementationId);
-        return { data: { policyImplementationId: engine.policyImplementationId, patterns: [pattern] }, error: null };
+        return { data: { policyImplementationId: engine.policyImplementationId, patterns: published }, error: null };
       },
     }) } },
     localStorage: { getItem: key => values.get(key) ?? null,
@@ -42,8 +43,21 @@ test('one RPC aggregate changes an eligible native decision, not merely the expe
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../rooms-client.js'), 'utf8'), context);
   try {
-    const loaded = await context.window.NarduRooms.loadLongBotExperience({ playerName: 'Synthetic contract test' });
-    assert.equal(loaded.length, 1);
+    const fetchLatest = () => context.window.NarduRooms.loadLongBotExperience({
+      playerName: 'Synthetic contract test', refresh: true,
+    });
+    engine.beginExperienceSession('synthetic-round-1');
+    assert.equal((await fetchLatest()).length, 0);
+    engine.freezeExperience('synthetic-round-1');
+
+    published = [pattern];
+    assert.equal((await fetchLatest()).length, 1);
+    assert.equal(engine.experienceSize(), 0);
+    assert.equal(canonicalMoveKey(engine.rank(state, options)[0].sequence), canonicalMoveKey(cold.sequence));
+
+    engine.beginExperienceSession('synthetic-round-2');
+    assert.equal((await fetchLatest()).length, 1);
+    engine.freezeExperience('synthetic-round-2');
     assert.equal(engine.experienceSize(), 1);
     const learned = engine.rank(state, options);
     const penalized = learned.find(candidate => candidate.experience.contextKey === pattern.contextKey
@@ -51,7 +65,6 @@ test('one RPC aggregate changes an eligible native decision, not merely the expe
     assert.ok(penalized.experienceAdjustment < 0);
     assert.notEqual(canonicalMoveKey(learned[0].sequence), canonicalMoveKey(cold.sequence));
     assert.equal(learned[0].features.experienceSafetyRejected || 0, 0);
-    engine.freezeExperience('synthetic-consumption-only');
     engine.plan(state, options);
     const decision = engine.consumeLastDecision();
     assert.equal(decision.experienceSize, 1);
