@@ -190,4 +190,12 @@ test('an equally safe new opponent-head block can take precedence over an early 
   improveAbsoluteReplies(block, home, 4000000, -1);
   assert.equal(helpers.hasProvenOpeningDevelopment(state, 'white', block, home, weights), false);
   assert.equal(helpers.prioritizeOpeningDevelopment(state, 'white', [home, block], weights)[0], home);
+
+  const engine = context.window.NarduLongBotEngine;
+  const selected = engine.rank(state, {
+    strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
+  })[0];
+  assert.equal(selected.features.homeEntryMoves, 0);
+  assert.equal(selected.after.points[8].color, 'white');
+  assert.equal(selected.tactical.plies, 4);
 });
