@@ -6,6 +6,8 @@ import {
   experienceAdjustment,
   experienceDescriptor,
   normalizeExperiencePatterns,
+  projectSeparatedBearoff,
+  solveSeparatedBearoff,
 } from './analysis.ts';
 import {
   blockingPrimeRun,
@@ -82,18 +84,19 @@ export function createLongBotEngine(adapter, options = {}) {
     const advancedStrategy = strategyProfile !== 'v19';
     const useExperience = advancedStrategy
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
+    // A 16-wide static sampler discarded the strongest late-race routes in
+    // three JSYS-DECV doubles before evaluation began. Enumerate complete
+    // outcomes only after the start zone has been cleared; doing this in an
+    // earlier contact phase regresses the live VYS5 turn latency without
+    // improving the home-entry decision that this path is meant to protect.
+    const exhaustiveLongDoubles = advancedStrategy
+      && Array.isArray(state.dice)
+      && state.dice.length >= 3
+      && new Set(state.dice.map(Number)).size === 1
+      && startZoneCount(state, color) === 0;
     const sequences = adapter.legalSequences(state, color, {
       limit: initialSequenceLimit,
-      // A 16-wide static sampler discarded the strongest late-race routes in
-      // three JSYS-DECV doubles before evaluation began. Enumerate complete
-      // outcomes only after the start zone has been cleared; doing this in an
-      // earlier contact phase regresses the live VYS5 turn latency without
-      // improving the home-entry decision that this path is meant to protect.
-      exhaustiveLongDoubles: advancedStrategy
-        && Array.isArray(state.dice)
-        && state.dice.length >= 3
-        && new Set(state.dice.map(Number)).size === 1
-        && startZoneCount(state, color) === 0,
+      exhaustiveLongDoubles,
     }).filter(sequence => sequence?.length);
     if (!sequences.length) return [];
 
@@ -484,6 +487,12 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate.features.analysisNodesUsed = budget.used;
       candidate.features.analysisNodeBudget = budget.limit;
     });
+    if (strategyProfile === 'v25' && options.historyFreePlanning === true) {
+      const exactRace = preferExactSeparatedBearoff(
+        adapter, state, color, sequences, initialSequenceLimit > 0 && !exhaustiveLongDoubles, finalRanked, weights,
+      );
+      if (exactRace) return exactRace;
+    }
     return finalRanked;
   }
 
@@ -548,6 +557,59 @@ export function createLongBotEngine(adapter, options = {}) {
       return selectedExperiencePatterns.map(pattern => ({ ...pattern }));
     },
   };
+}
+
+function preferExactSeparatedBearoff(adapter, state, color, sequences, sampledRoot, ranked, weights) {
+  if (!ranked.length || state.phase !== 'move' || state.turn !== color || state.winner) return null;
+  const opponent = opponentOf(color);
+  const ourBoard = projectSeparatedBearoff(state, color);
+  const theirBoard = projectSeparatedBearoff(state, opponent);
+  if (!ourBoard || !theirBoard) return null;
+
+  const selected = ranked[0];
+  const selectedBoard = projectSeparatedBearoff(selected.after, color);
+  if (!selectedBoard) return null;
+  const allSequences = sampledRoot ? adapter.legalSequences(state, color) : sequences;
+  const candidates = new Map();
+  for (const sequence of allSequences) {
+    const after = adapter.applySequence(state, sequence, color);
+    const board = projectSeparatedBearoff(after, color);
+    if (board === null || projectSeparatedBearoff(after, opponent) !== theirBoard) return null;
+    if (!candidates.has(board)) candidates.set(board, { after, sequence });
+  }
+  if (!candidates.has(selectedBoard) || candidates.size < 2) return null;
+
+  const boards = [...candidates.keys()];
+  const solved = solveSeparatedBearoff(theirBoard, boards);
+  if (!solved) return null;
+  const selectedProbability = solved.probabilities[boards.indexOf(selectedBoard)];
+  const best = solved.probabilities.indexOf(Math.max(...solved.probabilities));
+  const bestProbability = solved.probabilities[best];
+  // Preserve the existing choice when its game-win probability is optimal.
+  if (bestProbability <= selectedProbability + 1e-12) return null;
+
+  const board = boards[best];
+  const existing = ranked.find(candidate => projectSeparatedBearoff(candidate.after, color) === board);
+  const candidate = existing || candidates.get(board);
+  if (!existing) {
+    const { after, sequence } = candidate;
+    candidate.features = {
+      ...sequenceStats(state, after, color, sequence),
+      ...advancedSequenceStats(advancedStateMetrics(state, color), after, color),
+      choiceCount: boards.length,
+      strategyProfile: 'v25',
+      analysisNodesUsed: selected.features.analysisNodesUsed,
+      analysisNodeBudget: selected.features.analysisNodeBudget,
+    };
+    candidate.baseScore = scoreSequence(state, after, color, sequence, weights);
+    candidate.score = candidate.baseScore;
+    candidate.experience = experienceDescriptor(state, color, candidate.features);
+    candidate.experienceAdjustment = 0;
+  }
+  candidate.features.exactBearoffWinProbability = bestProbability;
+  candidate.features.previousBearoffWinProbability = selectedProbability;
+  candidate.features.exactBearoffWork = solved.work;
+  return promoteCandidate(ranked, candidate, 'exactBearoffAdjustment');
 }
 
 function selectExperiencePatterns(sources) {

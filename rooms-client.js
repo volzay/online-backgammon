@@ -12,6 +12,7 @@
   const LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1";
   const LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu/server-long-bot-causal/v1";
   const LONG_BOT_ATTESTED_EXPERIENCE_POLICY_IDS = new Set([
+    "264a268f0db93cb02f805e951d95af120f0df6e150dbe96d4aad90a1438dbfe9",
     "d3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109",
     "91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac",
   ]);

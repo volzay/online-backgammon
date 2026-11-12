@@ -4,15 +4,19 @@ import {
   headCheckers,
   homeReady,
   offCount,
+  opponentFenceRun,
   opponentOf,
   opponentTrapRisk,
   outsideHomeCount,
+  pathPos,
   pipsFor,
   primeCrunchRisk,
+  startZoneCount,
 } from './metrics.ts';
 
 const MAX_REPLY_SEQUENCES = 8;
 const MAX_DOUBLE_REPLY_SEQUENCES = 4;
+const FENCE_EXTENSION_REPLY_RUN = 4;
 export const MAX_TACTICAL_CANDIDATES = 4;
 const MAX_DEEP_CANDIDATES = 2;
 const MAX_RECOVERY_SEQUENCES = 2;
@@ -61,6 +65,118 @@ export const CANONICAL_DICE_OUTCOMES = Object.freeze(
         weight: high === low ? 1 : 2,
       }))),
 );
+
+const BEAROFF_MAX_CHECKERS = 4;
+const BEAROFF_RADIX = BEAROFF_MAX_CHECKERS + 1;
+const BEAROFF_PLACES = [1, 5, 25, 125, 625, 3125];
+const BEAROFF_BOARD_RANGE = 15625;
+const BEAROFF_MAX_WORK = 2000000;
+const BEAROFF_MAX_MEMO = 22000;
+const BEAROFF_LIMIT = Symbol('separated-bearoff-limit');
+
+export function projectSeparatedBearoff(state, color) {
+  if (state?.variant !== 'long' || state.bar?.[color] !== 0) return null;
+  const off = state.off?.[color];
+  if (!Number.isInteger(off) || off < 15 - BEAROFF_MAX_CHECKERS || off > 15) return null;
+  let total = off;
+  let code = 0;
+  for (const [point, stack] of Object.entries(state.points || {})) {
+    if (stack?.color !== 'white' && stack?.color !== 'dark') return null;
+    if (stack.color !== color) continue;
+    const distance = 24 - pathPos(color, point);
+    const count = stack.count;
+    if (distance < 1 || distance > 6 || !Number.isInteger(count) || count < 1) return null;
+    total += count;
+    code += count * BEAROFF_PLACES[distance - 1];
+  }
+  return total === 15 ? code : null;
+}
+
+function addBearoffStep(results, board, die) {
+  if (board === 0) {
+    results.add(0);
+    return;
+  }
+  let highest = true;
+  for (let distance = 6; distance > 0; distance--) {
+    const place = BEAROFF_PLACES[distance - 1];
+    if (Math.floor(board / place) % BEAROFF_RADIX === 0) continue;
+    if (distance > die) {
+      results.add(board - place + BEAROFF_PLACES[distance - die - 1]);
+    } else if (distance === die || highest) {
+      results.add(board - place);
+    }
+    highest = false;
+  }
+}
+
+function separatedBearoffOutcomes(board, dice, consume) {
+  const [first, second] = dice;
+  const orders = first === second
+    ? [[first, first, first, first]]
+    : [[first, second], [second, first]];
+  const final = new Set();
+  for (const order of orders) {
+    let current = new Set([board]);
+    for (const die of order) {
+      const next = new Set();
+      for (const position of current) {
+        consume();
+        addBearoffStep(next, position, die);
+      }
+      current = next;
+    }
+    // An uncontested home board always has a legal use for every die until
+    // it is empty. Both orders therefore yield maximum-use legal turns.
+    for (const position of current) final.add(position);
+  }
+  return [...final];
+}
+
+export function solveSeparatedBearoff(opponent, candidates) {
+  const outcomes = new Map();
+  const memo = new Map();
+  let work = 0;
+  function consume() {
+    if (++work > BEAROFF_MAX_WORK) throw BEAROFF_LIMIT;
+  }
+  function winChance(actor, other) {
+    consume();
+    if (actor === 0) return 1;
+    if (other === 0) return 0;
+    const key = actor * BEAROFF_BOARD_RANGE + other;
+    if (memo.has(key)) return memo.get(key);
+    let weighted = 0;
+    for (const [index, roll] of CANONICAL_DICE_OUTCOMES.entries()) {
+      const outcomeKey = actor * CANONICAL_DICE_OUTCOMES.length + index;
+      let boards = outcomes.get(outcomeKey);
+      if (!boards) {
+        boards = separatedBearoffOutcomes(actor, roll.dice, consume);
+        outcomes.set(outcomeKey, boards);
+      }
+      let best = 0;
+      for (const after of boards) {
+        best = Math.max(best, 1 - winChance(other, after));
+        if (best === 1) break;
+      }
+      weighted += roll.weight * best;
+    }
+    if (memo.size >= BEAROFF_MAX_MEMO) throw BEAROFF_LIMIT;
+    const probability = weighted / CANONICAL_DICE_WEIGHT;
+    memo.set(key, probability);
+    return probability;
+  }
+
+  try {
+    // The candidate move is already played, so the opponent rolls next.
+    // Each recursive turn reduces remaining pips or ends the game.
+    const probabilities = candidates.map(after => 1 - winChance(opponent, after));
+    return { probabilities, work };
+  } catch (error) {
+    if (error === BEAROFF_LIMIT) return null;
+    throw error;
+  }
+}
 
 function hasCompleteDiceDistribution(rolls, weight) {
   return rolls === CANONICAL_DICE_OUTCOMES.length
@@ -125,20 +241,26 @@ export function analyzeOpponentReplies(
   if (!tacticalCandidates.length || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
-  const accumulators = tacticalCandidates.map(candidate => ({
-    candidate,
-    expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
-    expectedImpact: 0,
-    weight: 0,
-    worstImpact: 0,
-    rolls: 0,
-    blockedWeight: 0,
-    replySequenceWeight: 0,
-    opponentPipGain: 0,
-    opponentHeadRelease: 0,
-    opponentOutsideReduction: 0,
-    frontiers: [],
-  }));
+  const accumulators = tacticalCandidates.map(candidate => {
+    const expandedReplyCoverage = primeCrunchRisk(candidate.after, color) >= 0.45;
+    return {
+      candidate,
+      expandedReplyCoverage,
+      reserveFenceExtensionReply: expandDoubles && !expandedReplyCoverage
+        && hasDevelopingReplyFence(candidate.after, color),
+      fenceExtensionReplyWeight: 0,
+      expectedImpact: 0,
+      weight: 0,
+      worstImpact: 0,
+      rolls: 0,
+      blockedWeight: 0,
+      replySequenceWeight: 0,
+      opponentPipGain: 0,
+      opponentHeadRelease: 0,
+      opponentOutsideReduction: 0,
+      frontiers: [],
+    };
+  });
 
   for (const roll of CANONICAL_DICE_OUTCOMES) {
     if (!hasAnalysisBudget(budget)) break;
@@ -174,6 +296,11 @@ export function analyzeOpponentReplies(
           : 2,
         { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
       );
+      const fenceExtensionReply = accumulator.reserveFenceExtensionReply
+        ? findFenceExtensionReply(adapter, replyState, color, opponent, legalReplies, replySequences)
+        : null;
+      if (fenceExtensionReply) replySequences.push(fenceExtensionReply);
+
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
@@ -193,6 +320,7 @@ export function analyzeOpponentReplies(
         state: worstState,
         blocked: replySequences.length === 0,
         replySequences: legalReplies.length,
+        fenceExtensionReply: Boolean(fenceExtensionReply),
         opponentPipGain: Math.max(
           0,
           pipsFor(replyState, opponent) - pipsFor(worstState, opponent),
@@ -217,6 +345,7 @@ export function analyzeOpponentReplies(
       accumulator.worstImpact = Math.min(accumulator.worstImpact, impact);
       accumulator.rolls += 1;
       if (result.blocked) accumulator.blockedWeight += roll.weight;
+      if (result.fenceExtensionReply) accumulator.fenceExtensionReplyWeight += roll.weight;
       accumulator.replySequenceWeight += result.replySequences * roll.weight;
       accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
       accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
@@ -253,6 +382,9 @@ export function analyzeOpponentReplies(
       expectedOpponentOutsideReduction: accumulator.opponentOutsideReduction / accumulator.weight,
       doublesExpanded: expandDoubles,
       replyCoverageExpanded: accumulator.expandedReplyCoverage,
+      ...(accumulator.fenceExtensionReplyWeight
+        ? { fenceExtensionReplyWeight: accumulator.fenceExtensionReplyWeight }
+        : {}),
     };
   });
 
@@ -1249,11 +1381,42 @@ function prepareReplyState(state, color, dice, expandDoubles = false) {
     dice: resolvedDice,
     rolled: [...resolvedDice],
     turnMoves: [],
-    headPlayedThisTurn: {
-      ...(state.headPlayedThisTurn || {}),
-      [color]: false,
+    // Sequence previews do not call endTurn. Carry its opening-rule state
+    // forward so the previous player cannot reuse the first-turn double.
+    firstMoveDone: {
+      ...(state.firstMoveDone || {}),
+      [opponentOf(color)]: true,
     },
+    headPlayedThisTurn: { white: false, dark: false },
   };
+}
+
+function hasDevelopingReplyFence(state, color) {
+  if (!startZoneCount(state, color)) return false;
+  const run = opponentFenceRun(state, color);
+  return run >= 2 && run < FENCE_EXTENSION_REPLY_RUN;
+}
+
+function findFenceExtensionReply(adapter, state, defender, opponent, legal, sampled) {
+  if (sampled.length !== 2 || legal.length <= sampled.length
+    || sampled.some(({ after }) => opponentFenceRun(after, defender) >= FENCE_EXTENSION_REPLY_RUN)) {
+    return null;
+  }
+  // Keep both existing replies and use only the already generated, bounded
+  // legal pool. One extra board exposes a fence extension that leading-order
+  // sampling can miss without spending the full search on every legal reply.
+  const sampledSequences = new Set(sampled.map(({ sequence }) => sequence));
+  let reply = null;
+  let longestRun = FENCE_EXTENSION_REPLY_RUN - 1;
+  for (const sequence of legal) {
+    if (sampledSequences.has(sequence)) continue;
+    const after = adapter.applySequence(state, sequence, opponent);
+    const run = opponentFenceRun(after, defender);
+    if (run <= longestRun) continue;
+    longestRun = run;
+    reply = { sequence, after };
+  }
+  return reply;
 }
 
 function sampledSequenceResults(adapter, state, color, sequences, limit, options = {}) {

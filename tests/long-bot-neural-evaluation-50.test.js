@@ -135,10 +135,10 @@ test('native hard factory preserves captured v35 source/policy and selected open
 test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 14);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 15);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
   const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
-  assert.equal(actual.policyImplementationId, '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac');
+  assert.equal(actual.policyImplementationId, '264a268f0db93cb02f805e951d95af120f0df6e150dbe96d4aad90a1438dbfe9');
   assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
   assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
