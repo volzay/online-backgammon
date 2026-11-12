@@ -194,7 +194,24 @@ test('long-bot client rejects mismatched worker provenance', async () => {
     ok: true,
     result: workerResult(request, { experienceFingerprint: 'other-experience' }),
   });
-  await assert.rejects(pending, /provenance mismatch/);
+  await assert.rejects(pending, { code: 'worker-provenance-mismatch', message: /provenance mismatch/ });
+});
+
+test('long-bot client distinguishes worker planning, identity, and transport failures', async () => {
+  const { api, FakeWorker } = loadClient();
+  const engine = makeEngine();
+  for (const [errorCode, expected] of [
+    [undefined, 'worker-planning-error'],
+    ['worker-provenance-mismatch', 'worker-provenance-mismatch'],
+  ]) {
+    const pending = api.plan({ engine, state: {} });
+    const worker = FakeWorker.instances[0];
+    worker.emit('message', { id: worker.messages.at(-1).id, ok: false, errorCode, error: 'failed' });
+    await assert.rejects(pending, { code: expected });
+  }
+  const pending = api.plan({ engine, state: {} });
+  FakeWorker.instances[0].emit('messageerror');
+  await assert.rejects(pending, { code: 'worker-transport-error' });
 });
 
 test('long-bot client drops a completed plan when the turn became stale', async () => {
@@ -239,6 +256,8 @@ test('long-bot timeout terminates the stuck worker and rejects its whole queue',
   const settled = await Promise.allSettled([first, second]);
   assert.equal(settled[0].status, 'rejected');
   assert.equal(settled[1].status, 'rejected');
+  assert.equal(settled[0].reason.code, 'worker-timeout');
+  assert.equal(settled[1].reason.code, 'worker-timeout');
   assert.match(settled[0].reason.message, /timed out after 5 ms/);
   assert.match(settled[1].reason.message, /timed out after 5 ms/);
   assert.equal(worker.terminated, true);
@@ -302,6 +321,6 @@ test('room and Pages build include the long-bot worker runtime in load order', (
   assert.match(build, /"long-bot-worker-client\.js"/);
   assert.match(build, /"long-bot-worker\.js"/);
   assert.match(controller, /const longClient = window\.NarduLongBotWorker/);
-  assert.match(controller, /rememberBotDecision\(result\.decision\)/);
+  assert.match(controller, /rememberBotDecision\(result\.decision, planningStartedAt\)/);
   assert.match(controller, /window\.NarduLongBotWorker\?\.cancel\?\.\(\)/);
 });

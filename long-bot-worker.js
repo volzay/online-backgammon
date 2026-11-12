@@ -10,6 +10,12 @@ function errorMessage(error) {
   return 'Long bot planning failed.';
 }
 
+function provenanceError(message) {
+  const error = new Error(message);
+  error.code = 'worker-provenance-mismatch';
+  return error;
+}
+
 function assetUrl(name) {
   const current = new URL(self.location.href);
   const url = new URL(name, current);
@@ -43,7 +49,7 @@ function assertRequest(payload) {
   if (String(self.NarduLongBotEngine.version || '') !== String(expected.engineVersion || '')
     || String(self.NarduLongBotEngine.policyImplementationId || '')
       !== String(expected.policyImplementationId || '')) {
-    throw new Error('Long bot worker runtime provenance mismatch.');
+    throw provenanceError('Long bot worker runtime provenance mismatch.');
   }
 }
 
@@ -56,7 +62,7 @@ function runPlan(id, payload) {
   engine.setExperience?.(payload.experience.patterns, 'worker-session');
   const snapshot = engine.freezeExperience?.(sessionKey) || engine.experienceSnapshot?.() || {};
   if (String(snapshot.fingerprint || '') !== String(payload.expected.experienceFingerprint || '')) {
-    throw new Error('Long bot worker experience provenance mismatch.');
+    throw provenanceError('Long bot worker experience provenance mismatch.');
   }
   const moves = self.NarduStrongBot.plan(payload.state, { liveTurnLatencyBudget: true });
   const decision = engine.consumeLastDecision?.()
@@ -78,6 +84,8 @@ self.addEventListener('message', (event) => {
     if (type !== 'plan') throw new Error(`Unsupported long bot worker request: ${String(type || '')}`);
     self.postMessage({ id, ok: true, result: runPlan(id, payload) });
   } catch (error) {
-    self.postMessage({ id, ok: false, error: errorMessage(error) });
+    const errorCode = error?.code === 'worker-provenance-mismatch'
+      ? error.code : 'worker-planning-error';
+    self.postMessage({ id, ok: false, errorCode, error: errorMessage(error) });
   }
 });

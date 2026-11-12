@@ -115,6 +115,28 @@ test('controller keeps hard-neuro identity despite an old hard name and 1500 rat
   }
 });
 
+test('long Hard archives planner elapsed time and separates available experience from fallback experience', async () => {
+  const h = harness({ difficulty: 'hard', model: false });
+  const state = h.setRolled();
+  let now = 20;
+  h.context.performance = { now: () => now };
+  h.window.NarduLongBotWorker = { async plan() {
+    now += 8002;
+    throw Object.assign(new Error('planning timed out'), { code: 'worker-timeout' });
+  } };
+
+  h.api.playBotTurn();
+  await h.finishTurn();
+
+  const decision = h.api.botTrainingStatePayload().analysis.botMemory.decisions.at(-1);
+  assert.equal(decision.fallbackReason, 'worker-timeout');
+  assert.equal(decision.planningElapsedMs, 8002);
+  assert.equal(decision.availableExperienceSize, 2);
+  assert.equal(decision.experienceSize, 0);
+  assert.equal(decision.selected.experienceAdjustment, 0);
+  assert.equal(state.turn, 'white');
+});
+
 test('controller admits the exact current hard runtime while preserving the frozen room guard ID', () => {
   const h = harness({ teacherPolicyId: CURRENT_TEACHER_POLICY_ID });
   assert.equal(h.api.validateNeuralBotAvailability(), true);
@@ -411,6 +433,69 @@ test('an incomplete or empty neural plan with available legal moves never passes
     assert.equal(state.turn, before.turn); assert.equal(state.phase, 'move');
     assert.equal(h.calls.animations.length, 0); assert.equal(h.calls.fallback, 0);
   }
+});
+
+test('long Hard plays a complete legal sequence after a worker response with an empty plan', async () => {
+  const h = harness({ difficulty: 'hard', model: false });
+  const state = h.setRolled();
+  const legal = h.game.bestMoveSequences(state);
+  h.window.NarduLongBotWorker = { plan: async () => ({ moves: [], decision: { id: 'empty-worker-decision' } }) };
+
+  h.api.playBotTurn();
+  await h.finishTurn();
+
+  assert.equal(state.turn, 'white');
+  const decision = state.analysis.botMemory.decisions.at(-1);
+  assert.equal(decision.fallbackReason, 'worker-empty-plan');
+  assert.equal(decision.execution.complete, true);
+  const played = state.history.filter(move => move.color === 'dark' && move.die)
+    .reverse().map(({ from, die }) => ({ from, die }));
+  assert.ok(played.length > 0);
+  assert.ok(legal.some(sequence => JSON.stringify(sequence.map(({ from, die }) => ({ from, die })))
+    === JSON.stringify(played)));
+});
+
+test('long Hard uses the exact rules when fallback sampling throws or returns an incomplete sequence', async () => {
+  for (const sample of [null, sequence => [sequence.slice(0, 1)]]) {
+    const h = harness({ difficulty: 'hard', model: false });
+    const state = h.setRolled();
+    const [sequence] = h.game.bestMoveSequences(state);
+    assert.equal(sequence.length, 2);
+    h.context.NarduGame = { ...h.game, sampledMoveSequences() {
+      if (!sample) throw new Error('sampling failed');
+      return sample(sequence);
+    } };
+    h.window.NarduLongBotWorker = { plan: async () => { throw new Error('worker timed out'); } };
+
+    h.api.playBotTurn();
+    await h.finishTurn();
+
+    assert.equal(state.turn, 'white');
+    assert.equal(h.calls.animations.length, 2);
+    const decision = state.analysis.botMemory.decisions.at(-1);
+    assert.equal(decision.fallbackReason, 'worker-error');
+    assert.equal(decision.execution.complete, true);
+    assert.deepEqual(plain(decision.selected.moves.map(({ from, die }) => ({ from, die }))),
+      plain(sequence.map(({ from, die }) => ({ from, die }))));
+  }
+});
+
+test('long Hard still passes when the exact rules find both dice blocked', async () => {
+  const h = harness({ difficulty: 'hard', model: false });
+  const state = h.setRolled();
+  const from = h.game.headPoint('dark', state);
+  state.points = { [from]: { color: 'dark', count: 15 } };
+  state.points[h.game.moveTo('dark', from, 2, state)] = { color: 'white', count: 7 };
+  state.points[h.game.moveTo('dark', from, 4, state)] = { color: 'white', count: 8 };
+  assert.equal(h.game.hasAnyMoves(state), false);
+  h.window.NarduLongBotWorker = { plan: async () => ({ moves: [], decision: null }) };
+
+  h.api.playBotTurn();
+  await h.finishTurn();
+
+  assert.equal(state.turn, 'white');
+  assert.equal(state.phase, 'roll');
+  assert.equal(h.calls.animations.length, 0);
 });
 
 test('rejected neural applyMove never substitutes, completes or ends its turn', async () => {

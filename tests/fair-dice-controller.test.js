@@ -92,6 +92,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     lang: () => 'ru', sideName: color => color, localizedName: name => name,
     isRemoteHost: () => true, isMyTurn: () => true,
     normalizeRestoredState: source => clone(source),
+    restoreBotTelemetry: source => source,
     cancelBotTurnActivity: () => calls.push('cancel-bot'),
     render: ({ diceTransition } = {}) => calls.push(diceTransition ? 'render-dice-transition' : 'render'),
     scheduleOpeningRoll: () => calls.push('progress-opening'),

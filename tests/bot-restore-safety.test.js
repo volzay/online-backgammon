@@ -28,6 +28,7 @@ function controllerHarness({
   finishRoomGame,
   restoreTimeoutMs = 10,
   restoreRetryDelayMs = 400,
+  roomSearch = ROOM_SEARCH,
 } = {}) {
   const sessionStorage = memoryStorage();
   const calls = { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 };
@@ -125,9 +126,9 @@ function controllerHarness({
     localStorage,
     sessionStorage,
     location: {
-      href: ROOM_URL,
+      href: new URL(roomSearch, ROOM_URL).href,
       pathname: '/room.html',
-      search: ROOM_SEARCH,
+      search: roomSearch,
       hostname: 'example.test',
     },
     history: { replaceState() {} },
@@ -689,7 +690,7 @@ test('compact authoritative restore retains the complete local telemetry prefix 
   assert.equal(await harness.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
 });
 
-test('a newer browser checkpoint restores only compact genuine decisions that reached the authoritative history', async () => {
+test('lobby re-entry restores only compact native decisions committed to the server history', async () => {
   const first = controllerHarness();
   init(first.controller);
   await new Promise(setImmediate);
@@ -744,8 +745,15 @@ test('a newer browser checkpoint restores only compact genuine decisions that re
   assert.deepEqual(saved.decisions[0].execution.executed, JSON.parse(JSON.stringify(committed.execution.executed)));
   assert.equal(saved.decisions[0].policyImplementationId, engine.policyImplementationId);
 
-  const resumed = controllerHarness({ localStorage: first.localStorage,
-    getGameState: async () => ({ state: remote, version: 10 }) });
+  const reentrySearch = '?mode=bot&game=SAFE-BOT&color=white&opp=Hard&oppR=1500&variant=long&opponent=bot&access=open&difficulty=hard';
+  assert.equal(first.localStorage.getItem(`narduh-room-state:/room.html${reentrySearch}`), null);
+  let resumedPayload;
+  const resumed = controllerHarness({ localStorage: first.localStorage, roomSearch: reentrySearch,
+    getGameState: async () => ({ state: remote, version: 10 }),
+    putGameState: async (_code, payload) => {
+      resumedPayload = payload;
+      return { ok: true, version: 11 };
+    } });
   init(resumed.controller);
   await new Promise(setImmediate);
   const actual = resumed.controller.getState();
@@ -753,6 +761,9 @@ test('a newer browser checkpoint restores only compact genuine decisions that re
   assert.deepEqual(JSON.parse(JSON.stringify(actual.points)), JSON.parse(JSON.stringify(remote.points)));
   assert.deepEqual(Array.from(actual.analysis.botMemory.decisions, row => row.id), [committed.id]);
   assert.equal(actual.analysis.botMemory.telemetryRestore.trustedEvidence, false);
+  assert.equal(await resumed.controller.__restoreSafetyTest.publishBotAnalysisState(), true);
+  assert.deepEqual(Array.from(resumedPayload.analysis.botMemory.decisions), [],
+    'the verified restore does not publish its telemetry to live rooms');
 });
 
 test('telemetry from another game, history branch or frozen policy cannot attach to a restored server board', async () => {
@@ -781,4 +792,44 @@ test('telemetry from another game, history branch or frozen policy cannot attach
     assert.equal(actual.length, remote.analysis.botMemory.decisions.length);
     assert.equal(actual.map(row => row.id).join(','), remote.analysis.botMemory.decisions.map(row => row.id).join(','));
   }
+});
+
+test('a lost protected-roll write acknowledgement keeps matched native bot decisions on recovery', async () => {
+  const harness = controllerHarness();
+  init(harness.controller);
+  await new Promise(setImmediate);
+  const { window } = harness;
+  const state = harness.controller.getState();
+  const gameId = 'game-fixture';
+  const proof = { protocol: 'system-csprng-v1', request: { id: 'committed-roll' },
+    dice: [6, 1], sha256: 'a'.repeat(64) };
+  const priorRollHash = 'b'.repeat(64);
+  Object.assign(state, { phase: 'move', turn: 'white', dice: [6, 1], rolled: [6, 1],
+    history: [{ color: 'white', roll: '6:1', sha256: proof.sha256, fairDiceProof: proof },
+      { color: 'dark', from: 12, to: 9, die: 3 }, { color: 'dark', roll: '3:1', sha256: priorRollHash }],
+    analysis: { botMemory: { engineVersion: 'long-analytic-v35', experienceLoad: { fingerprint: 'same' },
+      decisions: [{ id: 'retained-after-recovery', color: 'dark', source: 'engine', engineVersion: 'long-analytic-v35',
+        execution: { complete: true, historyAnchor: { eventCount: 2, rollHash: priorRollHash },
+          executed: { moves: [{ from: 12, to: 9, die: 3 }] } } }] } },
+  });
+  const server = JSON.parse(JSON.stringify(state));
+  server.analysis.botMemory.decisions = [];
+  server.points[12].count = 14;
+  window.NARDU_ENV = { fairDicePublicKey: 'c'.repeat(64) };
+  window.NarduFairDice = { verifyProof: async (restored, { context }) => {
+    assert.equal(restored.request.id, proof.request.id);
+    assert.equal(context.gameId, gameId);
+    return { reservationVerified: true, commitmentVerified: true };
+  } };
+  window.NarduRooms.fairDicePolicy = async () => ({ required: true, gameId, protocol: proof.protocol });
+  window.NarduRooms.getGameState = async () => ({ state: server, version: 9 });
+  window.NarduRooms.putGameState = async () => { throw Object.assign(new Error('Lost ACK'), { status: 503 }); };
+
+  const controls = harness.controller.__restoreSafetyTest;
+  assert.equal(await controls.publishBotAnalysisState(), false);
+  assert.equal(controls.fairDiceError(), '');
+  const restored = harness.controller.getState();
+  assert.equal(restored.points[12].count, 14, 'the accepted server board remains authoritative');
+  assert.equal(restored.history[0].fairDiceProof.request.id, proof.request.id);
+  assert.deepEqual(Array.from(restored.analysis.botMemory.decisions, row => row.id), ['retained-after-recovery']);
 });

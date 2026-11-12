@@ -20,6 +20,12 @@
     return fallback;
   }
 
+  function workerError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  }
+
   function workerUrl() {
     const url = new URL('long-bot-worker.js', document.baseURI);
     if (CLIENT_VERSION) url.searchParams.set('v', CLIENT_VERSION);
@@ -44,8 +50,13 @@
 
   function ensureWorker() {
     if (worker) return worker;
-    if (typeof Worker !== 'function') throw new Error('Web Workers are not supported.');
-    const instance = new Worker(workerUrl(), { name: 'nardu-long-hard-bot' });
+    if (typeof Worker !== 'function') throw workerError('worker-unavailable', 'Web Workers are not supported.');
+    let instance;
+    try {
+      instance = new Worker(workerUrl(), { name: 'nardu-long-hard-bot' });
+    } catch (error) {
+      throw workerError('worker-transport-error', errorMessage(error));
+    }
     instance.addEventListener('message', (event) => {
       const id = event?.data?.id;
       if (!pending.has(id)) return;
@@ -53,15 +64,19 @@
       pending.delete(id);
       clearTimeout(task.timer);
       if (event.data.ok) task.resolve(event.data.result);
-      else task.reject(new Error(errorMessage(event.data.error)));
+      else {
+        const code = event.data.errorCode === 'worker-provenance-mismatch'
+          ? event.data.errorCode : 'worker-planning-error';
+        task.reject(workerError(code, errorMessage(event.data.error)));
+      }
     });
     instance.addEventListener('error', (event) => {
       if (worker !== instance) return;
-      resetWorker(new Error(errorMessage(event, 'Long bot worker crashed.')));
+      resetWorker(workerError('worker-transport-error', errorMessage(event, 'Long bot worker crashed.')));
     });
     instance.addEventListener('messageerror', () => {
       if (worker !== instance) return;
-      resetWorker(new Error('Long bot worker returned an unreadable response.'));
+      resetWorker(workerError('worker-transport-error', 'Long bot worker returned an unreadable response.'));
     });
     worker = instance;
     return instance;
@@ -74,7 +89,7 @@
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!pending.has(id)) return;
-        resetWorker(new Error(`Long bot ${type} timed out after ${waitMs} ms.`));
+        resetWorker(workerError('worker-timeout', `Long bot ${type} timed out after ${waitMs} ms.`));
       }, waitMs);
       pending.set(id, { resolve, reject, timer });
       try {
@@ -82,19 +97,19 @@
       } catch (error) {
         pending.delete(id);
         clearTimeout(timer);
-        reject(error);
+        reject(workerError('worker-transport-error', errorMessage(error)));
       }
     });
   }
 
   function normalizedMoves(value) {
-    if (!Array.isArray(value)) throw new Error('Long bot worker returned an invalid plan.');
+    if (!Array.isArray(value)) throw workerError('worker-invalid-plan', 'Long bot worker returned an invalid plan.');
     return value.map((move) => {
       const from = Number(move?.from);
       const die = Number(move?.die);
       if (!Number.isInteger(from) || from < 1 || from > 24
         || !Number.isInteger(die) || die < 1 || die > 6) {
-        throw new Error('Long bot worker returned an invalid move.');
+        throw workerError('worker-invalid-plan', 'Long bot worker returned an invalid move.');
       }
       return { from, die };
     });
@@ -114,7 +129,7 @@
     const stale = () => ({ stale: true, moves: [], decision: null });
     if (!current()) return stale();
     if (!engine || typeof engine.experienceReplaySnapshot !== 'function') {
-      throw new Error('Long bot engine snapshot is unavailable.');
+      throw workerError('worker-engine-unavailable', 'Long bot engine snapshot is unavailable.');
     }
     const experience = engine.experienceReplaySnapshot();
     const expected = {
@@ -134,7 +149,7 @@
     if (String(result?.engineVersion || '') !== expected.engineVersion
       || String(result?.policyImplementationId || '') !== expected.policyImplementationId
       || String(result?.experienceFingerprint || '') !== expected.experienceFingerprint) {
-      throw new Error('Long bot worker provenance mismatch.');
+      throw workerError('worker-provenance-mismatch', 'Long bot worker provenance mismatch.');
     }
     return {
       stale: false,

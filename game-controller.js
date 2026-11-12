@@ -114,6 +114,11 @@ window.NarduController = (function () {
   const GAME_OVER_SOUND_GAP_MS = 260;
   const WILDBG_ANALYSIS_TIMEOUT_MS = 30000;
   const LONG_BOT_WORKER_TIMEOUT_MS = 8000;
+  const LONG_BOT_WORKER_FAILURES = new Set([
+    'worker-unavailable', 'worker-engine-unavailable', 'worker-timeout',
+    'worker-transport-error', 'worker-provenance-mismatch', 'worker-invalid-plan',
+    'worker-planning-error',
+  ]);
   const BOT_TURN_STALE_MS = 15000;
   const DICE_VISUAL_TIMEOUT_MS = 1600;
   const CHECKER_VISUAL_TIMEOUT_MS = 1800;
@@ -462,6 +467,8 @@ window.NarduController = (function () {
       experienceFingerprint: decision.experienceFingerprint,
       experienceSize: decision.experienceSize,
       experienceFrozen: decision.experienceFrozen,
+      ...(Number.isSafeInteger(decision.planningElapsedMs) && decision.planningElapsedMs >= 0
+        ? { planningElapsedMs: decision.planningElapsedMs } : {}),
       experience: decision.experience && {
         contextKey: decision.experience.contextKey,
         actionKey: decision.experience.actionKey,
@@ -719,8 +726,9 @@ window.NarduController = (function () {
     }
   }
 
-  function snapshotMatches(snapshot, expected = {}, maxAge = ROOM_RELOAD_MAX_AGE_MS) {
-    if (!snapshot?.state || snapshot.signature !== roomReloadSignature()) return false;
+  function snapshotMatches(snapshot, expected = {}, maxAge = ROOM_RELOAD_MAX_AGE_MS,
+    signature = roomReloadSignature()) {
+    if (!snapshot?.state || snapshot.signature !== signature) return false;
     if (Date.now() - (Number(snapshot.at) || 0) > maxAge) return false;
     if (snapshot.mode && expected.mode && snapshot.mode !== expected.mode) return false;
     if (snapshot.playerColor && expected.playerColor && snapshot.playerColor !== expected.playerColor) return false;
@@ -821,8 +829,8 @@ window.NarduController = (function () {
           || decision.engineVersion !== localMemory.engineVersion
           || typeof decision.id !== 'string' || !decision.id || ids.has(decision.id)
           || decision.execution?.complete !== true) return false;
-        if (checkpoint && !localDecisionCheckpoint(decision)) return false;
         const anchor = decision.execution.historyAnchor;
+        if (checkpoint && (!anchor || !localDecisionCheckpoint(decision))) return false;
         if (anchor) {
           if (anchors.has(anchor.eventCount)
             || !matchesDecisionHistory(restored.history, anchor, decision.color,
@@ -848,6 +856,37 @@ window.NarduController = (function () {
     } catch {
       return restored;
     }
+  }
+
+  function restoreBotTelemetry(restored, local) {
+    let best = retainMatchedBotTelemetry(restored, local);
+    const remoteMemory = restored?.analysis?.botMemory;
+    if (mode !== 'bot' || variant !== 'long' || botDifficulty !== 'hard' || spectatorMode
+      || !remoteCode || !restored?.startedAt || remoteMemory?.engineVersion !== 'long-analytic-v35'
+      || !Array.isArray(remoteMemory.decisions) || remoteMemory.decisions.length !== 0) return best;
+
+    // Creating a room and returning from the lobby generate different query
+    // strings. Match saved telemetry by room and verified history, while the
+    // exact URL remains the key for restoring a local board before verification.
+    const prefix = `${ROOM_PERSIST_SNAPSHOT_PREFIX}${location.pathname}?`;
+    const expected = { mode, playerColor, roomCode: remoteCode };
+    try {
+      const limit = Math.min(ROOM_PERSIST_SNAPSHOT_SCAN_LIMIT, localStorage.length);
+      for (let index = 0; index < limit; index += 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith(prefix)) continue;
+        const signature = key.slice(ROOM_PERSIST_SNAPSHOT_PREFIX.length);
+        const params = new URL(signature, location.href).searchParams;
+        if ((params.get('room') || params.get('game')) !== remoteCode) continue;
+        const snapshot = readRoomSnapshot(localStorage, key);
+        if (!snapshotMatches(snapshot, expected, ROOM_PERSIST_MAX_AGE_MS, signature)
+          || snapshot.mode !== mode || snapshot.playerColor !== playerColor
+          || snapshot.state.analysis?.botMemory?.telemetryCheckpoint !== LONG_BOT_LOCAL_CHECKPOINT_SCHEMA) continue;
+        const candidate = retainMatchedBotTelemetry(restored, snapshot.state);
+        if (candidate.analysis.botMemory.decisions.length > best.analysis.botMemory.decisions.length) best = candidate;
+      }
+    } catch {}
+    return best;
   }
 
   function attachRuntimeStateFields(roomCode) {
@@ -1059,7 +1098,7 @@ window.NarduController = (function () {
         throw new Error('Bot room reservation was not confirmed.');
       }
       if (restored) {
-        state = retainMatchedBotTelemetry(restored, state);
+        state = restoreBotTelemetry(restored, state);
         adoptBotIdentity(state, true);
         attachRuntimeStateFields(roomCode);
         validateNeuralBotAvailability();
@@ -2169,7 +2208,8 @@ window.NarduController = (function () {
       const latestVersion = mode === 'bot' ? botAnalysisVersion : remoteVersion;
       if (!Number.isSafeInteger(current.version) || current.version < latestVersion
         || current.state?.startedAt !== startedAt || current.state?.roomCode !== code) return false;
-      if (current.state) state = normalizeRestoredState(current.state, new URL(location.href));
+      const restored = normalizeRestoredState(current.state, new URL(location.href));
+      state = mode === 'bot' ? restoreBotTelemetry(restored, state) : restored;
       if (mode === 'bot') botAnalysisVersion = current.version;
       else remoteVersion = current.version;
       if (recovered) fairDiceError = '';
@@ -4488,7 +4528,7 @@ window.NarduController = (function () {
     return state?.analysis?.neuralDecisions?.find(item => item.id === activeNeuralDecisionId) || null;
   }
 
-  function neuralRuleState(source) {
+  function botRuleState(source) {
     return JSON.parse(JSON.stringify({
       variant: source.variant, points: source.points, bar: source.bar, off: source.off,
       phase: source.phase, turn: source.turn, winner: source.winner, dice: source.dice,
@@ -4500,7 +4540,7 @@ window.NarduController = (function () {
 
   function rememberNeuralDecision(planned, diagnostics) {
     state.analysis ||= {};
-    const before = neuralRuleState(state);
+    const before = botRuleState(state);
     const rows = Array.isArray(state.analysis.neuralDecisions) ? state.analysis.neuralDecisions : [];
     activeNeuralDecisionId = `nn-${state.startedAt}-${++neuralDecisionSerial}-${Date.now()}`;
     rows.push({ schema: 'nardu-neural-decision-v1', id: activeNeuralDecisionId,
@@ -4609,11 +4649,17 @@ window.NarduController = (function () {
     }
   }
 
-  function boundedLongBotFallbackPlan(reason = 'worker-fallback') {
+  function boundedLongBotFallbackPlan(reason = 'worker-fallback', planningStartedAt) {
+    const ruleState = botRuleState(state);
+    const legal = NarduGame.bestMoveSequences(ruleState, ruleState.turn);
+    if (!legal[0]?.length) return [];
+
+    const sequenceKey = sequence => sequence.map(({ from, die }) => `${from}:${die}`).join(';');
+    let selected = legal[0];
     try {
+      const legalKeys = new Set(legal.map(sequenceKey));
       const sequences = (NarduGame.sampledMoveSequences?.(state, state.turn, 4) || [])
-        .filter(sequence => Array.isArray(sequence) && sequence.length);
-      if (!sequences.length) return [];
+        .filter(sequence => Array.isArray(sequence) && legalKeys.has(sequenceKey(sequence)));
       const engine = window.NarduLongBotEngine;
       const ranked = sequences.map((sequence, index) => {
         let score = -index;
@@ -4626,16 +4672,13 @@ window.NarduController = (function () {
         } catch {}
         return { sequence, score };
       }).sort((left, right) => right.score - left.score);
-      const planned = ranked[0].sequence.map(move => ({
-        from: Number(move.from),
-        die: Number(move.die),
-      }));
-      rememberBotDecision(createFallbackBotDecision(state, planned, reason));
-      return planned;
+      selected = ranked[0]?.sequence || selected;
     } catch (error) {
-      console.warn('Bounded long bot fallback failed', error?.message || error);
-      return [];
+      console.warn('Long bot fallback ranking failed', error?.message || error);
     }
+    const planned = selected.map(({ from, die }) => ({ from, die }));
+    rememberBotDecision(createFallbackBotDecision(state, planned, reason), planningStartedAt);
+    return planned;
   }
 
   function safeBotPlan() {
@@ -4646,7 +4689,7 @@ window.NarduController = (function () {
       // Validate the complete maximum-use legal turn, including genuine passes.
       // Avoid cloning the complete proof/history/analytics archive for every
       // validation branch, and do not normalize the live state while planning.
-      const legal = NarduGame.bestMoveSequences(neuralRuleState(state), state.turn);
+      const legal = NarduGame.bestMoveSequences(botRuleState(state), state.turn);
       const key = moves => JSON.stringify(moves.map(({ from, die }) => ({ from, die })));
       if (!legal.some(moves => key(moves) === key(planned))) throw new Error('Illegal or incomplete neural plan');
       const decision = window.NarduNeuralBot.consumeLastDecision();
@@ -4732,6 +4775,10 @@ window.NarduController = (function () {
     return planned.map(move => ({ from: move.from, die: move.die }));
   }
 
+  function botPlanningClock() {
+    return globalThis.performance?.now() ?? Date.now();
+  }
+
   async function resolveBotTurnPlan(sourceState, generation, stateKey) {
     const current = () => (
       generation === botTurnGeneration &&
@@ -4745,33 +4792,37 @@ window.NarduController = (function () {
     if (variant === 'long' && botDifficulty === 'hard') {
       const longEngine = window.NarduLongBotEngine;
       const longClient = window.NarduLongBotWorker;
+      const planningStartedAt = botPlanningClock();
       if (typeof longClient?.plan !== 'function') {
         return {
           stale: !current(),
-          moves: current() ? boundedLongBotFallbackPlan('worker-unavailable') : [],
+          moves: current() ? boundedLongBotFallbackPlan('worker-unavailable', planningStartedAt) : [],
         };
       }
+      let result;
       try {
-        const result = await longClient.plan({
+        result = await longClient.plan({
           engine: longEngine,
           state: sourceState,
           isCurrent: current,
           timeoutMs: LONG_BOT_WORKER_TIMEOUT_MS,
         });
-        if (result?.stale || !current()) return { stale: true, moves: [] };
-        if (!result?.decision) {
-          return { stale: false, moves: boundedLongBotFallbackPlan('worker-missing-decision') };
-        }
-        rememberBotDecision(result.decision);
-        return {
-          stale: false,
-          moves: (result.moves || []).map(move => ({ from: move.from, die: move.die })),
-        };
       } catch (error) {
         if (!current()) return { stale: true, moves: [] };
         console.warn('Long bot worker failed, using bounded fallback', error?.message || error);
-        return { stale: false, moves: boundedLongBotFallbackPlan('worker-error') };
+        const reason = LONG_BOT_WORKER_FAILURES.has(error?.code) ? error.code : 'worker-error';
+        return { stale: false, moves: boundedLongBotFallbackPlan(reason, planningStartedAt) };
       }
+      if (result?.stale || !current()) return { stale: true, moves: [] };
+      if (!result?.decision || !result.moves?.length) {
+        const reason = result?.decision ? 'worker-empty-plan' : 'worker-missing-decision';
+        return { stale: false, moves: boundedLongBotFallbackPlan(reason, planningStartedAt) };
+      }
+      rememberBotDecision(result.decision, planningStartedAt);
+      return {
+        stale: false,
+        moves: result.moves.map(move => ({ from: move.from, die: move.die })),
+      };
     }
     if (
       variant !== 'short' ||
@@ -4964,7 +5015,7 @@ window.NarduController = (function () {
     });
   }
 
-  function rememberBotDecision(decision) {
+  function rememberBotDecision(decision, planningStartedAt) {
     if (!decision || mode !== 'bot' || botDifficulty !== 'hard') return null;
     state.analysis ||= {};
     const memory = state.analysis.botMemory && typeof state.analysis.botMemory === 'object'
@@ -4974,7 +5025,16 @@ window.NarduController = (function () {
     const existing = decisions.find(item => item?.id === decision.id);
     activeBotDecisionId = decision.id || '';
     if (existing) return existing;
-    if (variant === 'long') decision.execution = initialBotDecisionExecution(decision);
+    if (variant === 'long') {
+      if (decision.source === 'fallback') {
+        decision.availableExperienceSize = Number(decision.experienceSize) || 0;
+        decision.experienceSize = 0;
+      }
+      if (Number.isFinite(planningStartedAt)) {
+        decision.planningElapsedMs = Math.max(0, Math.round(botPlanningClock() - planningStartedAt));
+      }
+      decision.execution = initialBotDecisionExecution(decision);
+    }
     decisions.push(decision);
     if (decisions.length > BOT_MEMORY_MAX_DECISIONS) {
       decisions.splice(0, decisions.length - BOT_MEMORY_MAX_DECISIONS);
