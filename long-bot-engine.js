@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd03c6f82784f656eabe4b7508ee35fa0f718c7a437a420e6660d395a3a28b56e';
 
 /* bot-engine/long/metrics.ts */
 
@@ -1686,6 +1686,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
     'primeSustainabilityTacticalReservation',
+    'openingDevelopmentTacticalReservation',
   ];
   candidates.forEach((candidate) => {
     const key = positionKey(candidate.after);
@@ -1909,6 +1910,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
   if (Number(features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
+  if (Number(features.openingDevelopmentTacticalReservation || 0) > 0) return 3.5;
   if (Number(features.contestedHeadExitTacticalReservation || 0) > 0) return 4;
   return 100;
 }
@@ -1921,7 +1923,8 @@ function hasTacticalReservation(candidate) {
     || Number(features.startZoneEscapeTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
-    || Number(features.primeSustainabilityTacticalReservation || 0) > 0;
+    || Number(features.primeSustainabilityTacticalReservation || 0) > 0
+    || Number(features.openingDevelopmentTacticalReservation || 0) > 0;
 }
 
 function completeProvisionalLeaderAnalysis(
@@ -2906,11 +2909,21 @@ function createLongBotEngine(adapter, options = {}) {
       || fenceRun >= 4
       || opponentOff > 0
     );
-    if (headReleaseIsCritical) {
-      strategicallyEligible = strategicallyEligible.filter(
-        candidate => Number(candidate.features.headGain || 0) === maxHeadRelease
-          || Number(candidate.features.structuralIntegrityTacticalReservation || 0) > 0,
+    if (advancedStrategy) {
+      strategicallyEligible = reserveOpeningDevelopment(
+        state, color, strategicallyEligible, runtimeOptions.maxTacticalCandidates,
+        headReleaseIsCritical,
       );
+    }
+    const openingHeadAlternatives = new Set();
+    if (headReleaseIsCritical) {
+      strategicallyEligible = strategicallyEligible.filter(candidate => {
+        if (candidate.features.headGain === maxHeadRelease
+          || candidate.features.structuralIntegrityTacticalReservation) return true;
+        if (!candidate.features.openingDevelopmentTacticalReservation) return false;
+        openingHeadAlternatives.add(candidate);
+        return true;
+      });
     }
     if (fenceRun >= 5) {
       const gateways = criticalFenceGatewayPoints(state, color);
@@ -2918,11 +2931,17 @@ function createLongBotEngine(adapter, options = {}) {
         const preserving = strategicallyEligible.filter(candidate => gateways.every(
           point => colorAt(candidate.after, point) === color,
         ));
-        if (preserving.length) strategicallyEligible = preserving;
+        if (preserving.some(candidate => !openingHeadAlternatives.has(candidate))) {
+          strategicallyEligible = preserving;
+        } else {
+          strategicallyEligible = strategicallyEligible.filter(candidate => (
+            !openingHeadAlternatives.has(candidate) || preserving.includes(candidate)
+          ));
+        }
       }
-      const maxSafeEntry = Math.max(...strategicallyEligible.map(
-        candidate => Number(candidate.features.outsideReduction) || 0,
-      ));
+      const maxSafeEntry = Math.max(...strategicallyEligible
+        .filter(candidate => !openingHeadAlternatives.has(candidate))
+        .map(candidate => Number(candidate.features.outsideReduction) || 0));
       if (maxSafeEntry > 0) {
         strategicallyEligible = strategicallyEligible.filter(
           candidate => Number(candidate.features.outsideReduction) === maxSafeEntry,
@@ -3002,6 +3021,18 @@ function createLongBotEngine(adapter, options = {}) {
       tacticallyRanked.forEach(applyAdvancedTacticalAdjustment);
       tacticallyRanked.sort((left, right) => right.score - left.score);
     }
+    if (openingHeadAlternatives.size) {
+      const headRelease = tacticallyRanked.find(
+        candidate => strategicallyEligible.includes(candidate)
+          && candidate.features.headGain === maxHeadRelease
+          && hasBoundedFourPlyTactical(candidate),
+      );
+      const proven = strategicallyEligible.filter(candidate => (
+        !openingHeadAlternatives.has(candidate)
+        || (headRelease && hasProvenOpeningDevelopment(state, color, candidate, headRelease, weights))
+      ));
+      strategicallyEligible = proven;
+    }
     const deeplyAnalyzedCandidates = strategicallyEligible.filter(
       candidate => Number(candidate.tactical?.plies || 0) >= 4,
     );
@@ -3038,6 +3069,7 @@ function createLongBotEngine(adapter, options = {}) {
       state,
       color,
       finalCandidates.sort((left, right) => right.score - left.score),
+      advancedStrategy ? weights : null,
     );
     const sortedCandidates = prioritizeLatentTrapDistribution(
       state,
@@ -3113,6 +3145,9 @@ function createLongBotEngine(adapter, options = {}) {
     );
     coldRanked = prioritizeFirstEntryFenceDefense(state, color, coldRanked, weights);
     coldRanked = prioritizeContactFenceDefense(color, coldRanked, contactDefense, weights);
+    if (advancedStrategy) {
+      coldRanked = prioritizeOpeningDevelopment(state, color, coldRanked, weights);
+    }
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -3947,6 +3982,110 @@ function prioritizeRouteContinuity(state, color, ranked) {
     || Number(right.score) - Number(left.score)
   ));
   return promoteCandidate(ranked, continuing[0], 'routeContinuityAdjustment');
+}
+
+function isEarlyContact(state, color, features) {
+  return hasOpeningDevelopmentContext(state, color)
+    && headCheckers(state, color) >= 4
+    && features.trapBefore < 600;
+}
+
+function releasesIntoStack(state, color, candidate) {
+  return candidate.sequence.some(move => (
+    Number(move.from) === headPoint(color)
+    && colorAt(state, Number(move.to)) === color
+    && Number(candidate.after.points[move.to]?.count) > Number(state.points[move.to]?.count)
+  ));
+}
+
+function hasOpeningDevelopmentContext(state, color) {
+  const opponent = opponentOf(color);
+  return headCheckers(state, opponent) >= 4 && offCount(state, opponent) === 0;
+}
+
+function improvesOpeningDevelopment(state, color, candidate, selected) {
+  const next = candidate.features;
+  const current = selected.features;
+  const buildsLargerTower = current.maxRouteTowerAfter >= 4 && current.routeTowerDelta < 0;
+  if (
+    candidate === selected
+    || next.outsidePipGain < current.outsidePipGain
+    || next.startZoneReduction < current.startZoneReduction - (buildsLargerTower ? 1 : 0)
+    || next.homeShuffleMoves > current.homeShuffleMoves
+    || next.maxRouteTowerAfter > current.maxRouteTowerAfter
+    || next.resultSafetyAfter < current.resultSafetyAfter
+    || next.trapDelta < current.trapDelta
+    || next.fenceClosureDelta < current.fenceClosureDelta
+    || next.escapeGatewayDelta < current.escapeGatewayDelta
+    || next.headLandingBreak > current.headLandingBreak
+  ) return false;
+
+  const headLandings = pathFor(opponentOf(color)).slice(1, 7);
+  const blockedLandings = move => headLandings.filter(point => colorAt(move.after, point) === color).length;
+  const makesNewBlock = blockedLandings(candidate) > blockedLandings(selected);
+  const extendsBlock = next.primeRunAfter > current.primeRunAfter
+    && next.opponentMoveBlockAfter > current.opponentMoveBlockAfter;
+  const attacks = makesNewBlock || extendsBlock;
+  const disperses = next.maxRouteTowerAfter < current.maxRouteTowerAfter
+    || next.routeTowerAfter < current.routeTowerAfter;
+  const headCost = current.headGain - next.headGain;
+  const keepsAttack = next.opponentMoveBlockAfter >= current.opponentMoveBlockAfter;
+  if (headCost > 0) {
+    return headCost === 1 && (
+      (buildsLargerTower && disperses && keepsAttack)
+      || (next.opponentFenceRunBefore <= 2 && isEarlyContact(state, color, next)
+        && releasesIntoStack(state, color, selected) && (disperses || attacks))
+    );
+  }
+  return (buildsLargerTower && disperses && keepsAttack)
+    || (next.opponentFenceRunBefore < 4 && isEarlyContact(state, color, next)
+      && next.homeEntryMoves < current.homeEntryMoves && attacks);
+}
+
+function reserveOpeningDevelopment(state, color, ranked, limit, headReleaseIsCritical) {
+  if (ranked.length < 2 || !hasOpeningDevelopmentContext(state, color)) return ranked;
+  if (ranked.some(candidate => candidate.features.contestedHeadExitTacticalReservation)) return ranked;
+  const leader = ranked[0];
+  const headRelease = ranked.find(candidate => candidate.features.headGain > leader.features.headGain);
+  const selected = headRelease?.features.maxRouteTowerAfter >= 4
+    && headRelease.features.routeTowerDelta < 0 ? headRelease : leader;
+  const alternatives = ranked.filter(candidate => (
+    (candidate.features.headGain >= selected.features.headGain || headReleaseIsCritical)
+    && improvesOpeningDevelopment(state, color, candidate, selected)
+  ));
+  if (!alternatives.length) return ranked;
+
+  alternatives.sort((left, right) => Number(right.score) - Number(left.score));
+  alternatives[0].features.openingDevelopmentTacticalReservation = 1;
+  return reorderTacticalReservations(ranked, limit);
+}
+
+function absoluteReplyValue(candidate, color, weights, metric) {
+  return evaluateState(candidate.after, color, weights) + candidate.tactical[metric];
+}
+
+function hasProvenOpeningDevelopment(state, color, candidate, selected, weights) {
+  return hasBoundedFourPlyTactical(selected)
+    && hasBoundedFourPlyTactical(candidate)
+    && improvesOpeningDevelopment(state, color, candidate, selected)
+    && absoluteReplyValue(candidate, color, weights, 'expectedImpact')
+      > absoluteReplyValue(selected, color, weights, 'expectedImpact')
+    && absoluteReplyValue(candidate, color, weights, 'worstImpact')
+      >= absoluteReplyValue(selected, color, weights, 'worstImpact')
+    && candidate.tactical.recoveryExpected >= selected.tactical.recoveryExpected
+    && candidate.tactical.continuationExpected >= selected.tactical.continuationExpected
+    && candidate.tactical.continuationWorst >= selected.tactical.continuationWorst;
+}
+
+function prioritizeOpeningDevelopment(state, color, ranked, weights) {
+  if (ranked.length < 2 || !hasOpeningDevelopmentContext(state, color)) return ranked;
+  const selected = ranked[0];
+  const alternatives = ranked.filter(candidate => (
+    hasProvenOpeningDevelopment(state, color, candidate, selected, weights)
+  ));
+  if (!alternatives.length) return ranked;
+
+  return promoteCandidate(ranked, alternatives[0], 'openingDevelopmentAdjustment');
 }
 
 function prioritizeSafeEarlyDevelopment(state, color, ranked) {
@@ -4822,6 +4961,7 @@ function reorderTacticalReservations(ranked, limit) {
       || Number(candidate.features.fenceEscapeTacticalReservation || 0) > 0
       || Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0
       || Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0
+      || Number(candidate.features.openingDevelopmentTacticalReservation || 0) > 0
     )
   ));
   if (!reservations.length) return ranked;
@@ -4856,6 +4996,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(candidate.features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
   if (Number(candidate.features.routeContinuityTacticalReservation || 0) > 0) return 2;
   if (Number(candidate.features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
+  if (Number(candidate.features.openingDevelopmentTacticalReservation || 0) > 0) return 3.5;
   return 3;
 }
 
@@ -5460,7 +5601,35 @@ function routeProgressPreservesDefense(state, color, features = {}) {
     && Number(features.escapeGatewayDelta || 0) >= 0;
 }
 
-function prioritizeDevelopingFenceEscape(state, color, ranked) {
+function preservesSoundOpeningAttack(state, color, attack, defense, weights) {
+  const a = attack.features;
+  const d = defense.features;
+  return weights && isEarlyContact(state, color, a)
+    && a.opponentFenceRunBefore <= 3
+    && a.primeRunAfter >= 4
+    && a.primeRunAfter > a.primeRunBefore
+    && a.primeRunAfter > d.primeRunAfter
+    && a.opponentMoveBlockAfter > d.opponentMoveBlockAfter
+    && a.headGain >= d.headGain
+    && a.outsidePipGain >= d.outsidePipGain
+    && a.maxRouteTowerAfter <= d.maxRouteTowerAfter
+    && a.resultSafetyAfter >= d.resultSafetyAfter
+    && a.headLandingBreak <= d.headLandingBreak
+    && a.trapDelta >= d.trapDelta
+    && a.escapeGatewayDelta >= d.escapeGatewayDelta
+    && a.fenceClosureDelta >= d.fenceClosureDelta - 24
+    && hasBoundedFourPlyTactical(attack)
+    && hasBoundedFourPlyTactical(defense)
+    && absoluteReplyValue(attack, color, weights, 'expectedImpact')
+      > absoluteReplyValue(defense, color, weights, 'expectedImpact')
+    && absoluteReplyValue(attack, color, weights, 'worstImpact')
+      >= absoluteReplyValue(defense, color, weights, 'worstImpact')
+    && attack.tactical.recoveryExpected >= defense.tactical.recoveryExpected
+    && attack.tactical.continuationExpected >= defense.tactical.continuationExpected
+    && attack.tactical.continuationWorst >= defense.tactical.continuationWorst - 20000000;
+}
+
+function prioritizeDevelopingFenceEscape(state, color, ranked, weights) {
   if (!ranked.length || homeReady(state, color)) return ranked;
   const selected = ranked[0];
   const fenceRun = Math.max(...ranked.map(
@@ -5489,6 +5658,7 @@ function prioritizeDevelopingFenceEscape(state, color, ranked) {
   const escaping = frontier.filter(candidate => (
     candidate !== selected
     && !isDeepFenceSafetyRegression(candidate, selected)
+    && !preservesSoundOpeningAttack(state, color, selected, candidate, weights)
     && (
       (
         fenceEscapeUtility(candidate) >= escapeFloor
