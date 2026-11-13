@@ -39,7 +39,9 @@ function loadRoomsClient({ localStorage, window }) {
   return context.window.NarduRooms;
 }
 
-function loadController(loadLongBotExperience, plan) {
+function loadController(loadLongBotExperience, plan, {
+  signedRoom = false, guest = false, ensureBotAnalysisRoom, autoStart = false,
+} = {}) {
   const localStorage = memoryStorage();
   const sessionStorage = memoryStorage();
   const document = {
@@ -57,13 +59,24 @@ function loadController(loadLongBotExperience, plan) {
     addEventListener() {},
     setTimeout,
     NarduApp: {
-      getUser() { return { name: 'Tester' }; },
+      getUser() { return { name: 'Tester', guest }; },
       paintUser() {},
     },
-    NarduRooms: { loadLongBotExperience },
+    NarduRooms: {
+      loadLongBotExperience,
+      ...(signedRoom ? {
+        ensureBotAnalysisRoom: ensureBotAnalysisRoom || (async () => ({ ok: true, version: 1 })),
+        async getGameState() { throw Object.assign(new Error('Not found'), { status: 404 }); },
+        async putGameState() { return { version: 2 }; },
+      } : {}),
+    },
     NarduLongBotWorker: { plan },
     NarduLongBotEngine: {
-      beginExperienceSession() {},
+      beginExperienceSession(key) {
+        if (key !== '') return;
+        engineFrozen = false;
+        engineExperienceSize = 0;
+      },
       experienceSize() { return engineExperienceSize; },
       experienceSnapshot() {
         return {
@@ -98,7 +111,11 @@ function loadController(loadLongBotExperience, plan) {
     URL,
     Uint8Array,
     TextEncoder,
-    setTimeout,
+    setTimeout(fn, ms) {
+      const timer = setTimeout(fn, ms);
+      if (ms >= 60000) timer.unref();
+      return timer;
+    },
     clearTimeout,
     setInterval() { return 1; },
     clearInterval() {},
@@ -122,7 +139,7 @@ function loadController(loadLongBotExperience, plan) {
   const source = fs.readFileSync(path.join(ROOT, 'game-controller.js'), 'utf8')
     .replace(
       '    preferredMoveAction,\n  };',
-      '    preferredMoveAction,\n    __test: { loadLongBotExperienceBeforeStart, ensureAutoProgressAfterExperience, playBotTurn },\n  };',
+      '    preferredMoveAction,\n    __test: { loadLongBotExperienceBeforeStart, ensureAutoProgressAfterExperience, playBotTurn, waitingForLongBotExperience, startAfterSignedLongBotExperience, botLiveStatePayload, currentTurnStatus },\n  };',
     );
   vm.runInContext(source, context, { filename: 'game-controller.js' });
   window.NarduController.init({
@@ -132,7 +149,8 @@ function loadController(loadLongBotExperience, plan) {
     difficulty: 'hard',
     opponent: 'Hard bot',
     opponentRating: 1500,
-    skipAutoStart: true,
+    skipAutoStart: !autoStart,
+    freshGame: signedRoom,
   });
   return context;
 }
@@ -504,4 +522,168 @@ test('a superseded room cannot apply a late experience response without a replac
   resolveResponse({ data: [{ creditVersion: 8, contextKey: 'route|old', actionKey: 'route:old' }], error: null });
   await check;
   assert.equal(applied.some(({ patterns }) => patterns.length), false);
+});
+
+const POLICY = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
+const SEAL = '1'.repeat(64);
+const LESSON = {
+  creditVersion: 9, evidenceSchema: 'long-server-causal-pattern-v1',
+  reviewerVersion: 'long-server-causal-review-v1', trustDomain: 'nardu/server-long-bot-causal/v1',
+  policyImplementationId: POLICY, outcomeUsed: false,
+  runtimeDigest: '2'.repeat(64), aggregateId: '3'.repeat(64),
+  contextKey: 'route|lesson', actionKey: 'route:avoid',
+  samples: 1, losses: 1, wins: 0, lossWeight: 1.5, signalWeight: 1.5, severeLosses: 0, winWeight: 0,
+};
+
+test('fresh Hard long round stays before the first roll until a signed nonempty lesson is applied', async () => {
+  const calls = [];
+  let answer = 'empty';
+  let context;
+  context = loadController(async options => {
+    calls.push(options.signedRound);
+    if (answer === 'empty') throw Object.assign(new Error('no lessons'), { code: 'LB001' });
+    context.window.NarduLongBotEngine.__setExperienceSize(1);
+    if (answer === 'signed') options.onSignedSnapshot(SEAL);
+    return [LESSON];
+  }, undefined, { signedRoom: true });
+  const controller = context.window.NarduController;
+  const api = controller.__test;
+  const engine = context.window.NarduLongBotEngine;
+  engine.__setFrozen(true);
+  engine.__setExperienceSize(0);
+
+  assert.equal(api.waitingForLongBotExperience(), true);
+  assert.equal(await api.ensureAutoProgressAfterExperience(60000), false);
+  assert.equal(calls.length, 1);
+  assert.equal(controller.getState().phase, 'opening');
+  assert.equal(engine.__frozenSnapshots.length, 0);
+  assert.equal(api.waitingForLongBotExperience(), true);
+  assert.match(api.currentTurnStatus().text, /пока нет подтверждённых уроков/);
+
+  answer = 'unsigned';
+  assert.equal(await api.startAfterSignedLongBotExperience(60000), false);
+  assert.equal(api.waitingForLongBotExperience(), true);
+  assert.equal(engine.__frozenSnapshots.length, 0);
+
+  answer = 'signed';
+  assert.equal(await api.startAfterSignedLongBotExperience(60000), true);
+  assert.equal(api.waitingForLongBotExperience(), false);
+  assert.equal(engine.__frozenSnapshots[0].size, 1);
+  assert.equal(calls.at(-1).roomCode, 'LOAD-V33');
+  assert.equal(calls.at(-1).roundStartedAt, controller.getState().startedAt);
+  assert.equal(api.botLiveStatePayload().analysis.botMemory.signedExperienceHash, SEAL);
+  assert.equal(await api.ensureAutoProgressAfterExperience(60000), true);
+  assert.equal(engine.__frozenSnapshots.length, 1);
+});
+
+test('a fresh guest Hard long round waits for sign-in but a played legacy round can resume empty', async () => {
+  let calls = 0;
+  const context = loadController(async () => { calls += 1; return []; }, undefined, { signedRoom: true, guest: true });
+  const controller = context.window.NarduController;
+  const api = controller.__test;
+  const engine = context.window.NarduLongBotEngine;
+  engine.__setExperienceSize(0);
+  assert.equal(await api.ensureAutoProgressAfterExperience(60000), false);
+  assert.equal(calls, 0);
+  assert.match(api.currentTurnStatus().text, /Войдите в аккаунт/);
+  assert.equal(api.waitingForLongBotExperience(), true);
+
+  Object.assign(controller.getState(), { phase: 'roll', history: [{ opening: true }] });
+  engine.__setFrozen(true);
+  api.ensureAutoProgressAfterExperience(60000);
+  assert.equal(engine.__frozenSnapshots.length, 1);
+  assert.equal(engine.__frozenSnapshots[0].size, 0);
+  assert.equal(api.waitingForLongBotExperience(), false);
+});
+
+test('a new Hard long room after rematch cannot reuse the previous round acknowledgment', async () => {
+  let context;
+  const requests = [];
+  context = loadController(async options => {
+    requests.push(options.signedRound);
+    if (options.signedRound.roomCode === 'LOAD-V33') {
+      context.window.NarduLongBotEngine.__setExperienceSize(1);
+      options.onSignedSnapshot(SEAL);
+      return [LESSON];
+    }
+    throw Object.assign(new Error('no lessons'), { code: 'LB001' });
+  }, undefined, { signedRoom: true });
+  const controller = context.window.NarduController;
+  assert.equal(await controller.__test.ensureAutoProgressAfterExperience(60000), true);
+
+  controller.init({ mode: 'bot', roomCode: 'NEWX-TEST', variant: 'long', difficulty: 'hard',
+    freshGame: true, skipAutoStart: true });
+  assert.equal(await controller.__test.ensureAutoProgressAfterExperience(60000), false);
+  assert.equal(controller.__test.waitingForLongBotExperience(), true);
+  assert.equal(controller.getState().analysis.botMemory.signedExperienceHash, undefined);
+  assert.deepEqual(requests.map(row => row.roomCode), ['LOAD-V33', 'NEWX-TEST']);
+});
+
+test('room client surfaces no lessons and accepts an acknowledgment only for a verified signed round response', async () => {
+  let response;
+  const calls = [];
+  const applied = [];
+  const rounds = loadRoomsClient({ localStorage: memoryStorage(), window: {
+    NarduSupabase: {
+      configured: () => true,
+      client: async () => ({ rpc: async (method, parameters) => {
+        calls.push({ method, parameters });
+        return response;
+      } }),
+    },
+    NarduLongBotEngine: {
+      version: 'long-analytic-v35',
+      policyImplementationId: POLICY,
+      setExperience(patterns, source) { if (patterns.length) applied.push({ patterns, source }); },
+    },
+  } });
+  const acknowledgments = [];
+  const options = { refresh: true, signedRound: { roomCode: 'TEST-ROOM', roundStartedAt: 123 },
+    onSignedSnapshot: hash => acknowledgments.push(hash) };
+
+  response = { data: null, error: { code: 'LB001', message: 'No confirmed lessons' } };
+  await assert.rejects(rounds.loadLongBotExperience(options), { code: 'LB001' });
+  response = { data: { policyImplementationId: POLICY, patterns: [] }, error: null };
+  await assert.rejects(rounds.loadLongBotExperience(options), { code: 'LB001' });
+  response = { data: { policyImplementationId: POLICY, patterns: [LESSON] }, error: null };
+  await assert.rejects(rounds.loadLongBotExperience(options), { code: 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE' });
+  await assert.rejects(rounds.loadLongBotExperience({ ...options, signedRound: undefined }),
+    { code: 'LONG_BOT_EXPERIENCE_INVALID_RESPONSE' });
+  assert.equal(applied.length, 0);
+  assert.equal(acknowledgments.length, 0);
+
+  response.data.snapshotHash = SEAL;
+  assert.equal((await rounds.loadLongBotExperience(options))[0].actionKey, LESSON.actionKey);
+  assert.equal(calls.every(call => call.method === 'load_signed_long_bot_experience'), true);
+  assert.deepEqual(acknowledgments, [SEAL]);
+  assert.equal(applied[0].source, 'server');
+});
+
+test('a fresh Hard opening can retry a transient room reservation without bypassing the signed gate', async () => {
+  let reservations = 0;
+  let calls = 0;
+  const context = loadController(async () => {
+    calls += 1;
+    throw Object.assign(new Error('no lessons'), { code: 'LB001' });
+  }, undefined, {
+    signedRoom: true,
+    autoStart: true,
+    async ensureBotAnalysisRoom() {
+      reservations += 1;
+      if (reservations === 1) throw Object.assign(new Error('temporarily unavailable'), { status: 503 });
+      return { ok: true, version: 1 };
+    },
+  });
+  const controller = context.window.NarduController;
+  await controller.retryBotAnalysisStartup();
+  assert.equal(reservations, 1);
+  assert.equal(calls, 0);
+  assert.equal(controller.__test.waitingForLongBotExperience(), true);
+
+  await controller.retryBotAnalysisStartup();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reservations, 2);
+  assert.equal(calls, 1);
+  assert.equal(controller.getState().phase, 'opening');
+  assert.match(controller.__test.currentTurnStatus().text, /пока нет подтверждённых уроков/);
 });
