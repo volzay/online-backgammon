@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '7325247064d04d7b9d3c15a705ec4e94d794d2ce7965677a3cf2b1369c18a76a';
 
 /* bot-engine/long/metrics.ts */
 
@@ -1440,6 +1440,9 @@ const CANONICAL_DICE_OUTCOMES = Object.freeze(
       }))),
 );
 
+// Each of two boards takes one recovery and at most two continuation nodes per roll.
+const MAX_REFERENCE_COMPARISON_NODES = 6 * CANONICAL_DICE_OUTCOMES.length;
+
 function hasCompleteDiceDistribution(rolls, weight) {
   return rolls === CANONICAL_DICE_OUTCOMES.length
     && weight === CANONICAL_DICE_WEIGHT;
@@ -1503,6 +1506,7 @@ function analyzeOpponentReplies(
   if (!tacticalCandidates.length || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
+  const tacticalReference = options.tacticalReference;
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
     expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
@@ -1661,7 +1665,7 @@ function analyzeOpponentReplies(
     }
   }
 
-  analyzeRecoveryReplies(adapter, color, deepAccumulators, weights, budget, expandDoubles);
+  analyzeRecoveryReplies(adapter, color, deepAccumulators, weights, budget, expandDoubles, tacticalReference);
   completeProvisionalLeaderAnalysis(
     adapter,
     color,
@@ -1738,7 +1742,9 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles) {
+function analyzeRecoveryReplies(
+  adapter, color, accumulators, weights, budget, expandDoubles, tacticalReference = null,
+) {
   const rankedCandidates = accumulators
     .filter(accumulator => (
       accumulator.candidate.tactical
@@ -1747,8 +1753,31 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
     ))
     .sort((left, right) => right.candidate.score - left.candidate.score);
   const deepCandidates = selectDeepCandidates(rankedCandidates);
+  const primaryLeader = rankedCandidates[0];
+  const reference = rankedCandidates.find(item => item.candidate === tacticalReference);
+  if (deepCandidates.length < 2 || !reference || reference === primaryLeader
+    || !hasAnalysisBudget(budget, MAX_REFERENCE_COMPARISON_NODES)) {
+    analyzeRecoveryGroup(adapter, color, deepCandidates, weights, budget, expandDoubles);
+    return;
+  }
 
-  for (const accumulator of deepCandidates) {
+  const pair = [primaryLeader, reference];
+  const remainder = deepCandidates.filter(candidate => !pair.includes(candidate));
+  while (remainder.length + pair.length > deepCandidates.length) {
+    const ordinary = remainder.findLastIndex(candidate => !hasTacticalReservation(candidate.candidate));
+    remainder.splice(ordinary >= 0 ? ordinary : remainder.length - 1, 1);
+  }
+  analyzeRecoveryGroup(adapter, color, pair, weights, budget, expandDoubles);
+  const remainingOrdinarySlots = MAX_CONTINUATION_CANDIDATES
+    - pair.filter(candidate => !hasTacticalReservation(candidate.candidate)).length;
+  analyzeRecoveryGroup(adapter, color, remainder, weights, budget, expandDoubles, remainingOrdinarySlots);
+}
+
+function analyzeRecoveryGroup(
+  adapter, color, candidates, weights, budget, expandDoubles,
+  ordinaryContinuationSlots = MAX_CONTINUATION_CANDIDATES,
+) {
+  for (const accumulator of candidates) {
     if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.frontiers[0];
     let expectedRecovery = 0;
@@ -1857,14 +1886,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
     ), null);
   }
 
-  analyzeContinuationReplies(
-    adapter,
-    color,
-    deepCandidates,
-    weights,
-    budget,
-    expandDoubles,
-  );
+  analyzeContinuationReplies(adapter, color, candidates, weights, budget, expandDoubles, ordinaryContinuationSlots);
 }
 
 function selectDeepCandidates(rankedCandidates) {
@@ -1972,9 +1994,10 @@ function analyzeContinuationReplies(
   weights,
   budget,
   expandDoubles,
+  ordinarySlots = MAX_CONTINUATION_CANDIDATES,
 ) {
   const opponent = opponentOf(color);
-  const continuationCandidates = selectContinuationCandidates(deepCandidates);
+  const continuationCandidates = selectContinuationCandidates(deepCandidates, ordinarySlots);
 
   for (const accumulator of continuationCandidates) {
     if (!hasAnalysisBudget(budget)) break;
@@ -2117,7 +2140,7 @@ function uniqueContinuationFrontiers(frontiers) {
   return [...byPosition.values()];
 }
 
-function selectContinuationCandidates(deepCandidates) {
+function selectContinuationCandidates(deepCandidates, ordinarySlots = MAX_CONTINUATION_CANDIDATES) {
   const selected = selectDeepCandidates(deepCandidates
     .filter(accumulator => (
       accumulator.recoveryFrontiers?.length
@@ -2135,7 +2158,7 @@ function selectContinuationCandidates(deepCandidates) {
   // the ordinary continuation cap only after every reserved board is kept.
   return [
     ...reserved,
-    ...ordinary.slice(0, MAX_CONTINUATION_CANDIDATES),
+    ...ordinary.slice(0, ordinarySlots),
   ];
 }
 
@@ -2938,11 +2961,15 @@ function createLongBotEngine(adapter, options = {}) {
         state, strategicallyEligible, strategicallyRanked, runtimeOptions.maxTacticalCandidates,
       )
       : null;
-    if (contactDefense) {
+    const tacticalReference = advancedStrategy && !contactDefense
+      ? findStructuralTacticalReference(state, color, strategicallyEligible, runtimeOptions.maxTacticalCandidates)
+      : null;
+    const reference = contactDefense || tacticalReference;
+    if (reference) {
       tacticalPool = [
         tacticalPool[0],
-        contactDefense,
-        ...tacticalPool.slice(1).filter(candidate => candidate !== contactDefense),
+        reference,
+        ...tacticalPool.slice(1).filter(candidate => candidate !== reference),
       ];
     }
     const advancedTacticallyAdjusted = new Set();
@@ -2962,6 +2989,7 @@ function createLongBotEngine(adapter, options = {}) {
       {
         expandDoubles: advancedStrategy,
         maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
+        tacticalReference,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
           : null,
@@ -3261,6 +3289,58 @@ function experienceSourcePriority(source) {
   if (source === 'server-cache') return 30;
   if (source === 'local') return 20;
   return 10;
+}
+
+function findStructuralTacticalReference(
+  state, color, eligible, limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = eligible[0];
+  const slots = Math.floor(Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (!selected || eligible.length < 2 || slots < 2 || homeReady(state, color)) return null;
+  const baseline = selected.features;
+  const position = candidatePositionKey(selected);
+  const gateways = criticalFenceGatewayPoints(state, color);
+  const losesGateway = gateways.some(point => colorAt(selected.after, point) !== color);
+  const losesPrime = Number(baseline.primeRunBefore) >= 4
+    && Number(baseline.primeRunAfter) < Number(baseline.primeRunBefore);
+  const shuffles = Number(baseline.avoidableHomeShuffleMoves) > 0;
+  if (!losesGateway && !losesPrime && !shuffles && baseline.opponentFenceRunBefore < 4) return null;
+
+  let reference = null;
+  let priority = Infinity;
+  for (const candidate of eligible) {
+    if (candidate === selected || candidatePositionKey(candidate) === position) continue;
+    const features = candidate.features;
+    const sameOrSafer = [
+      'resultSafetyAfter', 'fenceClosureDelta', 'trapDelta', 'escapeGatewayDelta',
+      'latentFenceExposureDelta', 'primeRunAfter', 'opponentMoveBlockAfter',
+    ].every(key => features[key] >= baseline[key]);
+    if (!sameOrSafer || !(features.maxRouteTowerAfter <= baseline.maxRouteTowerAfter + 1)) continue;
+
+    const proof = structuralIntegrityProofType(candidate, selected);
+    const escaping = ['fence-interruption', 'prevents-new-latent-fence', 'latent-fence-escape'].includes(proof);
+    const coversGateway = (losesGateway && gateways.every(point => colorAt(candidate.after, point) === color)
+      && structuralProgressIsBounded(candidate, selected, 'fence-interruption'))
+      || (escaping && structuralProgressIsBounded(candidate, selected, proof));
+    const coversPrime = losesPrime && features.primeRunAfter >= baseline.primeRunBefore
+      && features.opponentMoveBlockAfter > baseline.opponentMoveBlockAfter
+      && features.outsidePipGain >= baseline.outsidePipGain
+      && features.homeShuffleMoves <= baseline.homeShuffleMoves;
+    const coversProgress = shuffles
+      && features.avoidableHomeShuffleMoves < baseline.avoidableHomeShuffleMoves
+      && features.homeShuffleMoves < baseline.homeShuffleMoves
+      && ((features.homeEntryMoves > baseline.homeEntryMoves
+        && isPlausibleHomeEntryAlternative(state, color, candidate, selected))
+        || (hasRouteContinuityPriorityContext(state, color, selected)
+          && features.outsideReduction >= baseline.outsideReduction
+          && features.outsidePipGain > baseline.outsidePipGain
+          && isPlausibleRouteContinuityAlternative(candidate, selected)));
+    const candidatePriority = coversGateway ? 0 : coversPrime ? 1 : coversProgress ? 2 : Infinity;
+    if (candidatePriority >= priority) continue;
+    reference = candidate;
+    priority = candidatePriority;
+  }
+  return reference;
 }
 
 function tacticalCoveragePool(eligible, ranked) {

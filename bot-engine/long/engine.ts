@@ -282,11 +282,15 @@ export function createLongBotEngine(adapter, options = {}) {
         state, strategicallyEligible, strategicallyRanked, runtimeOptions.maxTacticalCandidates,
       )
       : null;
-    if (contactDefense) {
+    const tacticalReference = advancedStrategy && !contactDefense
+      ? findStructuralTacticalReference(state, color, strategicallyEligible, runtimeOptions.maxTacticalCandidates)
+      : null;
+    const reference = contactDefense || tacticalReference;
+    if (reference) {
       tacticalPool = [
         tacticalPool[0],
-        contactDefense,
-        ...tacticalPool.slice(1).filter(candidate => candidate !== contactDefense),
+        reference,
+        ...tacticalPool.slice(1).filter(candidate => candidate !== reference),
       ];
     }
     const advancedTacticallyAdjusted = new Set();
@@ -306,6 +310,7 @@ export function createLongBotEngine(adapter, options = {}) {
       {
         expandDoubles: advancedStrategy,
         maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
+        tacticalReference,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
           : null,
@@ -605,6 +610,58 @@ function experienceSourcePriority(source) {
   if (source === 'server-cache') return 30;
   if (source === 'local') return 20;
   return 10;
+}
+
+export function findStructuralTacticalReference(
+  state, color, eligible, limit = MAX_TACTICAL_CANDIDATES,
+) {
+  const selected = eligible[0];
+  const slots = Math.floor(Number(limit) || MAX_TACTICAL_CANDIDATES);
+  if (!selected || eligible.length < 2 || slots < 2 || homeReady(state, color)) return null;
+  const baseline = selected.features;
+  const position = candidatePositionKey(selected);
+  const gateways = criticalFenceGatewayPoints(state, color);
+  const losesGateway = gateways.some(point => colorAt(selected.after, point) !== color);
+  const losesPrime = Number(baseline.primeRunBefore) >= 4
+    && Number(baseline.primeRunAfter) < Number(baseline.primeRunBefore);
+  const shuffles = Number(baseline.avoidableHomeShuffleMoves) > 0;
+  if (!losesGateway && !losesPrime && !shuffles && baseline.opponentFenceRunBefore < 4) return null;
+
+  let reference = null;
+  let priority = Infinity;
+  for (const candidate of eligible) {
+    if (candidate === selected || candidatePositionKey(candidate) === position) continue;
+    const features = candidate.features;
+    const sameOrSafer = [
+      'resultSafetyAfter', 'fenceClosureDelta', 'trapDelta', 'escapeGatewayDelta',
+      'latentFenceExposureDelta', 'primeRunAfter', 'opponentMoveBlockAfter',
+    ].every(key => features[key] >= baseline[key]);
+    if (!sameOrSafer || !(features.maxRouteTowerAfter <= baseline.maxRouteTowerAfter + 1)) continue;
+
+    const proof = structuralIntegrityProofType(candidate, selected);
+    const escaping = ['fence-interruption', 'prevents-new-latent-fence', 'latent-fence-escape'].includes(proof);
+    const coversGateway = (losesGateway && gateways.every(point => colorAt(candidate.after, point) === color)
+      && structuralProgressIsBounded(candidate, selected, 'fence-interruption'))
+      || (escaping && structuralProgressIsBounded(candidate, selected, proof));
+    const coversPrime = losesPrime && features.primeRunAfter >= baseline.primeRunBefore
+      && features.opponentMoveBlockAfter > baseline.opponentMoveBlockAfter
+      && features.outsidePipGain >= baseline.outsidePipGain
+      && features.homeShuffleMoves <= baseline.homeShuffleMoves;
+    const coversProgress = shuffles
+      && features.avoidableHomeShuffleMoves < baseline.avoidableHomeShuffleMoves
+      && features.homeShuffleMoves < baseline.homeShuffleMoves
+      && ((features.homeEntryMoves > baseline.homeEntryMoves
+        && isPlausibleHomeEntryAlternative(state, color, candidate, selected))
+        || (hasRouteContinuityPriorityContext(state, color, selected)
+          && features.outsideReduction >= baseline.outsideReduction
+          && features.outsidePipGain > baseline.outsidePipGain
+          && isPlausibleRouteContinuityAlternative(candidate, selected)));
+    const candidatePriority = coversGateway ? 0 : coversPrime ? 1 : coversProgress ? 2 : Infinity;
+    if (candidatePriority >= priority) continue;
+    reference = candidate;
+    priority = candidatePriority;
+  }
+  return reference;
 }
 
 function tacticalCoveragePool(eligible, ranked) {
