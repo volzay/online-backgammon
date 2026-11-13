@@ -28,7 +28,8 @@ function runtime() {
   vm.runInContext(`(function () { ${body}\nwindow.primeDefenseHelpers = {
     reserveStructuralIntegrityForTacticalAnalysis, hasBoundedFourPlyTactical,
     reserveContactFenceDefense, prioritizeContactFenceDefense, evaluateState, mergeWeights,
-    analyzeOpponentReplies, createAnalysisBudget,
+    analyzeOpponentReplies, createAnalysisBudget, findStructuralTacticalReference,
+    candidatePositionKey, colorAt, criticalFenceGatewayPoints,
     createLongBotEngine, createNarduGameAdapter,
   };
   const originalAnalyze = analyzeOpponentReplies;
@@ -359,4 +360,96 @@ test('reserved active-prime defense is not forced when its actual hypothetical r
   assert.ok(dangerous.tactical.worstImpact < -900000000);
   assert.ok(contains(ranked[0], 12, 11, 1), 'catastrophic active defense cannot force the head move out');
   assert.equal(Number(dangerous.features.structuralIntegrityAdjustment || 0), 0);
+});
+
+function structuralReferenceCandidates(position) {
+  const { game, engine, helpers } = runtime();
+  const adapter = helpers.createNarduGameAdapter(game);
+  const seen = new Set();
+  return game.bestMoveSequences(position, position.turn).flatMap(sequence => {
+    const described = engine.describeSequence(position, sequence, production);
+    if (!described) return [];
+    const after = adapter.applySequence(position, sequence, position.turn);
+    const candidate = { ...described, after, sequence, score: 0 };
+    const key = helpers.candidatePositionKey(candidate);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [candidate];
+  });
+}
+
+test('a contested five-point escape gateway keeps a distinct legal reference within the two-slot beam', () => {
+  const { helpers } = runtime();
+  const color = 'dark';
+  // Dark can leave its only interruption of a six-point white fence or
+  // advance elsewhere with the same double while keeping that point open.
+  const position = state({ 12: 2, 8: 1, 4: 2, 21: 5, 17: 5 },
+    { 10: 2, 9: 2, 7: 3, 6: 3, 5: 5 }, [4, 4, 4, 4]);
+  const gateways = helpers.criticalFenceGatewayPoints(position, color);
+  assert.ok(gateways.length);
+  const candidates = structuralReferenceCandidates(position);
+  const vacates = candidate => gateways.some(point => helpers.colorAt(candidate.after, point) !== color);
+  const selected = candidates.find(vacates);
+  const defense = candidates.find(candidate => !vacates(candidate));
+  assert.ok(selected && defense, `legal turns: ${JSON.stringify({ gateways, options: candidates.length, losses: candidates.filter(vacates).length })}`);
+  selected.score = 100;
+  defense.score = 10;
+  Object.assign(defense.features, selected.features);
+  const alternative = { ...defense, features: { ...defense.features, trapDelta: defense.features.trapDelta - 1 } };
+  const reference = helpers.findStructuralTacticalReference(position, color, [selected, alternative, defense], 2);
+  assert.equal(reference, defense);
+  assert.equal(selected.score, 100);
+  assert.equal(defense.score, 10);
+  assert.equal(helpers.findStructuralTacticalReference(position, color, [selected, alternative, defense], 1), null);
+  assert.equal(helpers.findStructuralTacticalReference(position, color, [selected, alternative], 2), null);
+
+  const budget = helpers.createAnalysisBudget(58);
+  for (let index = 0; index < 16; index += 1) assert.equal(budget.consume(), true);
+  const adapter = helpers.createNarduGameAdapter(runtime().game);
+  helpers.analyzeOpponentReplies(adapter, color, [selected, defense], helpers.mergeWeights(), budget,
+    { expandDoubles: true, maxTacticalCandidates: 2, tacticalReference: defense });
+  for (const candidate of [selected, defense]) {
+    assert.equal(candidate.tactical.plies, 2);
+    assert.equal(candidate.tactical.rolls, 21);
+    assert.equal(candidate.tactical.distributionWeight, 36);
+  }
+  assert.equal(budget.used, 58);
+});
+
+test('a reserved own-fence reference keeps four-ply parity after ordinary reply scores are reprioritized', () => {
+  const { helpers, game } = runtime();
+  const color = 'dark';
+  const position = state({ 12: 2, 11: 1, 10: 1, 9: 2, 8: 2, 21: 3, 20: 4 },
+    { 24: 9, 17: 6 }, [3, 2]);
+  const candidates = structuralReferenceCandidates(position);
+  const selected = candidates.find(candidate => candidate.features.primeRunBefore >= 4
+    && candidate.features.primeRunAfter < candidate.features.primeRunBefore);
+  assert.ok(selected);
+  const defense = candidates.find(candidate => candidate.features.primeRunAfter >= selected.features.primeRunBefore
+    && helpers.candidatePositionKey(candidate) !== helpers.candidatePositionKey(selected));
+  assert.ok(defense);
+  selected.score = 100;
+  defense.score = 10;
+  // Isolate the static reservation predicate with real, distinct after-boards.
+  Object.assign(defense.features, selected.features, {
+    primeRunAfter: selected.features.primeRunBefore,
+    opponentMoveBlockAfter: selected.features.opponentMoveBlockAfter + 1,
+  });
+  const unrelated = candidates.find(candidate => ![selected, defense].includes(candidate));
+  const reference = helpers.findStructuralTacticalReference(position, color, [selected, unrelated, defense], 4);
+  assert.equal(reference, defense);
+  const budget = helpers.createAnalysisBudget(480);
+  const adapter = helpers.createNarduGameAdapter(game);
+  helpers.analyzeOpponentReplies(adapter, color, [selected, defense, unrelated], helpers.mergeWeights(), budget, {
+    expandDoubles: true,
+    tacticalReference: defense,
+    beforeDeepSelection(items) {
+      unrelated.score = 1e12;
+      return items.slice().reverse();
+    },
+  });
+  for (const candidate of [unrelated, defense]) {
+    assert.equal(helpers.hasBoundedFourPlyTactical(candidate), true);
+  }
+  assert.ok(budget.used <= 480);
 });

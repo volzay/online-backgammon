@@ -62,6 +62,9 @@ export const CANONICAL_DICE_OUTCOMES = Object.freeze(
       }))),
 );
 
+// Each of two boards takes one recovery and at most two continuation nodes per roll.
+const MAX_REFERENCE_COMPARISON_NODES = 6 * CANONICAL_DICE_OUTCOMES.length;
+
 function hasCompleteDiceDistribution(rolls, weight) {
   return rolls === CANONICAL_DICE_OUTCOMES.length
     && weight === CANONICAL_DICE_WEIGHT;
@@ -125,6 +128,7 @@ export function analyzeOpponentReplies(
   if (!tacticalCandidates.length || !hasAnalysisBudget(budget)) return candidates;
 
   const opponent = opponentOf(color);
+  const tacticalReference = options.tacticalReference;
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
     expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
@@ -283,7 +287,7 @@ export function analyzeOpponentReplies(
     }
   }
 
-  analyzeRecoveryReplies(adapter, color, deepAccumulators, weights, budget, expandDoubles);
+  analyzeRecoveryReplies(adapter, color, deepAccumulators, weights, budget, expandDoubles, tacticalReference);
   completeProvisionalLeaderAnalysis(
     adapter,
     color,
@@ -360,7 +364,9 @@ function positionKey(state) {
   return `${points}|${Number(state.off?.white) || 0}:${Number(state.off?.dark) || 0}`;
 }
 
-function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, expandDoubles) {
+function analyzeRecoveryReplies(
+  adapter, color, accumulators, weights, budget, expandDoubles, tacticalReference = null,
+) {
   const rankedCandidates = accumulators
     .filter(accumulator => (
       accumulator.candidate.tactical
@@ -369,8 +375,31 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
     ))
     .sort((left, right) => right.candidate.score - left.candidate.score);
   const deepCandidates = selectDeepCandidates(rankedCandidates);
+  const primaryLeader = rankedCandidates[0];
+  const reference = rankedCandidates.find(item => item.candidate === tacticalReference);
+  if (deepCandidates.length < 2 || !reference || reference === primaryLeader
+    || !hasAnalysisBudget(budget, MAX_REFERENCE_COMPARISON_NODES)) {
+    analyzeRecoveryGroup(adapter, color, deepCandidates, weights, budget, expandDoubles);
+    return;
+  }
 
-  for (const accumulator of deepCandidates) {
+  const pair = [primaryLeader, reference];
+  const remainder = deepCandidates.filter(candidate => !pair.includes(candidate));
+  while (remainder.length + pair.length > deepCandidates.length) {
+    const ordinary = remainder.findLastIndex(candidate => !hasTacticalReservation(candidate.candidate));
+    remainder.splice(ordinary >= 0 ? ordinary : remainder.length - 1, 1);
+  }
+  analyzeRecoveryGroup(adapter, color, pair, weights, budget, expandDoubles);
+  const remainingOrdinarySlots = MAX_CONTINUATION_CANDIDATES
+    - pair.filter(candidate => !hasTacticalReservation(candidate.candidate)).length;
+  analyzeRecoveryGroup(adapter, color, remainder, weights, budget, expandDoubles, remainingOrdinarySlots);
+}
+
+function analyzeRecoveryGroup(
+  adapter, color, candidates, weights, budget, expandDoubles,
+  ordinaryContinuationSlots = MAX_CONTINUATION_CANDIDATES,
+) {
+  for (const accumulator of candidates) {
     if (!hasAnalysisBudget(budget)) break;
     const frontier = accumulator.frontiers[0];
     let expectedRecovery = 0;
@@ -479,14 +508,7 @@ function analyzeRecoveryReplies(adapter, color, accumulators, weights, budget, e
     ), null);
   }
 
-  analyzeContinuationReplies(
-    adapter,
-    color,
-    deepCandidates,
-    weights,
-    budget,
-    expandDoubles,
-  );
+  analyzeContinuationReplies(adapter, color, candidates, weights, budget, expandDoubles, ordinaryContinuationSlots);
 }
 
 export function selectDeepCandidates(rankedCandidates) {
@@ -594,9 +616,10 @@ function analyzeContinuationReplies(
   weights,
   budget,
   expandDoubles,
+  ordinarySlots = MAX_CONTINUATION_CANDIDATES,
 ) {
   const opponent = opponentOf(color);
-  const continuationCandidates = selectContinuationCandidates(deepCandidates);
+  const continuationCandidates = selectContinuationCandidates(deepCandidates, ordinarySlots);
 
   for (const accumulator of continuationCandidates) {
     if (!hasAnalysisBudget(budget)) break;
@@ -739,7 +762,7 @@ function uniqueContinuationFrontiers(frontiers) {
   return [...byPosition.values()];
 }
 
-export function selectContinuationCandidates(deepCandidates) {
+export function selectContinuationCandidates(deepCandidates, ordinarySlots = MAX_CONTINUATION_CANDIDATES) {
   const selected = selectDeepCandidates(deepCandidates
     .filter(accumulator => (
       accumulator.recoveryFrontiers?.length
@@ -757,7 +780,7 @@ export function selectContinuationCandidates(deepCandidates) {
   // the ordinary continuation cap only after every reserved board is kept.
   return [
     ...reserved,
-    ...ordinary.slice(0, MAX_CONTINUATION_CANDIDATES),
+    ...ordinary.slice(0, ordinarySlots),
   ];
 }
 
