@@ -1807,7 +1807,7 @@
   }
 
   async function loadLongBotExperience({
-    refresh = false, playerName = "", isCurrent = () => true, signedRound = undefined,
+    refresh = false, playerName = "", isCurrent = () => true, signedRound = undefined, onSignedSnapshot = undefined,
   } = {}) {
     const superseded = () => longBotExperienceError(
       "LONG_BOT_EXPERIENCE_SUPERSEDED", "Long-bot experience load was superseded.",
@@ -1837,6 +1837,7 @@
     const roundStartedAt = signedRound?.roundStartedAt;
     const requiresSignedRound = requiresAttestation && !!roundRoomCode
       && Number.isSafeInteger(roundStartedAt) && roundStartedAt > 0;
+    if (onSignedSnapshot && !requiresSignedRound) throw invalidResponse();
     const requestKey = requiresSignedRound
       ? `${policyImplementationId}:${roundRoomCode}:${roundStartedAt}`
       : requiresAttestation ? `${policyImplementationId}:${playerKey}` : playerKey;
@@ -1869,7 +1870,7 @@
           console.warn("Ignored incompatible long-bot experience generation.");
           return { patterns: cachedPatterns, fresh: false };
         }
-        return { patterns, fresh: true };
+        return { patterns, fresh: true, snapshotHash: requiresSignedRound ? data.snapshotHash : undefined };
       })();
       longBotExperiencePromises.set(requestKey, experiencePromise);
       experiencePromise.finally(() => {
@@ -1887,11 +1888,16 @@
       });
       if (!validated && causalOnly) throw invalidResponse();
       const patterns = validated || [];
+      if (onSignedSnapshot) {
+        if (!patterns.length) throw longBotExperienceError("LB001", "No confirmed Hard bot lessons are available.");
+        if (!/^[0-9a-f]{64}$/.test(result?.snapshotHash || "")) throw invalidResponse();
+      }
       if (result?.fresh === true) {
         engine?.setExperience?.([], "server-cache");
         engine?.setExperience?.(patterns, "server");
         writeLongBotExperienceCache(patterns, playerKey);
       }
+      if (onSignedSnapshot) onSignedSnapshot(result.snapshotHash);
       return patterns;
     });
     if (cachedPatterns.length && !refresh) {

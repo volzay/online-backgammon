@@ -58,6 +58,8 @@ window.NarduController = (function () {
   let botAnalysisStartupRetry = null;
   let botAnalysisStartupGeneration = 0;
   let longBotExperienceStartupPending = false;
+  let longBotExperienceStartupError = '';
+  let longBotExperienceStartupPromise = null;
   let botRatingPersistenceKey = null;
   let botTrainingArchivePending = false;
   let botTrainingArchiveDone = false;
@@ -142,9 +144,8 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
   const NEURAL_TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
   const NEURAL_TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
-  // A live production load has legitimately taken almost seven seconds.  Do
-  // not freeze an empty session until both bounded loader attempts can finish.
-  // Restored frozen sessions take the separate immediate/deferred path below.
+  // Bound the startup wait for restored legacy games and neural teacher use.
+  // A new Hard long round waits for a nonempty signed snapshot instead.
   const LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS =
     LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS * LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS + 500;
   // The Supabase loader may spend 5 s on each of two CDNs before a room read
@@ -232,6 +233,11 @@ window.NarduController = (function () {
       rematch_declined: 'Соперник отказался от новой партии.',
       rematch_starting: 'Начинаем новую партию...',
       preparing: 'Подготовка',
+      long_bot_experience_loading: 'Загружаем подтверждённые уроки «Сложного»…',
+      long_bot_experience_empty: 'Для «Сложного» пока нет подтверждённых уроков. Партия ещё не началась.',
+      long_bot_experience_failed: 'Не удалось загрузить подтверждённые уроки. Повторите проверку.',
+      long_bot_experience_sign_in: 'Войдите в аккаунт, чтобы начать партию со «Сложным».',
+      long_bot_experience_retry: 'Проверить уроки',
       restore_failed: 'Не удалось открыть сохранённую партию. Нажмите «Обновить».',
       yes: 'Да',
       no: 'Нет',
@@ -313,6 +319,11 @@ window.NarduController = (function () {
       rematch_declined: 'Opponent declined a new game.',
       rematch_starting: 'Starting a new game...',
       preparing: 'Preparing',
+      long_bot_experience_loading: 'Loading confirmed lessons for the Hard bot…',
+      long_bot_experience_empty: 'The Hard bot has no confirmed lessons yet. The game is waiting to start.',
+      long_bot_experience_failed: 'Could not load confirmed lessons. Try again.',
+      long_bot_experience_sign_in: 'Sign in to start a game with the Hard bot.',
+      long_bot_experience_retry: 'Check for lessons',
       restore_failed: 'Could not open the saved game. Select Refresh.',
       yes: 'Yes',
       no: 'No',
@@ -952,6 +963,8 @@ window.NarduController = (function () {
     }
     attachRuntimeStateFields(roomCode);
     longBotExperienceStartupPending = opts.skipAutoStart !== true;
+    longBotExperienceStartupError = '';
+    longBotExperienceStartupPromise = null;
     if (mode === 'bot' && variant === 'long'
       && (botDifficulty === 'hard' || botDifficulty === 'hard-neuro')) {
       window.NarduLongBotEngine?.beginExperienceSession?.(
@@ -1015,7 +1028,9 @@ window.NarduController = (function () {
         at: new Date().toISOString(),
       }];
     }
-    const shouldRestoreBotAnalysis = mode === 'bot' && !botPlannerError && !freshGame && canPublishBotAnalysis();
+    const guestNeedsSignedLessons = requiresSignedLongBotOpening() && window.NarduApp?.getUser?.()?.guest === true;
+    const shouldRestoreBotAnalysis = mode === 'bot' && !botPlannerError && !guestNeedsSignedLessons
+      && (!freshGame || (requiresSignedLongBotOpening() && opts.skipAutoStart !== true)) && canPublishBotAnalysis();
     botAnalysisRestorePending = shouldRestoreBotAnalysis;
     undoStack = [];
 
@@ -1044,7 +1059,7 @@ window.NarduController = (function () {
       void retryBotAnalysisStartup();
       return;
     }
-    if (mode === 'bot') {
+    if (mode === 'bot' && !guestNeedsSignedLessons) {
       persistRoomSnapshot();
       queueBotAnalysisPublish(900);
     }
@@ -1148,11 +1163,90 @@ window.NarduController = (function () {
   }
 
   function waitingForLongBotExperience() {
+    if (requiresSignedLongBotOpening()) {
+      return longBotExperienceStartupPending
+        || !/^[0-9a-f]{64}$/.test(state.analysis?.botMemory?.signedExperienceHash || '');
+    }
     return longBotExperienceStartupPending && mode === 'bot' && variant === 'long'
       && botDifficulty === 'hard';
   }
 
+  function requiresSignedLongBotOpening() {
+    return mode === 'bot' && variant === 'long' && botDifficulty === 'hard'
+      && !spectatorMode && state?.phase === 'opening' && !state.winner && !state.openingRoll
+      && !state.history?.length && !state.turnMoves?.length;
+  }
+
+  function longBotExperienceOpeningMessage() {
+    if (!requiresSignedLongBotOpening() || !longBotExperienceStartupPending) return '';
+    return tr(longBotExperienceStartupError || 'long_bot_experience_loading');
+  }
+
+  function startAfterSignedLongBotExperience(delay) {
+    if (!requiresSignedLongBotOpening()) return;
+    if (!waitingForLongBotExperience()) {
+      ensureAutoProgress(delay);
+      return Promise.resolve(true);
+    }
+    if (longBotExperienceStartupPromise) return longBotExperienceStartupPromise;
+    if (!botAnalysisReady && botAnalysisStartupRetry) return retryBotAnalysisStartup();
+    const startupGeneration = botAnalysisStartupGeneration;
+    const sessionKey = longBotExperienceSessionKey();
+    const isCurrent = () => startupGeneration === botAnalysisStartupGeneration
+      && sessionKey === longBotExperienceSessionKey() && requiresSignedLongBotOpening();
+    longBotExperienceStartupPending = true;
+    longBotExperienceStartupError = '';
+    render({ diceTransition: true });
+    const attempt = (async () => {
+      if (window.NarduApp?.getUser?.()?.guest === true) {
+        longBotExperienceStartupError = 'long_bot_experience_sign_in';
+        return false;
+      }
+      if (!botAnalysisReady && !(await ensureBotAnalysisRoomReady())) {
+        throw new Error('Could not confirm the room for signed Hard bot experience.');
+      }
+      if (!isCurrent()) return false;
+      const engine = window.NarduLongBotEngine;
+      // A previously opened tab may have frozen an empty local set before
+      // the first roll. Reopen that unplayed session before applying the seal.
+      if (engine?.experienceSnapshot?.()?.frozen) engine.beginExperienceSession?.('');
+      const { patterns, snapshotHash } = await loadLongBotExperienceBeforeStart({
+        isCurrent, refresh: true, requireSignedLessons: true,
+      });
+      if (!isCurrent()) return false;
+      const snapshot = engine?.freezeExperience?.(sessionKey);
+      if (snapshot?.frozen !== true || Number(snapshot.size) !== patterns.length) {
+        throw new Error('Could not freeze the complete signed Hard bot experience.');
+      }
+      state.analysis.botMemory.signedExperienceHash = snapshotHash;
+      recordLongBotExperienceLoad({
+        frozen: true, fingerprint: snapshot.fingerprint, experienceSize: snapshot.size,
+      });
+      longBotExperienceStartupPending = false;
+      persistRoomSnapshot();
+      ensureAutoProgress(delay);
+      return true;
+    })().catch(error => {
+      if (!isCurrent()) return false;
+      longBotExperienceStartupError = error?.code === 'LB001'
+        ? 'long_bot_experience_empty' : 'long_bot_experience_failed';
+      recordLongBotExperienceLoad({
+        status: error?.code === 'LB001' ? 'awaiting-lessons' : 'failed',
+        frozen: false,
+      });
+      console.warn('Could not start with signed Hard bot experience', error?.message || error);
+      return false;
+    }).finally(() => {
+      if (longBotExperienceStartupPromise !== attempt) return;
+      longBotExperienceStartupPromise = null;
+      if (isCurrent()) render({ diceTransition: true });
+    });
+    longBotExperienceStartupPromise = attempt;
+    return attempt;
+  }
+
   function ensureAutoProgressAfterExperience(delay, maxExperienceWaitMs = LONG_BOT_EXPERIENCE_STARTUP_WAIT_MS) {
+    if (requiresSignedLongBotOpening()) return startAfterSignedLongBotExperience(delay);
     if (mode !== 'bot' || (botDifficulty !== 'hard' && botDifficulty !== 'hard-neuro')) {
       ensureAutoProgress(delay);
       return;
@@ -1216,7 +1310,9 @@ window.NarduController = (function () {
     ]).finally(startWithFrozenExperience);
   }
 
-  async function loadLongBotExperienceBeforeStart({ isCurrent = () => true, refresh = false } = {}) {
+  async function loadLongBotExperienceBeforeStart({
+    isCurrent = () => true, refresh = false, requireSignedLessons = false,
+  } = {}) {
     if (!isCurrent()) return [];
     const loader = window.NarduRooms?.loadLongBotExperience;
     const startedAt = Date.now();
@@ -1235,6 +1331,9 @@ window.NarduController = (function () {
       && Number.isSafeInteger(startedAtRound) && startedAtRound > 0
       ? { roomCode: remoteCode, roundStartedAt: startedAtRound }
       : undefined;
+    if (requireSignedLessons && !signedRound) {
+      throw new Error('The current Hard bot round has no signed room identity.');
+    }
     let lastError = null;
     for (let attempt = 1; attempt <= LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS; attempt += 1) {
       recordLongBotExperienceLoad({
@@ -1244,8 +1343,12 @@ window.NarduController = (function () {
         attempts: attempt,
       });
       try {
+        let snapshotHash = '';
         const patterns = await promiseWithTimeout(
-          loader({ refresh: refresh || attempt > 1, isCurrent, signedRound }),
+          loader({
+            refresh: refresh || attempt > 1, isCurrent, signedRound,
+            ...(requireSignedLessons ? { onSignedSnapshot: hash => { snapshotHash = hash; } } : {}),
+          }),
           LONG_BOT_EXPERIENCE_LOAD_TIMEOUT_MS,
           'Long-bot experience request timed out',
         );
@@ -1253,6 +1356,14 @@ window.NarduController = (function () {
         const experienceSize = Number(window.NarduLongBotEngine?.experienceSize?.()) || 0;
         const engineSnapshot = window.NarduLongBotEngine?.experienceSnapshot?.();
         const experienceDeferred = Number(engineSnapshot?.pendingPatternCount) > 0;
+        if (requireSignedLessons) {
+          if (!Array.isArray(patterns) || !patterns.length) {
+            throw Object.assign(new Error('No confirmed Hard bot lessons are available.'), { code: 'LB001' });
+          }
+          if (!/^[0-9a-f]{64}$/.test(snapshotHash) || experienceSize !== patterns.length || experienceDeferred) {
+            throw new Error('Could not apply the signed Hard bot experience.');
+          }
+        }
         if (
           Array.isArray(patterns)
           && patterns.length > 0
@@ -1288,16 +1399,19 @@ window.NarduController = (function () {
           deferred: false,
           error: '',
         });
-        return patterns;
+        return requireSignedLessons ? { patterns, snapshotHash } : patterns;
       } catch (error) {
         if (!isCurrent()) return [];
         lastError = error;
+        const awaitingLessons = requireSignedLessons && error?.code === 'LB001';
         recordLongBotExperienceLoad({
-          status: attempt < LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS ? 'retrying' : 'failed',
+          status: awaitingLessons ? 'awaiting-lessons'
+            : attempt < LONG_BOT_EXPERIENCE_LOAD_ATTEMPTS ? 'retrying' : 'failed',
           durationMs: Date.now() - startedAt,
           attempts: attempt,
           error: String(error?.message || error || 'Unknown experience error').slice(0, 240),
         });
+        if (awaitingLessons) break;
       }
     }
     throw lastError || new Error('Could not load long-bot experience');
@@ -2177,6 +2291,13 @@ window.NarduController = (function () {
   }
 
   async function handleFairDiceFailure(error) {
+    if (error?.code === 'LB001' && typeof requiresSignedLongBotOpening === 'function' && requiresSignedLongBotOpening()) {
+      const memory = state.analysis?.botMemory;
+      if (memory) delete memory.signedExperienceHash;
+      longBotExperienceStartupPending = true;
+      longBotExperienceStartupError = 'long_bot_experience_empty';
+      return true;
+    }
     if (!remoteCode || mode === 'hotseat') return false;
     const code = remoteCode;
     const generation = botAnalysisStartupGeneration;
@@ -2614,7 +2735,8 @@ window.NarduController = (function () {
       && !isAnimating
       && !isRolling
       && !isChainingMove
-      && !botAnalysisRestorePending;
+      && !botAnalysisRestorePending
+      && !longBotExperienceOpeningMessage();
     btn.disabled = !canResign;
     btn.title = canResign ? tr('resign_title') : tr('cannot_resign_title');
   }
@@ -2631,6 +2753,8 @@ window.NarduController = (function () {
       addDiceMessage(row, tr(botAnalysisRestoreError ? 'restore_failed' : 'preparing'));
       return;
     }
+
+    if (longBotExperienceOpeningMessage()) return;
 
     if (state.phase === 'waiting') {
       addDiceMessage(row, tr('dice_wait_opponent'));
@@ -2763,6 +2887,9 @@ window.NarduController = (function () {
     if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
     if (fairDiceInFlight) return { text: lang() === 'en' ? 'Preparing and verifying the dice roll…' : 'Подготавливаем и проверяем бросок…', tone: 'waiting' };
     if (botAnalysisRestorePending) return { text: tr(botAnalysisRestoreError ? 'restore_failed' : 'preparing'), tone: 'waiting' };
+    const experienceMessage = typeof longBotExperienceOpeningMessage === 'function'
+      && longBotExperienceOpeningMessage();
+    if (experienceMessage) return { text: experienceMessage, tone: 'waiting' };
     if (state.phase === 'waiting') return { text: tr('turn_waiting'), tone: 'waiting' };
     if (state.phase === 'over' || state.winner) {
       return {
@@ -2796,6 +2923,12 @@ window.NarduController = (function () {
   }
 
   function renderTurn() {
+    const retryExperience = document.getElementById('long-bot-experience-retry');
+    if (retryExperience) {
+      retryExperience.hidden = !longBotExperienceOpeningMessage()
+        || !longBotExperienceStartupError || longBotExperienceStartupError === 'long_bot_experience_sign_in';
+      retryExperience.textContent = tr('long_bot_experience_retry');
+    }
     document.querySelectorAll('.player').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.turn-banner').forEach(el => el.style.visibility = 'hidden');
 
@@ -4376,7 +4509,7 @@ window.NarduController = (function () {
   }
 
   function resignGame() {
-    if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
+    if (botAnalysisRestorePending || longBotExperienceOpeningMessage() || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isAnimating || isRolling || isChainingMove) return;
 
     if (autoRollTimer) clearTimeout(autoRollTimer);
@@ -5911,6 +6044,9 @@ window.NarduController = (function () {
   document.getElementById('bear-btn')?.addEventListener('click', onBearButtonClick);
   document.getElementById('undo-btn')?.addEventListener('click', undoLastMove);
   document.getElementById('resign-btn')?.addEventListener('click', resignGame);
+  document.getElementById('long-bot-experience-retry')?.addEventListener('click', () => {
+    void startAfterSignedLongBotExperience(650);
+  });
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'u' && e.key !== 'U' && e.key !== 'г' && e.key !== 'Г') return;
