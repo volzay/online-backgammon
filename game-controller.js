@@ -5407,6 +5407,13 @@ window.NarduController = (function () {
             botTurnStartedAt = Date.now();
             if (botDifficulty === 'hard-neuro') recordNeuralExecution(m, to);
             playMoveSound(m);
+            if (i === moves.length && state.phase === 'roll' && !state.winner) {
+              // The completed checker animation is already over. Let the
+              // next roll start without a second render or inter-move delay.
+              persistRoomSnapshot();
+              step();
+              return;
+            }
             render();
             persistRoomSnapshot();
             if (state.winner) {
