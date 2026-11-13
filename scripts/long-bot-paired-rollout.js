@@ -15,6 +15,7 @@ const { CHECKPOINT_SCHEMA, createTerminalJournal } = require('./long-bot-termina
 
 const SCORE_SEMANTICS = 'long-paired-terminal-win-probability-v1';
 const NATIVE_CACHE_VERSION = 'native-cold-v1';
+const DURABLE_CHECKPOINT_PLY_INTERVAL = 4;
 // Metadata irrelevance is audited for this exact implementation, not inferred
 // merely because a future bundle calls itself v35.
 // Earlier C31/C761 audits and their frozen reports remain historical provenance.
@@ -441,6 +442,8 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
     dark: createDiceStream(seeds.dark),
   };
   let plies = resumed.plies;
+  let lastSavedPly = resumed.plies;
+  let pendingCheckpoint = null;
   const rolls = resumed.rolls;
   for (const color of ['white', 'dark']) {
     for (let index = 0; index < rolls[color]; index += 1) streams[color].roll();
@@ -452,20 +455,28 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
   // does not feed rules/features. Do not project it on custom/unknown paths.
   const projectHistory = metadata.nativeHistoryProjection === true && cache?.enabled();
   const expired = () => Date.now() - startedAt > limits.maxElapsedMs;
+  function flushCheckpoint() {
+    if (!pendingCheckpoint) return;
+    metadata.saveCheckpoint(pendingCheckpoint);
+    lastSavedPly = pendingCheckpoint.plies;
+    pendingCheckpoint = null;
+  }
+  function timedOut() {
+    flushCheckpoint();
+    return { complete: false, reason: 'rollout-time-limit' };
+  }
   function sealVisited(winner, totalPlies) {
     for (const entry of visited) cache.putTerminalSuffix(entry.state, entry.cursor,
       { complete: true, winner, plies: totalPlies - entry.plies });
   }
   while (!state.winner && plies < limits.maxPlies) {
     if (projectHistory && cache.enabled()) state.history = [];
-    if (expired()) {
-      return { complete: false, reason: 'rollout-time-limit' };
-    }
+    if (expired()) return timedOut();
     if (cache?.enabled() && state.phase === 'roll') {
       const cursor = { seeds: { ...seeds }, rolls: { ...rolls } };
-      if (expired()) return { complete: false, reason: 'rollout-time-limit' };
+      if (expired()) return timedOut();
       const terminal = cache.getSuffix(state, cursor);
-      if (expired()) return { complete: false, reason: 'rollout-time-limit' };
+      if (expired()) return timedOut();
       if (terminal && terminal.plies <= limits.maxPlies - plies) {
         sealVisited(terminal.winner, plies + terminal.plies);
         return { complete: true, winner: terminal.winner, botWon: terminal.winner === botColor, plies: plies + terminal.plies };
@@ -477,9 +488,9 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
     if (state.phase === 'roll') { rolls[state.turn] += 1; runtime.game.applyRoll(state, streams[state.turn].roll()); }
     if (state.phase !== 'move') return { complete: false, reason: 'rollout-phase-invalid' };
     const beforePlan = cache?.enabled() ? nativeCacheCheckpoint(state) : null;
-    if (expired()) return { complete: false, reason: 'rollout-time-limit' };
+    if (expired()) return timedOut();
     const cachedPlan = beforePlan ? cache.getPlan(state) : null;
-    if (expired()) return { complete: false, reason: 'rollout-time-limit' };
+    if (expired()) return timedOut();
     const plan = cachedPlan || runtime.engine.plan(state, limits.policy);
     let appliedPlanMoves = 0;
     for (const move of Array.isArray(plan) ? plan : []) {
@@ -499,7 +510,10 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
       if (!durableState || durableState.phase !== 'roll') {
         return { complete: false, reason: 'rollout-checkpoint-state-invalid' };
       }
-      metadata.saveCheckpoint({ state: durableState, plies, rolls: { ...rolls } });
+      // The next iteration can expire after applying the next roll. Preserve
+      // the last completed roll boundary for a final cooperative flush.
+      pendingCheckpoint = { state: durableState, plies, rolls: { ...rolls } };
+      if (lastSavedPly === 0 || plies - lastSavedPly >= DURABLE_CHECKPOINT_PLY_INTERVAL) flushCheckpoint();
     }
   }
   if (!state.winner) return { complete: false, reason: 'rollout-ply-limit' };

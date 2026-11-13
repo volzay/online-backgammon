@@ -327,6 +327,52 @@ test('KRBS-like long terminal game resumes from an authenticated ply checkpoint 
   } finally { Date.now = realNow; temporary.close(); }
 });
 
+test('bounded journal writes flush only the last ended turn when the next roll exceeds the deadline', () => {
+  const temporary = scratch();
+  const realNow = Date.now;
+  const manifest = checkpointManifest();
+  const sampleIndex = 0, candidateId = manifest.candidateIds[0], seeds = manifest.seedsBySample[0];
+  const journal = createTerminalJournal({ directory: temporary.journal, manifest });
+  const limits = { ...DEFAULT_ROLLOUT_LIMITS, maxElapsedMs: 100, maxPlies: manifest.maxPlies };
+  let writes = 0;
+  const saveCheckpoint = value => {
+    writes += 1;
+    return journal.saveCheckpoint({ sampleIndex, candidateId, seeds, ...value });
+  };
+  try {
+    const fixture = longCheckpointFixture();
+    const originalApplyRoll = fixture.runtime.game.applyRoll;
+    let rolls = 0, tick = 0;
+    fixture.runtime.game.applyRoll = (state, dice) => {
+      originalApplyRoll(state, dice);
+      if (++rolls === 4) tick = 101;
+    };
+    Date.now = () => tick;
+    assert.deepEqual(playTerminalRollout(fixture.runtime, fixture.state, 'white', seeds, limits, 0, { saveCheckpoint }),
+      { complete: false, reason: 'rollout-time-limit' });
+    assert.equal(writes, 2);
+    const checkpoint = journal.lookupCheckpoint(sampleIndex, candidateId, seeds);
+    assert.equal(checkpoint.plies, 3);
+    assert.equal(checkpoint.state.phase, 'roll');
+    assert.equal(checkpoint.rolls.white + checkpoint.rolls.dark, 3);
+
+    const fresh = longCheckpointFixture();
+    tick = 0;
+    const resumed = playTerminalRollout(fresh.runtime, fresh.state, 'white', seeds, limits, 0,
+      { saveCheckpoint, resumeCheckpoint: checkpoint });
+    const baseline = playTerminalRollout(fresh.runtime, fresh.state, 'white', seeds, limits, 0);
+    assert.deepEqual(resumed, baseline);
+    assert.deepEqual(resumed, { complete: true, winner: 'dark', botWon: false, plies: 80 });
+    assert.equal(writes, 21);
+
+    let uninterruptedWrites = 0;
+    const uninterrupted = playTerminalRollout(fresh.runtime, fresh.state, 'white', seeds, limits, 0,
+      { saveCheckpoint: () => { uninterruptedWrites += 1; } });
+    assert.deepEqual(uninterrupted, baseline);
+    assert.equal(uninterruptedWrites, 20);
+  } finally { Date.now = realNow; journal.close(); temporary.close(); }
+});
+
 test('injected adapters or outcomes cannot use a native terminal progress store', async () => {
   const temporary = scratch();
   try {
