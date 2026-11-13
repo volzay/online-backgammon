@@ -1492,6 +1492,16 @@
     return fairDicePolicies.get(normalizedCode);
   }
 
+  async function fairDiceRequestHeaders() {
+    const client = await supabase();
+    const { data, error } = await client.auth.getSession();
+    if (error) throw supabaseError(error, "Could not load dice session.");
+    const token = localUserIsGuest() ? window.NARDU_ENV.supabaseAnonKey
+      : data?.session?.access_token || window.NARDU_ENV.supabaseAnonKey;
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+      ...(window.NarduApp?.guestRequestHeaders?.() || {}) };
+  }
+
   async function fairDiceJson(path, body, options = {}) {
     if (!fairDiceConfigured()) throw roomError("Сервис подтверждённых бросков не настроен.", 503);
     const base = new URL(window.NARDU_ENV.fairDiceUrl);
@@ -1499,11 +1509,7 @@
       throw roomError("Небезопасный адрес сервиса бросков.", 503);
     }
     if (base.username || base.password || base.search || base.hash) throw roomError("Неверный адрес сервиса бросков.", 503);
-    const client = await supabase();
-    const { data, error } = await client.auth.getSession();
-    if (error) throw supabaseError(error, "Could not load dice session.");
-    const token = localUserIsGuest() ? window.NARDU_ENV.supabaseAnonKey
-      : data?.session?.access_token || window.NARDU_ENV.supabaseAnonKey;
+    const headers = await (options.requestHeaders || fairDiceRequestHeaders)();
     const controller = new AbortController();
     const abort = () => controller.abort();
     if (options.signal?.aborted) controller.abort();
@@ -1512,8 +1518,7 @@
     try {
       const response = await fetch(`${base.href.replace(/\/$/, '')}/${path}`, {
         method: 'POST', cache: 'no-store', credentials: 'omit', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
-          ...(window.NarduApp?.guestRequestHeaders?.() || {}) },
+        headers,
         body: JSON.stringify(body),
       });
       const result = await response.json();
@@ -1559,12 +1564,17 @@
     if (!policy?.required) throw roomError("Эта партия использует прежний протокол бросков.", 422);
     if (!['long', 'short'].includes(current.variant)) throw roomError("Не удалось подтвердить вид нард этой комнаты.", 422);
     const context = { roomCode: normalizedCode, gameId: policy.gameId, label, color, variant: current.variant };
-    const reserved = await fairDiceJson('reserve', { code: normalizedCode, label, color });
+    // The two requests in one system roll share their session lookup. Each
+    // new roll or retry resolves its own session; beacon polling stays fresh.
+    const systemRoll = policy.protocol === 'system-csprng-v1';
+    let requestHeaders;
+    const transport = systemRoll ? { requestHeaders: () => requestHeaders ??= fairDiceRequestHeaders() } : undefined;
+    const reserved = await fairDiceJson('reserve', { code: normalizedCode, label, color }, transport);
     const receipt = reserved.receipt || reserved;
     if (!window.NarduFairDice?.verifyReservation(receipt, window.NARDU_ENV.fairDicePublicKey, context)) {
       throw roomError("Не удалось подтвердить серверную запись броска.", 422);
     }
-    if (policy.protocol === 'system-csprng-v1') {
+    if (systemRoll) {
       if (!receipt.request?.commitment || receipt.request.round !== undefined) {
         throw roomError("Сервис вернул другой протокол броска.", 422);
       }
@@ -1607,7 +1617,7 @@
       try { window.localStorage.setItem(storageKey, JSON.stringify(witness)); }
       catch { throw roomError("Не удалось сохранить данные проверки броска. Освободите хранилище сайта и повторите тот же запрос.", 503); }
       const result = await fairDiceJson('challenge', { code: normalizedCode, requestId: receipt.request.id,
-        requestHash: receipt.requestHash, clientSeed });
+        requestHash: receipt.requestHash, clientSeed }, transport);
       if (!result.proof || result.proof.protocol !== policy.protocol
         || result.proof.requestHash !== receipt.requestHash
         || result.proof.receiptSignature !== receipt.receiptSignature

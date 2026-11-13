@@ -389,6 +389,8 @@ test('actual neural turn executes only the archived full legal plan and matching
   assert.deepEqual(plain(decision.execution.after.points), plain(state.points));
   assert.equal(decision.execution.after.turn, state.turn); assert.equal(decision.execution.after.phase, state.phase);
   assert.equal(h.api.status().botTurnActive, false); assert.equal(h.calls.fallback, 0);
+  assert.equal(h.calls.timerDelays.filter(ms => ms === 120).length, decision.selected.length - 1,
+    'only checker-to-checker transitions wait');
 });
 
 test('missing model pauses room before any progress without a fallback or skipped turn', async () => {

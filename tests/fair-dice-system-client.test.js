@@ -33,7 +33,10 @@ function load({ variant = 'long', guest = false, storage = new Map(), storageErr
     return mutateProof ? mutateProof(value) : value;
   };
   const client = {
-    auth: { async getSession() { return { data: { session: guest ? null : { access_token: 'registered.test.jwt' } }, error: null }; } },
+    auth: { async getSession() {
+      order.push('session');
+      return { data: { session: guest ? null : { access_token: 'registered.test.jwt' } }, error: null };
+    } },
     from(table) {
       assert.equal(table, 'rooms');
       const operation = { kind: 'read' }; operations.push(operation);
@@ -81,6 +84,8 @@ for (const variant of ['long', 'short']) for (const guest of [false, true]) {
     assert.ok(client.order.indexOf('reserve') < client.order.indexOf('entropy'));
     assert.ok(client.order.indexOf('storage-write') < client.order.indexOf('challenge'));
     assert.deepEqual(client.requests.map(item => item.route), ['reserve', 'challenge']);
+    assert.equal(client.order.filter(item => item === 'session').length, 1);
+    assert.deepEqual(client.requests[0].options.headers, client.requests[1].options.headers);
     assert.equal(client.requests[1].body.requestHash, client.receipt.requestHash);
     assert.equal(client.requests[1].options.headers.Authorization, `Bearer ${guest ? 'anon.test.jwt' : 'registered.test.jwt'}`);
     const saved = JSON.parse([...client.storage.values()][0]);
@@ -90,6 +95,14 @@ for (const variant of ['long', 'short']) for (const guest of [false, true]) {
     assert.equal((await FairDice.verifyProof(proof, { publicKey: PUBLIC_KEY, context: client.receipt.request, clientSeed: CLIENT_SEED })).commitmentVerified, true);
   });
 }
+
+test('a separate system roll request resolves its session again', async () => {
+  const client = load();
+  await client.rooms.requestFairDice(CODE, { label: 'roll', color: 'white' });
+  await client.rooms.requestFairDice(CODE, { label: 'roll', color: 'white' });
+  assert.deepEqual(client.order.filter(item => ['session', 'reserve', 'challenge'].includes(item)),
+    ['session', 'reserve', 'challenge', 'session', 'reserve', 'challenge']);
+});
 
 test('same browser retry after uncertain challenge and reload uses the identical stored challenge', async () => {
   const storage = new Map();
