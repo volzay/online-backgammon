@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="roll-verification.css" />
+<link rel="stylesheet" href="onboarding.css" />
 <style>
   html.auth-pending body { visibility: hidden; }
   [data-direct-game-invitation] [data-wait-share] { display: none; }
@@ -132,9 +133,10 @@
     </div>
 
     <div class="room-toolbar">
-      <div class="match-pill" title="Партия до 5 очков" data-i18n-title="match_to">
+      <div class="match-pill" data-regular-room title="Партия до 5 очков" data-i18n-title="match_to">
         <span class="target" data-i18n="match_to_5">До 5</span>
       </div>
+      <span class="match-pill" data-practice-room data-i18n="practice_label" hidden>Пробная партия · без рейтинга</span>
       <button class="ghostbtn" id="resign-btn">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
         <span class="lbl" data-i18n="btn_resign">Сдаться</span>
@@ -195,6 +197,8 @@
     </div>
     <button class="ghostbtn" type="button" data-room-reload data-i18n="reload_room">Перезагрузить комнату</button>
   </section>
+
+  <div id="practice-guide-slot" hidden></div>
 
   <!-- ─── 3-COL LAYOUT ─── -->
   <div class="layout">
@@ -308,6 +312,8 @@
               </span>
               <span class="lbl" data-board-focus-label>Свернуть поле</span>
             </button>
+            <button class="pillbtn practice-action" id="practice-roll" type="button" data-i18n="practice_roll" hidden disabled>Бросить кубики</button>
+            <button class="pillbtn practice-action" id="practice-confirm" type="button" data-i18n="practice_confirm" hidden disabled>Подтвердить ход</button>
             <button class="action-bear" id="bear-btn" hidden disabled>
               <span class="ico">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/></svg>
@@ -388,7 +394,7 @@
         </details>
       </div>
 
-      <div class="panel">
+      <div class="panel" data-regular-room>
         <div class="between" style="margin-bottom: 12px;">
           <h3 style="margin:0;" data-i18n="chat_title">Чат</h3>
           <span style="font-size:11px;color:var(--ink-4); white-space: nowrap;" data-i18n="chat_with">с соперником</span>
@@ -604,7 +610,7 @@ function makePoint(num, idx, isBottom) {
     el.appendChild(stack);
   }
 
-  const showMoveHints = localStorage.getItem('narduh-move-hints') !== '0';
+  const showMoveHints = practiceRoom || localStorage.getItem('narduh-move-hints') !== '0';
   if (showMoveHints && state.hints.includes(num)) el.classList.add('hint');
   if (showMoveHints && state.fullHints?.includes(num)) el.classList.add('full-hint');
   if (state.selected === num) el.classList.add('selected');
@@ -792,7 +798,8 @@ const sendBtn = document.getElementById('chat-send');
 const emojiBtn = document.getElementById('emoji-btn');
 const emojiPopover = document.getElementById('emoji-popover');
 const chatUrl = new URL(location.href);
-const chatRoomCode = chatUrl.searchParams.get('room') || '';
+const practiceRoom = chatUrl.search === '?practice=1';
+const chatRoomCode = practiceRoom ? '' : (chatUrl.searchParams.get('room') || '');
 const chatSpectator = chatUrl.searchParams.get('role') === 'spectator' || chatUrl.searchParams.get('spectator') === '1';
 const chatPlayerColor = chatUrl.searchParams.get('color') || (chatUrl.searchParams.get('guest') === '1' ? 'dark' : 'white');
 const chatRemote = chatUrl.searchParams.get('mode') === 'remote' && chatRoomCode;
@@ -1289,7 +1296,7 @@ const STALE_ROOM_CODES_KEY = 'narduh-stale-room-codes';
 const WAITING_ROOM_CLOSE_TIMEOUT_MS = 4000;
 const roomUrl = new URL(location.href);
 const roomCode = roomUrl.searchParams.get('room') || '';
-const localGameCode = roomCode ? '' : ensureLocalGameCode();
+const localGameCode = roomCode || practiceRoom ? '' : ensureLocalGameCode();
 const displayRoomCode = roomCode || localGameCode;
 const isSpectatorRoom = roomUrl.searchParams.get('role') === 'spectator' || roomUrl.searchParams.get('spectator') === '1';
 const isWaitingHost = roomUrl.searchParams.get('waiting') === '1' && roomUrl.searchParams.get('host') === '1' && roomCode;
@@ -1457,6 +1464,7 @@ async function closeWaitingRoomWithTimeout() {
 }
 
 async function removeCurrentWaitingRoom() {
+  if (practiceRoom) return true;
   const mode = roomUrl.searchParams.get('mode');
   const targetRoomCode = mode === 'bot' ? displayRoomCode : roomCode;
   if (!targetRoomCode) return true;
@@ -1486,6 +1494,10 @@ function isActiveRemoteRoom() {
 }
 
 function reloadRoom() {
+  if (practiceRoom) {
+    location.reload();
+    return;
+  }
   window.NarduController?.prepareRoomReload?.();
   location.reload();
 }
@@ -1740,6 +1752,10 @@ function stopWaitingRoomWatchForExit() {
   waitingPoll = null;
 }
 async function leaveToLobby({ immediate = false } = {}) {
+  if (practiceRoom) {
+    location.href = 'index.html';
+    return;
+  }
   // Once the host has chosen the lobby, an already in-flight waiting-room
   // poll must never redirect the page back into a room that joined meanwhile.
   stopWaitingRoomWatchForExit();
@@ -1807,7 +1823,10 @@ async function leaveToLobby({ immediate = false } = {}) {
 window.NarduRoom = { leaveToLobby, closeCurrentRoom: removeCurrentWaitingRoom };
 function paintRoomCode() {
   const codeEl = document.querySelector('.crumbs .code');
-  if (codeEl) codeEl.textContent = displayRoomCode || '—';
+  if (codeEl) {
+    codeEl.hidden = practiceRoom;
+    if (!practiceRoom) codeEl.textContent = displayRoomCode || '—';
+  }
 }
 async function paintWaitingRoom() {
   const panel = document.getElementById('game-wait-panel');
@@ -1992,8 +2011,14 @@ if (!isWaitingHost) {
 }
 
 /* boot the game */
+if (practiceRoom) {
+  document.body.classList.add('practice-room');
+  document.querySelectorAll('[data-practice-room]').forEach(element => { element.hidden = false; });
+  document.querySelectorAll('[data-regular-room], [data-board-focus], [data-room-reload]').forEach(element => { element.hidden = true; });
+}
 NarduController.setRenderer(fullBoardRender);
 NarduController.init({
+  practice: practiceRoom,
   waiting: Boolean(isWaitingHost),
   mode: roomUrl.searchParams.get('mode') || undefined,
   roomCode: displayRoomCode,
@@ -2027,6 +2052,9 @@ const I18N = {
     crumb_room: "Комната",
     vs: "против",
     match_to_5: "До 5",
+    practice_label: "Пробная партия · без рейтинга",
+    practice_roll: "Бросить кубики",
+    practice_confirm: "Подтвердить ход",
     btn_resign: "Сдаться",
     btn_lobby: "Лобби",
     mobile_board_fullscreen: "Развернуть поле",
@@ -2146,6 +2174,9 @@ const I18N = {
     crumb_room: "Room",
     vs: "vs",
     match_to_5: "To 5",
+    practice_label: "Practice game · unrated",
+    practice_roll: "Roll dice",
+    practice_confirm: "Confirm turn",
     btn_resign: "Resign",
     btn_lobby: "Lobby",
     mobile_board_fullscreen: "Expand board",
@@ -2367,5 +2398,6 @@ window.addEventListener('nardu:langchange', ({ detail }) => {
 });
 </script>
 
+<script src="practice-guide.js"></script>
 </body>
 </html>

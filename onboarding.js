@@ -42,16 +42,16 @@
       ['Видимость рейтинга', 'В разделе «Приватность» можно выбрать, увидят ли другие игроки ваш рейтинг.'],
       ['Rating visibility', 'Use Privacy to choose whether other players can see your rating.']],
     [lobby, '#start-onboarding',
-      ['Всё готово к первой партии', 'Выберите соперника или сыграйте с ботом. Гайд можно открыть снова этой кнопкой или из личного кабинета.'],
-      ['Ready for your first game', 'Choose an opponent or play a bot. You can reopen the guide here or from your account.']],
+      ['Пробная партия с ботом', 'В игровой комнате вы сами бросите кубики, передвинете шашку и подтвердите ход. Пробная партия без рейтинга.'],
+      ['Practice with a bot', 'In the game room you’ll roll the dice, move a checker and confirm your turn. The practice game is unrated.']],
   ];
   const labels = {
     ru: { title: 'Знакомство с сайтом', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
       start: 'Начать', launch: 'Гайд по сайту', skip: 'Пропустить', back: 'Назад', next: 'Далее',
-      account: 'В кабинет', lobby: 'В лобби', finish: 'Готово', step: 'Шаг' },
+      account: 'В кабинет', lobby: 'В лобби', practice: 'В пробную партию', step: 'Шаг' },
     en: { title: 'Welcome to the site', intro: 'This guide shows how to start a game, invite a player and use your account.',
       start: 'Start', launch: 'Site guide', skip: 'Skip', back: 'Back', next: 'Next',
-      account: 'Open account', lobby: 'Back to lobby', finish: 'Done', step: 'Step' },
+      account: 'Open account', lobby: 'Back to lobby', practice: 'Play a practice game', step: 'Step' },
   };
   const language = () => document.documentElement.lang === 'en' ? 'en' : 'ru';
   const page = location.pathname.endsWith('/settings.html') ? account : lobby;
@@ -119,7 +119,10 @@
     };
     view.next.addEventListener('click', () => {
       if (state.status === 'pending') goToStep(0);
-      else if (state.step === steps.length - 1) finish('completed');
+      else if (state.step === steps.length - 1) {
+        setState('practice');
+        location.assign('room.html?practice=1');
+      }
       else goToStep(state.step + 1);
     });
     view.back.addEventListener('click', () => goToStep(state.step - 1));
@@ -182,7 +185,7 @@
     view.back.textContent = copy.back;
     view.back.hidden = pending || state.step === 0;
     const nextPage = steps[state.step + 1]?.[0];
-    view.next.textContent = pending ? copy.start : !nextPage ? copy.finish
+    view.next.textContent = pending ? copy.start : !nextPage ? copy.practice
       : nextPage === page ? copy.next : nextPage === account ? copy.account : copy.lobby;
     anchor = step ? [...document.querySelectorAll(step[1])].find(node => node.getClientRects().length > 0) : null;
     if (scrollToTarget && anchor) anchor.scrollIntoView({ block: 'center', behavior: 'instant' });

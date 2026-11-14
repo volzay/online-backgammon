@@ -42,6 +42,7 @@ const STATIC_FILES = [
   "experiments/ultrabot/fast-inference.js",
   "app.js",
   "onboarding.js",
+  "practice-guide.js",
   "runtime-config.js",
   "supabase-client.js",
   "auth-client.js",
