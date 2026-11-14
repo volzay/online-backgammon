@@ -211,6 +211,7 @@ test('a participant accepts the identical terminal room after another tab wins t
     remoteVersion: 1,
     state: { phase: 'over', winner: 'white', finishedAt: 20 },
     gameOverPublishPromise: null,
+    remotePublishQueue: Promise.resolve(),
     remoteStatePayload: () => ({ phase: 'over', winner: 'white', finishedAt: 20 }),
     window: { NarduRooms: {
       finishRoomGame: async () => { throw conflict; },
