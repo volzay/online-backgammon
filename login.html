@@ -154,6 +154,7 @@
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
 <script src="app.js?v=20260916-long-bot-v35-v37"></script>
 <script src="auth-client.js?v=20260914-auth-hang-recovery"></script>
+<script src="onboarding.js"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
   NarduAuth.preservePostAuthLinks();
@@ -231,6 +232,7 @@
           showPasswordRecovery(redirect);
           return;
         }
+        if (redirect.showSiteGuide) window.NarduOnboarding?.enroll(redirect.user.id);
         NarduApp.setUser(redirect.user);
         const destination = postLoginDestination();
         NarduApp.clearReauthContext?.();
