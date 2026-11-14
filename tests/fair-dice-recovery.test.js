@@ -78,7 +78,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
   const math = Object.create(Math);
   math.random = legacy('legacy-random');
   const context = {
-    state, mode, remoteCode: 'ABCD-EFGH', playerColor: 'white', opponentName: 'Bot',
+    state, mode, practiceMode: false, remoteCode: 'ABCD-EFGH', playerColor: 'white', opponentName: 'Bot',
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
     waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,

@@ -202,3 +202,130 @@
 .settings-head .onboarding-launch {
   margin-top: 12px;
 }
+
+.practice-room #practice-guide-slot {
+  position: sticky;
+  top: 8px;
+  z-index: 10;
+  margin-bottom: 14px;
+}
+
+.practice-guide {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.practice-guide-copy {
+  flex: 1 1 250px;
+  min-width: 0;
+}
+
+.practice-guide .onboarding-title {
+  font-size: 17px;
+}
+
+.practice-guide .onboarding-text {
+  margin: 4px 0 0;
+}
+
+.practice-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.practice-guide-actions button,
+.practice-guide-actions a {
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.practice-room .action-controls {
+  flex-wrap: wrap;
+}
+
+.practice-room .action-main {
+  flex-wrap: wrap;
+}
+
+.practice-action {
+  min-height: 44px;
+  height: auto;
+  padding-block: 8px;
+}
+
+.practice-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.practice-room .point.practice-target {
+  outline-offset: -3px;
+}
+
+.practice-target:focus-visible {
+  outline: 3px solid var(--ink);
+}
+
+@media (max-width: 560px) {
+  .practice-guide {
+    align-items: flex-start;
+    gap: 6px 10px;
+    padding: 8px 10px;
+  }
+
+  .practice-guide .onboarding-guide {
+    display: none;
+  }
+
+  .practice-guide .onboarding-text {
+    font-size: 13px;
+  }
+
+  .practice-room .action-main .action-controls {
+    display: flex;
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+@media (max-height: 450px) {
+  .practice-room #practice-guide-slot {
+    position: static;
+  }
+}
+
+@media (max-width: 940px) and (max-height: 560px) and (orientation: landscape) {
+  .practice-room .right-col,
+  .practice-room .room-toolbar [data-practice-room] {
+    display: flex;
+  }
+
+  .practice-room .action-tray {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+}
+
+/* A clipped horizontal axis preserves the document as the sticky scrollport. */
+body.practice-room {
+  overflow-x: clip;
+}
+
+.practice-room .action-controls {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.practice-room .action-controls .practice-action,
+.practice-room .action-controls .action-undo {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}

@@ -128,6 +128,7 @@ function createExitHarness(closeBotRoom) {
     const displayRoomCode = roomCode || roomUrl.searchParams.get('game') || '';
     const isWaitingHost = false;
     const isSpectatorRoom = false;
+    const practiceRoom = false;
     let waitingRoomExitStarted = false;
     let waitingPoll = null;
     let presenceTimer = null;

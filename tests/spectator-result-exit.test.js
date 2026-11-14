@@ -73,6 +73,7 @@ function spectatorExitHarness({ immediate = false, leavePromise = new Promise(()
   const calls = [];
   const context = {
     isSpectatorRoom: true,
+    practiceRoom: false,
     isWaitingHost: false,
     spectatorExitStarted: false,
     spectatorId: 'tester1-tab',
@@ -133,6 +134,7 @@ test('remote player rating waits for terminal room publication', async () => {
   const context = {
     state: { phase: 'over', winner: 'white', finishedAt: 10, resultType: 'normal', score: { white: 0, dark: 15 }, off: {}, history: [] },
     spectatorMode: false,
+    practiceMode: false,
     mode: 'remote',
     playerColor: 'white',
     opponentName: 'warlord',
@@ -176,6 +178,7 @@ test('a pending player result cannot credit a tab that reinitialized as spectato
   const context = {
     state: { phase: 'over', winner: 'white', finishedAt: 10, score: { white: 0, dark: 15 }, off: {}, history: [] },
     spectatorMode: false,
+    practiceMode: false,
     mode: 'remote',
     playerColor: 'white',
     remoteCode: 'Q3PL-JF26',

@@ -54,7 +54,7 @@ function rig(history = [], options = {}) {
   const contextCalls = [];
   const controlCalls = [];
   const context = vm.createContext({ state: { history, roomCode: 'ABCD-EFGH', variant: 'long', startedAt: 1,
-      gameId: 'game-one', fairDiceGameId: 'game-one' }, mode: 'bot', spectatorMode: false, playerColor: 'white',
+      gameId: 'game-one', fairDiceGameId: 'game-one' }, mode: 'bot', practiceMode: false, spectatorMode: false, playerColor: 'white',
     remoteCode: '', uiLanguage: 'ru', names: { white: 'Игрок', dark: 'Бот' },
     document: { getElementById: id => id === 'history-list' ? list : null, querySelector: () => null },
     lang() { return context.uiLanguage; },

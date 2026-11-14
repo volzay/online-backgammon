@@ -10,6 +10,9 @@ window.NarduController = (function () {
   /* ── public state mirror for the existing renderQuad/makePoint code ── */
   let state;
   let mode = 'bot';
+  let practiceMode = false;
+  let practiceConfirmed = false;
+  let practiceRollHash = '';
   let playerColor = 'white';
   let spectatorMode = false;
   let viewColor = 'white';
@@ -174,6 +177,7 @@ window.NarduController = (function () {
       you: 'Вы',
       side_white: 'Белые',
       side_dark: 'Тёмные',
+      unrated: 'Без рейтинга',
       undo_last_title: 'Отменить последний ход',
       no_undo_title: 'Нет хода для отмены',
       resign_title: 'Сдаться и завершить партию',
@@ -186,6 +190,8 @@ window.NarduController = (function () {
       dice_opponent_turn: 'Ход соперника',
       dice_your_first: 'Ваш первый ход',
       dice_auto_roll: 'Кубики бросаются автоматически…',
+      practice_roll: 'Бросьте кубики',
+      practice_confirm: 'Подтвердите ход',
       dice_done: 'Ход завершён',
       dice_no_moves: 'Нет доступных ходов',
       turn_first: 'Первый ход',
@@ -257,6 +263,7 @@ window.NarduController = (function () {
       you: 'You',
       side_white: 'White',
       side_dark: 'Dark',
+      unrated: 'Unrated',
       undo_last_title: 'Undo the last move',
       no_undo_title: 'No move to undo',
       resign_title: 'Resign and finish the game',
@@ -269,6 +276,8 @@ window.NarduController = (function () {
       dice_opponent_turn: 'Opponent turn',
       dice_your_first: 'Your first move',
       dice_auto_roll: 'Dice roll automatically…',
+      practice_roll: 'Roll the dice',
+      practice_confirm: 'Confirm your turn',
       dice_done: 'Move finished',
       dice_no_moves: 'No available moves',
       turn_first: 'First move',
@@ -649,6 +658,7 @@ window.NarduController = (function () {
   }
 
   function writeRoomSnapshot({ session = false, persistent = true } = {}) {
+    if (practiceMode) return false;
     const snapshot = buildRoomSnapshot();
     if (!snapshot) return false;
     let json;
@@ -717,6 +727,7 @@ window.NarduController = (function () {
   }
 
   function clearRoomSnapshots() {
+    if (practiceMode) return;
     try {
       sessionStorage.removeItem(ROOM_RELOAD_SNAPSHOT_KEY);
     } catch {}
@@ -922,22 +933,25 @@ window.NarduController = (function () {
     botAnalysisRestoreAbort = null;
     const url = new URL(location.href);
     const freshGame = opts.freshGame === true;
-    mode = opts.mode || url.searchParams.get('mode') || 'bot';
-    const roomCode = opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
-    spectatorMode = Boolean(opts.spectator || url.searchParams.get('role') === 'spectator' || url.searchParams.get('spectator') === '1');
-    const waitingForOpponent = opts.waiting || url.searchParams.get('waiting') === '1';
+    practiceMode = opts.practice === true;
+    practiceConfirmed = false;
+    practiceRollHash = '';
+    mode = practiceMode ? 'bot' : opts.mode || url.searchParams.get('mode') || 'bot';
+    const roomCode = practiceMode ? '' : opts.roomCode || url.searchParams.get('room') || url.searchParams.get('game') || '';
+    spectatorMode = !practiceMode && Boolean(opts.spectator || url.searchParams.get('role') === 'spectator' || url.searchParams.get('spectator') === '1');
+    const waitingForOpponent = !practiceMode && (opts.waiting || url.searchParams.get('waiting') === '1');
     opponentName = opts.opponent || url.searchParams.get('opp') || (waitingForOpponent ? tr('waiting_opponent') : (mode === 'bot' ? tr('bot_easy') : tr('opponent')));
     opponentRating = Number(opts.opponentRating || url.searchParams.get('oppR') || 900);
-    const storedBotConfig = readBotGameConfig(roomCode);
-    botDifficulty = mode === 'bot' ? resolveBotDifficulty(
+    const storedBotConfig = practiceMode ? null : readBotGameConfig(roomCode);
+    botDifficulty = !practiceMode && mode === 'bot' ? resolveBotDifficulty(
       opts.difficulty,
       url.searchParams.get('difficulty'),
       storedBotConfig?.difficulty,
       opponentName,
       opponentRating,
     ) : 'easy';
-    variant = normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
-    playerColor = opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
+    variant = practiceMode ? 'long' : normalizeVariant(opts.variant || url.searchParams.get('variant') || variant);
+    playerColor = practiceMode ? 'white' : opts.playerColor || url.searchParams.get('color') || (url.searchParams.get('guest') === '1' ? 'dark' : 'white');
     viewColor = spectatorMode
       ? (opts.viewColor || url.searchParams.get('view') || 'white')
       : (mode === 'remote' ? playerColor : 'white');
@@ -946,15 +960,22 @@ window.NarduController = (function () {
     statTimer = null;
 
     if (freshGame) clearRoomSnapshots();
-    const restoredState = waitingForOpponent || freshGame
+    const restoredState = practiceMode || waitingForOpponent || freshGame
       ? null
       : consumeRoomReloadSnapshot({ mode, playerColor, roomCode });
     state = restoredState ? normalizeRestoredState(restoredState, url) : NarduGame.initialState(variant);
-    if (mode === 'bot') {
+    if (practiceMode) {
+      opponentName = tr('bot_easy');
+      opponentRating = 900;
+      state.phase = 'roll';
+      state.turn = playerColor;
+      state.matchScore.target = 1;
+      clearSelection();
+    } else if (mode === 'bot') {
       adoptBotIdentity(state);
       persistBotGameConfig(roomCode, url);
     }
-    if (opts.matchScore && !restoredState) {
+    if (!practiceMode && opts.matchScore && !restoredState) {
       state.matchScore = normalizedMatchScore({ ...opts.matchScore, recordedWinner: null });
     }
     attachRuntimeStateFields(roomCode);
@@ -1034,6 +1055,7 @@ window.NarduController = (function () {
     render();
     preloadWildbgForHardShortBot();
 
+    if (practiceMode) return;
     if (applyLocalBearOffDemo(url)) {
       botAnalysisRestorePending = false;
       render();
@@ -1514,6 +1536,7 @@ window.NarduController = (function () {
     renderResign();
     /* ensure auth/user paint is current */
     window.NarduApp?.paintUser?.();
+    if (practiceMode) renderPracticeControls();
   }
 
   function clearStaleDragClones() {
@@ -2115,6 +2138,7 @@ window.NarduController = (function () {
   }
 
   async function publishRemoteState(options = {}) {
+    if (practiceMode) return false;
     if (mode === 'bot') return publishBotAnalysisState(options);
     if (mode !== 'remote' || !remoteCode || state.phase === 'waiting' || isApplyingRemote) return;
     syncTurnClock();
@@ -2419,7 +2443,7 @@ window.NarduController = (function () {
   }
 
   function receiveRemoteState(nextState, version) {
-    if (!nextState || !Number.isFinite(version) || version <= remoteVersion) return false;
+    if (practiceMode || !nextState || !Number.isFinite(version) || version <= remoteVersion) return false;
     applyRemoteState(nextState, version);
     return true;
   }
@@ -2678,7 +2702,9 @@ window.NarduController = (function () {
     }
 
     if (state.phase === 'roll' || isRolling) {
-      addDiceMessage(row, isMyTurn() ? tr('dice_auto_roll') : tr('dice_opponent_turn'));
+      if (!practiceMode || !isMyTurn() || isRolling) {
+        addDiceMessage(row, isMyTurn() ? tr(practiceMode ? 'turn_your_roll' : 'dice_auto_roll') : tr('dice_opponent_turn'));
+      }
       return;
     }
 
@@ -2693,7 +2719,7 @@ window.NarduController = (function () {
     });
 
     if (state.dice.length === 0) {
-      addDiceMessage(row, tr('dice_done'));
+      addDiceMessage(row, tr(practiceMode ? 'practice_confirm' : 'dice_done'));
     } else if (!NarduGame.hasAnyMoves(state)) {
       addDiceMessage(row, tr('dice_no_moves'));
     }
@@ -2818,7 +2844,10 @@ window.NarduController = (function () {
     }
     if (!isMyTurn()) return { text: tr('turn_other', { name: activeName }), tone: 'waiting' };
     if (state.phase === 'opening-result') return { text: tr('turn_your_first_roll'), tone: 'active' };
-    if (state.phase === 'roll' || isRolling) return { text: tr('turn_your_roll'), tone: 'active' };
+    if (state.phase === 'roll' || isRolling) {
+      return { text: tr(practiceMode && !isRolling ? 'practice_roll' : 'turn_your_roll'), tone: 'active' };
+    }
+    if (practiceMode && canConfirmPracticeTurn()) return { text: tr('practice_confirm'), tone: 'active' };
     if (state.phase === 'move' && !NarduGame.hasAnyMoves(state)) {
       return { text: tr('turn_no_moves'), tone: 'waiting' };
     }
@@ -2845,7 +2874,7 @@ window.NarduController = (function () {
       if (banner) {
         banner.style.visibility = 'visible';
         banner.querySelector('span:last-child').textContent =
-          state.phase === 'opening-result' ? tr('turn_first') : (state.phase === 'roll' ? tr('turn_auto_roll') : tr('turn_your'));
+          state.phase === 'opening-result' ? tr('turn_first') : (state.phase === 'roll' && !practiceMode ? tr('turn_auto_roll') : tr('turn_your'));
       }
     }
   }
@@ -2854,8 +2883,17 @@ window.NarduController = (function () {
     const user = window.NarduApp?.getUser?.();
     const myMeta = document.querySelector('.player.white .meta span:last-child');
     const oppMeta = document.querySelector('.player.dark .meta span:last-child');
-    if (myMeta) myMeta.textContent = `${sideName(playerColor)} · ${window.NarduApp?.formatRating?.(user) || '—'}`;
+    if (myMeta) myMeta.textContent = practiceMode ? sideName(playerColor)
+      : `${sideName(playerColor)} · ${window.NarduApp?.formatRating?.(user) || '—'}`;
     if (oppMeta) oppMeta.textContent = sideName(opponentColor);
+    if (practiceMode) {
+      const tier = document.querySelector('.player.white .meta .tier-pill');
+      if (tier) {
+        tier.classList.remove('bronze');
+        tier.classList.add('muted');
+        tier.textContent = tr('unrated');
+      }
+    }
   }
 
   function startStatTimer() {
@@ -3005,6 +3043,11 @@ window.NarduController = (function () {
       historyRenderCache = signatures ? { list, source: state, contextKey, controls, signatures } : null;
     };
     if (!items.length) {
+      if (practiceMode) {
+        list.replaceChildren();
+        remember();
+        return;
+      }
       list.innerHTML = `
         <div class="hist-item">
           <div class="n">01</div>
@@ -3225,6 +3268,10 @@ window.NarduController = (function () {
   }
 
   function startBotGameInNewRoom() {
+    if (practiceMode) {
+      location.reload();
+      return;
+    }
     const nextCode = createGameRoomCode();
     clearRoomSnapshots();
     persistBotGameConfig(nextCode);
@@ -3414,6 +3461,7 @@ window.NarduController = (function () {
 
   /* ── user actions ─────────────────────────── */
   function scheduleAutoRoll(ms = 200) {
+    if (practiceMode && isMyTurn()) return;
     if (botAnalysisRestorePending || state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isMyTurn()) return;
     autoRollTimer = schedule(() => {
@@ -3591,6 +3639,54 @@ window.NarduController = (function () {
     ensureAutoProgress(mode === 'bot' ? NEXT_ROLL_DELAY_MS : 200);
   }
 
+  function canRollPracticeDice() {
+    return practiceMode && state?.phase === 'roll' && isMyTurn() && !isRolling && !isAnimating && !isChainingMove;
+  }
+
+  function canConfirmPracticeTurn() {
+    return practiceMode && state?.phase === 'move' && !state.winner && isMyTurn()
+      && !isRolling && !isAnimating && !isChainingMove
+      && (state.dice.length === 0 || !NarduGame.hasAnyMoves(state));
+  }
+
+  function getPracticeStatus() {
+    if (!practiceMode || !state) return null;
+    return {
+      phase: state.phase, turn: state.turn, moveCount: state.turnMoves.length,
+      confirmed: practiceConfirmed, rollHash: practiceRollHash,
+      selected: state.selected, hints: state.hints.slice(),
+      canRoll: canRollPracticeDice(), canConfirm: canConfirmPracticeTurn(),
+      canMove: state.phase === 'move' && isMyTurn() && !isAnimating && !isRolling && !isChainingMove,
+    };
+  }
+
+  function renderPracticeControls() {
+    const detail = getPracticeStatus();
+    const roll = document.getElementById('practice-roll');
+    const confirm = document.getElementById('practice-confirm');
+    if (roll) {
+      roll.hidden = false;
+      roll.disabled = !detail.canRoll;
+    }
+    if (confirm) {
+      confirm.hidden = false;
+      confirm.disabled = !detail.canConfirm;
+    }
+    window.dispatchEvent(new CustomEvent('nardu:practicechange', { detail }));
+  }
+
+  function rollPracticeDice() {
+    if (!canRollPracticeDice()) return;
+    void autoRoll();
+    renderPracticeControls();
+  }
+
+  function confirmPracticeTurn() {
+    if (!canConfirmPracticeTurn()) return;
+    practiceConfirmed = true;
+    endTurnUser();
+  }
+
   async function autoRoll() {
     if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
     if (botAnalysisRestorePending || state.phase !== 'roll' || isRolling) return;
@@ -3626,6 +3722,7 @@ window.NarduController = (function () {
         at: new Date().toISOString(),
       });
       state.rollToken = `roll:${fair.hash.slice(0, 16)}:${compactRollText(r)}`;
+      if (practiceMode && rollingTurn === playerColor) practiceRollHash ||= fair.hash;
       if (fair.proof) {
         const saved = await publishRemoteState();
         if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified turn dice.');
@@ -4225,6 +4322,7 @@ window.NarduController = (function () {
   function maybeScheduleAutoEndTurn() {
     if (autoEndTimer) clearTimeout(autoEndTimer);
     autoEndTimer = null;
+    if (practiceMode && isMyTurn()) return;
     if (state.phase !== 'move' || state.winner) return;
     const canFinalizeTurn = isMyTurn() || (mode === 'remote' && !isMyTurn());
     if (!canFinalizeTurn) return;
@@ -5616,6 +5714,12 @@ window.NarduController = (function () {
       return;
     }
     if (!state?.winner) return;
+    if (practiceMode) {
+      recordMatchGame();
+      renderPlayerStats();
+      renderGameOverModal();
+      return;
+    }
     let resultKey = gameResultKey();
     const safeStep = (label, fn, fallback = null) => {
       try {
@@ -6052,6 +6156,8 @@ window.NarduController = (function () {
   document.getElementById('bear-btn')?.addEventListener('click', onBearButtonClick);
   document.getElementById('undo-btn')?.addEventListener('click', undoLastMove);
   document.getElementById('resign-btn')?.addEventListener('click', resignGame);
+  document.getElementById('practice-roll')?.addEventListener('click', rollPracticeDice);
+  document.getElementById('practice-confirm')?.addEventListener('click', confirmPracticeTurn);
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'u' && e.key !== 'U' && e.key !== 'г' && e.key !== 'Г') return;
@@ -6064,6 +6170,7 @@ window.NarduController = (function () {
   return {
     init,
     getState,
+    getPracticeStatus,
     render,
     setRenderer,
     onPointClick,

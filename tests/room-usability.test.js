@@ -100,7 +100,7 @@ function evaluateTurnStatus(state, flags = {}, language = 'ru') {
       spectatorMode = false, mode = 'remote', playerColor = 'white',
       isRolling = false, botAnalysisRestorePending = false, botAnalysisRestoreError = '',
       fairDiceError = '', fairDiceInFlight = false, remoteResignation = null, remoteResignationFailed = false,
-      botPlannerError = '',
+      botPlannerError = '', practiceMode = false,
     } = flags;
     ${sources}
     return { status: currentTurnStatus(), isMyTurn: isMyTurn() };

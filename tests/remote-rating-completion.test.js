@@ -27,6 +27,7 @@ function controllerHarness(options = {}) {
   const context = vm.createContext({
     state: { ...state },
     mode: 'remote',
+    practiceMode: false,
     remoteCode: roomCode,
     remoteVersion: 1,
     playerColor: 'dark',

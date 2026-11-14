@@ -72,7 +72,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
   const math = Object.create(Math);
   math.random = legacy('legacy-random');
   const context = {
-    state, mode, remoteCode: 'TEST-ROOM', playerColor: 'white', opponentName: 'Bot',
+    state, mode, practiceMode: false, remoteCode: 'TEST-ROOM', playerColor: 'white', opponentName: 'Bot',
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
     waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,
@@ -207,7 +207,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
   for (const historyLength of [0, 1200]) {
     const scheduled = [];
     const context = { state: { phase: 'roll', turn: 'dark', history: Array(historyLength).fill({}) },
-      mode: 'bot', botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '', remoteResignation: null,
+      mode: 'bot', practiceMode: false, botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '', remoteResignation: null,
       waitingForLongBotExperience: () => false,
       isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
       isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
@@ -246,7 +246,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
 test('bot player auto-end keeps a brief undo opportunity inside the 1.5 second roll budget', () => {
   const scheduled = [];
   const context = { state: { phase: 'move', dice: [] }, autoEndTimer: null,
-    mode: 'bot', isMyTurn: () => true, clearTimeout() {},
+    mode: 'bot', practiceMode: false, isMyTurn: () => true, clearTimeout() {},
     PLAYER_AUTO_END_UNDO_MS: 550,
     NarduGame: { hasAnyMoves: () => false },
     schedule(callback, ms) { scheduled.push(ms); return scheduled.length; }, endTurnUser() {} };
