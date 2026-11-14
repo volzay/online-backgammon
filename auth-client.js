@@ -318,7 +318,7 @@
       email,
       password,
       options: {
-        data: { nickname, name: nickname },
+        data: { nickname, name: nickname, site_guide_signup: true },
         emailRedirectTo: publicPageUrl(authCallbackDestination()),
       },
     });
@@ -427,6 +427,7 @@
       user: await profileForAuthUser(supabase, data.session.user),
       authRedirect: true,
       passwordRecovery,
+      showSiteGuide: !passwordRecovery && data.session.user.user_metadata?.site_guide_signup === true,
     };
   }
 

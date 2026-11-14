@@ -111,6 +111,7 @@
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
 <script src="app.js?v=20260916-long-bot-v35-v37"></script>
 <script src="auth-client.js?v=20260914-auth-hang-recovery"></script>
+<script src="onboarding.js"></script>
 <script>
   NarduApp.requireGuest();
   document.getElementById('year').textContent = new Date().getFullYear();
@@ -194,6 +195,7 @@
     setRegisterMessage('');
     try {
       const data = await NarduAuth.register({ nickname: nick, email, password: pass });
+      window.NarduOnboarding?.enroll(data.user?.id);
       if (data.pendingConfirmation) {
         setRegisterMessage(NarduApp.t('msg_confirm_email'), 'success');
         return;

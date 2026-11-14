@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="onboarding.css" />
 </head>
 <body>
 
@@ -50,6 +51,7 @@
   <div class="settings-head">
     <h1 class="settings-h1" data-i18n="account_cabinet_title">Личный кабинет</h1>
     <p class="settings-sub" data-i18n="account_cabinet_sub">Профиль, история, сообщения и настройки</p>
+    <button class="ghostbtn onboarding-launch" type="button" data-onboarding-start hidden>Гайд по сайту</button>
   </div>
 
   <!-- LAYOUT -->
@@ -2590,5 +2592,6 @@ function flash(msg) {
 }
 </script>
 
+<script src="onboarding.js"></script>
 </body>
 </html>
