@@ -7011,6 +7011,8 @@ grant execute on function public.checkpoint_long_bot_causal_review_slice(bigint,
 
 notify pgrst, 'reload schema';
 commit;
+
+-- Lobby online player roster and rating visibility.
 begin;
 
 alter table public.profiles
