@@ -2432,9 +2432,34 @@ moveHintsToggle.addEventListener('change', () => {
   localStorage.setItem(SETTINGS_KEYS.moveHints, moveHintsToggle.checked ? '1' : '0');
 });
 
-showRatingToggle.addEventListener('change', () => {
-  localStorage.setItem(SETTINGS_KEYS.showRating, showRatingToggle.checked ? '1' : '0');
-  window.NarduApp?.paintUser?.();
+async function loadLobbyRatingVisibility() {
+  showRatingToggle.disabled = true;
+  try {
+    const visible = await NarduApp.syncLobbyRatingVisibility(NarduApp.shouldShowRatingToOthers(), { initialize: true });
+    localStorage.setItem(SETTINGS_KEYS.showRating, visible ? '1' : '0');
+    showRatingToggle.checked = visible;
+  } catch (error) {
+    // The rest of the settings remain usable if the lobby migration is pending.
+    if (error?.code !== 'PGRST202') console.warn('Could not load lobby rating visibility', error?.message || error);
+  } finally {
+    showRatingToggle.disabled = false;
+  }
+}
+
+showRatingToggle.addEventListener('change', async () => {
+  const previous = NarduApp.shouldShowRatingToOthers();
+  showRatingToggle.disabled = true;
+  try {
+    const visible = await NarduApp.syncLobbyRatingVisibility(showRatingToggle.checked);
+    localStorage.setItem(SETTINGS_KEYS.showRating, visible ? '1' : '0');
+    showRatingToggle.checked = visible;
+    NarduApp.paintUser();
+  } catch (error) {
+    showRatingToggle.checked = previous;
+    flash(tr('lobby_rating_visibility_save_failed', 'Не удалось сохранить видимость рейтинга.'));
+  } finally {
+    showRatingToggle.disabled = false;
+  }
 });
 
 soundSettingsToggle.addEventListener('change', () => {
@@ -2462,6 +2487,7 @@ document.querySelectorAll('[data-sound-toggle]').forEach(button => {
 });
 
 paintGameSettings();
+loadLobbyRatingVisibility();
 
 document.querySelectorAll('[data-accent-set]').forEach(button => {
   button.addEventListener('click', () => {

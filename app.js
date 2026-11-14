@@ -295,6 +295,7 @@
       weekly: 'Раз в неделю',
       show_rating: 'Показывать рейтинг другим',
       show_rating_hint: 'В лобби и в комнате',
+      lobby_rating_visibility_save_failed: 'Не удалось сохранить видимость рейтинга.',
       friends: 'Друзья',
       match_history: 'История партий',
       match_history_hint: 'Партии за последние 96 часов',
@@ -658,6 +659,7 @@
       weekly: 'Once a week',
       show_rating: 'Show rating to others',
       show_rating_hint: 'In the lobby and room',
+      lobby_rating_visibility_save_failed: 'Could not save rating visibility.',
       friends: 'Friends',
       match_history: 'Match history',
       match_history_hint: 'Games from the last 96 hours',
@@ -1127,6 +1129,21 @@
   function publicRating(user = getUser()) {
     return shouldShowRatingToOthers() && isRatedUser(user) ? Number(user.rating ?? DEFAULT_RATING) : null;
   }
+  async function writeLobbyRatingVisibility(client, visible, initialize) {
+    const { data, error } = await client.rpc('set_lobby_rating_visibility', {
+      p_visible: visible,
+      p_initialize: initialize,
+    });
+    if (error) throw error;
+    if (typeof data !== 'boolean') throw new Error('Invalid lobby rating preference');
+    return data;
+  }
+  async function syncLobbyRatingVisibility(visible, { initialize = false } = {}) {
+    const user = getUser();
+    if (!user || user.guest || !window.NarduSupabase?.configured?.()) return visible;
+    const client = await window.NarduSupabase.client();
+    return writeLobbyRatingVisibility(client, visible, initialize);
+  }
   function setUser(u) {
     u = normalizeStoredUser(u);
     if (!u) return null;
@@ -1305,6 +1322,7 @@
   let lastGuestPresenceAt = 0;
   let lastProfilePresenceAt = 0;
   let lastPresenceResumeAt = 0;
+  let initializedLobbyRatingUserId = null;
   let profilePresencePromise = null;
   let profilePresenceStartedAt = 0;
   function presenceHash(value) {
@@ -1422,6 +1440,17 @@
         if (updateError) {
           await touchLocalPresenceAlias(user);
           throw updateError;
+        }
+        if (user.id === data.user.id && getUser()?.id === user.id
+          && initializedLobbyRatingUserId !== user.id && typeof client.rpc === 'function') {
+          try {
+            await writeLobbyRatingVisibility(client, shouldShowRatingToOthers(), true);
+            initializedLobbyRatingUserId = user.id;
+          } catch (error) {
+            if (error?.code !== 'PGRST202') {
+              console.warn('Could not initialize lobby rating visibility', error?.message || error);
+            }
+          }
         }
         return true;
       } catch (error) {
@@ -1599,7 +1628,7 @@
     applyLang, currentLang, dicts,
     getUser, setUser, beginGuestSession, logout, requireAuth, requireGuest,
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
-    shouldShowRatingToOthers, publicRating,
+    shouldShowRatingToOthers, publicRating, syncLobbyRatingVisibility,
     createGuestUser, createGuestCredential, readGuestCredential, guestRequestHeaders, clearGuestCredential,
     compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
     safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,

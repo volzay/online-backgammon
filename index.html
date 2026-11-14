@@ -11,7 +11,19 @@
 <style>
   html.auth-pending body { visibility: hidden; }
   .play-grid.lobby-actions-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .lobby-grid.sessions-only { grid-template-columns: minmax(0, 1fr); }
+  .lobby-grid { grid-template-columns: minmax(0, 1fr) 280px; }
+  .online-players-panel h3 { margin: 0; white-space: normal; }
+  .online-players-labels, .online-player-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+  .online-players-labels[hidden] { display: none; }
+  .online-players-labels { margin-top: 16px; font-size: 12px; }
+  .online-players-list { margin: 8px 0 0; padding: 0 4px 0 0; list-style: none; max-height: 24rem; overflow: auto; scrollbar-gutter: stable; }
+  .online-player-row { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .online-player-name { overflow-wrap: anywhere; }
+  .online-player-rating { text-align: right; font-variant-numeric: tabular-nums; }
+  .online-players-status { margin: 12px 0 0; font-size: 12px; }
+  @media (max-width: 1200px) {
+    .lobby-grid { grid-template-columns: minmax(0, 1fr); }
+  }
   @media (max-width: 1080px) {
     .play-grid.lobby-actions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
@@ -295,7 +307,7 @@
   </section>
 
   <!-- TABLES + SIDEBAR -->
-  <section class="lobby-grid sessions-only">
+  <section class="lobby-grid">
 
     <div class="panel tables-panel">
       <div class="between" style="margin-bottom: 14px;">
@@ -327,6 +339,16 @@
       </div>
     </div>
 
+    <aside class="panel online-players-panel" aria-labelledby="online-players-title">
+      <h3 id="online-players-title" data-i18n="online_players_title">Игроки на сайте</h3>
+      <div class="online-players-labels muted" id="online-players-labels" aria-hidden="true" hidden>
+        <span data-i18n="player">Игрок</span>
+        <span data-i18n="rating">Рейтинг</span>
+      </div>
+      <ul class="online-players-list" id="online-players-list" aria-labelledby="online-players-title" hidden></ul>
+      <p class="online-players-status muted" id="online-players-status" role="status" data-i18n="online_players_loading">Загружаем список игроков…</p>
+    </aside>
+
   </section>
 
 </div>
@@ -355,6 +377,10 @@
     close_room_failed: 'Не удалось закрыть комнату. Обновите список и повторите попытку.',
     sessions_loading: 'Загрузка игровых сессий…',
     sessions_load_failed: 'Не удалось обновить игровые сессии',
+    online_players_title: 'Игроки на сайте',
+    online_players_loading: 'Загружаем список игроков…',
+    online_players_empty: 'Сейчас на сайте никого нет.',
+    online_players_unavailable: 'Список игроков пока недоступен.',
   });
   Object.assign(NarduApp.dicts.en, {
     lobby_sub: 'Choose an open room, a bot, or create your own game.',
@@ -372,6 +398,10 @@
     close_room_failed: 'Could not close the room. Refresh the list and try again.',
     sessions_loading: 'Loading game sessions…',
     sessions_load_failed: 'Could not refresh game sessions',
+    online_players_title: 'Players online',
+    online_players_loading: 'Loading players…',
+    online_players_empty: 'No players are online right now.',
+    online_players_unavailable: 'The player list is currently unavailable.',
   });
 
   function tierFor(r) {
@@ -1564,12 +1594,81 @@
 
   openJoinInviteFromUrl();
 
+  const onlinePlayersList = document.getElementById('online-players-list');
+  const onlinePlayersLabels = document.getElementById('online-players-labels');
+  const onlinePlayersStatus = document.getElementById('online-players-status');
+  let onlinePlayers = [];
+  let onlinePlayersState = 'loading';
+  let onlinePlayersRequest = false;
+  let onlinePlayersRendered = '';
+
+  function renderOnlinePlayers() {
+    const lang = NarduApp.currentLang();
+    const signature = JSON.stringify([lang, onlinePlayersState, onlinePlayers]);
+    if (signature === onlinePlayersRendered) return;
+    onlinePlayersRendered = signature;
+    const hasPlayers = onlinePlayersState === 'ready' && onlinePlayers.length > 0;
+    onlinePlayersLabels.hidden = !hasPlayers;
+    onlinePlayersList.hidden = !hasPlayers;
+    onlinePlayersStatus.hidden = hasPlayers;
+    const statusKey = `online_players_${onlinePlayersState === 'ready' ? 'empty' : onlinePlayersState}`;
+    onlinePlayersStatus.dataset.i18n = statusKey;
+    onlinePlayersStatus.textContent = hasPlayers ? '' : tt(statusKey);
+    const formatter = new Intl.NumberFormat(lang);
+    const rows = onlinePlayers.map(({ nickname, rating, guest }) => {
+      const row = document.createElement('li');
+      row.className = 'online-player-row';
+      const name = document.createElement('span');
+      name.className = 'online-player-name';
+      name.textContent = nickname;
+      const value = document.createElement('span');
+      value.className = 'online-player-rating';
+      if (Number.isInteger(rating) && rating > 0) {
+        value.textContent = formatter.format(rating);
+        value.setAttribute('aria-label', `${tt('rating')} ${value.textContent}`);
+      } else {
+        value.classList.add('muted');
+        value.textContent = guest ? tt('unrated') : '—';
+      }
+      row.append(name, value);
+      return row;
+    });
+    onlinePlayersList.replaceChildren(...rows);
+  }
+
+  async function refreshOnlinePlayers() {
+    if (onlinePlayersRequest || document.hidden || !NarduApp.getUser()) return;
+    onlinePlayersRequest = true;
+    try {
+      if (!window.NarduSupabase?.configured?.()) throw new Error('Presence is unavailable');
+      const client = await window.NarduSupabase.client();
+      const { data, error } = await client.rpc('list_lobby_online_players');
+      if (error || !Array.isArray(data)) throw error || new Error('Invalid presence list');
+      onlinePlayers = data.map(({ nickname, rating, guest }) => ({ nickname, rating, guest }));
+      onlinePlayersState = 'ready';
+    } catch {
+      onlinePlayers = [];
+      onlinePlayersState = 'unavailable';
+    } finally {
+      onlinePlayersRequest = false;
+      renderOnlinePlayers();
+    }
+  }
+
   function renderLocalizedLobby() {
     syncCreatePanel();
     renderTables();
+    // The generic translation pass also touches the status element.
+    onlinePlayersRendered = '';
+    renderOnlinePlayers();
   }
 
   window.addEventListener('nardu:langchange', renderLocalizedLobby);
+  window.addEventListener('pageshow', refreshOnlinePlayers);
+  window.addEventListener('online', refreshOnlinePlayers);
+  document.addEventListener('visibilitychange', refreshOnlinePlayers);
+  setInterval(refreshOnlinePlayers, 30000);
+  refreshOnlinePlayers();
 </script>
 
 </body>

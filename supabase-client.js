@@ -165,7 +165,7 @@
 
   function isAuthCriticalRequest(input) {
     const value = typeof input === "string" ? input : String(input?.url || input || "");
-    return /\/auth\/v1\/|\/rest\/v1\/profiles(?:[/?#]|$)|\/rest\/v1\/rpc\/(?:nickname_auth_email|register_nickname_user)(?:[/?#]|$)/i.test(value);
+    return /\/auth\/v1\/|\/rest\/v1\/profiles(?:[/?#]|$)|\/rest\/v1\/rpc\/(?:nickname_auth_email|register_nickname_user|list_lobby_online_players|set_lobby_rating_visibility)(?:[/?#]|$)/i.test(value);
   }
 
   function currentGuestRequestCredential() {
