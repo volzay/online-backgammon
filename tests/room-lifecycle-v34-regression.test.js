@@ -771,6 +771,7 @@ test('a waiting-host timeout queues an exact retry and still reaches the lobby',
   vm.createContext(context);
   vm.runInContext(`
     const roomCode = 'WAIT-ROOM';
+    const practiceRoom = false;
     const displayRoomCode = roomCode;
     const roomUrl = { searchParams: { get() { return 'remote'; } } };
     const ACTIVE_ROOM_KEY = ${JSON.stringify(activeKey)};
@@ -848,6 +849,7 @@ test('choosing the lobby permanently disarms an in-flight waiting-room join redi
   vm.createContext(context);
   vm.runInContext(`
     const roomCode = 'RACE-ROOM';
+    const practiceRoom = false;
     const displayRoomCode = roomCode;
     const roomUrl = { searchParams: { get() { return 'remote'; } } };
     const ACTIVE_ROOM_KEY = ${JSON.stringify(activeKey)};
