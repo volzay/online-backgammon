@@ -9,7 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="roll-verification.css" />
-<style>html.auth-pending body { visibility: hidden; }</style>
+<style>
+  html.auth-pending body { visibility: hidden; }
+  [data-direct-game-invitation] [data-wait-share] { display: none; }
+</style>
 <script>
   /* A direct room link follows the same explicit sign-in or guest-entry rule as the lobby. */
   (function(){
@@ -148,10 +151,10 @@
     <div class="game-wait-copy">
       <span class="game-wait-kicker" data-i18n="wait_kicker">Игровая комната</span>
       <h2 data-i18n="wait_title">Ожидание соперника</h2>
-      <p data-i18n="wait_text">Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.</p>
+      <p data-wait-text data-i18n="wait_text">Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.</p>
     </div>
     <div class="game-wait-grid">
-      <div class="game-wait-cell">
+      <div class="game-wait-cell" data-wait-share>
         <span data-i18n="room_code">Код</span>
         <strong class="game-wait-code" data-wait-code>—</strong>
       </div>
@@ -159,19 +162,20 @@
         <span data-i18n="access">Доступ</span>
         <strong data-wait-access>—</strong>
       </div>
-      <div class="game-wait-cell" data-wait-password-row hidden>
+      <div class="game-wait-cell" data-wait-share data-wait-password-row hidden>
         <span data-i18n="password">Пароль</span>
         <strong data-wait-password>—</strong>
       </div>
       <div class="game-wait-cell">
         <span data-i18n="status">Статус</span>
-        <strong data-wait-status data-i18n="status_waiting">Ждём подключения</strong>
+        <strong data-wait-status data-i18n="status_waiting" role="status">Ждём подключения</strong>
+        <button class="ghostbtn" type="button" data-direct-invite-return data-i18n="btn_lobby" hidden>Лобби</button>
       </div>
-      <label class="game-wait-invite-link">
+      <label class="game-wait-invite-link" data-wait-share>
         <span data-i18n="invite_link">Ссылка для входа</span>
         <input class="text-input" type="url" readonly data-invite-url aria-label="Ссылка для входа" data-i18n-aria="invite_link" />
       </label>
-      <div class="game-wait-invite">
+      <div class="game-wait-invite" data-wait-share>
         <button class="ghostbtn game-wait-invite-btn" type="button" data-copy-invite data-i18n="copy_invite">Копировать приглашение</button>
         <span class="game-wait-invite-feedback" data-invite-feedback role="status" aria-live="polite"></span>
       </div>
@@ -469,6 +473,7 @@
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
 <script src="app.js?v=20260920-neuro-teacher-gate-v1"></script>
 <script src="rooms-client.js?v=20260921-long-bot-worker-v1"></script>
+<script src="game-invitations.js"></script>
 <script src="dice-engine.js"></script>
 <script src="dice-webgl.js"></script>
 <script src="board-engine.js"></script>
@@ -1288,6 +1293,7 @@ const localGameCode = roomCode ? '' : ensureLocalGameCode();
 const displayRoomCode = roomCode || localGameCode;
 const isSpectatorRoom = roomUrl.searchParams.get('role') === 'spectator' || roomUrl.searchParams.get('spectator') === '1';
 const isWaitingHost = roomUrl.searchParams.get('waiting') === '1' && roomUrl.searchParams.get('host') === '1' && roomCode;
+const isDirectInvitationHost = isWaitingHost && roomUrl.searchParams.get('invitation') === '1';
 const localPlayerColor = isSpectatorRoom
   ? (roomUrl.searchParams.get('view') || 'white')
   : (roomUrl.searchParams.get('color') || (roomUrl.searchParams.get('guest') === '1' ? 'dark' : 'white'));
@@ -1300,6 +1306,8 @@ if (!spectatorId) {
 let waitingPoll = null;
 let waitingPollBusy = false;
 let waitingRoomExitStarted = false;
+let directInvitationStatus = 'pending';
+let directInvitationCleanup = null;
 let presenceTimer = null;
 let spectatorTimer = null;
 let spectatorBusy = false;
@@ -1780,7 +1788,7 @@ async function leaveToLobby({ immediate = false } = {}) {
   }
   if (isWaitingHost) {
     try {
-      await removeCurrentWaitingRoom();
+      if (!(await directInvitationCleanup)) await removeCurrentWaitingRoom();
     } catch (error) {
       if (NarduApp.redirectForAuthError?.(error)) return;
       console.warn('Waiting room cleanup will retry in the lobby', error?.message || error);
@@ -1813,9 +1821,14 @@ function paintRoomCode() {
 }
 async function paintWaitingRoom() {
   const panel = document.getElementById('game-wait-panel');
+  if (!panel || !isWaitingHost) return;
+  if (isDirectInvitationHost) {
+    paintDirectInvitation(panel);
+    return;
+  }
   const room = await activeRoom();
   const storedRoom = storedActiveRoom();
-  if (!panel || !isWaitingHost || !room) return;
+  if (!room) return;
   panel.hidden = false;
   panel.querySelector('[data-wait-code]').textContent = room.code;
   panel.querySelector('[data-wait-access]').textContent = room.access === 'closed' ? t('access_closed') : t('access_open');
@@ -1833,6 +1846,38 @@ async function paintWaitingRoom() {
   const inviteField = panel.querySelector('[data-invite-url]');
   if (inviteField) inviteField.value = invitationUrl(room.code);
 }
+
+function paintDirectInvitation(panel) {
+  panel.setAttribute('data-direct-game-invitation', '');
+  panel.hidden = false;
+  const setCopy = (element, key) => {
+    element.dataset.i18n = key;
+    element.textContent = t(key);
+  };
+  const pending = directInvitationStatus === 'pending';
+  setCopy(panel.querySelector('[data-wait-text]'), pending ? 'direct_invite_wait_text' : 'direct_invite_return_text');
+  setCopy(panel.querySelector('[data-wait-status]'), `direct_invite_${directInvitationStatus}`);
+  panel.querySelector('[data-wait-access]').textContent = t('access_closed');
+  panel.querySelector('[data-direct-invite-return]').hidden = pending;
+}
+
+window.addEventListener('nardu:game-invitations', event => {
+  if (!isDirectInvitationHost || waitingRoomExitStarted) return;
+  const invitation = event.detail?.outgoing?.find(item => item.room_code === roomCode);
+  if (!['pending', 'declined', 'expired', 'cancelled'].includes(invitation?.status)) return;
+  directInvitationStatus = invitation.status;
+  if (directInvitationStatus !== 'pending' && waitingPoll) {
+    clearInterval(waitingPoll);
+    waitingPoll = null;
+  }
+  paintWaitingRoom();
+  if (!directInvitationCleanup && ['declined', 'expired'].includes(directInvitationStatus)) {
+    directInvitationCleanup = removeCurrentWaitingRoom().catch(error => {
+      console.warn('Invitation room cleanup will retry in the lobby', error?.message || error);
+      return false;
+    });
+  }
+});
 
 function invitationUrl(rawCode) {
   const code = normalizeLocalGameCode(rawCode);
@@ -1907,7 +1952,16 @@ function watchWaitingRoom() {
     const room = await activeRoom();
     waitingPollBusy = false;
     if (waitingRoomExitStarted) return;
-    if (!room) {
+    if (!room || room.status === 'closed') {
+      if (isDirectInvitationHost) {
+        if (room?.status === 'closed' && directInvitationStatus === 'pending') {
+          directInvitationStatus = 'closed';
+          clearInterval(waitingPoll);
+          waitingPoll = null;
+          paintWaitingRoom();
+        }
+        return;
+      }
       clearInterval(waitingPoll);
       waitingPoll = null;
       location.href = 'index.html';
@@ -1935,6 +1989,9 @@ function watchWaitingRoom() {
 document.querySelector('[data-room-lobby]')?.addEventListener('click', () => {
   leaveToLobby();
 });
+document.querySelector('[data-direct-invite-return]')?.addEventListener('click', () => {
+  leaveToLobby();
+});
 document.querySelectorAll('[data-room-reload]').forEach(btn => {
   btn.addEventListener('click', reloadRoom);
 });
@@ -1955,7 +2012,6 @@ NarduController.init({
   viewColor: localPlayerColor,
   spectator: isSpectatorRoom,
 });
-paintWaitingRoom();
 watchWaitingRoom();
 startPresenceProtocol();
 startSpectatorProtocol();
@@ -1990,6 +2046,13 @@ const I18N = {
     wait_kicker: "Игровая комната",
     wait_title: "Ожидание соперника",
     wait_text: "Передайте сопернику код комнаты и пароль, если игра закрытая. Партия начнётся после подключения второго игрока.",
+    direct_invite_wait_text: "Приглашение отправлено. Партия начнётся после согласия соперника.",
+    direct_invite_return_text: "Вернитесь в лобби, чтобы выбрать другого соперника.",
+    direct_invite_pending: "Ожидаем ответа",
+    direct_invite_declined: "Соперник отклонил приглашение",
+    direct_invite_expired: "Срок приглашения истёк",
+    direct_invite_cancelled: "Приглашение отменено",
+    direct_invite_closed: "Комната закрыта",
     copy_invite: "Копировать приглашение",
     invite_link: "Ссылка для входа",
     invite_copied: "Приглашение скопировано",
@@ -2104,6 +2167,13 @@ const I18N = {
     wait_kicker: "Game room",
     wait_title: "Waiting for opponent",
     wait_text: "Send your opponent the room code and password if the game is closed. The match starts after the second player connects.",
+    direct_invite_wait_text: "Invitation sent. The game will start when your opponent accepts it.",
+    direct_invite_return_text: "Return to the lobby to choose another opponent.",
+    direct_invite_pending: "Waiting for a response",
+    direct_invite_declined: "Your opponent declined the invitation",
+    direct_invite_expired: "The invitation expired",
+    direct_invite_cancelled: "The invitation was cancelled",
+    direct_invite_closed: "The room is closed",
     copy_invite: "Copy invitation",
     invite_link: "Invitation link",
     invite_copied: "Invitation copied",
@@ -2304,7 +2374,10 @@ document.querySelectorAll('.lang-switch button').forEach(btn => {
   btn.addEventListener('click', () => applyLang(btn.dataset.langSet));
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'l' || e.key === 'L') applyLang(LANG === 'ru' ? 'en' : 'ru');
+  if (e.key === 'l' || e.key === 'L') NarduApp.applyLang(LANG === 'ru' ? 'en' : 'ru');
+});
+window.addEventListener('nardu:langchange', ({ detail }) => {
+  if (detail?.lang !== LANG) applyLang(detail.lang);
 });
 </script>
 
