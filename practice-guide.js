@@ -4,7 +4,7 @@
   const slot = document.getElementById('practice-guide-slot');
   if (!slot || !document.body.classList.contains('practice-room')) return;
   const player = window.NarduApp?.getUser();
-  const key = player?.id && `narduh-onboarding-v1:${player.id}`;
+  const key = window.NarduOnboarding?.keyFor(player);
   const lobby = 'index.html';
   let undoShown = false;
   let undone = false;

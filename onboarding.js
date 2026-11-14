@@ -4,7 +4,7 @@
   const storagePrefix = 'narduh-onboarding-v1:';
   const lobby = 'index.html';
   const account = 'settings.html';
-  const steps = [
+  const lobbySteps = [
     [lobby, '#game-sessions-title',
       ['Открытые партии', 'В «Игровых сессиях» можно найти открытый стол и присоединиться к партии. Фильтры помогают выбрать длинные или короткие нарды.'],
       ['Open games', 'Find a table in Game Sessions and join it. Use the filters to find long or short backgammon.']],
@@ -20,6 +20,8 @@
     [lobby, '#online-players-title',
       ['Игроки на сайте', 'Здесь видны игроки онлайн и открытые рейтинги. Нажмите «Пригласить» рядом с доступным игроком и выберите длинные или короткие нарды.'],
       ['Players online', 'See who is online and view public ratings. Select Invite next to an available player and choose long or short backgammon.']],
+  ];
+  const accountSteps = [
     [lobby, '.topnav a[href="settings.html#account"], .user-chip[data-go="settings.html"]',
       ['Личный кабинет', 'Откройте кабинет по ссылке в меню или через свой профиль. Гайд продолжится туда со следующего шага.'],
       ['Your account', 'Open your account from the navigation or your profile button. The next step takes you there.']],
@@ -41,21 +43,24 @@
     [account, '#privacy .s-row',
       ['Видимость рейтинга', 'В разделе «Приватность» можно выбрать, увидят ли другие игроки ваш рейтинг.'],
       ['Rating visibility', 'Use Privacy to choose whether other players can see your rating.']],
-    [lobby, '#start-onboarding',
+  ];
+  const practiceStep = [lobby, '#start-onboarding',
       ['Пробная партия с ботом', 'Кубики выпадут автоматически. Передвиньте шашку и подтвердите ход. Пробная партия без рейтинга.'],
-      ['Practice with a bot', 'The dice roll automatically. Move a checker and confirm your turn. The practice game is unrated.']],
+      ['Practice with a bot', 'The dice roll automatically. Move a checker and confirm your turn. The practice game is unrated.'],
   ];
   const labels = {
-    ru: { title: 'Знакомство с сайтом', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
+    ru: { title: 'Знакомство с сайтом', guestIntro: 'Гайд покажет, как найти соперника, начать игру без регистрации и сыграть пробную партию с ботом.', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
       start: 'Начать', launch: 'Гайд по сайту', skip: 'Пропустить', back: 'Назад', next: 'Далее',
       account: 'В кабинет', lobby: 'В лобби', practice: 'В пробную партию', step: 'Шаг' },
-    en: { title: 'Welcome to the site', intro: 'This guide shows how to start a game, invite a player and use your account.',
+    en: { title: 'Welcome to the site', guestIntro: 'See how to find an opponent, start a game as a guest and play a practice game with a bot.', intro: 'This guide shows how to start a game, invite a player and use your account.',
       start: 'Start', launch: 'Site guide', skip: 'Skip', back: 'Back', next: 'Next',
       account: 'Open account', lobby: 'Back to lobby', practice: 'Play a practice game', step: 'Step' },
   };
   const language = () => document.documentElement.lang === 'en' ? 'en' : 'ru';
   const page = location.pathname.endsWith('/settings.html') ? account : lobby;
-  let userId;
+  let progressKey;
+  let guest;
+  let steps;
   let state;
   let dialog;
   let view;
@@ -64,24 +69,30 @@
   let observer;
   let previousFocus;
 
-  function read(id) {
-    try { return JSON.parse(localStorage.getItem(storagePrefix + id)); }
+  function keyFor(user) {
+    return user?.id ? storagePrefix + (user.guest === true ? 'guest' : user.id) : null;
+  }
+
+  function read(key) {
+    try { return JSON.parse(localStorage.getItem(key)); }
     catch { return null; }
   }
 
-  function write(id, value) {
-    try { localStorage.setItem(storagePrefix + id, JSON.stringify(value)); }
+  function write(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); }
     catch { /* Continue the tour in this document if storage is unavailable. */ }
   }
 
   function enroll(id) {
-    if (typeof id === 'string' && id && !read(id)) write(id, { status: 'pending', step: 0 });
+    if (typeof id !== 'string' || !id) return;
+    const key = keyFor({ id });
+    if (!read(key)) write(key, { status: 'pending', step: 0 });
   }
-  window.NarduOnboarding = { enroll };
+  window.NarduOnboarding = { enroll, keyFor };
 
   function setState(status, step = state?.step || 0) {
     state = { status, step };
-    write(userId, state);
+    write(progressKey, state);
   }
 
   function createDialog() {
@@ -176,7 +187,7 @@
     const copy = labels[lang];
     const pending = state.status === 'pending';
     const step = pending ? null : steps[state.step];
-    const [title, text] = step ? step[lang === 'ru' ? 2 : 3] : [copy.title, copy.intro];
+    const [title, text] = step ? step[lang === 'ru' ? 2 : 3] : [copy.title, guest ? copy.guestIntro : copy.intro];
     view.title.textContent = title;
     view.text.textContent = text;
     view.progress.hidden = pending;
@@ -260,9 +271,11 @@
   function initialize() {
     const buttons = [...document.querySelectorAll('[data-onboarding-start]')];
     const user = window.NarduApp?.getUser();
-    if (!buttons.length || !user?.id || user.guest || window.NARDU_ENTRY_BLOCKED
+    if (!buttons.length || !user?.id || (user.guest && page !== lobby) || window.NARDU_ENTRY_BLOCKED
       || typeof document.createElement('dialog').showModal !== 'function') return;
-    userId = user.id;
+    guest = user.guest === true;
+    steps = [...lobbySteps, ...(guest ? [] : accountSteps), practiceStep];
+    progressKey = keyFor(user);
     const localize = () => {
       for (const button of buttons) button.textContent = labels[language()].launch;
       if (dialog?.open) render();
@@ -274,8 +287,9 @@
     window.addEventListener('nardu:langchange', localize);
     localize();
     const resume = () => {
-      state = read(userId);
+      state = read(progressKey);
       if (page === lobby && new URLSearchParams(location.search).has('join')) return;
+      if (guest && !state) setState('pending', 0);
       if ((state?.status === 'pending' && page === lobby)
         || (state?.status === 'active' && steps[state.step]?.[0] === page)) render(true);
     };
