@@ -71,6 +71,7 @@ window.NarduController = (function () {
   let lastRatingResult = null;
   let ratingRetryKey = null;
   let ratingRetryCount = 0;
+  let ratingRetryScheduled = false;
   let ratingPendingKey = null;
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
@@ -995,6 +996,7 @@ window.NarduController = (function () {
     lastRatingResult = null;
     ratingRetryKey = null;
     ratingRetryCount = 0;
+    ratingRetryScheduled = false;
     ratingPendingKey = null;
     gameOverSoundKey = null;
     botLearningRecordedKey = null;
@@ -2052,43 +2054,56 @@ window.NarduController = (function () {
     if (mode !== 'remote' || !remoteCode || !state?.winner || state.phase !== 'over') return Promise.resolve(false);
     if (state.gameOverPublishedAt) return Promise.resolve(true);
     if (gameOverPublishPromise) return gameOverPublishPromise;
+    const code = remoteCode;
     const payload = remoteStatePayload();
-    gameOverPublishPromise = (async () => {
-      let lastError = null;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const currentGame = () => mode === 'remote' && remoteCode === code && state?.phase === 'over'
+      && state.startedAt === payload.startedAt && state.winner === payload.winner
+      && (state.resultType || 'normal') === (payload.resultType || 'normal');
+    const publish = (async () => {
+      await remotePublishQueue.catch(() => {});
+      let lastError;
+      for (let attempt = 1; attempt <= 3 && currentGame(); attempt += 1) {
+        if (state.gameOverPublishedAt) return true;
         try {
-          const saved = await window.NarduRooms.finishRoomGame(remoteCode, payload, remoteVersion);
-          if (Number.isFinite(saved?.version)) remoteVersion = saved.version;
+          const saved = await window.NarduRooms.finishRoomGame(code, payload, remoteVersion);
+          if (!currentGame()) return false;
+          if (Number.isFinite(saved?.version)) remoteVersion = Math.max(remoteVersion, saved.version);
           state.gameOverPublishedAt = new Date().toISOString();
           return true;
         } catch (error) {
           lastError = error;
-          if (error?.status === 409 && window.NarduRooms?.getGameState) {
-            try {
-              const current = await window.NarduRooms.getGameState(remoteCode);
-              if (Number.isFinite(current?.version)) remoteVersion = current.version;
-              const savedState = current?.state;
-              if (
-                savedState?.phase === 'over' &&
-                savedState.winner === payload.winner &&
-                String(savedState.finishedAt || '') === String(payload.finishedAt || '')
-              ) {
-                state.gameOverPublishedAt = new Date().toISOString();
-                return true;
-              }
-            } catch (readError) {
-              lastError = readError;
-            }
+          try {
+            const current = await window.NarduRooms.getGameState(code);
+            if (!currentGame()) return false;
+            if (Number.isFinite(current?.version)) remoteVersion = Math.max(remoteVersion, current.version);
+            if (rememberRemoteFinishedResult(current?.state, payload)) return true;
+          } catch (readError) {
+            lastError = readError;
           }
-          await wait(250 * attempt);
+          if (attempt < 3) await wait(250 * attempt);
         }
       }
-      console.warn('Could not persist finished remote game', lastError?.message || lastError);
+      if (lastError && currentGame()) console.warn('Could not persist finished remote game', lastError?.message || lastError);
       return false;
-    })().finally(() => {
-      if (!state?.gameOverPublishedAt) gameOverPublishPromise = null;
+    })();
+    const pendingPublish = publish.finally(() => {
+      if (gameOverPublishPromise === pendingPublish) gameOverPublishPromise = null;
     });
-    return gameOverPublishPromise;
+    gameOverPublishPromise = pendingPublish;
+    return pendingPublish;
+  }
+
+  function rememberRemoteFinishedResult(savedState, expected = state) {
+    if (savedState?.phase !== 'over' || !Number.isSafeInteger(savedState.finishedAt) || savedState.finishedAt <= 0
+      || !['white', 'dark'].includes(savedState.winner) || savedState.winner !== expected.winner
+      || (savedState.resultType || 'normal') !== (expected.resultType || 'normal')
+      || (savedState.roomCode && savedState.roomCode !== remoteCode)) return false;
+    // Only an identical game epoch can replace a competing browser timestamp.
+    if (expected.startedAt && savedState.startedAt !== expected.startedAt) return false;
+    if (!expected.startedAt && savedState.finishedAt !== expected.finishedAt) return false;
+    state.finishedAt = savedState.finishedAt;
+    state.gameOverPublishedAt = new Date().toISOString();
+    return true;
   }
 
   async function publishRemoteState(options = {}) {
@@ -2107,7 +2122,7 @@ window.NarduController = (function () {
     // Human-vs-human needs each checker for the other browser. A bot room is
     // checkpointed once at the turn boundary immediately before reserving its
     // next protected roll, so intermediate uploads only create stale work.
-    if (mode === 'remote') publishRemoteState();
+    if (mode === 'remote' && !state?.winner && state?.phase !== 'over') publishRemoteState();
   }
 
   async function publishRemoteStateNow(payload) {
@@ -2327,7 +2342,6 @@ window.NarduController = (function () {
     const incomingMoveSounds = collectIncomingRemoteMoveSounds(nextState);
     const incomingMoveAnimations = incomingMoveSounds.filter(canAnimateIncomingRemoteMove);
     const previousStartedAt = state?.startedAt;
-    const previousFinishedAt = state?.finishedAt;
     const previousTurnClock = state?.turnClock;
     const previousMatchScore = state?.matchScore;
     if (autoRollTimer) clearTimeout(autoRollTimer);
@@ -2344,7 +2358,11 @@ window.NarduController = (function () {
       viewColor,
       roomCode: remoteCode,
       startedAt: nextState.startedAt || previousStartedAt || Date.now(),
-      finishedAt: nextState.finishedAt || previousFinishedAt || null,
+      finishedAt: nextState.finishedAt ?? null,
+      // A terminal state read from the server needs no duplicate publication.
+      gameOverPublishedAt: nextState.phase === 'over' && nextState.winner
+        && Number.isSafeInteger(nextState.finishedAt) && nextState.finishedAt > 0
+        && (!nextState.roomCode || nextState.roomCode === remoteCode) ? new Date().toISOString() : undefined,
       turnClock: normalizedTurnClock(nextState.turnClock || previousTurnClock),
       matchScore: normalizedMatchScore(nextState.matchScore || previousMatchScore),
     };
@@ -5478,7 +5496,10 @@ window.NarduController = (function () {
   function recordMatchGame() {
     if (!state?.winner) return;
     syncTurnClock();
-    state.finishedAt ||= Date.now();
+    if (!state.finishedAt) {
+      const eventTime = mode === 'remote' ? Date.parse(state.history?.[0]?.at) : NaN;
+      state.finishedAt = Number.isSafeInteger(eventTime) && eventTime > 0 ? eventTime : Date.now();
+    }
     const matchScore = normalizedMatchScore(state.matchScore);
     if (matchScore.recordedWinner !== state.winner) {
       matchScore[state.winner] = (matchScore[state.winner] || 0) + 1;
@@ -5548,9 +5569,30 @@ window.NarduController = (function () {
         ratingRetryKey = null;
         ratingRetryCount = 0;
       }
+      const resultRoom = remoteCode;
+      const resultStartedAt = state.startedAt;
+      const sameResult = () => !spectatorMode && resultRoom === remoteCode
+        && resultStartedAt === state?.startedAt && state?.winner && resultKey === gameResultKey();
+      const retryRating = () => {
+        const user = NarduApp.getUser();
+        if (!sameResult() || !user || user.guest || user.ratingEligible === false) return;
+        if (ratingRetryKey !== resultKey) {
+          ratingRetryKey = resultKey;
+          ratingRetryCount = 0;
+        }
+        if (!ratingRetryScheduled && ratingRetryCount < 3) {
+          ratingRetryScheduled = true;
+          ratingRetryCount += 1;
+          schedule(() => {
+            if (resultRoom !== remoteCode || resultStartedAt !== state?.startedAt) return;
+            ratingRetryScheduled = false;
+            if (sameResult() && localRatingRecordedKey !== resultKey) onGameOver();
+          }, 500 * ratingRetryCount);
+        }
+      };
       const recordRating = () => {
-        if (spectatorMode || ratingPendingKey === resultKey ||
-            localRatingRecordedKey === resultKey || resultKey !== gameResultKey()) return;
+        if (!sameResult() || ratingPendingKey === resultKey || localRatingRecordedKey === resultKey
+          || (mode === 'remote' && ratingRetryKey === resultKey && ratingRetryScheduled)) return;
         const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
           resultType: state.resultType || '',
           winner: state.winner,
@@ -5574,11 +5616,18 @@ window.NarduController = (function () {
           ratingRetryKey = null;
           ratingRetryCount = 0;
         }
+        const ratingSyncFailed = () => {
+          if (ratingPendingKey === resultKey) ratingPendingKey = null;
+          if (mode === 'remote') retryRating();
+          return null;
+        };
         if (r?.syncPromise) {
-          const ratingSyncPromise = Promise.resolve(r.syncPromise)
+          // The modal stays usable while the server confirms the rating.
+          Promise.resolve(r.syncPromise)
             .then(authoritative => {
+              if (!authoritative) return ratingSyncFailed();
               if (ratingPendingKey === resultKey) ratingPendingKey = null;
-              if (!authoritative || resultKey !== gameResultKey()) return authoritative;
+              if (!sameResult()) return authoritative;
               lastRatingResult = {
                 delta: Number(authoritative.delta ?? r.delta ?? 0),
                 rating: authoritative.rating ?? r.rating ?? null,
@@ -5589,32 +5638,24 @@ window.NarduController = (function () {
               ratingRetryCount = 0;
               renderGameOverModal();
               return authoritative;
-            }, () => {
-              if (ratingPendingKey === resultKey) ratingPendingKey = null;
-              return null;
-            });
-          // Rating is recoverable and must never keep the player trapped in the
-          // finished-game modal after the room state itself has been saved.
-          ratingSyncPromise.catch(() => null);
-        } else if (!r && !NarduApp.getUser()?.guest) {
-          if (ratingRetryKey !== resultKey) {
-            ratingRetryKey = resultKey;
-            ratingRetryCount = 0;
-          }
-          if (ratingRetryCount < 3) {
-            ratingRetryCount += 1;
-            schedule(() => {
-              if (state?.winner && localRatingRecordedKey !== resultKey) onGameOver();
-            }, 500 * ratingRetryCount);
-          }
-        }
+            }, ratingSyncFailed)
+            .catch(() => {});
+        } else if (!r) retryRating();
       };
       if (mode === 'remote') {
-        // The server accepts rating only for an authoritative finished room.
-        // Do not race the terminal-state write with the rating request.
+        // Use the server's exact finish timestamp when another client saved the result.
         Promise.resolve(remoteFinalPublishPromise).then(persisted => {
-          if (persisted && !spectatorMode && resultKey === gameResultKey()) recordRating();
-        }, () => {});
+          if (spectatorMode || resultRoom !== remoteCode || resultStartedAt !== state?.startedAt
+            || state?.phase !== 'over' || (state.winner === playerColor) !== didWin) return;
+          if (!persisted) {
+            retryRating();
+            return;
+          }
+          const authoritativeKey = gameResultKey();
+          if (gameOverSoundKey === resultKey) gameOverSoundKey = authoritativeKey;
+          resultKey = authoritativeKey;
+          recordRating();
+        }, retryRating);
       } else if (mode === 'bot' && !unratedNeuralPlayerTest && botRatingPersistenceKey !== resultKey) {
         // record_rating_result can also finalize a bot room. Do not invoke it
         // until this exact room code has been restored or created safely.
