@@ -24,8 +24,6 @@
   .online-players-status { margin: 12px 0 0; font-size: 12px; }
   .game-invitations[hidden] { display: none; }
   .game-invitations { margin-bottom: 14px; }
-  .game-invitation-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
-  .game-invitation-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .game-invitation-dialog { width: min(420px, calc(100vw - 28px)); color: var(--ink); }
   .game-invitation-dialog::backdrop { background: rgb(0 0 0 / .55); }
   .game-invitation-dialog fieldset { margin: 12px 0 18px; padding: 0; border: 0; }
@@ -390,6 +388,7 @@
 <script src="supabase-client.js?v=20260916-long-bot-v35-v37"></script>
 <script src="app.js?v=20260920-neuro-teacher-gate-v1"></script>
 <script src="rooms-client.js?v=20260921-long-bot-worker-v1"></script>
+<script src="sound.js"></script>
 <script src="game-invitations.js"></script>
 <script>
   NarduApp.requireAuth();
@@ -417,13 +416,7 @@
     online_players_unavailable: 'Список игроков пока недоступен.',
     game_invitation_inbox: 'Приглашения на партию',
     game_invitation_invite: 'Пригласить на партию',
-    game_invitation_accept: 'Принять',
-    game_invitation_decline: 'Отклонить',
     game_invitation_send_failed: 'Не удалось отправить приглашение.',
-    game_invitation_answer_failed: 'Не удалось ответить на приглашение.',
-    game_invitation_room_failed: 'Комната готова. Откройте её в списке игровых сессий.',
-    game_invitation_unavailable: 'Приглашение уже недоступно или игрок вышел с сайта.',
-    game_invitation_player_busy: 'Один из игроков уже находится в комнате.',
   });
   Object.assign(NarduApp.dicts.en, {
     lobby_sub: 'Choose an open room, a bot, or create your own game.',
@@ -447,13 +440,7 @@
     online_players_unavailable: 'The player list is currently unavailable.',
     game_invitation_inbox: 'Game invitations',
     game_invitation_invite: 'Invite to a game',
-    game_invitation_accept: 'Accept',
-    game_invitation_decline: 'Decline',
     game_invitation_send_failed: 'Could not send the invitation.',
-    game_invitation_answer_failed: 'Could not answer the invitation.',
-    game_invitation_room_failed: 'The room is ready. Open it from the game sessions list.',
-    game_invitation_unavailable: 'The invitation is unavailable or the player has left the site.',
-    game_invitation_player_busy: 'One of the players is already in a room.',
   });
 
   function tierFor(r) {
@@ -1125,6 +1112,7 @@
     if (!row) return;
     if (e.target.closest('[data-room-password-input]')) return;
     if (createRequestPending || joinRequestPending) return;
+    if (globalThis.NarduGameInvitations?.isAnswering?.()) return;
 
     if (closeBtn) {
       e.preventDefault();
@@ -1226,6 +1214,7 @@
   };
   const botRatings = { easy: 900, medium: 1200, hard: 1500, 'hard-neuro': 1500 };
   let createRequestPending = false;
+  let invitationBusy = false;
 
   function beginLobbyAction() {
     lobbyActionGeneration += 1;
@@ -1355,6 +1344,7 @@
     }
 
     if (createRequestPending || joinRequestPending) return;
+    if (globalThis.NarduGameInvitations?.isAnswering?.()) return;
     createRequestPending = true;
     const actionGeneration = beginLobbyAction();
     createSubmit.disabled = true;
@@ -1550,6 +1540,7 @@
     const normalizedCode = code.trim().toUpperCase();
     if (!normalizedCode) return { ok: false, message: tt('err_enter_room_code') };
     if (joinRequestPending || createRequestPending) return { ok: false, message: tt('err_session') };
+    if (globalThis.NarduGameInvitations?.isAnswering?.()) return { ok: false, message: tt('err_session') };
 
     joinRequestPending = true;
     let room;
@@ -1621,6 +1612,7 @@
   document.querySelectorAll('[data-action]').forEach(b => {
     b.addEventListener('click', async () => {
       if (createRequestPending || joinRequestPending) return;
+      if (globalThis.NarduGameInvitations?.isAnswering?.()) return;
       const actionGeneration = beginLobbyAction();
       const a = b.dataset.action;
       if (a === 'browse') {
@@ -1735,7 +1727,6 @@
     // The generic translation pass also touches the status element.
     onlinePlayersRendered = '';
     renderOnlinePlayers();
-    renderGameInvitations();
   }
 
   window.addEventListener('nardu:langchange', renderLocalizedLobby);
@@ -1749,15 +1740,8 @@
   const invitationForm = document.getElementById('game-invitation-form');
   const invitationTargetName = document.getElementById('game-invitation-target');
   const invitationError = document.getElementById('game-invitation-error');
-  const invitationInbox = document.getElementById('game-invitations');
-  const invitationList = document.getElementById('game-invitations-list');
-  const invitationStatus = document.getElementById('game-invitations-status');
   let invitationTarget;
-  let invitationBusy = false;
-  let incomingInvitations = [];
   let pendingInvitationRoomCodes = new Set();
-  let invitationStatusKey = '';
-  let invitationsRendered = '';
   const invitationRoomsClosing = new Set();
 
   function gameInvitationMessage(error, fallback) {
@@ -1773,36 +1757,6 @@
     invitationError.hidden = true;
     invitationForm.reset();
     invitationDialog.showModal();
-  }
-
-  function renderGameInvitations() {
-    if (!invitationInbox) return;
-    const key = JSON.stringify([NarduApp.currentLang(), incomingInvitations, invitationStatusKey, invitationBusy]);
-    if (key === invitationsRendered) return;
-    invitationsRendered = key;
-    invitationInbox.hidden = !incomingInvitations.length && !invitationStatusKey;
-    invitationStatus.hidden = !invitationStatusKey;
-    invitationStatus.textContent = invitationStatusKey ? tt(invitationStatusKey) : '';
-    const rows = incomingInvitations.map(({ id, nickname, variant }) => {
-      const row = document.createElement('div');
-      row.className = 'game-invitation-row';
-      const label = document.createElement('span');
-      label.textContent = `${nickname} · ${labelFor(variantLabelKeys, variant)}`;
-      const actions = document.createElement('div');
-      actions.className = 'game-invitation-actions';
-      for (const accept of [true, false]) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = accept ? 'joinbtn' : 'ghostbtn';
-        button.textContent = tt(accept ? 'game_invitation_accept' : 'game_invitation_decline');
-        button.disabled = invitationBusy;
-        button.addEventListener('click', () => answerGameInvitation(id, accept));
-        actions.append(button);
-      }
-      row.append(label, actions);
-      return row;
-    });
-    invitationList.replaceChildren(...rows);
   }
 
   async function enterInvitationRoom(code, invitation, generation) {
@@ -1823,32 +1777,18 @@
     return false;
   }
 
-  async function answerGameInvitation(id, accept) {
-    if (invitationBusy || (accept && (joinRequestPending || createRequestPending))) return;
-    invitationBusy = true;
-    const generation = accept ? beginLobbyAction() : null;
-    invitationStatusKey = '';
-    renderGameInvitations();
-    try {
-      if (accept && !(await ensureLobbyCleanup())?.ok) throw new Error(tt('err_session'));
-      if (accept && !isLobbyActionCurrent(generation)) return;
-      const result = await window.NarduGameInvitations.answer(id, accept);
-      incomingInvitations = incomingInvitations.filter(invitation => invitation.id !== id);
-      if (accept && isLobbyActionCurrent(generation) && !(await enterInvitationRoom(result.room_code, false, generation))) {
-        invitationStatusKey = 'game_invitation_room_failed';
-      }
-    } catch (error) {
-      invitationStatusKey = gameInvitationMessage(error, 'game_invitation_answer_failed');
-    } finally {
-      invitationBusy = false;
-      renderGameInvitations();
-      window.NarduGameInvitations.refresh();
+  window.NarduGameInvitations?.setBeforeAccept(async () => {
+    if (invitationBusy || joinRequestPending || createRequestPending) {
+      throw new Error('lobby_invite_player_busy');
     }
-  }
+    const generation = beginLobbyAction();
+    if (!(await ensureLobbyCleanup())?.ok) throw new Error(tt('err_session'));
+    return () => isLobbyActionCurrent(generation);
+  });
 
   invitationForm?.addEventListener('submit', async event => {
     event.preventDefault();
-    if (invitationBusy || !invitationTarget || joinRequestPending || createRequestPending) return;
+    if (invitationBusy || globalThis.NarduGameInvitations?.isAnswering?.() || !invitationTarget || joinRequestPending || createRequestPending) return;
     invitationBusy = true;
     const generation = beginLobbyAction();
     invitationError.hidden = true;
@@ -1879,11 +1819,9 @@
     if (invitationBusy) event.preventDefault();
   });
   window.addEventListener('nardu:game-invitations', event => {
-    incomingInvitations = event.detail.incoming;
     pendingInvitationRoomCodes = new Set(event.detail.outgoing
       .filter(invitation => invitation.status === 'pending')
       .map(invitation => invitation.room_code));
-    renderGameInvitations();
     for (const { room_code: code, status } of event.detail.outgoing) {
       if (!code || !['declined', 'expired'].includes(status) || invitationRoomsClosing.has(code)) continue;
       invitationRoomsClosing.add(code);

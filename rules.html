@@ -61,7 +61,12 @@
     <span>© <span id="year">2026</span> <span data-i18n="footer_brand">Нарды Онлайн</span></span>
   </footer>
 </div>
+<script src="runtime-config.js"></script>
+<script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="rooms-client.js"></script>
+<script src="sound.js"></script>
+<script src="game-invitations.js"></script>
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
   const inviteQuery = new URL(location.href).searchParams.get('join');
