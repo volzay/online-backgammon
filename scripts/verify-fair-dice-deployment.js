@@ -13,7 +13,7 @@ const ASSETS = Object.freeze([
   'index.html', 'room.html', 'homegate.html', 'verify-game.html',
   'runtime-config.js', 'app.js', 'supabase-client.js', 'auth-client.js', 'rooms-client.js',
   'game.js', 'game-controller.js', 'homegate.js', 'admin-room-data.js',
-  'fair-dice.js', 'fair-dice-crypto.js', 'game-verifier.js', 'verify-game-ui.js',
+  'fair-dice.js', 'fair-dice-crypto.js', 'game-verifier.js', 'verify-game-ui.js', 'verify-presence.js',
   'roll-verification-ui.js', 'roll-proof-transfer.js', 'verify-game.css', 'roll-verification.css',
 ]);
 const RUNTIME_FIELDS = new Set(['supabaseUrl', 'supabaseAnonKey', 'siteBaseUrl', 'adminEmails',

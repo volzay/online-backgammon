@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { buildSync } = require("esbuild");
 const buildLongBotEngine = require("./build-long-bot-engine");
 const buildShortBotEngine = require("./build-short-bot-engine");
 const buildFairDiceCrypto = require("./build-fair-dice-crypto");
@@ -51,6 +52,7 @@ const STATIC_FILES = [
   "game-verifier.js",
   "roll-proof-transfer.js",
   "verify-game-ui.js",
+  "verify-presence.js",
   "roll-verification-ui.js",
   "long-bot-engine.js",
   "short-bot-engine.js",
@@ -127,6 +129,14 @@ buildLongNeuralV2PublicModel();
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 STATIC_FILES.forEach(copyFile);
+const verifierPath = path.join(DIST, "verify-game.html");
+const verifierHtml = fs.readFileSync(verifierPath, "utf8");
+fs.writeFileSync(verifierPath, verifierHtml.replace("</head>", '  <script src="verify-presence.js" defer></script>\n</head>'));
+buildSync({
+  entryPoints: [path.join(ROOT, "lib", "verify-presence.mjs")],
+  outfile: path.join(DIST, "verify-presence.js"),
+  bundle: true, platform: "browser", target: "es2022", minify: true, legalComments: "eof",
+});
 versionStaticAssets();
 writeRuntimeConfig();
 fs.writeFileSync(path.join(DIST, ".nojekyll"), "");

@@ -30,7 +30,8 @@
   ],
   "license": "UNLICENSED",
   "dependencies": {
-    "@noble/curves": "2.4.0"
+    "@noble/curves": "2.4.0",
+    "@supabase/auth-js": "2.119.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

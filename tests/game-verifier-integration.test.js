@@ -153,7 +153,7 @@ function setFields(ui, values) {
 function portalResult(ui) { return ui.nodes.get('verify-portal-result'); }
 function firstStatus(out) { return out.childNodes[0]?.dataset.status; }
 
-test('the standalone verifier loads its local scripts without auth, external resources, or form GET fallback', () => {
+test('the standalone verifier loads local proof scripts without general site scripts or form GET fallback', () => {
   const html = read('verify-game.html');
   assert.match(html, /<meta name="referrer" content="no-referrer"/);
   assert.match(html, /<script src="game-verifier\.js" defer><\/script>[\s\S]*<script src="verify-game-ui\.js" defer><\/script>/);

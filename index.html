@@ -413,6 +413,7 @@
     online_players_title: 'Игроки на сайте',
     online_players_loading: 'Загружаем список игроков…',
     online_players_empty: 'Сейчас на сайте никого нет.',
+    online_players_stale: 'Обновляем список игроков…',
     online_players_unavailable: 'Список игроков пока недоступен.',
     game_invitation_inbox: 'Приглашения на партию',
     game_invitation_invite: 'Пригласить на партию',
@@ -437,6 +438,7 @@
     online_players_title: 'Players online',
     online_players_loading: 'Loading players…',
     online_players_empty: 'No players are online right now.',
+    online_players_stale: 'Refreshing the player list…',
     online_players_unavailable: 'The player list is currently unavailable.',
     game_invitation_inbox: 'Game invitations',
     game_invitation_invite: 'Invite to a game',
@@ -1642,23 +1644,30 @@
   const onlinePlayersList = document.getElementById('online-players-list');
   const onlinePlayersLabels = document.getElementById('online-players-labels');
   const onlinePlayersStatus = document.getElementById('online-players-status');
+  const ONLINE_PLAYERS_POLL_MS = 30000;
+  const ONLINE_PLAYERS_RETRY_MS = 5000;
+  const ONLINE_PLAYERS_MAX_AGE_MS = 90000;
   let onlinePlayers = [];
   let onlinePlayersState = 'loading';
   let onlinePlayersRequest = false;
   let onlinePlayersRendered = '';
+  let onlinePlayersUpdatedAt = 0;
+  let onlinePlayersTimer = null;
+  let onlinePlayersRetryMs = ONLINE_PLAYERS_RETRY_MS;
 
   function renderOnlinePlayers() {
     const lang = NarduApp.currentLang();
     const signature = JSON.stringify([lang, onlinePlayersState, onlinePlayers]);
     if (signature === onlinePlayersRendered) return;
     onlinePlayersRendered = signature;
-    const hasPlayers = onlinePlayersState === 'ready' && onlinePlayers.length > 0;
+    const hasPlayers = onlinePlayers.length > 0;
+    const stale = onlinePlayersState === 'stale';
     onlinePlayersLabels.hidden = !hasPlayers;
     onlinePlayersList.hidden = !hasPlayers;
-    onlinePlayersStatus.hidden = hasPlayers;
+    onlinePlayersStatus.hidden = hasPlayers && !stale;
     const statusKey = `online_players_${onlinePlayersState === 'ready' ? 'empty' : onlinePlayersState}`;
     onlinePlayersStatus.dataset.i18n = statusKey;
-    onlinePlayersStatus.textContent = hasPlayers ? '' : tt(statusKey);
+    onlinePlayersStatus.textContent = onlinePlayersStatus.hidden ? '' : tt(statusKey);
     const formatter = new Intl.NumberFormat(lang);
     const rows = onlinePlayers.map(({ nickname, rating, guest, inviteTarget, canInvite }) => {
       const row = document.createElement('li');
@@ -1679,6 +1688,7 @@
       if (canInvite && inviteTarget) {
         const button = document.createElement('button');
         button.type = 'button';
+        button.disabled = stale;
         button.className = 'ghostbtn online-player-invite';
         button.textContent = tt('invite');
         button.setAttribute('aria-label', `${tt('game_invitation_invite')} · ${nickname}`);
@@ -1690,9 +1700,29 @@
     onlinePlayersList.replaceChildren(...rows);
   }
 
+  function onlinePlayersRemainingMs() {
+    return Math.max(0, ONLINE_PLAYERS_MAX_AGE_MS - (performance.now() - onlinePlayersUpdatedAt));
+  }
+
+  function scheduleOnlinePlayersRefresh(delayMs) {
+    if (onlinePlayersTimer !== null) clearTimeout(onlinePlayersTimer);
+    onlinePlayersTimer = setTimeout(() => {
+      onlinePlayersTimer = null;
+      void refreshOnlinePlayers();
+    }, delayMs);
+  }
+
   async function refreshOnlinePlayers() {
+    if (onlinePlayers.length && onlinePlayersRemainingMs() === 0) {
+      onlinePlayers = [];
+      onlinePlayersState = 'unavailable';
+      renderOnlinePlayers();
+    }
     if (onlinePlayersRequest || document.hidden || !NarduApp.getUser()) return;
     onlinePlayersRequest = true;
+    // Keep the last successful list for at most 90 seconds, even if a
+    // refresh is still in flight when that limit is reached.
+    if (onlinePlayers.length) scheduleOnlinePlayersRefresh(onlinePlayersRemainingMs());
     try {
       if (!window.NarduSupabase?.configured?.()) throw new Error('Presence is unavailable');
       const client = await window.NarduSupabase.client();
@@ -1711,10 +1741,21 @@
       onlinePlayers = data.map(({ nickname, rating, guest, invite_target, can_invite }) => ({
         nickname, rating, guest, inviteTarget: invite_target, canInvite: can_invite === true,
       }));
+      onlinePlayersUpdatedAt = performance.now();
       onlinePlayersState = 'ready';
+      onlinePlayersRetryMs = ONLINE_PLAYERS_RETRY_MS;
+      scheduleOnlinePlayersRefresh(ONLINE_PLAYERS_POLL_MS);
     } catch {
-      onlinePlayers = [];
-      onlinePlayersState = 'unavailable';
+      const remainingMs = onlinePlayersRemainingMs();
+      if (onlinePlayers.length && remainingMs > 0) {
+        onlinePlayersState = 'stale';
+        scheduleOnlinePlayersRefresh(Math.min(onlinePlayersRetryMs, remainingMs));
+      } else {
+        onlinePlayers = [];
+        onlinePlayersState = 'unavailable';
+        scheduleOnlinePlayersRefresh(onlinePlayersRetryMs);
+      }
+      onlinePlayersRetryMs = Math.min(ONLINE_PLAYERS_POLL_MS, onlinePlayersRetryMs * 2);
     } finally {
       onlinePlayersRequest = false;
       renderOnlinePlayers();
@@ -1740,9 +1781,9 @@
   document.addEventListener('visibilitychange', refreshLobbyProfileRating);
   refreshLobbyProfileRating();
   window.addEventListener('pageshow', refreshOnlinePlayers);
+  window.addEventListener('focus', refreshOnlinePlayers);
   window.addEventListener('online', refreshOnlinePlayers);
   document.addEventListener('visibilitychange', refreshOnlinePlayers);
-  setInterval(refreshOnlinePlayers, 30000);
   refreshOnlinePlayers();
 
   const invitationDialog = document.getElementById('game-invitation-dialog');
