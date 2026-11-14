@@ -39,7 +39,9 @@ test('fresh schema appends exact v41 without rewriting original checkpoint or so
   const schema = read('supabase/schema.sql');
   const marker = '-- v41 publish independently complete decision lessons at their durable checkpoint.\n';
   assert.ok(schema.indexOf(marker) > schema.indexOf('-- v40 indexed causal archive identity:'));
-  assert.equal(schema.slice(schema.indexOf(marker) + marker.length).trim(), sql.trim());
+  const migrationStart = schema.indexOf(marker) + marker.length;
+  const migrationEnd = schema.indexOf('\ncommit;', migrationStart) + '\ncommit;'.length;
+  assert.equal(schema.slice(migrationStart, migrationEnd).trim(), sql.trim());
 });
 
 test('v41 rollback smoke proves publication, atomic failure, deduplication and source quarantine', () => {
