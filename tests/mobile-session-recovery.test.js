@@ -1067,6 +1067,66 @@ test('the room heartbeat reports its own watchdog timeout but ignores lifecycle 
   assert.equal(networkPanels.length, 1, 'foreground/pagehide cancellation must stay silent');
 });
 
+test('network-loss heartbeat keeps the losing player in the room until the game result is shown', async () => {
+  const room = read('room.html');
+  const presenceHandlers = room.slice(room.indexOf('function handlePresence('), room.indexOf('function startPresenceProtocol()'));
+  const networkLoss = { loserColor: 'white', winnerColor: 'dark' };
+  const finished = { phase: 'over', winner: 'dark', finishedAt: 20, networkLoss };
+  let response = { presence: { networkLoss } };
+  let state = { phase: 'move' };
+  const effects = [];
+  const context = {
+    window: {
+      NarduController: {
+        getState: () => state,
+        receiveRemoteState(nextState, version) {
+          assert.equal(nextState, finished);
+          assert.equal(version, 2);
+          // The controller may still be animating the final checker move.
+          effects.push('apply-finished-state');
+          return true;
+        },
+      },
+    },
+    NarduRooms: { updatePresence: async () => response },
+    NarduApp: { getUser: () => ({ name: 'Player' }) },
+    isActiveRemoteRoom: () => true,
+    hideNetworkPanel() { effects.push('hide-network-panel'); },
+    showNetworkPanel() { effects.push('show-network-panel'); },
+    t: key => key,
+    location: { href: 'room.html?room=ROOM-CODE' },
+    setTimeout,
+    clearTimeout,
+    AbortController,
+  };
+  vm.createContext(context);
+  vm.runInContext(`
+    let presenceBusy = false;
+    let presenceRequestId = 0;
+    let presenceAbortController = null;
+    let presenceAbortTimer = null;
+    const ROOM_HEARTBEAT_REQUEST_STALE_MS = 20;
+    const roomCode = 'ROOM-CODE';
+    const localPlayerColor = 'white';
+    ${presenceHandlers}
+    globalThis.testHeartbeat = sendPresenceHeartbeat;
+  `, context);
+
+  // Presence metadata alone cannot redirect or replace the room state. The
+  // next reply (or ordinary controller poll) can still deliver the result.
+  await context.testHeartbeat();
+  assert.deepEqual(effects, ['hide-network-panel']);
+  assert.equal(context.location.href, 'room.html?room=ROOM-CODE');
+
+  response = { presence: { opponent: { disconnected: true } }, state: finished, version: 2 };
+  await context.testHeartbeat();
+  assert.deepEqual(effects, ['hide-network-panel', 'apply-finished-state', 'hide-network-panel']);
+  assert.equal(context.location.href, 'room.html?room=ROOM-CODE');
+  state = finished;
+  await context.testHeartbeat();
+  assert.equal(effects.at(-1), 'hide-network-panel');
+});
+
 test('bot startup is guarded by the server room while room presence remains resumable', () => {
   const lobby = read('index.html');
   const room = read('room.html');

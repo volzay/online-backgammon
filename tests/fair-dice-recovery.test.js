@@ -82,7 +82,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
     waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,
-    fairDiceError: '', fairDiceInFlight: false, undoStack: [],
+    fairDiceError: '', remoteResignation: null, fairDiceInFlight: false, undoStack: [],
     botAnalysisVersion: 1, remoteVersion: 1, Date, Math: math, URL,
     location: { href: 'https://volzay.github.io/online-backgammon/room.html?room=ABCD-EFGH' },
     console: { warn: () => calls.push('warning') }, setTimeout, clearTimeout,

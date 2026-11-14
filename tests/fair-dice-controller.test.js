@@ -76,7 +76,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     botAnalysisStartupGeneration: 1, botAnalysisRestorePending: false,
     waitingForLongBotExperience: () => false,
     isRolling: false, isAnimating: false, isChainingMove: false,
-    fairDiceError: '', fairDiceInFlight: false, undoStack: [],
+    fairDiceError: '', remoteResignation: null, fairDiceInFlight: false, undoStack: [],
     botAnalysisVersion: 1, remoteVersion: 1, Date, Math: math, URL,
     location: { href: 'https://volzay.github.io/online-backgammon/room.html' },
     console: { warn: () => calls.push('warning') }, setTimeout, clearTimeout,
@@ -207,7 +207,7 @@ test('healthy roll and bot scheduling use short fixed pauses independent of arch
   for (const historyLength of [0, 1200]) {
     const scheduled = [];
     const context = { state: { phase: 'roll', turn: 'dark', history: Array(historyLength).fill({}) },
-      mode: 'bot', botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '',
+      mode: 'bot', botAnalysisRestorePending: false, fairDiceError: '', botPlannerError: '', remoteResignation: null,
       waitingForLongBotExperience: () => false,
       isRolling: false, isAnimating: false, isChainingMove: false, autoRollTimer: null,
       isMyTurn: () => false, isRemoteHost: () => true, render() {}, onGameOver() {},
