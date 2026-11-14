@@ -80,7 +80,8 @@ function setup(t) {
   context.NarduBot = window.NarduBot;
   vm.runInContext(source('game-controller.js'), context);
   return { controller: window.NarduController, game: context.NarduGame, roll, confirm, undo, events, mutations,
-    click: id => listeners.get(`${id}:click`)(), gameOver: () => elements.get('game-over')?.innerHTML,
+    click: id => listeners.get(`${id}:click`)(),
+    hasClickHandler: id => listeners.has(`${id}:click`), gameOver: () => elements.get('game-over')?.innerHTML,
     get reloads() { return reloads; } };
 }
 
@@ -92,8 +93,8 @@ async function until(condition) {
   assert.fail('Expected practice state was not reached');
 }
 
-test('practice requires a manual roll, a legal complete turn and confirmation, and an easy bot replies locally', async t => {
-  const { controller, game, roll, confirm, undo, events, mutations, click } = setup(t);
+test('practice rolls automatically on both player turns and waits for manual confirmation before the bot replies', async t => {
+  const { controller, game, roll, confirm, undo, events, mutations, click, hasClickHandler } = setup(t);
   controller.init({ practice: true, freshGame: true, difficulty: 'hard' });
   let state = controller.getState();
   assert.equal(state.mode, 'bot');
@@ -103,16 +104,15 @@ test('practice requires a manual roll, a legal complete turn and confirmation, a
   assert.equal(state.roomCode, '');
   assert.equal(state.phase, 'roll');
   assert.equal(state.spectator, false);
-  assert.equal(roll.hidden, false);
-  assert.equal(roll.disabled, false);
+  assert.doesNotMatch(source('room.html'), /id="practice-roll"/);
+  assert.equal(roll.hidden, true);
+  assert.equal(hasClickHandler('practice-roll'), false);
   assert.equal(confirm.disabled, true);
   assert.equal(controller.receiveRemoteState({ phase: 'over', winner: 'dark' }, 17), false);
   assert.equal(controller.getState(), state);
   assert.equal(controller.prepareRoomReload(), false);
   assert.equal(await controller.publishRemoteState(), false);
 
-  click('practice-roll');
-  assert.equal(roll.disabled, true);
   await until(() => events.at(-1).detail.canMove);
   const { sha256, sha256Input } = controller.getState().history[0];
   assert.equal(crypto.createHash('sha256').update(sha256Input).digest('hex'), sha256);
@@ -139,9 +139,13 @@ test('practice requires a manual roll, a legal complete turn and confirmation, a
   click('practice-confirm');
   assert.equal(controller.getState().turn, 'dark');
   assert.equal(events.at(-1).detail.confirmed, true);
-  await until(() => controller.getState().phase === 'roll' && controller.getState().turn === 'white');
+  await until(() => events.at(-1).detail.canMove && controller.getState().turn === 'white');
   assert.ok(controller.getState().history.some(move => move.color === 'dark' && move.from !== undefined));
-  assert.equal(controller.getState().history.filter(event => event.roll && event.color === 'white').length, 1);
+  const humanRolls = controller.getState().history.filter(event => event.roll && event.color === 'white');
+  assert.equal(humanRolls.length, 2);
+  assert.notEqual(humanRolls[0].sha256, sha256);
+  assert.equal(crypto.createHash('sha256').update(humanRolls[0].sha256Input).digest('hex'), humanRolls[0].sha256);
+  assert.equal(humanRolls[1].sha256, sha256);
   assert.equal(events.at(-1).detail.rollHash, sha256);
   assert.deepEqual(mutations, []);
 });
