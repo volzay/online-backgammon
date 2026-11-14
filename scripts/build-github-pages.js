@@ -43,6 +43,7 @@ const STATIC_FILES = [
   "supabase-client.js",
   "auth-client.js",
   "rooms-client.js",
+  "game-invitations.js",
   "game.js",
   "game-controller.js",
   "fair-dice.js",

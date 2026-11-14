@@ -780,6 +780,7 @@ test('a waiting-host timeout queues an exact retry and still reaches the lobby',
     const isSpectatorRoom = false;
     let waitingPoll = null;
     let waitingRoomExitStarted = false;
+    let directInvitationCleanup = null;
     let presenceTimer = 1;
     let spectatorTimer = 2;
     function cancelPresenceHeartbeatRequest() {}
@@ -853,11 +854,13 @@ test('choosing the lobby permanently disarms an in-flight waiting-room join redi
     const CREATE_GAME_KEY = ${JSON.stringify(createKey)};
     const STALE_ROOM_CODES_KEY = ${JSON.stringify(staleKey)};
     const isWaitingHost = true;
+    const isDirectInvitationHost = false;
     const isSpectatorRoom = false;
     const localPlayerColor = 'white';
     let waitingPoll = null;
     let waitingPollBusy = false;
     let waitingRoomExitStarted = false;
+    let directInvitationCleanup = null;
     let presenceTimer = 1;
     let spectatorTimer = 2;
     function cancelPresenceHeartbeatRequest() {}
