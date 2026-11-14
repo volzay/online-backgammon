@@ -1468,6 +1468,14 @@
       return false;
     }
   }
+  async function touchLobbyPresence(client) {
+    if (typeof client.rpc !== 'function') return null;
+    const { data, error } = await client.rpc('touch_lobby_presence');
+    if (error?.code === 'PGRST202') return null;
+    if (error) throw error;
+    return data === true;
+  }
+
   function touchProfilePresence({ force = false } = {}) {
     const user = getUser();
     if (!user || user.guest || !window.NarduSupabase?.configured?.()) return false;
@@ -1482,18 +1490,29 @@
     const attempt = (async () => {
       try {
         const client = await window.NarduSupabase.client();
-        const { data, error: authError } = await profilePresenceAuth(client);
-        if (authError || !data?.user?.id) {
-          await touchLocalPresenceAlias(user);
-          lastProfilePresenceAt = 0;
-          return false;
+        let updated = null;
+        if (typeof client.rpc === 'function' && typeof client.auth.getSession === 'function') {
+          const { data, error } = await client.auth.getSession();
+          if (!error && data?.session?.user?.id === user.id && getUser()?.id === user.id) {
+            updated = await touchLobbyPresence(client);
+          }
         }
-        const updateError = await updateProfilePresenceRow(client, data.user.id);
-        if (updateError) {
-          await touchLocalPresenceAlias(user);
-          throw updateError;
+        if (updated === false) return false;
+        let authenticatedId = user.id;
+        if (updated === null) {
+          const { data, error: authError } = await profilePresenceAuth(client);
+          authenticatedId = data?.user?.id;
+          if (authError || !authenticatedId) {
+            await touchLocalPresenceAlias(user);
+            return false;
+          }
+          const updateError = await updateProfilePresenceRow(client, authenticatedId);
+          if (updateError) {
+            await touchLocalPresenceAlias(user);
+            throw updateError;
+          }
         }
-        if (user.id === data.user.id && getUser()?.id === user.id
+        if (user.id === authenticatedId && getUser()?.id === user.id
           && initializedLobbyRatingUserId !== user.id && typeof client.rpc === 'function') {
           try {
             await writeLobbyRatingVisibility(client, shouldShowRatingToOthers(), true);
