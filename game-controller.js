@@ -190,7 +190,6 @@ window.NarduController = (function () {
       dice_opponent_turn: 'Ход соперника',
       dice_your_first: 'Ваш первый ход',
       dice_auto_roll: 'Кубики бросаются автоматически…',
-      practice_roll: 'Бросьте кубики',
       practice_confirm: 'Подтвердите ход',
       dice_done: 'Ход завершён',
       dice_no_moves: 'Нет доступных ходов',
@@ -276,7 +275,6 @@ window.NarduController = (function () {
       dice_opponent_turn: 'Opponent turn',
       dice_your_first: 'Your first move',
       dice_auto_roll: 'Dice roll automatically…',
-      practice_roll: 'Roll the dice',
       practice_confirm: 'Confirm your turn',
       dice_done: 'Move finished',
       dice_no_moves: 'No available moves',
@@ -1055,7 +1053,10 @@ window.NarduController = (function () {
     render();
     preloadWildbgForHardShortBot();
 
-    if (practiceMode) return;
+    if (practiceMode) {
+      if (!opts.skipAutoStart) ensureAutoProgress(650);
+      return;
+    }
     if (applyLocalBearOffDemo(url)) {
       botAnalysisRestorePending = false;
       render();
@@ -2702,9 +2703,7 @@ window.NarduController = (function () {
     }
 
     if (state.phase === 'roll' || isRolling) {
-      if (!practiceMode || !isMyTurn() || isRolling) {
-        addDiceMessage(row, isMyTurn() ? tr(practiceMode ? 'turn_your_roll' : 'dice_auto_roll') : tr('dice_opponent_turn'));
-      }
+      addDiceMessage(row, isMyTurn() ? tr('dice_auto_roll') : tr('dice_opponent_turn'));
       return;
     }
 
@@ -2845,7 +2844,7 @@ window.NarduController = (function () {
     if (!isMyTurn()) return { text: tr('turn_other', { name: activeName }), tone: 'waiting' };
     if (state.phase === 'opening-result') return { text: tr('turn_your_first_roll'), tone: 'active' };
     if (state.phase === 'roll' || isRolling) {
-      return { text: tr(practiceMode && !isRolling ? 'practice_roll' : 'turn_your_roll'), tone: 'active' };
+      return { text: tr('turn_your_roll'), tone: 'active' };
     }
     if (practiceMode && canConfirmPracticeTurn()) return { text: tr('practice_confirm'), tone: 'active' };
     if (state.phase === 'move' && !NarduGame.hasAnyMoves(state)) {
@@ -2874,7 +2873,7 @@ window.NarduController = (function () {
       if (banner) {
         banner.style.visibility = 'visible';
         banner.querySelector('span:last-child').textContent =
-          state.phase === 'opening-result' ? tr('turn_first') : (state.phase === 'roll' && !practiceMode ? tr('turn_auto_roll') : tr('turn_your'));
+          state.phase === 'opening-result' ? tr('turn_first') : (state.phase === 'roll' ? tr('turn_auto_roll') : tr('turn_your'));
       }
     }
   }
@@ -3461,7 +3460,6 @@ window.NarduController = (function () {
 
   /* ── user actions ─────────────────────────── */
   function scheduleAutoRoll(ms = 200) {
-    if (practiceMode && isMyTurn()) return;
     if (botAnalysisRestorePending || state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isMyTurn()) return;
     autoRollTimer = schedule(() => {
@@ -3639,10 +3637,6 @@ window.NarduController = (function () {
     ensureAutoProgress(mode === 'bot' ? NEXT_ROLL_DELAY_MS : 200);
   }
 
-  function canRollPracticeDice() {
-    return practiceMode && state?.phase === 'roll' && isMyTurn() && !isRolling && !isAnimating && !isChainingMove;
-  }
-
   function canConfirmPracticeTurn() {
     return practiceMode && state?.phase === 'move' && !state.winner && isMyTurn()
       && !isRolling && !isAnimating && !isChainingMove
@@ -3655,30 +3649,19 @@ window.NarduController = (function () {
       phase: state.phase, turn: state.turn, moveCount: state.turnMoves.length,
       confirmed: practiceConfirmed, rollHash: practiceRollHash,
       selected: state.selected, hints: state.hints.slice(),
-      canRoll: canRollPracticeDice(), canConfirm: canConfirmPracticeTurn(),
+      canConfirm: canConfirmPracticeTurn(),
       canMove: state.phase === 'move' && isMyTurn() && !isAnimating && !isRolling && !isChainingMove,
     };
   }
 
   function renderPracticeControls() {
     const detail = getPracticeStatus();
-    const roll = document.getElementById('practice-roll');
     const confirm = document.getElementById('practice-confirm');
-    if (roll) {
-      roll.hidden = false;
-      roll.disabled = !detail.canRoll;
-    }
     if (confirm) {
       confirm.hidden = false;
       confirm.disabled = !detail.canConfirm;
     }
     window.dispatchEvent(new CustomEvent('nardu:practicechange', { detail }));
-  }
-
-  function rollPracticeDice() {
-    if (!canRollPracticeDice()) return;
-    void autoRoll();
-    renderPracticeControls();
   }
 
   function confirmPracticeTurn() {
@@ -6156,7 +6139,6 @@ window.NarduController = (function () {
   document.getElementById('bear-btn')?.addEventListener('click', onBearButtonClick);
   document.getElementById('undo-btn')?.addEventListener('click', undoLastMove);
   document.getElementById('resign-btn')?.addEventListener('click', resignGame);
-  document.getElementById('practice-roll')?.addEventListener('click', rollPracticeDice);
   document.getElementById('practice-confirm')?.addEventListener('click', confirmPracticeTurn);
 
   document.addEventListener('keydown', (e) => {

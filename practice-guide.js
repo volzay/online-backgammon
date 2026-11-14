@@ -17,25 +17,25 @@
   const copy = {
     ru: {
       guide: 'Пробная партия', skip: 'Пропустить гайд', leave: 'В лобби', done: 'Продолжить игру', point: 'Пункт',
-      roll: ['Бросьте кубики', 'Вы играете белыми в длинные нарды. Нажмите «Бросить кубики».'],
+      roll: ['Автоматический бросок', 'Вы играете белыми в длинные нарды. После броска выберите шашку.'],
       select: ['Выберите шашку', 'Нажмите на подсвеченную белую шашку. После выбора подсветятся доступные пункты.'],
       move: ['Передвиньте шашку', 'Нажмите на один из подсвеченных пунктов. Шашка переместится на выбранное место.'],
       undo: ['Попробуйте отмену', 'Нажмите «Отменить ход», чтобы вернуть последнее перемещение. Дальше можно сыграть тот же ход или выбрать другой.'],
       'finish-moves': ['Сыграйте оставшиеся значения', 'Выберите белую шашку и доступный пункт. Используйте значения на кубиках, пока не станет доступно подтверждение.'],
       confirm: ['Подтвердите ход', 'Нажмите «Подтвердить ход». После этого ход перейдёт к боту.'],
       verify: ['Проверьте свой бросок', 'В «Ходе партии» нажмите «Проверить» рядом со своим броском. В пробной партии проверка сверяет кубики с записью SHA‑256, созданной в браузере.'],
-      complete: ['Ход завершён', 'Вы бросили кубики, передвинули шашку, подтвердили ход и проверили бросок. Можно продолжить партию или вернуться в лобби.'],
+      complete: ['Ход завершён', 'Вы передвинули шашку, подтвердили ход и проверили бросок. Можно продолжить партию или вернуться в лобби.'],
     },
     en: {
       guide: 'Practice game', skip: 'Skip guide', leave: 'Back to lobby', done: 'Keep playing', point: 'Point',
-      roll: ['Roll the dice', 'You are playing white in long backgammon. Select Roll dice.'],
+      roll: ['Automatic dice roll', 'You are playing white in long backgammon. Choose a checker once the dice settle.'],
       select: ['Choose a checker', 'Select the highlighted white checker to see its available destinations.'],
       move: ['Move the checker', 'Select a highlighted point to move the checker there.'],
       undo: ['Try undoing a move', 'Select Undo move to put the last checker back. You can then play the same move or choose a different one.'],
       'finish-moves': ['Play the remaining dice', 'Choose a white checker and an available destination. Use the dice until the turn can be confirmed.'],
       confirm: ['Confirm your turn', 'Select Confirm turn to pass play to the bot.'],
       verify: ['Check your roll', 'Select Check roll beside your roll in the move history. In practice, this compares the dice with the SHA‑256 record created in your browser.'],
-      complete: ['Turn complete', 'You rolled the dice, moved a checker, confirmed your turn and checked your roll. You can keep playing or return to the lobby.'],
+      complete: ['Turn complete', 'You moved a checker, confirmed your turn and checked your roll. You can keep playing or return to the lobby.'],
     },
   };
   const labels = () => copy[document.documentElement.lang === 'en' ? 'en' : 'ru'];
@@ -136,7 +136,7 @@
     const verify = [...history.querySelectorAll('[data-verify-roll]')].find(button => button.dataset.verifyHash === firstRollHash);
     const result = verify?.closest('.fair-hash')?.querySelector('[data-roll-result]');
     let step = 'roll';
-    let targets = [document.getElementById('practice-roll')];
+    let targets = [];
     if (current.confirmed) {
       const matched = ['matched', 'verified'].includes(result?.dataset.status);
       step = lastStep === 'complete' || matched ? 'complete' : 'verify';
@@ -152,7 +152,7 @@
         step = undone ? 'finish-moves' : state.selected != null ? 'move' : 'select';
         targets = targetPoints(state);
       }
-    } else if (phase === 'move' || !current.canRoll) {
+    } else if (phase === 'move' && lastStep) {
       return;
     }
 

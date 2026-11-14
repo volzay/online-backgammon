@@ -42,8 +42,8 @@
       ['Видимость рейтинга', 'В разделе «Приватность» можно выбрать, увидят ли другие игроки ваш рейтинг.'],
       ['Rating visibility', 'Use Privacy to choose whether other players can see your rating.']],
     [lobby, '#start-onboarding',
-      ['Пробная партия с ботом', 'В игровой комнате вы сами бросите кубики, передвинете шашку и подтвердите ход. Пробная партия без рейтинга.'],
-      ['Practice with a bot', 'In the game room you’ll roll the dice, move a checker and confirm your turn. The practice game is unrated.']],
+      ['Пробная партия с ботом', 'Кубики выпадут автоматически. Передвиньте шашку и подтвердите ход. Пробная партия без рейтинга.'],
+      ['Practice with a bot', 'The dice roll automatically. Move a checker and confirm your turn. The practice game is unrated.']],
   ];
   const labels = {
     ru: { title: 'Знакомство с сайтом', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
