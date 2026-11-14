@@ -7,30 +7,31 @@ window.NarduSound = (function () {
   let ctx = null;
   let unlocked = false;
 
-  function getCtx() {
+  function getCtx(resume = true) {
     if (!ctx) {
       try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
       catch { ctx = null; }
     }
     /* iOS / Chrome autoplay policies — must resume on first interaction */
-    if (ctx && ctx.state === 'suspended') ctx.resume()?.catch?.(() => {});
+    if (resume && ctx?.state === 'suspended') ctx.resume()?.catch?.(() => {});
     return ctx;
   }
 
   function isOn() { return localStorage.getItem('narduh-sound') !== '0'; }
   function volume() {
     const v = parseInt(localStorage.getItem('narduh-vol') || '70', 10);
-    return Math.max(0, Math.min(1, v / 100));
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v / 100)) : 0.7;
   }
 
   function tone(freq, dur, type = 'sine', vol = 0.18) {
-    if (!isOn()) return;
+    const gain = vol * volume();
+    if (!isOn() || gain <= 0) return;
     const c = getCtx(); if (!c) return;
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = type;
     osc.frequency.value = freq;
-    g.gain.setValueAtTime(vol * volume(), c.currentTime);
+    g.gain.setValueAtTime(gain, c.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
     osc.connect(g).connect(c.destination);
     osc.start();
@@ -72,18 +73,20 @@ window.NarduSound = (function () {
     }
   }
 
+  function announceUnlock(c) {
+    const wasUnlocked = unlocked;
+    unlockTick(c);
+    if (unlocked && !wasUnlocked) window.dispatchEvent(new Event('nardu:audio-ready'));
+  }
+
   function prime() {
     const c = getCtx();
     if (!c) return;
     if (c.state === 'running') {
-      unlockTick(c);
-      unlocked = true;
+      announceUnlock(c);
       return;
     }
-    const resume = c.resume?.();
-    if (resume?.then) {
-      resume.then(() => unlockTick(c)).catch(() => {});
-    }
+    c.resume?.()?.then(() => announceUnlock(c)).catch(() => {});
   }
 
   function bindUnlock() {
@@ -142,6 +145,15 @@ window.NarduSound = (function () {
       prime();
       [392, 311, 247].forEach((n, i) =>
         setTimeout(() => tone(n, 0.30, 'triangle', 0.14), i * 160));
+    },
+    invitation() {
+      if (!isOn() || volume() === 0) return true;
+      const c = getCtx(false);
+      if (!c) return true;
+      if (c.state !== 'running') return false;
+      tone(659, 0.18, 'sine', 0.16);
+      setTimeout(() => tone(880, 0.24, 'sine', 0.18), 105);
+      return true;
     },
     /* used by buttons on first interaction to unlock autoplay */
     prime,
