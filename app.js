@@ -1415,6 +1415,44 @@
       return { data: null, error };
     }
   }
+  let profileRatingRefresh = null;
+  function refreshProfileRating() {
+    const user = getUser();
+    if (!user?.id || user.guest || !window.NarduSupabase?.configured?.()) return Promise.resolve(false);
+    if (profileRatingRefresh?.id === user.id) return profileRatingRefresh.promise;
+
+    const refresh = { id: user.id, promise: null };
+    profileRatingRefresh = refresh;
+    refresh.promise = (async () => {
+      const client = await window.NarduSupabase.client();
+      const { data: session, error: authError } = await profilePresenceAuth(client);
+      if (authError || session?.user?.id !== user.id || getUser()?.id !== user.id) return false;
+      const { data, error } = await client
+        .from('profiles')
+        .select('id,rating,tier,rating_eligible')
+        .eq('id', user.id)
+        .maybeSingle();
+      const current = getUser();
+      if (error || data?.id !== user.id || current?.id !== user.id || current.guest
+        || current.rating !== user.rating || current.tier !== user.tier
+        || current.ratingEligible !== user.ratingEligible) return false;
+
+      const ratingEligible = data.rating_eligible !== false;
+      if (ratingEligible && (!Number.isInteger(data.rating) || data.rating <= 0)) return false;
+      const rating = ratingEligible ? data.rating : null;
+      const tier = ratingEligible ? data.tier || ratingTierFor(rating) : '';
+      if (rating !== current.rating || tier !== current.tier || ratingEligible !== current.ratingEligible) {
+        persistStoredUser({ ...current, rating, tier, ratingEligible });
+      }
+      // A restored lobby document may still show the rating it rendered before navigation.
+      paintUser();
+      return true;
+    })().catch(() => false).finally(() => {
+      if (profileRatingRefresh === refresh) profileRatingRefresh = null;
+    });
+    return refresh.promise;
+  }
+
   async function touchGuestPresence({ force = false } = {}) {
     const user = getUser();
     if (!user?.guest || !window.NarduSupabase?.configured?.()) return false;
@@ -1644,7 +1682,7 @@
     ratingTierFor, isRatedUser, assignProfileRating, tierLabel, formatRating,
     shouldShowRatingToOthers, publicRating, syncLobbyRatingVisibility,
     createGuestUser, createGuestCredential, readGuestCredential, guestRequestHeaders, clearGuestCredential,
-    compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence,
+    compactStoredUser, touchGuestPresence, touchProfilePresence, touchPresence, refreshProfileRating,
     safeStorageSet, persistBotGameConfig, pruneBotGameConfigs,
     paintUser, currentSound, setSound, paintSound,
     refreshLobbyMessageIndicator,

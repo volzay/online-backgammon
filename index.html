@@ -1730,6 +1730,15 @@
   }
 
   window.addEventListener('nardu:langchange', renderLocalizedLobby);
+  function refreshLobbyProfileRating() {
+    if (!document.hidden) void NarduApp.refreshProfileRating?.();
+  }
+
+  window.addEventListener('pageshow', refreshLobbyProfileRating);
+  window.addEventListener('focus', refreshLobbyProfileRating);
+  window.addEventListener('online', refreshLobbyProfileRating);
+  document.addEventListener('visibilitychange', refreshLobbyProfileRating);
+  refreshLobbyProfileRating();
   window.addEventListener('pageshow', refreshOnlinePlayers);
   window.addEventListener('online', refreshOnlinePlayers);
   document.addEventListener('visibilitychange', refreshOnlinePlayers);
