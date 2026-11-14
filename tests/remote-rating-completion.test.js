@@ -212,3 +212,63 @@ test('the result window recovers its server-confirmed rating after a transient s
   assert.equal(scheduled.length, 0);
   assert.equal(soundSchedules, 1);
 });
+
+
+test('protected resignation rebases on the latest proved board and retries a version conflict', async () => {
+  const move = { color: 'dark', from: 13, to: 15, die: 2 };
+  const opening = { opening: true, fairDiceProof: { request: { id: 'opening' } } };
+  const live = { ...terminal, phase: 'move', winner: null, finishedAt: null, resultType: null };
+  const boards = [
+    { version: 4, state: { ...live, history: [move, opening] } },
+    { version: 5, state: { ...live, history: [{ ...move, from: 15, to: 17 }, move, opening] } },
+  ];
+  let reads = 0;
+  let writes = 0;
+  const accepted = [];
+  const context = vm.createContext({
+    state: { ...live, history: [opening] },
+    NarduGame: { opponentOf: () => 'dark' },
+    AbortController,
+    promiseWithTimeout: promise => promise,
+    receiveRemoteState: (saved, version) => accepted.push({ saved, version }),
+    window: { NarduRooms: {
+      getGameState: async () => boards[Math.min(reads++, 1)],
+      putGameState: async (_code, candidate, version) => {
+        assert.equal(version, boards[writes].version);
+        assert.equal(candidate.phase, 'over');
+        assert.equal(candidate.winner, 'dark');
+        assert.equal(candidate.history[0].resign, true);
+        assert.equal(candidate.history[0].color, 'white');
+        assert.deepEqual(Array.from(candidate.history.slice(1)), boards[writes].state.history);
+        assert.equal(accepted.length, 0);
+        writes += 1;
+        if (writes === 1) throw Object.assign(new Error('Version changed'), { status: 409 });
+        return { state: candidate, version: version + 1 };
+      },
+    } },
+  });
+  vm.runInContext(sourceBetween('  async function publishProtectedResignation(', '  function resignFromLocalState()'), context);
+  await vm.runInContext('publishProtectedResignation({ code: state.roomCode, startedAt: state.startedAt, color: "white" }, () => true)', context);
+  assert.equal(writes, 2);
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].version, 6);
+  assert.equal(context.state.winner, null, 'no optimistic final board before server acknowledgement');
+});
+
+test('a protected resignation intent does not write into a newer round', async () => {
+  const live = { ...terminal, phase: 'move', winner: null, finishedAt: null };
+  const context = vm.createContext({
+    state: live,
+    AbortController,
+    promiseWithTimeout: promise => promise,
+    window: { NarduRooms: {
+      getGameState: async () => ({ version: 4, state: { ...live, startedAt: 200 } }),
+      putGameState: async () => assert.fail('a newer round must remain untouched'),
+    } },
+  });
+  vm.runInContext(sourceBetween('  async function publishProtectedResignation(', '  function resignFromLocalState()'), context);
+  await assert.rejects(
+    vm.runInContext('publishProtectedResignation({ code: state.roomCode, startedAt: state.startedAt, color: "white" }, () => true)', context),
+    /Active game changed/,
+  );
+});

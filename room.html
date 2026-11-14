@@ -1533,20 +1533,14 @@ function hideNetworkPanel() {
 }
 
 function handlePresence(presence) {
-  if (!presence || !isActiveRemoteRoom()) return;
-  if (presence.networkLoss) {
-    if (presence.networkLoss.loserColor === localPlayerColor) {
-      clearStoredActiveRoom();
-      location.href = 'index.html';
-      return;
-    }
-    showNetworkPanel({
-      title: t('connection_lost_title'),
-      text: presence.networkLoss.message || t('network_forced_end'),
-      remainingMs: 0,
-    });
+  if (!isActiveRemoteRoom()) return;
+  if (presence?.networkLoss || window.NarduController?.getState?.()?.phase === 'over') {
+    // The confirmed game state supplies the result modal and rating. A
+    // presence-only reply can arrive before the usual state poll catches up.
+    hideNetworkPanel();
     return;
   }
+  if (!presence) return;
   if (presence.opponent?.disconnected) {
     showNetworkPanel({
       title: t('network_loss_title'),
@@ -1557,18 +1551,6 @@ function handlePresence(presence) {
     return;
   }
   hideNetworkPanel();
-}
-
-function clearStoredActiveRoom() {
-  try {
-    const active = JSON.parse(localStorage.getItem(ACTIVE_ROOM_KEY) || 'null');
-    if (active?.code === roomCode) localStorage.removeItem(ACTIVE_ROOM_KEY);
-    const created = JSON.parse(localStorage.getItem(CREATE_GAME_KEY) || 'null');
-    if (created?.code === roomCode) localStorage.removeItem(CREATE_GAME_KEY);
-  } catch {
-    localStorage.removeItem(ACTIVE_ROOM_KEY);
-    localStorage.removeItem(CREATE_GAME_KEY);
-  }
 }
 
 async function sendPresenceHeartbeat() {
@@ -1592,7 +1574,11 @@ async function sendPresenceHeartbeat() {
     }, { signal: controller?.signal });
     if (requestId !== presenceRequestId) return;
     if (data.state && Number.isFinite(data.version)) {
-      window.NarduController?.receiveRemoteState?.(data.state, data.version);
+      const applied = window.NarduController?.receiveRemoteState?.(data.state, data.version);
+      if (applied && data.state.phase === 'over') {
+        hideNetworkPanel();
+        return;
+      }
     }
     handlePresence(data.presence);
   } catch (error) {
@@ -1600,6 +1586,10 @@ async function sendPresenceHeartbeat() {
     // An AbortError for the current request is the watchdog timing out a
     // half-open connection and must be surfaced as a server outage.
     if (requestId !== presenceRequestId) return;
+    if (window.NarduController?.getState?.()?.phase === 'over') {
+      hideNetworkPanel();
+      return;
+    }
     showNetworkPanel({
       title: t('network_loss_title'),
       text: t('server_unreachable_text'),
@@ -2068,9 +2058,7 @@ const I18N = {
     access_closed: "Закрытая",
     network: "Сеть",
     network_loss_title: "Потеря сетевого соединения",
-    connection_lost_title: "Соединение потеряно",
     network_loss_text: "Ждём восстановления соединения соперника. Позиция партии сохранена.",
-    network_forced_end: "Соединение потеряно, игра принудительно завершена",
     server_unreachable_text: "Нет связи с сервером. Позиция партии сохраняется на сервере; после восстановления можно перезагрузить комнату.",
     room_unavailable_title: "Просмотр недоступен",
     room_unavailable_text: "Комната закрыта для зрителей или партия уже завершена.",
@@ -2189,9 +2177,7 @@ const I18N = {
     access_closed: "Closed",
     network: "Network",
     network_loss_title: "Network connection lost",
-    connection_lost_title: "Connection lost",
     network_loss_text: "Waiting for the opponent to reconnect. The game position is saved.",
-    network_forced_end: "Connection lost, the game was ended automatically",
     server_unreachable_text: "Cannot reach the server. The game position is saved on the server; reload the room after the connection is restored.",
     room_unavailable_title: "Watching unavailable",
     room_unavailable_text: "This room is closed to spectators or the game has already ended.",

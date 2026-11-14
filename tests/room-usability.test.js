@@ -57,7 +57,7 @@ test('a spectator sees the actual winner instead of the spectator identity', () 
   const evaluate = new Function(
     'state', 'spectatorMode', 'mode', 'playerColor', 'window', 'localizedName',
     'opponentName', 'tr', 'sideName', 'NarduGame', 'isRolling',
-    'botAnalysisRestorePending', 'fairDiceError', 'fairDiceInFlight',
+    'botAnalysisRestorePending', 'fairDiceError', 'fairDiceInFlight', 'remoteResignation', 'remoteResignationFailed',
     `${sources}\nreturn currentTurnStatus();`,
   );
   const status = evaluate(
@@ -99,7 +99,7 @@ function evaluateTurnStatus(state, flags = {}, language = 'ru') {
     const {
       spectatorMode = false, mode = 'remote', playerColor = 'white',
       isRolling = false, botAnalysisRestorePending = false, botAnalysisRestoreError = '',
-      fairDiceError = '', fairDiceInFlight = false,
+      fairDiceError = '', fairDiceInFlight = false, remoteResignation = null, remoteResignationFailed = false,
       botPlannerError = '',
     } = flags;
     ${sources}

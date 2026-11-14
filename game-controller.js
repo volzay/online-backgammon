@@ -38,6 +38,8 @@ window.NarduController = (function () {
   let remoteVersion = 0;
   let remotePublishQueue = Promise.resolve();
   let remotePollTimer = null;
+  let remoteResignation = null;
+  let remoteResignationFailed = false;
   let isApplyingRemote = false;
   let botAnalysisReady = false;
   let botAnalysisDisabled = false;
@@ -961,6 +963,8 @@ window.NarduController = (function () {
       window.NarduStrongBot?.syncLocalExperience?.();
     }
     remoteVersion = 0;
+    remoteResignation = null;
+    remoteResignationFailed = false;
     fairDiceError = '';
     botPlannerError = '';
     activeNeuralDecisionId = '';
@@ -2632,6 +2636,7 @@ window.NarduController = (function () {
       && !isAnimating
       && !isRolling
       && !isChainingMove
+      && !remoteResignation
       && !botAnalysisRestorePending;
     btn.disabled = !canResign;
     btn.title = canResign ? tr('resign_title') : tr('cannot_resign_title');
@@ -2777,6 +2782,9 @@ window.NarduController = (function () {
 
   function currentTurnStatus() {
     if (!state) return { text: tr('turn_opening'), tone: 'waiting' };
+    if (mode === 'remote' && !state.winner && (remoteResignation || remoteResignationFailed)) {
+      return { text: tr(remoteResignation ? 'resigning' : 'resign_failed'), tone: 'waiting' };
+    }
     if (typeof botPlannerError !== 'undefined' && botPlannerError && !state.winner) return { text: botPlannerError, tone: 'waiting' };
     if (fairDiceError) return { text: fairDiceError, tone: 'waiting' };
     if (fairDiceInFlight) return { text: lang() === 'en' ? 'Preparing and verifying the dice roll…' : 'Подготавливаем и проверяем бросок…', tone: 'waiting' };
@@ -3105,7 +3113,7 @@ window.NarduController = (function () {
 
   /* ── helpers ──────────────────────────────── */
   function isMyTurn() {
-    if (spectatorMode || botAnalysisRestorePending || fairDiceError || (typeof botPlannerError !== 'undefined' && botPlannerError)) return false;
+    if (spectatorMode || remoteResignation || botAnalysisRestorePending || fairDiceError || (typeof botPlannerError !== 'undefined' && botPlannerError)) return false;
     if (mode === 'hotseat') return true;
     return state.turn === playerColor;
   }
@@ -3459,7 +3467,7 @@ window.NarduController = (function () {
 
   function ensureAutoProgress(ms = 200) {
     if (typeof botPlannerError !== 'undefined' && botPlannerError) return;
-    if (fairDiceError) return;
+    if (fairDiceError || remoteResignation) return;
     if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
     if (isRolling || isAnimating || isChainingMove) return;
     if (state.phase === 'opening') {
@@ -4394,9 +4402,97 @@ window.NarduController = (function () {
   }
 
   function resignGame() {
-    if (botAnalysisRestorePending || !state || state.phase === 'waiting' || state.phase === 'over' || state.winner) return;
-    if (isAnimating || isRolling || isChainingMove) return;
+    if (spectatorMode || botAnalysisRestorePending || !state || state.phase === 'waiting'
+      || state.phase === 'over' || state.winner || isAnimating || isRolling || isChainingMove) return;
+    if (mode === 'remote' && window.NarduRooms?.fairDicePolicy) return resignRemoteGame();
+    resignFromLocalState();
+  }
 
+  async function resignRemoteGame() {
+    if (remoteResignation) return;
+    const request = { code: remoteCode, startedAt: state.startedAt, color: playerColor };
+    const currentGame = () => remoteResignation === request && mode === 'remote'
+      && remoteCode === request.code && state?.startedAt === request.startedAt;
+    remoteResignation = request;
+    remoteResignationFailed = false;
+    if (autoRollTimer) clearTimeout(autoRollTimer);
+    if (autoEndTimer) clearTimeout(autoEndTimer);
+    autoRollTimer = null;
+    autoEndTimer = null;
+    render();
+    try {
+      const policy = await promiseWithTimeout(window.NarduRooms.fairDicePolicy(request.code), 12000, 'Room policy timed out');
+      if (!currentGame() || state.winner) return;
+      if (!policy?.required) {
+        resignFromLocalState();
+        return;
+      }
+      await publishProtectedResignation(request, currentGame);
+    } catch (error) {
+      if (currentGame() && !state.winner) {
+        remoteResignationFailed = true;
+        console.warn('Could not resign the online game', error?.code || error?.message || error);
+      }
+    } finally {
+      if (remoteResignation === request) {
+        remoteResignation = null;
+        render();
+        ensureAutoProgress();
+      }
+    }
+  }
+
+  async function publishProtectedResignation(request, currentGame) {
+    const rooms = window.NarduRooms;
+    const read = async () => {
+      const controller = new AbortController();
+      try {
+        return await promiseWithTimeout(
+          rooms.getGameState(request.code, { signal: controller.signal }), 6500, 'Resignation board read timed out',
+        );
+      } finally {
+        controller.abort();
+      }
+    };
+    const showTerminal = current => {
+      const terminal = current?.state;
+      if (!currentGame() || terminal?.roomCode !== request.code || terminal.startedAt !== request.startedAt
+        || terminal.phase !== 'over' || !terminal.winner || !Number.isSafeInteger(current.version)) return false;
+      receiveRemoteState(terminal, current.version);
+      return true;
+    };
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = await read();
+      if (!currentGame() || state.winner) return;
+      if (showTerminal(current)) return;
+      const board = current?.state;
+      if (board?.roomCode !== request.code || board.startedAt !== request.startedAt
+        || board.winner || !Number.isSafeInteger(current.version)) throw new Error('Active game changed');
+      const winner = NarduGame.opponentOf(request.color);
+      const finishedAt = Date.now();
+      // Preserve the proved history and exact board; the state write uses its server version.
+      const finalState = {
+        ...board, dice: [], rolled: [], winner, resultType: null, phase: 'over', finishedAt,
+        history: [{ resign: true, color: request.color, winnerColor: winner, at: new Date(finishedAt).toISOString() },
+          ...board.history],
+      };
+      try {
+        const saved = await rooms.putGameState(request.code, finalState, current.version);
+        if (showTerminal(saved)) return;
+      } catch (error) {
+        // A conflict or an uncertain response can mean this same game already finished.
+        if (showTerminal(await read())) return;
+        if (attempt === 0 && Number(error?.status) === 409) continue;
+        throw error;
+      }
+      if (showTerminal(await read())) return;
+      if (!currentGame() || state.winner) return;
+      throw new Error('Resignation was not confirmed');
+    }
+  }
+
+  function resignFromLocalState() {
     if (autoRollTimer) clearTimeout(autoRollTimer);
     if (autoEndTimer) clearTimeout(autoEndTimer);
     autoRollTimer = null;
