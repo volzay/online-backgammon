@@ -258,6 +258,10 @@
   margin: 4px 0 0;
 }
 
+.practice-guide .practice-guide-fullscreen {
+  flex-basis: 100%;
+}
+
 .practice-guide-actions {
   display: flex;
   flex-wrap: wrap;
@@ -339,6 +343,27 @@
 /* A clipped horizontal axis preserves the document as the sticky scrollport. */
 body.practice-room {
   overflow-x: clip;
+}
+
+.practice-room:not(.board-focus) .mobile-board-toggle {
+  display: inline-flex;
+}
+
+.practice-room.board-focus #practice-guide-slot {
+  display: none;
+}
+
+.practice-room.board-focus .board-wrap {
+  flex: 1 1 0;
+  height: auto;
+  container-type: size;
+}
+
+.practice-room.board-focus .board {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  max-width: min(100%, 175cqh);
 }
 
 .practice-room .action-controls {

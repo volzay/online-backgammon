@@ -17,6 +17,7 @@
   const copy = {
     ru: {
       guide: 'Пробная партия', skip: 'Пропустить гайд', leave: 'В лобби', done: 'Продолжить игру', point: 'Пункт',
+      fullscreen: 'Для полноэкранного режима нажмите «Развернуть поле» над доской. Чтобы выйти, нажмите значок «Свернуть поле» под доской.',
       roll: ['Автоматический бросок', 'Вы играете белыми в длинные нарды. После броска выберите шашку.'],
       select: ['Выберите шашку', 'Нажмите на подсвеченную белую шашку. После выбора подсветятся доступные пункты.'],
       move: ['Передвиньте шашку', 'Нажмите на один из подсвеченных пунктов. Шашка переместится на выбранное место.'],
@@ -28,6 +29,7 @@
     },
     en: {
       guide: 'Practice game', skip: 'Skip guide', leave: 'Back to lobby', done: 'Keep playing', point: 'Point',
+      fullscreen: 'Select Expand board above the board for full screen. To return, select the Exit board view icon below the board.',
       roll: ['Automatic dice roll', 'You are playing white in long backgammon. Choose a checker once the dice settle.'],
       select: ['Choose a checker', 'Select the highlighted white checker to see its available destinations.'],
       move: ['Move the checker', 'Select a highlighted point to move the checker there.'],
@@ -66,10 +68,12 @@
         <a class="ghostbtn practice-guide-lobby" hidden></a>
         <button class="pillbtn practice-guide-next" type="button" hidden></button>
       </div>
+      <p class="onboarding-text practice-guide-fullscreen"></p>
     </aside>`;
   const guide = slot.firstElementChild;
   const title = guide.querySelector('.onboarding-title');
   const text = guide.querySelector('.onboarding-text');
+  const fullscreen = guide.querySelector('.practice-guide-fullscreen');
   const progress = guide.querySelector('.onboarding-progress');
   const skip = guide.querySelector('.practice-guide-skip');
   const leave = guide.querySelector('.practice-guide-lobby');
@@ -113,6 +117,7 @@
   }
 
   function reveal(element) {
+    if (document.body.classList.contains('board-focus')) return;
     const rect = element.getBoundingClientRect();
     const top = Math.max(0, slot.getBoundingClientRect().bottom);
     if (rect.top < top + 8 || rect.bottom > document.documentElement.clientHeight - 8) {
@@ -173,6 +178,7 @@
       guide.setAttribute('aria-label', strings.guide);
       progress.textContent = strings.guide;
       [title.textContent, text.textContent] = strings[step];
+      fullscreen.textContent = strings.fullscreen;
       skip.textContent = strings.skip;
       skip.hidden = step === 'complete';
       leave.textContent = strings.leave;
