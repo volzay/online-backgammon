@@ -3561,7 +3561,6 @@ window.NarduController = (function () {
     isRolling = true;
     try {
       NarduSound.prime();
-      NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'opening', color: 'opening', noTie: true });
       if (generation !== botAnalysisStartupGeneration) return;
       if (fair.proof && (state.history?.some(item => item.fairDiceProof?.request?.id === fair.proof.request.id)
@@ -3598,6 +3597,7 @@ window.NarduController = (function () {
       state.rollToken = `opening:${fair.hash.slice(0, 16)}:${opening.host.die}:${opening.guest.die}`;
       if (fair.proof) {
         const saved = await publishRemoteState();
+        if (generation !== botAnalysisStartupGeneration) return;
         if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified opening dice.');
       } else publishRemoteState();
       render({ diceTransition: Boolean(fair.proof) });
@@ -3605,6 +3605,7 @@ window.NarduController = (function () {
       const boardDiceLayer = document.getElementById('board-dice-layer');
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = '2';
       const rollToken = state.rollToken;
+      NarduSound.dice();
       visualAnimationWithDeadline(() => Promise.all([
         NarduBoardEngine.animateOpeningRoll({
           layer: boardDiceLayer,
@@ -3703,7 +3704,6 @@ window.NarduController = (function () {
     isRolling = true;
     try {
       NarduSound.prime();
-      if (!practiceMode) NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
       if (generation !== botAnalysisStartupGeneration) return;
       if (fair.proof && (state.history?.some(item => item.fairDiceProof?.request?.id === fair.proof.request.id)
@@ -3731,6 +3731,7 @@ window.NarduController = (function () {
       if (practiceMode && rollingTurn === playerColor) practiceRollHash ||= fair.hash;
       if (fair.proof) {
         const saved = await publishRemoteState();
+        if (generation !== botAnalysisStartupGeneration) return;
         if ((mode === 'bot' && !saved) || fairDiceError) throw new Error('Could not commit verified turn dice.');
       } else publishRemoteState();
       render({ diceTransition: Boolean(fair.proof) });
@@ -3739,7 +3740,7 @@ window.NarduController = (function () {
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
 
       const rollToken = state.rollToken;
-      if (practiceMode) NarduSound.dice();
+      NarduSound.dice();
       visualAnimationWithDeadline(() => Promise.all([
         NarduBoardEngine.animateDiceRoll({
           layer: boardDiceLayer,
