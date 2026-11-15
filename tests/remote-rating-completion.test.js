@@ -195,6 +195,7 @@ test('the result window recovers its server-confirmed rating after a transient s
     GAME_OVER_SOUND_GAP_MS: 350,
     gameplaySoundBusyUntil: 0,
   });
+  context.window.NarduApp = context.NarduApp;
   vm.runInContext(sourceBetween('  function onGameOver() {', '  function gameResultKey() {'), context);
 
   vm.runInContext('onGameOver()', context);

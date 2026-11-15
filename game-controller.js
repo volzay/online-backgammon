@@ -81,6 +81,7 @@ window.NarduController = (function () {
   let ratingRetryCount = 0;
   let ratingRetryScheduled = false;
   let ratingPendingKey = null;
+  let ratingSyncInFlight = null;
   let gameOverSoundKey = null;
   let botLearningRecordedKey = null;
   let rematchRestartToken = null;
@@ -245,6 +246,8 @@ window.NarduController = (function () {
       rematch_offer: 'Соперник предлагает: Ещё партия?',
       rematch_declined: 'Соперник отказался от новой партии.',
       rematch_starting: 'Начинаем новую партию...',
+      rating_pending: 'Ожидаем подтверждения рейтинга…',
+      rating_retry: 'Повторить проверку рейтинга',
       preparing: 'Подготовка',
       restore_failed: 'Не удалось открыть сохранённую партию. Нажмите «Обновить».',
       yes: 'Да',
@@ -331,6 +334,8 @@ window.NarduController = (function () {
       rematch_offer: 'Opponent offers: another game?',
       rematch_declined: 'Opponent declined a new game.',
       rematch_starting: 'Starting a new game...',
+      rating_pending: 'Waiting for the confirmed rating…',
+      rating_retry: 'Check rating again',
       preparing: 'Preparing',
       restore_failed: 'Could not open the saved game. Select Refresh.',
       yes: 'Yes',
@@ -722,6 +727,10 @@ window.NarduController = (function () {
   }
 
   function prepareRoomReload() {
+    if (mode === 'bot' && state?.phase === 'over' && state.gameOverPublishedAt) {
+      clearRoomSnapshots();
+      return false;
+    }
     return writeRoomSnapshot({ session: true, persistent: true });
   }
 
@@ -1033,6 +1042,7 @@ window.NarduController = (function () {
     ratingRetryCount = 0;
     ratingRetryScheduled = false;
     ratingPendingKey = null;
+    ratingSyncInFlight = null;
     gameOverSoundKey = null;
     botLearningRecordedKey = null;
     gameplaySoundBusyUntil = 0;
@@ -1138,6 +1148,12 @@ window.NarduController = (function () {
       if (!botAnalysisReady) {
         throw new Error('Bot room reservation was not confirmed.');
       }
+      if (restored?.phase === 'over' && ['white', 'dark'].includes(restored.winner)) {
+        state = restored;
+        adoptBotIdentity(state, true);
+        attachRuntimeStateFields(roomCode);
+        return leaveRestoredBotResult(startupGeneration);
+      }
       if (restored) {
         state = restoreBotTelemetry(restored, state);
         adoptBotIdentity(state, true);
@@ -1186,6 +1202,26 @@ window.NarduController = (function () {
     });
     botAnalysisStartupPromise = attempt;
     return attempt;
+  }
+
+  async function leaveRestoredBotResult(startupGeneration) {
+    const finished = state;
+    state.gameOverPublishedAt = new Date().toISOString();
+    clearRoomSnapshots();
+    try {
+      const player = window.NarduApp?.getUser?.();
+      if (player && !player.guest && player.ratingEligible !== false && botDifficulty !== 'hard-neuro'
+        && Number.isSafeInteger(state.finishedAt) && state.finishedAt > 0) {
+        const rating = submitRoomRating(gameResultKey(), true);
+        await waitForResultRating(rating?.syncPromise);
+      }
+    } catch (error) {
+      console.warn('Could not check rating of restored result', error?.message || error);
+    }
+    if (state !== finished || startupGeneration !== botAnalysisStartupGeneration) return false;
+    clearAll();
+    location.replace('index.html');
+    return true;
   }
 
   function waitingForLongBotExperience() {
@@ -1996,6 +2032,10 @@ window.NarduController = (function () {
     // record through one atomic RPC. Guests still publish the exact full state
     // first because their archive RPC verifies it byte-for-byte.
     const payload = botFinalStatePayload();
+    const code = remoteCode;
+    const generation = botAnalysisStartupGeneration;
+    const currentGame = () => generation === botAnalysisStartupGeneration && code === remoteCode
+      && state?.startedAt === payload.startedAt && state?.winner === payload.winner;
     const trainingState = validBotTrainingStatePayload(trainingPayload)
       ? trainingPayload
       : null;
@@ -2023,12 +2063,12 @@ window.NarduController = (function () {
         if (!ready || botAnalysisOwnershipUnknown) return false;
       }
       let lastError = null;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
+      for (let attempt = 1; attempt <= 3 && currentGame(); attempt += 1) {
         if (botAnalysisOwnershipUnknown) return false;
         try {
           const saved = await promiseWithTimeout(
             window.NarduRooms.finishRoomGame(
-              remoteCode,
+              code,
               payload,
               botAnalysisVersion,
               trainingState,
@@ -2036,6 +2076,7 @@ window.NarduController = (function () {
             BOT_ANALYSIS_WRITE_TIMEOUT_MS,
             'Finished bot game write timed out',
           );
+          if (!currentGame()) return false;
           if (Number.isFinite(saved?.version)) botAnalysisVersion = saved.version;
           state.gameOverPublishedAt = new Date().toISOString();
           if (saved?.trainingArchived === true) {
@@ -2051,17 +2092,16 @@ window.NarduController = (function () {
           return true;
         } catch (error) {
           lastError = error;
-          if (error?.status === 409 && window.NarduRooms?.getGameState) {
+          // The protected state write and archive can commit before the
+          // separate finalization call or its response fails.
+          if (currentGame() && window.NarduRooms?.getGameState) {
             try {
-              const current = await window.NarduRooms.getGameState(remoteCode);
+              const current = await promiseWithTimeout(window.NarduRooms.getGameState(code),
+                BOT_ANALYSIS_WRITE_TIMEOUT_MS, 'Finished bot game confirmation timed out');
+              if (!currentGame()) return false;
+              if (current?.state?.startedAt && current.state.startedAt !== payload.startedAt) return false;
               if (Number.isFinite(current?.version)) botAnalysisVersion = current.version;
-              const currentState = current?.state;
-              if (
-                currentState?.phase === 'over' &&
-                currentState?.winner === payload.winner &&
-                String(currentState?.finishedAt || '') === String(payload.finishedAt || '')
-              ) {
-                state.gameOverPublishedAt = new Date().toISOString();
+              if (rememberFinishedResult(current?.state, payload)) {
                 if (trainingState) {
                   archiveBotTrainingGame(trainingState, { finalStateReady: true });
                 }
@@ -2090,6 +2130,11 @@ window.NarduController = (function () {
     ]);
   }
 
+  function waitForResultRating(pending = ratingSyncInFlight) {
+    if (!pending) return Promise.resolve();
+    return Promise.race([pending, wait(3000)]);
+  }
+
   function ensureRemoteFinalStatePublished() {
     if (mode !== 'remote' || !remoteCode || !state?.winner || state.phase !== 'over') return Promise.resolve(false);
     if (state.gameOverPublishedAt) return Promise.resolve(true);
@@ -2116,7 +2161,7 @@ window.NarduController = (function () {
             const current = await window.NarduRooms.getGameState(code);
             if (!currentGame()) return false;
             if (Number.isFinite(current?.version)) remoteVersion = Math.max(remoteVersion, current.version);
-            if (rememberRemoteFinishedResult(current?.state, payload)) return true;
+            if (rememberFinishedResult(current?.state, payload)) return true;
           } catch (readError) {
             lastError = readError;
           }
@@ -2133,7 +2178,7 @@ window.NarduController = (function () {
     return pendingPublish;
   }
 
-  function rememberRemoteFinishedResult(savedState, expected = state) {
+  function rememberFinishedResult(savedState, expected = state) {
     if (savedState?.phase !== 'over' || !Number.isSafeInteger(savedState.finishedAt) || savedState.finishedAt <= 0
       || !['white', 'dark'].includes(savedState.winner) || savedState.winner !== expected.winner
       || (savedState.resultType || 'normal') !== (expected.resultType || 'normal')
@@ -5834,8 +5879,10 @@ window.NarduController = (function () {
       const sameResult = () => !spectatorMode && resultRoom === remoteCode
         && resultStartedAt === state?.startedAt && state?.winner && resultKey === gameResultKey();
       const retryRating = () => {
-        const user = NarduApp.getUser();
-        if (!sameResult() || !user || user.guest || user.ratingEligible === false) return;
+        const user = window.NarduApp?.getUser?.();
+        if ((mode !== 'remote' && mode !== 'bot') || unratedNeuralPlayerTest
+          || (mode === 'bot' && botAnalysisOwnershipUnknown)
+          || !sameResult() || !user || user.guest || user.ratingEligible === false) return;
         if (ratingRetryKey !== resultKey) {
           ratingRetryKey = resultKey;
           ratingRetryCount = 0;
@@ -5852,22 +5899,8 @@ window.NarduController = (function () {
       };
       const recordRating = () => {
         if (!sameResult() || ratingPendingKey === resultKey || localRatingRecordedKey === resultKey
-          || (mode === 'remote' && ratingRetryKey === resultKey && ratingRetryScheduled)) return;
-        const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
-          resultType: state.resultType || '',
-          winner: state.winner,
-          score: {
-            ...state.score,
-            roomCode: remoteCode || state.roomCode || '',
-            off: { ...state.off },
-            finalState: {
-              ...remoteStatePayload(),
-              history: undefined,
-            },
-          },
-          history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
-          finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
-        }));
+          || (ratingRetryKey === resultKey && ratingRetryScheduled)) return;
+        const r = safeStep('Record local rating', () => submitRoomRating(resultKey));
         if (r?.authoritativePending) {
           ratingPendingKey = resultKey;
         } else if (r) {
@@ -5878,12 +5911,13 @@ window.NarduController = (function () {
         }
         const ratingSyncFailed = () => {
           if (ratingPendingKey === resultKey) ratingPendingKey = null;
-          if (mode === 'remote') retryRating();
+          if (r?.authoritativePending) retryRating();
+          if (sameResult()) renderGameOverModal();
           return null;
         };
         if (r?.syncPromise) {
           // The modal stays usable while the server confirms the rating.
-          Promise.resolve(r.syncPromise)
+          const sync = Promise.resolve(r.syncPromise)
             .then(authoritative => {
               if (!authoritative) return ratingSyncFailed();
               if (ratingPendingKey === resultKey) ratingPendingKey = null;
@@ -5899,7 +5933,11 @@ window.NarduController = (function () {
               renderGameOverModal();
               return authoritative;
             }, ratingSyncFailed)
-            .catch(() => {});
+            .catch(() => null)
+            .finally(() => {
+              if (ratingSyncInFlight === sync) ratingSyncInFlight = null;
+            });
+          ratingSyncInFlight = sync;
         } else if (!r) retryRating();
       };
       if (mode === 'remote') {
@@ -5916,17 +5954,28 @@ window.NarduController = (function () {
           resultKey = authoritativeKey;
           recordRating();
         }, retryRating);
-      } else if (mode === 'bot' && !unratedNeuralPlayerTest && botRatingPersistenceKey !== resultKey) {
+      } else if (mode === 'bot' && !unratedNeuralPlayerTest && botRatingPersistenceKey !== resultKey
+        && localRatingRecordedKey !== resultKey && ratingPendingKey !== resultKey) {
         // record_rating_result can also finalize a bot room. Do not invoke it
         // until this exact room code has been restored or created safely.
         botRatingPersistenceKey = resultKey;
         Promise.resolve(botPublishPromise).then(persisted => {
           if (botRatingPersistenceKey === resultKey) botRatingPersistenceKey = null;
-          if (!persisted || botAnalysisOwnershipUnknown || resultKey !== gameResultKey()) return;
+          if (resultRoom !== remoteCode || resultStartedAt !== state?.startedAt
+            || state?.phase !== 'over' || (state.winner === playerColor) !== didWin) return;
+          if (!persisted || botAnalysisOwnershipUnknown) {
+            retryRating();
+            renderGameOverModal();
+            return;
+          }
+          const authoritativeKey = gameResultKey();
+          if (gameOverSoundKey === resultKey) gameOverSoundKey = authoritativeKey;
+          resultKey = authoritativeKey;
           recordRating();
           renderGameOverModal();
         }, () => {
           if (botRatingPersistenceKey === resultKey) botRatingPersistenceKey = null;
+          retryRating();
         });
       }
       if (gameOverSoundKey !== resultKey) {
@@ -5940,6 +5989,22 @@ window.NarduController = (function () {
     } finally {
       renderGameOverModal();
     }
+  }
+
+  function submitRoomRating(resultKey, onlyIfMissing = false) {
+    return NarduRating.record(opponentName, opponentRating, state.winner === playerColor, mode, resultKey, {
+      onlyIfMissing,
+      resultType: state.resultType || '',
+      winner: state.winner,
+      score: {
+        ...state.score,
+        roomCode: remoteCode || state.roomCode || '',
+        off: { ...state.off },
+        finalState: { ...remoteStatePayload(), history: undefined },
+      },
+      history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
+      finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
+    });
   }
 
   function gameResultKey() {
@@ -6007,6 +6072,9 @@ window.NarduController = (function () {
     const didWin = state.winner === playerColor;
     const resultLabel = resultTypeLabel();
     const rating = lastRatingResult?.key === gameResultKey() ? lastRatingResult : null;
+    const user = window.NarduApp?.getUser?.();
+    const showPendingRating = !practiceMode && !spectatorMode && user && !user.guest && user.ratingEligible !== false
+      && (mode === 'remote' || (mode === 'bot' && botDifficulty !== 'hard-neuro'));
 
     let modal = document.getElementById('game-over');
     if (!modal) {
@@ -6026,7 +6094,9 @@ window.NarduController = (function () {
       <div class="go-rating">
         <span class="go-r-num">${rating.rating}</span>
         <span class="go-r-delta ${rating.delta >= 0 ? 'up' : 'down'}">${rating.delta >= 0 ? '+' : ''}${rating.delta}</span>
-      </div>` : '';
+      </div>` : showPendingRating ? `<div class="go-note" role="status">${tr('rating_pending')}</div>
+      ${ratingRetryCount >= 3 && !ratingRetryScheduled && !ratingPendingKey
+        ? `<button class="go-btn" type="button" id="go-rating-retry">${tr('rating_retry')}</button>` : ''}` : '';
     modal.innerHTML = `
       <div class="go-card">
         <div class="go-emoji">${mode === 'hotseat' ? '🎲' : (didWin ? '🏆' : '×')}</div>
@@ -6039,6 +6109,10 @@ window.NarduController = (function () {
       </div>
     `;
     requestAnimationFrame(() => modal.classList.add('show'));
+    document.getElementById('go-rating-retry')?.addEventListener('click', () => {
+      ratingRetryCount = 0;
+      onGameOver();
+    });
     document.getElementById('go-again')?.addEventListener('click', requestRematchOrStart);
     document.getElementById('rematch-yes')?.addEventListener('click', acceptRematch);
     document.getElementById('rematch-no')?.addEventListener('click', declineRematch);
@@ -6050,6 +6124,7 @@ window.NarduController = (function () {
         return;
       }
       await waitForFinishedBotPersistence();
+      await waitForResultRating();
       leaveRoomToLobby(true);
     });
   }
@@ -6067,6 +6142,7 @@ window.NarduController = (function () {
       if (!claimGameOverAction('again')) return;
       if (mode === 'bot') {
         await waitForFinishedBotPersistence();
+        await waitForResultRating();
         startBotGameInNewRoom();
         return;
       }

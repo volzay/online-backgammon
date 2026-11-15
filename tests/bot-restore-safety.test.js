@@ -26,12 +26,16 @@ function controllerHarness({
   ensureBotAnalysisRoom,
   putGameState,
   finishRoomGame,
+  recordRating,
+  player = { id: 'user-1', name: 'Tester', guest: false },
   restoreTimeoutMs = 10,
   restoreRetryDelayMs = 400,
   roomSearch = ROOM_SEARCH,
 } = {}) {
   const sessionStorage = memoryStorage();
   const calls = { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 };
+  const ratings = [];
+  const redirects = [];
   const events = new Map();
   const listen = (type, callback) => events.set(type, callback);
   let gameOverModal = null;
@@ -67,13 +71,15 @@ function controllerHarness({
     addEventListener: listen,
     setTimeout: boundedSetTimeout,
     NarduApp: {
-      getUser() { return { id: 'user-1', name: 'Tester', guest: false }; },
+      getUser() { return player; },
       paintUser() {},
       formatRating() { return '1000'; },
     },
     NarduRating: {
-      record() {
+      record(...args) {
         calls.rating += 1;
+        ratings.push(args);
+        if (recordRating) return recordRating(...args);
         return { delta: 1, rating: 1001 };
       },
     },
@@ -94,9 +100,9 @@ function controllerHarness({
         if (putGameState) return putGameState(...args);
         return { ok: true, version: 8 };
       },
-      async finishRoomGame() {
+      async finishRoomGame(...args) {
         calls.finish += 1;
-        if (finishRoomGame) return finishRoomGame();
+        if (finishRoomGame) return finishRoomGame(...args);
         return { ok: true, version: 9, trainingArchived: true };
       },
       async archiveBotTrainingGame() {
@@ -130,6 +136,7 @@ function controllerHarness({
       pathname: '/room.html',
       search: roomSearch,
       hostname: 'example.test',
+      replace(destination) { redirects.push(destination); },
     },
     history: { replaceState() {} },
   };
@@ -159,6 +166,8 @@ function controllerHarness({
     context,
     controller: window.NarduController,
     localStorage,
+    ratings,
+    redirects,
     window,
     fire: type => events.get(type)?.(),
   };
@@ -624,6 +633,131 @@ test('a hung final write cannot trap finished-game navigation or record rating',
   assert.equal(await harness.controller.__restoreSafetyTest.waitForFinishedBotPersistence(), false);
   assert.equal(harness.calls.finish, 1);
   assert.equal(harness.calls.rating, 0);
+});
+
+test('a finished bot room can confirm rating when the finalizer fails after saving', async () => {
+  let stored;
+  const harness = controllerHarness({
+    getGameState: async () => ({ state: stored, version: 8 }),
+    finishRoomGame: async (_code, finalState) => {
+      stored = finalState;
+      throw Object.assign(new Error('Finalizer response lost'), { status: 504 });
+    },
+  });
+  stored = { ...harness.window.NarduGame.initialState('long'), mode: 'bot', botDifficulty: 'hard', roomCode: 'SAFE-BOT' };
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  finishLocally(harness.controller);
+  assert.equal(await harness.controller.__restoreSafetyTest.waitForFinishedBotPersistence(), true);
+  assert.equal(harness.calls.finish, 1);
+  assert.equal(harness.calls.rating, 1);
+  assert.equal(harness.controller.getState().finishedAt, stored.finishedAt);
+});
+
+function storeRoomSnapshot(storage, state) {
+  storage.setItem(SNAPSHOT_KEY, JSON.stringify({
+    v: 1,
+    at: Date.now(),
+    signature: `/room.html${ROOM_SEARCH}`,
+    mode: 'bot',
+    playerColor: 'white',
+    roomCode: 'SAFE-BOT',
+    state,
+  }));
+}
+
+test('reloading a completed bot room only reconciles its authoritative rating and returns to the lobby', async () => {
+  let serverState;
+  let resolveRating;
+  const syncPromise = new Promise(resolve => { resolveRating = resolve; });
+  const harness = controllerHarness({
+    getGameState: async () => ({ state: serverState, version: 8 }),
+    recordRating: () => ({ authoritativePending: true, syncPromise }),
+  });
+  const { calls, context, controller, localStorage, ratings, redirects, window } = harness;
+  let learningCalls = 0;
+  window.NarduStrongBot = { learnFromGame() { learningCalls += 1; } };
+  serverState = {
+    ...window.NarduGame.initialState('long'),
+    mode: 'bot',
+    botDifficulty: 'hard',
+    roomCode: 'SAFE-BOT',
+    phase: 'over',
+    winner: 'white',
+    resultType: 'normal',
+    finishedAt: 1794750000000,
+  };
+  storeRoomSnapshot(localStorage, { ...serverState, finishedAt: serverState.finishedAt - 500 });
+
+  init(controller);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.rating, 1);
+  assert.deepEqual(redirects, []);
+  const [[, , didWin, mode, key, details]] = ratings;
+  assert.equal(didWin, true);
+  assert.equal(mode, 'bot');
+  assert.equal(key, `${serverState.finishedAt}:white:normal`);
+  assert.equal(details.score.roomCode, 'SAFE-BOT');
+  assert.equal(details.score.finalState.finishedAt, serverState.finishedAt);
+  assert.equal(details.onlyIfMissing, true);
+
+  resolveRating({ delta: 19, rating: 1019 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(redirects, ['index.html']);
+  assert.equal(learningCalls, 0);
+  assert.equal(context.document.getElementById('game-over'), null);
+  assert.equal(localStorage.getItem(SNAPSHOT_KEY), null);
+  assert.equal(controller.prepareRoomReload(), false, 'pagehide must not restore the cleared terminal snapshot');
+  assert.equal(localStorage.getItem(SNAPSHOT_KEY), null);
+  assert.deepEqual(calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 1 });
+});
+
+test('a guest reloading a finished bot room returns to the lobby without requesting rating', async () => {
+  let serverState;
+  const { calls, controller, redirects, window } = controllerHarness({
+    getGameState: async () => ({ state: serverState, version: 8 }),
+    player: { id: 'guest-1', name: 'Guest', guest: true },
+  });
+  serverState = {
+    ...window.NarduGame.initialState('long'),
+    mode: 'bot',
+    botDifficulty: 'hard',
+    roomCode: 'SAFE-BOT',
+    phase: 'over',
+    winner: 'dark',
+    finishedAt: 1794750000000,
+  };
+  init(controller);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(redirects, ['index.html']);
+  assert.deepEqual(calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 });
+});
+
+test('a terminal local snapshot cannot send a still-live server bot room to the lobby', async () => {
+  let serverState;
+  const harness = controllerHarness({ getGameState: async () => ({ state: serverState, version: 7 }) });
+  const { calls, controller, localStorage, redirects, window } = harness;
+  serverState = {
+    ...window.NarduGame.initialState('long'),
+    mode: 'bot',
+    botDifficulty: 'hard',
+    roomCode: 'SAFE-BOT',
+    phase: 'move',
+    turn: 'white',
+    dice: [2, 1],
+    rolled: [2, 1],
+  };
+  storeRoomSnapshot(localStorage, { ...serverState, phase: 'over', winner: 'white', finishedAt: Date.now() });
+
+  init(controller);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(redirects, []);
+  assert.equal(controller.getState().phase, 'move');
+  assert.equal(controller.getState().winner, null);
+  assert.equal(controller.getState().dice.join(','), '2,1');
+  assert.equal(controller.prepareRoomReload(), true);
+  assert.deepEqual(calls, { ensure: 0, put: 0, finish: 0, archive: 0, rating: 0 });
 });
 
 test('a local reload snapshot remains writable after the server room is restored', async () => {

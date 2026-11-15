@@ -23,7 +23,7 @@ function ratingHarness(rpcResult) {
     window: { NarduApp: app, NarduSupabase: {
       configured: () => true,
       client: async () => ({
-        auth: { getUser: async () => ({ data: { user: { id: user.id } }, error: null }) },
+        auth: { getSession: async () => ({ data: { session: { user: { id: user.id } } }, error: null }) },
         rpc: async (name, payload) => { calls.push({ name, payload }); return rpcResult; },
         from: () => { throw new Error('remote rating must not use direct profile/event fallback'); },
       }),
