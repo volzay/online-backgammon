@@ -38,6 +38,7 @@ function authRuntime({
   const authUser = {
     id: 'user-1',
     email: 'player@example.test',
+    created_at: '2026-11-15T07:00:00Z',
     user_metadata: { nickname: 'tester1', ...(signupGuide ? { site_guide_signup: true } : {}) },
   };
   const profile = {
@@ -492,4 +493,11 @@ test('email confirmation offers the site guide only for a new signup and never f
     const { auth } = authRuntime({ signupGuide, href: `https://example.test/login.html?${recovery ? 'recovery=1&' : ''}code=fixture` });
     assert.equal((await auth.handleAuthRedirect()).showSiteGuide, expected);
   }
+});
+
+
+test('password login carries account creation time into the lobby profile', async () => {
+  const { auth } = authRuntime();
+  const { user } = await auth.login({ identifier: 'tester1', password: 'secret12' });
+  assert.equal(user.createdAt, '2026-11-15T07:00:00Z');
 });

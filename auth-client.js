@@ -11,6 +11,7 @@
       name: nickname,
       nickname,
       email: profile.email || authUser.email || "",
+      createdAt: authUser.created_at || null,
       rating,
       tier: profile.tier || NarduApp.ratingTierFor(rating),
       ratingEligible: profile.rating_eligible !== false,
