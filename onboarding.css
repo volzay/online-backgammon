@@ -274,14 +274,6 @@
   text-decoration: none;
 }
 
-.practice-room .action-controls {
-  flex-wrap: wrap;
-}
-
-.practice-room .action-main {
-  flex-wrap: wrap;
-}
-
 .practice-action {
   min-height: 44px;
   height: auto;
@@ -314,12 +306,6 @@
 
   .practice-guide .onboarding-text {
     font-size: 13px;
-  }
-
-  .practice-room .action-main .action-controls {
-    display: flex;
-    justify-content: flex-start;
-    width: 100%;
   }
 }
 
@@ -371,10 +357,10 @@ body.practice-room {
   visibility: hidden;
 }
 
-.practice-room.board-focus .action-tray .dice-row:has(.tray-die) {
+.practice-room.board-focus .action-tray .dice-row {
   display: flex !important;
   justify-content: center;
-  min-height: 0;
+  min-height: 26px;
   gap: 4px;
 }
 
@@ -394,9 +380,26 @@ body.practice-room {
   display: none;
 }
 
+body.practice-room .action-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
 .practice-room .action-controls {
+  grid-row: 1;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
   max-width: 100%;
   min-width: 0;
+}
+
+.practice-room:not(.board-focus) .action-bear {
+  order: 1;
+}
+
+.practice-room:not(.board-focus) .dice-row {
+  flex-wrap: wrap;
 }
 
 .practice-room .action-controls .practice-action,

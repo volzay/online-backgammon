@@ -2723,7 +2723,7 @@ window.NarduController = (function () {
     });
 
     if (state.dice.length === 0) {
-      addDiceMessage(row, tr(practiceMode ? 'practice_confirm' : 'dice_done'));
+      if (!practiceMode) addDiceMessage(row, tr('dice_done'));
     } else if (!NarduGame.hasAnyMoves(state)) {
       addDiceMessage(row, tr('dice_no_moves'));
     }
