@@ -2013,7 +2013,7 @@ if (!isWaitingHost) {
 if (practiceRoom) {
   document.body.classList.add('practice-room');
   document.querySelectorAll('[data-practice-room]').forEach(element => { element.hidden = false; });
-  document.querySelectorAll('[data-regular-room], [data-board-focus], [data-room-reload]').forEach(element => { element.hidden = true; });
+  document.querySelectorAll('[data-regular-room], [data-room-reload]').forEach(element => { element.hidden = true; });
 }
 NarduController.setRenderer(fullBoardRender);
 NarduController.init({
@@ -2388,6 +2388,11 @@ document.querySelectorAll('.lang-switch button').forEach(btn => {
   btn.addEventListener('click', () => applyLang(btn.dataset.langSet));
 });
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && practiceRoom && document.body.classList.contains('board-focus')) {
+    e.preventDefault();
+    exitBoardFocus();
+    return;
+  }
   if (e.key === 'l' || e.key === 'L') NarduApp.applyLang(LANG === 'ru' ? 'en' : 'ru');
 });
 window.addEventListener('nardu:langchange', ({ detail }) => {

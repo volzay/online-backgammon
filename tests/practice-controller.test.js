@@ -26,6 +26,7 @@ function setup(t) {
   const events = [];
   const mutations = [];
   let reloads = 0;
+  let diceSounds = 0;
   location.reload = () => { reloads += 1; };
   function element(id) {
     const result = {
@@ -70,7 +71,7 @@ function setup(t) {
     localStorage: { getItem() { return null; }, setItem(key) { mutations.push(key); }, removeItem(key) { mutations.push(key); } },
     sessionStorage: { getItem() { return null; }, setItem(key) { mutations.push(key); }, removeItem(key) { mutations.push(key); } },
     history: { replaceState() { mutations.push('url'); } },
-    NarduSound: { prime() {}, dice() {}, move() {}, click() {} },
+    NarduSound: { prime() {}, dice() { diceSounds += 1; }, move() {}, click() {} },
     NarduBoardEngine: { animateDiceRoll: async () => {}, animateCheckerMove: async () => {} },
     NarduRating: service,
   });
@@ -82,7 +83,7 @@ function setup(t) {
   return { controller: window.NarduController, game: context.NarduGame, roll, confirm, undo, events, mutations,
     click: id => listeners.get(`${id}:click`)(),
     hasClickHandler: id => listeners.has(`${id}:click`), gameOver: () => elements.get('game-over')?.innerHTML,
-    get reloads() { return reloads; } };
+    get reloads() { return reloads; }, get diceSounds() { return diceSounds; } };
 }
 
 async function until(condition) {
@@ -93,10 +94,20 @@ async function until(condition) {
   assert.fail('Expected practice state was not reached');
 }
 
+async function playPracticeMove({ controller, game, undo }) {
+  const state = controller.getState();
+  const move = game.legalNextMoves(state)[0];
+  const previousMoves = state.turnMoves.length;
+  controller.onPointClick(move.from);
+  controller.onPointClick(move.to);
+  await until(() => controller.getState().turnMoves.length > previousMoves && !undo.disabled);
+}
+
 test('practice rolls automatically on both player turns and waits for manual confirmation before the bot replies', async t => {
-  const { controller, game, roll, confirm, undo, events, mutations, click, hasClickHandler } = setup(t);
+  const practice = setup(t);
+  const { controller, roll, confirm, undo, events, mutations, click, hasClickHandler } = practice;
   controller.init({ practice: true, freshGame: true, difficulty: 'hard' });
-  let state = controller.getState();
+  const state = controller.getState();
   assert.equal(state.mode, 'bot');
   assert.equal(state.variant, 'long');
   assert.equal(state.botDifficulty, 'easy');
@@ -121,19 +132,11 @@ test('practice rolls automatically on both player turns and waits for manual con
   click('practice-confirm');
   assert.equal(controller.getState().turn, 'white');
 
-  const play = async () => {
-    state = controller.getState();
-    const move = game.legalNextMoves(state)[0];
-    const previousMoves = state.turnMoves.length;
-    controller.onPointClick(move.from);
-    controller.onPointClick(move.to);
-    await until(() => controller.getState().turnMoves.length > previousMoves && !undo.disabled);
-  };
-  await play();
+  await playPracticeMove(practice);
   click('undo-btn');
   assert.equal(controller.getState().turnMoves.length, 0);
   assert.equal(undo.disabled, true);
-  while (confirm.disabled) await play();
+  while (confirm.disabled) await playPracticeMove(practice);
   await new Promise(resolve => setTimeout(resolve, 15));
   assert.equal(controller.getState().turn, 'white', 'the player may undo before manually confirming');
   click('practice-confirm');
@@ -150,6 +153,39 @@ test('practice rolls automatically on both player turns and waits for manual con
   assert.deepEqual(mutations, []);
 });
 
+test('the practice guide holds the first bot roll so the player can check their roll', async t => {
+  const practice = setup(t);
+  const { controller, confirm, click, mutations } = practice;
+  controller.init({ practice: true });
+  controller.setPracticeGuideActive(true);
+  await until(() => controller.getPracticeStatus().canMove);
+  const playerRollHash = controller.getPracticeStatus().rollHash;
+  assert.ok(playerRollHash);
+  while (confirm.disabled) await playPracticeMove(practice);
+  click('practice-confirm');
+
+  const { history, turnClock } = controller.getState();
+  const journalAtConfirmation = history.slice();
+  assert.equal(controller.getPracticeStatus().confirmed, true);
+  assert.equal(controller.getPracticeStatus().rollHash, playerRollHash);
+  assert.equal(controller.getState().turn, 'dark');
+  assert.equal(controller.getState().phase, 'roll');
+  assert.equal(turnClock.active, null);
+  assert.equal(practice.diceSounds, 1);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  controller.render();
+  assert.deepEqual(controller.getState().history, journalAtConfirmation);
+  assert.equal(controller.getState().turnClock.dark, turnClock.dark);
+  assert.equal(practice.diceSounds, 1);
+
+  controller.setPracticeGuideActive(false);
+  await until(() => controller.getPracticeStatus().canMove);
+  assert.equal(controller.getState().turn, 'white');
+  const opponentRolls = controller.getState().history.filter(event => event.color === 'dark' && event.roll);
+  assert.equal(opponentRolls.length, 1);
+  assert.equal(practice.diceSounds, 3);
+  assert.deepEqual(mutations, []);
+});
 
 test('finishing or restarting practice stays local and leaves account ratings and rooms untouched', t => {
   const practice = setup(t);

@@ -10,6 +10,7 @@
   let undone = false;
   let previousMoveCount = 0;
   let firstRollHash = '';
+  let verificationDone = false;
   let lastStep;
   let active = true;
   let highlights = [];
@@ -17,25 +18,29 @@
   const copy = {
     ru: {
       guide: 'Пробная партия', skip: 'Пропустить гайд', leave: 'В лобби', done: 'Продолжить игру', point: 'Пункт',
+      check: 'Проверить бросок', next: 'Далее', unavailable: 'Эта запись броска недоступна. Можно перейти дальше.',
+      fullscreen: 'Для полноэкранного режима нажмите «Развернуть поле» над доской. Чтобы выйти, нажмите значок «Свернуть поле» под доской.',
       roll: ['Автоматический бросок', 'Вы играете белыми в длинные нарды. После броска выберите шашку.'],
       select: ['Выберите шашку', 'Нажмите на подсвеченную белую шашку. После выбора подсветятся доступные пункты.'],
       move: ['Передвиньте шашку', 'Нажмите на один из подсвеченных пунктов. Шашка переместится на выбранное место.'],
       undo: ['Попробуйте отмену', 'Нажмите «Отменить ход», чтобы вернуть последнее перемещение. Дальше можно сыграть тот же ход или выбрать другой.'],
       'finish-moves': ['Сыграйте оставшиеся значения', 'Выберите белую шашку и доступный пункт. Используйте значения на кубиках, пока не станет доступно подтверждение.'],
       confirm: ['Подтвердите ход', 'Нажмите «Подтвердить ход». После этого ход перейдёт к боту.'],
-      verify: ['Проверьте свой бросок', 'В «Ходе партии» нажмите «Проверить» рядом со своим броском. В пробной партии проверка сверяет кубики с записью SHA‑256, созданной в браузере.'],
-      complete: ['Ход завершён', 'Вы передвинули шашку, подтвердили ход и проверили бросок. Можно продолжить партию или вернуться в лобби.'],
+      verify: ['Проверьте свой бросок', 'Игра на паузе. Нажмите «Проверить бросок» здесь или «Проверить» возле броска в истории. Кнопка «Далее» завершает этот шаг.'],
+      complete: ['Ход завершён', 'Нажмите «Продолжить игру», чтобы передать ход боту. Можно также вернуться в лобби.'],
     },
     en: {
       guide: 'Practice game', skip: 'Skip guide', leave: 'Back to lobby', done: 'Keep playing', point: 'Point',
+      check: 'Check roll', next: 'Next', unavailable: 'This roll record is unavailable. You can still continue.',
+      fullscreen: 'Select Expand board above the board for full screen. To return, select the Exit board view icon below the board.',
       roll: ['Automatic dice roll', 'You are playing white in long backgammon. Choose a checker once the dice settle.'],
       select: ['Choose a checker', 'Select the highlighted white checker to see its available destinations.'],
       move: ['Move the checker', 'Select a highlighted point to move the checker there.'],
       undo: ['Try undoing a move', 'Select Undo move to put the last checker back. You can then play the same move or choose a different one.'],
       'finish-moves': ['Play the remaining dice', 'Choose a white checker and an available destination. Use the dice until the turn can be confirmed.'],
       confirm: ['Confirm your turn', 'Select Confirm turn to pass play to the bot.'],
-      verify: ['Check your roll', 'Select Check roll beside your roll in the move history. In practice, this compares the dice with the SHA‑256 record created in your browser.'],
-      complete: ['Turn complete', 'You moved a checker, confirmed your turn and checked your roll. You can keep playing or return to the lobby.'],
+      verify: ['Check your roll', 'The game is paused. Select Check roll here or beside your roll in the move history. Select Next to finish this step.'],
+      complete: ['Turn complete', 'Select Keep playing to let the bot take its turn, or return to the lobby.'],
     },
   };
   const labels = () => copy[document.documentElement.lang === 'en' ? 'en' : 'ru'];
@@ -60,22 +65,29 @@
         <p class="onboarding-progress"></p>
         <h2 class="onboarding-title"></h2>
         <p class="onboarding-text"></p>
+        <p class="onboarding-text practice-guide-proof" hidden></p>
       </div>
       <div class="practice-guide-actions">
         <button class="ghostbtn practice-guide-skip" type="button"></button>
         <a class="ghostbtn practice-guide-lobby" hidden></a>
+        <button class="ghostbtn practice-guide-check" type="button" hidden></button>
         <button class="pillbtn practice-guide-next" type="button" hidden></button>
       </div>
+      <p class="onboarding-text practice-guide-fullscreen"></p>
     </aside>`;
   const guide = slot.firstElementChild;
   const title = guide.querySelector('.onboarding-title');
   const text = guide.querySelector('.onboarding-text');
+  const proof = guide.querySelector('.practice-guide-proof');
+  const fullscreen = guide.querySelector('.practice-guide-fullscreen');
   const progress = guide.querySelector('.onboarding-progress');
   const skip = guide.querySelector('.practice-guide-skip');
   const leave = guide.querySelector('.practice-guide-lobby');
+  const check = guide.querySelector('.practice-guide-check');
   const next = guide.querySelector('.practice-guide-next');
   const history = document.getElementById('history-list');
   const confirm = document.getElementById('practice-confirm');
+  const expand = document.querySelector('.mobile-board-toggle');
   let current = window.NarduController?.getPracticeStatus?.();
   let keyboardPoint = false;
 
@@ -91,7 +103,9 @@
     save(status);
     const restoreFocus = guide.contains(document.activeElement);
     slot.hidden = true;
-    if (restoreFocus) (document.querySelector('.practice-action:enabled') || document.querySelector('[data-room-lobby]'))?.focus({ preventScroll: true });
+    if (expand) expand.hidden = false;
+    window.NarduController?.setPracticeGuideActive?.(false);
+    if (restoreFocus) (document.querySelector('.practice-action:enabled') || expand || document.querySelector('[data-room-lobby]'))?.focus({ preventScroll: true });
   }
 
   function clearHighlights() {
@@ -113,11 +127,16 @@
   }
 
   function reveal(element) {
+    if (document.body.classList.contains('board-focus')) return;
     const rect = element.getBoundingClientRect();
     const top = Math.max(0, slot.getBoundingClientRect().bottom);
     if (rect.top < top + 8 || rect.bottom > document.documentElement.clientHeight - 8) {
       element.scrollIntoView({ block: 'center', behavior: 'instant' });
     }
+  }
+
+  function rollControl() {
+    return [...history.querySelectorAll('[data-verify-roll]')].find(button => button.dataset.verifyHash === firstRollHash);
   }
 
   function paint() {
@@ -133,14 +152,11 @@
     if (moveCount > 0 && !current.confirmed) undoShown = true;
     if (undoShown && moveCount < previousMoveCount && !current.confirmed) undone = true;
     previousMoveCount = moveCount;
-    const verify = [...history.querySelectorAll('[data-verify-roll]')].find(button => button.dataset.verifyHash === firstRollHash);
-    const result = verify?.closest('.fair-hash')?.querySelector('[data-roll-result]');
     let step = 'roll';
     let targets = [];
     if (current.confirmed) {
-      const matched = ['matched', 'verified'].includes(result?.dataset.status);
-      step = lastStep === 'complete' || matched ? 'complete' : 'verify';
-      targets = step === 'verify' ? [verify] : [];
+      step = verificationDone ? 'complete' : 'verify';
+      if (step === 'verify') targets = [rollControl()];
     } else if (phase === 'move' && canMove) {
       if (undoShown && !undone) {
         step = 'undo';
@@ -156,7 +172,14 @@
       return;
     }
 
-    const focusedTarget = highlights.find(element => element === document.activeElement);
+    const verifying = step === 'verify';
+    const complete = step === 'complete';
+    const verify = verifying ? targets[0] : null;
+    const result = verify?.closest('.fair-hash')?.querySelector('[data-roll-result]');
+    const status = verifying && (verify ? result?.textContent : strings.unavailable);
+    proof.hidden = !status;
+    if (status && status !== proof.textContent) proof.textContent = status;
+    check.disabled = !verify || verify.disabled;
     clearHighlights();
     highlights = targets.filter(Boolean);
     for (const element of highlights) {
@@ -168,25 +191,33 @@
       }
     }
     const change = lastStep !== step;
+    if (verifying && change && document.body.classList.contains('board-focus')) {
+      document.querySelector('.action-exit-focus')?.click();
+    }
     if (change || title.textContent !== strings[step][0]) {
       guide.dataset.practiceStep = step;
       guide.setAttribute('aria-label', strings.guide);
       progress.textContent = strings.guide;
       [title.textContent, text.textContent] = strings[step];
+      fullscreen.textContent = strings.fullscreen;
+      fullscreen.hidden = verifying || complete;
+      if (expand) expand.hidden = verifying || complete;
       skip.textContent = strings.skip;
-      skip.hidden = step === 'complete';
+      skip.hidden = complete;
       leave.textContent = strings.leave;
-      leave.hidden = step !== 'complete';
+      leave.hidden = !complete;
       leave.href = lobby;
-      next.textContent = strings.done;
-      next.hidden = step !== 'complete';
-      if (step === 'complete') save('completed');
+      check.textContent = strings.check;
+      check.hidden = !verifying;
+      next.textContent = verifying ? strings.next : strings.done;
+      next.hidden = !verifying && !complete;
+      if (complete) save('completed');
     }
     const target = highlights[0];
-    if (target && (change || keyboardPoint)) reveal(target);
+    if (target && !verifying && (change || keyboardPoint)) reveal(target);
     if (target && keyboardPoint && !target.disabled) target.focus({ preventScroll: true });
     keyboardPoint = false;
-    if (step === 'complete' && change && focusedTarget === verify) next.focus({ preventScroll: true });
+    if (verifying && change) (check.disabled ? next : check).focus({ preventScroll: true });
     lastStep = step;
   }
 
@@ -218,11 +249,18 @@
   }
 
   skip.addEventListener('click', () => finish('skipped'));
-  next.addEventListener('click', () => finish('completed'));
+  check.addEventListener('click', () => rollControl()?.click());
+  next.addEventListener('click', () => {
+    if (lastStep === 'verify') {
+      verificationDone = true;
+      paint();
+    } else if (lastStep === 'complete') finish('completed');
+  });
   const observer = new MutationObserver(schedule);
-  observer.observe(history, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status'] });
+  observer.observe(history, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status', 'disabled'] });
   window.addEventListener('nardu:practicechange', update);
   window.addEventListener('nardu:langchange', schedule);
   document.addEventListener('keydown', handleKey);
+  window.NarduController?.setPracticeGuideActive?.(true);
   schedule();
 })();

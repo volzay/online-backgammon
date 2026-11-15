@@ -11,6 +11,7 @@ window.NarduController = (function () {
   let state;
   let mode = 'bot';
   let practiceMode = false;
+  let practiceGuideActive = false;
   let practiceConfirmed = false;
   let practiceRollHash = '';
   let playerColor = 'white';
@@ -191,6 +192,7 @@ window.NarduController = (function () {
       dice_your_first: 'Ваш первый ход',
       dice_auto_roll: 'Кубики бросаются автоматически…',
       practice_confirm: 'Подтвердите ход',
+      practice_paused: 'Пауза · проверка броска',
       dice_done: 'Ход завершён',
       dice_no_moves: 'Нет доступных ходов',
       turn_first: 'Первый ход',
@@ -276,6 +278,7 @@ window.NarduController = (function () {
       dice_your_first: 'Your first move',
       dice_auto_roll: 'Dice roll automatically…',
       practice_confirm: 'Confirm your turn',
+      practice_paused: 'Paused · check your roll',
       dice_done: 'Move finished',
       dice_no_moves: 'No available moves',
       turn_first: 'First move',
@@ -932,6 +935,7 @@ window.NarduController = (function () {
     const url = new URL(location.href);
     const freshGame = opts.freshGame === true;
     practiceMode = opts.practice === true;
+    practiceGuideActive = false;
     practiceConfirmed = false;
     practiceRollHash = '';
     mode = practiceMode ? 'bot' : opts.mode || url.searchParams.get('mode') || 'bot';
@@ -2678,6 +2682,7 @@ window.NarduController = (function () {
     row.innerHTML = '';
 
     if (state.phase === 'over') return;
+    if (practiceMode && practiceGuidePaused()) return;
 
     if (botAnalysisRestorePending) {
       addDiceMessage(row, tr(botAnalysisRestoreError ? 'restore_failed' : 'preparing'));
@@ -2718,7 +2723,7 @@ window.NarduController = (function () {
     });
 
     if (state.dice.length === 0) {
-      addDiceMessage(row, tr(practiceMode ? 'practice_confirm' : 'dice_done'));
+      if (!practiceMode) addDiceMessage(row, tr('dice_done'));
     } else if (!NarduGame.hasAnyMoves(state)) {
       addDiceMessage(row, tr('dice_no_moves'));
     }
@@ -2841,7 +2846,10 @@ window.NarduController = (function () {
         tone: 'active',
       };
     }
-    if (!isMyTurn()) return { text: tr('turn_other', { name: activeName }), tone: 'waiting' };
+    if (!isMyTurn()) {
+      if (practiceMode && practiceGuidePaused()) return { text: tr('practice_paused'), tone: 'waiting' };
+      return { text: tr('turn_other', { name: activeName }), tone: 'waiting' };
+    }
     if (state.phase === 'opening-result') return { text: tr('turn_your_first_roll'), tone: 'active' };
     if (state.phase === 'roll' || isRolling) {
       return { text: tr('turn_your_roll'), tone: 'active' };
@@ -2953,7 +2961,7 @@ window.NarduController = (function () {
   }
 
   function clockActiveColor() {
-    if (!state || state.winner || state.finishedAt) return null;
+    if (!state || state.winner || state.finishedAt || (practiceMode && practiceGuidePaused())) return null;
     if (state.phase === 'waiting' || state.phase === 'opening' || state.phase === 'over') return null;
     return state.turn === 'white' || state.turn === 'dark' ? state.turn : null;
   }
@@ -3460,6 +3468,7 @@ window.NarduController = (function () {
 
   /* ── user actions ─────────────────────────── */
   function scheduleAutoRoll(ms = 200) {
+    if (practiceMode && practiceGuidePaused()) return;
     if (botAnalysisRestorePending || state.phase !== 'roll' || state.phase === 'over' || isRolling || autoRollTimer) return;
     if (mode === 'remote' && !isMyTurn()) return;
     autoRollTimer = schedule(() => {
@@ -3643,6 +3652,20 @@ window.NarduController = (function () {
       && (state.dice.length === 0 || !NarduGame.hasAnyMoves(state));
   }
 
+  function practiceGuidePaused() {
+    return practiceGuideActive && practiceConfirmed;
+  }
+
+  function setPracticeGuideActive(active) {
+    if (!practiceMode || practiceGuideActive === active) return;
+    const wasPaused = practiceGuidePaused();
+    practiceGuideActive = active;
+    if (wasPaused && !active) {
+      render();
+      ensureAutoProgress(NEXT_ROLL_DELAY_MS);
+    }
+  }
+
   function getPracticeStatus() {
     if (!practiceMode || !state) return null;
     return {
@@ -3680,7 +3703,7 @@ window.NarduController = (function () {
     isRolling = true;
     try {
       NarduSound.prime();
-      NarduSound.dice();
+      if (!practiceMode) NarduSound.dice();
       const fair = await shaDiceRoll({ label: 'turn-roll', color: rollingTurn });
       if (generation !== botAnalysisStartupGeneration) return;
       if (fair.proof && (state.history?.some(item => item.fairDiceProof?.request?.id === fair.proof.request.id)
@@ -3716,6 +3739,7 @@ window.NarduController = (function () {
       if (boardDiceLayer) boardDiceLayer.dataset.boardDiceCount = String(boardFaces.length);
 
       const rollToken = state.rollToken;
+      if (practiceMode) NarduSound.dice();
       visualAnimationWithDeadline(() => Promise.all([
         NarduBoardEngine.animateDiceRoll({
           layer: boardDiceLayer,
@@ -6153,6 +6177,7 @@ window.NarduController = (function () {
     init,
     getState,
     getPracticeStatus,
+    setPracticeGuideActive,
     render,
     setRenderer,
     onPointClick,

@@ -258,6 +258,10 @@
   margin: 4px 0 0;
 }
 
+.practice-guide .practice-guide-fullscreen {
+  flex-basis: 100%;
+}
+
 .practice-guide-actions {
   display: flex;
   flex-wrap: wrap;
@@ -268,14 +272,6 @@
 .practice-guide-actions a {
   min-height: 44px;
   text-decoration: none;
-}
-
-.practice-room .action-controls {
-  flex-wrap: wrap;
-}
-
-.practice-room .action-main {
-  flex-wrap: wrap;
 }
 
 .practice-action {
@@ -311,12 +307,6 @@
   .practice-guide .onboarding-text {
     font-size: 13px;
   }
-
-  .practice-room .action-main .action-controls {
-    display: flex;
-    justify-content: flex-start;
-    width: 100%;
-  }
 }
 
 @media (max-height: 450px) {
@@ -341,9 +331,75 @@ body.practice-room {
   overflow-x: clip;
 }
 
+.practice-room:not(.board-focus) .mobile-board-toggle {
+  display: inline-flex;
+}
+
+.practice-room.board-focus #practice-guide-slot {
+  display: none;
+}
+
+.practice-room.board-focus .board-wrap {
+  flex: 1 1 0;
+  height: auto;
+  container-type: size;
+}
+
+.practice-room.board-focus .board {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  max-width: min(100%, 175cqh);
+}
+
+/* The board dice can have positions from before the viewport resized. */
+.practice-room.board-focus .center:has(.tray-die) .board-dice-layer {
+  visibility: hidden;
+}
+
+.practice-room.board-focus .action-tray .dice-row {
+  display: flex !important;
+  justify-content: center;
+  min-height: 26px;
+  gap: 4px;
+}
+
+.practice-room.board-focus .dice-row .tray-die {
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.practice-room.board-focus .dice-row .pip {
+  width: 4px;
+  height: 4px;
+}
+
+.practice-room.board-focus .dice-row .dice-wait {
+  display: none;
+}
+
+body.practice-room .action-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
 .practice-room .action-controls {
+  grid-row: 1;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
   max-width: 100%;
   min-width: 0;
+}
+
+.practice-room:not(.board-focus) .action-bear {
+  order: 1;
+}
+
+.practice-room:not(.board-focus) .dice-row {
+  flex-wrap: wrap;
 }
 
 .practice-room .action-controls .practice-action,
