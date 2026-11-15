@@ -366,6 +366,34 @@ body.practice-room {
   max-width: min(100%, 175cqh);
 }
 
+/* The board dice can have positions from before the viewport resized. */
+.practice-room.board-focus .center:has(.tray-die) .board-dice-layer {
+  visibility: hidden;
+}
+
+.practice-room.board-focus .action-tray .dice-row:has(.tray-die) {
+  display: flex !important;
+  justify-content: center;
+  min-height: 0;
+  gap: 4px;
+}
+
+.practice-room.board-focus .dice-row .tray-die {
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.practice-room.board-focus .dice-row .pip {
+  width: 4px;
+  height: 4px;
+}
+
+.practice-room.board-focus .dice-row .dice-wait {
+  display: none;
+}
+
 .practice-room .action-controls {
   max-width: 100%;
   min-width: 0;
