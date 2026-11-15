@@ -55,7 +55,7 @@ async function flush() {
   for (let turn = 0; turn < 12; turn += 1) await Promise.resolve();
 }
 
-function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
+function rig(method, { mode = 'bot', persistProof = () => true, persistCheckpoint = () => true } = {}) {
   const state = Object.assign(clone(rules.initialState('long')), {
     mode, roomCode: 'TEST-ROOM', startedAt: 1789689600000,
     analysis: mode === 'bot' ? { playerColor: 'white' } : undefined,
@@ -100,7 +100,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     scheduleAutoRoll: () => calls.push('progress-roll'),
     maybeScheduleAutoEndTurn: () => calls.push('progress-move'),
     schedule: () => calls.push('progress-bot'), playBotTurn: () => {},
-    NarduSound: { prime: () => {}, dice: () => {} },
+    NarduSound: { prime: () => {}, dice: () => calls.push('dice-sound') },
     NarduGame: {
       decideOpeningRoll: (...args) => { calls.push('apply-opening'); return rules.decideOpeningRoll(...args); },
       applyRoll: (...args) => { calls.push('apply-roll'); return rules.applyRoll(...args); },
@@ -109,7 +109,7 @@ function rig(method, { mode = 'bot', persistProof = () => true } = {}) {
     publishRemoteState: async () => {
       const hasProof = context.state.history.some(event => event.fairDiceProof?.request?.id === PROOF_ID);
       calls.push(hasProof ? 'persist-proof' : 'persist-checkpoint');
-      return hasProof ? persistProof(context) : true;
+      return hasProof ? persistProof(context) : persistCheckpoint(context);
     },
     document: { getElementById: id => id === 'board-dice-layer' ? layer : null },
     NarduBoardEngine: {
@@ -198,6 +198,7 @@ test('opening dice wait until the server can freeze the experience for this roun
   r.context.waitingForLongBotExperience = () => true;
   await r.context.openingRoll();
   assert.equal(count(r.calls, 'request'), 0);
+  assert.equal(count(r.calls, 'dice-sound'), 0);
   assert.equal(r.context.state.phase, 'opening');
 });
 
@@ -345,6 +346,7 @@ test('a stalled dice animation continues the same saved roll without requesting 
 
   assert.equal(r.context.isRolling, false);
   assert.equal(count(r.calls, 'finish-animation'), 1);
+  assert.equal(count(r.calls, 'dice-sound'), 1);
   assert.equal(count(r.calls, 'request'), 1, 'the already saved signed roll must not be requested again');
   assert.equal(r.context.state.history.filter(event => event.fairDiceProof?.request?.id === PROOF_ID).length, 1);
 });
@@ -387,6 +389,7 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assert.equal(count(r.calls, application), 0);
     assert.equal(count(r.calls, 'persist-proof'), 0);
     assert.equal(count(r.calls, animation), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.equal(r.context.state.history.filter(event => event.fairDiceProof?.request?.id === PROOF_ID).length, 1);
     assert.equal(r.context.isRolling, false);
     assert.equal(r.context.fairDiceInFlight, false);
@@ -406,6 +409,7 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assert.equal(count(r.calls, application), 0);
     assert.equal(count(r.calls, 'persist-proof'), 0);
     assert.equal(count(r.calls, animation), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.equal(r.context.isRolling, false);
     assertNoLegacy(r.calls);
   });
@@ -426,17 +430,26 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assertNoLegacy(r.calls);
   });
 
-  test(`${method}: normal proof publication is awaited before any dice animation`, async () => {
+  test(`${method}: checkpoint and proof publication are awaited before dice sound and animation`, async () => {
+    const checkpoint = deferred();
     const saved = deferred();
-    const r = rig(method, { persistProof: () => saved.promise });
+    const r = rig(method, { persistCheckpoint: () => checkpoint.promise, persistProof: () => saved.promise });
     const running = r.run();
     await flush();
+    assert.equal(count(r.calls, 'persist-checkpoint'), 1);
+    assert.equal(count(r.calls, 'request'), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
+    checkpoint.resolve(true);
+    await flush();
+    assert.equal(count(r.calls, 'request'), 1);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     r.requested.resolve(clone(proof));
     await flush();
     assert.equal(count(r.calls, application), 1);
     assert.equal(count(r.calls, 'persist-proof'), 1);
     assert.equal(count(r.calls, animation), 0);
     assert.equal(count(r.calls, 'animate-tray'), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.equal(r.context.isRolling, true);
     saved.resolve(true);
     await running;
@@ -444,10 +457,34 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assert.equal(count(r.calls, animation), 1);
     assert.equal(count(r.calls, 'animate-tray'), 1);
     assert.equal(count(r.calls, 'finish-animation'), 1);
+    assert.equal(count(r.calls, 'dice-sound'), 1);
     assert.equal(r.layer.dataset.boardDiceCount, '2');
-    assert.ok(r.calls.indexOf('persist-proof') < r.calls.indexOf(animation));
+    assert.ok(r.calls.indexOf('persist-proof') < r.calls.indexOf('dice-sound'));
+    assert.ok(r.calls.indexOf('dice-sound') < r.calls.indexOf(animation));
     assert.equal(r.context.state.history.filter(event => event.fairDiceProof?.request?.id === PROOF_ID).length, 1);
     assertNoLegacy(r.calls);
+  });
+
+  test(`${method}: a saved roll cannot play sound or animation after another room starts`, async () => {
+    const saved = deferred();
+    const r = rig(method, { persistProof: () => saved.promise });
+    const running = r.run();
+    await flush();
+    r.requested.resolve(clone(proof));
+    await flush();
+    assert.equal(count(r.calls, 'persist-proof'), 1);
+
+    const newGame = { ...r.authoritative, roomCode: 'NEW-ROOM', startedAt: r.authoritative.startedAt + 10000 };
+    r.context.state = newGame;
+    r.context.remoteCode = newGame.roomCode;
+    r.context.botAnalysisStartupGeneration += 1;
+    saved.resolve(true);
+    await running;
+    await flush();
+    assert.equal(r.context.state, newGame);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
+    assert.equal(count(r.calls, animation), 0);
+    assert.equal(count(r.calls, 'animate-tray'), 0);
   });
 
   test(`${method}: rejected protected persistence restores the authoritative board and stays paused`, async () => {
@@ -467,6 +504,7 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assert.equal(r.context.fairDiceInFlight, false);
     assert.equal(count(r.calls, animation), 0);
     assert.equal(count(r.calls, 'animate-tray'), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.equal(r.calls.some(call => typeof call === 'string' && call.startsWith('progress-')), false);
     assertNoLegacy(r.calls);
   });
@@ -481,6 +519,7 @@ for (const method of ['openingRoll', 'autoRoll']) {
     assert.equal(count(r.calls, 'request'), 1);
     assert.equal(count(r.calls, 'persist-proof'), 0);
     assert.equal(count(r.calls, animation), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.match(r.context.fairDiceError, /этот же бросок сохранён/);
     assert.equal(r.context.fairDiceInFlight, false);
     assertNoLegacy(r.calls);
@@ -496,6 +535,7 @@ for (const method of ['openingRoll', 'autoRoll']) {
     r.requested.resolve(clone(proof));
     await running;
     assert.equal(count(r.calls, animation), 0);
+    assert.equal(count(r.calls, 'dice-sound'), 0);
     assert.equal(r.context.isRolling, false);
     assert.match(r.context.fairDiceError, /этот же бросок сохранён/);
     assert.deepEqual(clone(r.context.state), r.authoritative);
