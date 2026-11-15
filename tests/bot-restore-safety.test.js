@@ -94,9 +94,9 @@ function controllerHarness({
         if (putGameState) return putGameState(...args);
         return { ok: true, version: 8 };
       },
-      async finishRoomGame() {
+      async finishRoomGame(...args) {
         calls.finish += 1;
-        if (finishRoomGame) return finishRoomGame();
+        if (finishRoomGame) return finishRoomGame(...args);
         return { ok: true, version: 9, trainingArchived: true };
       },
       async archiveBotTrainingGame() {
@@ -624,6 +624,26 @@ test('a hung final write cannot trap finished-game navigation or record rating',
   assert.equal(await harness.controller.__restoreSafetyTest.waitForFinishedBotPersistence(), false);
   assert.equal(harness.calls.finish, 1);
   assert.equal(harness.calls.rating, 0);
+});
+
+test('a finished bot room can confirm rating when the finalizer fails after saving', async () => {
+  let stored;
+  const harness = controllerHarness({
+    getGameState: async () => ({ state: stored, version: 8 }),
+    finishRoomGame: async (_code, finalState) => {
+      stored = finalState;
+      throw Object.assign(new Error('Finalizer response lost'), { status: 504 });
+    },
+  });
+  stored = { ...harness.window.NarduGame.initialState('long'), mode: 'bot', botDifficulty: 'hard', roomCode: 'SAFE-BOT' };
+  init(harness.controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  finishLocally(harness.controller);
+  assert.equal(await harness.controller.__restoreSafetyTest.waitForFinishedBotPersistence(), true);
+  assert.equal(harness.calls.finish, 1);
+  assert.equal(harness.calls.rating, 1);
+  assert.equal(harness.controller.getState().finishedAt, stored.finishedAt);
 });
 
 test('a local reload snapshot remains writable after the server room is restored', async () => {

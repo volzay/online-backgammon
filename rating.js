@@ -63,14 +63,25 @@ window.NarduRating = (function () {
       : Math.max(0, Number(entry.historyCount) || 0);
     return { ...compact, historyCount };
   }
+
+  function needsConfirmedRating(mode, score) {
+    return mode === 'remote' || (mode === 'bot' && Boolean(score?.roomCode) && window.NarduSupabase?.configured?.());
+  }
+
   async function syncSupabaseRating(user, entry) {
     if (!window.NarduSupabase?.configured?.() || !user?.id) return null;
     const client = await window.NarduSupabase.client();
     const rating = normalizeRating(user.rating);
     const tier = tierFor(rating);
     const now = new Date().toISOString();
-    const { data: authData, error: authError } = await client.auth.getUser();
-    if (authError || authData?.user?.id !== user.id) return null;
+    const confirmed = needsConfirmedRating(entry?.mode, entry?.score);
+    if (confirmed) {
+      const { data, error } = await client.auth.getSession();
+      if (error || data?.session?.user?.id !== user.id) return null;
+    } else {
+      const { data, error } = await client.auth.getUser();
+      if (error || data?.user?.id !== user.id) return null;
+    }
 
     if (entry?.resultKey) {
       const { data: result, error: resultError } = await client.rpc('record_rating_result', {
@@ -86,6 +97,7 @@ window.NarduRating = (function () {
         p_finished_at: entry.finishedAt || new Date().toISOString(),
       });
       if (!resultError) {
+        if (confirmed && (!Number.isInteger(result?.rating) || result.rating <= 0 || !Number.isInteger(result.delta))) return null;
         user.rating = normalizeRating(result?.rating);
         user.tier = result?.tier || tierFor(user.rating);
         user.ratingEligible = true;
@@ -99,10 +111,8 @@ window.NarduRating = (function () {
           tier: user.tier,
         };
       }
-      // A remote result must never fall back to a direct profile update or
-      // unguarded rating_events insert. Only the participant-checked RPC may
-      // award it, including while an older schema cache is deployed.
-      if (entry.mode === 'remote') throw resultError;
+      // A confirmed room result must go through the participant-checked RPC.
+      if (confirmed) throw resultError;
       if (!/record_rating_result|Could not find the function|schema cache/i.test(resultError.message || '')) {
         throw resultError;
       }
@@ -221,7 +231,8 @@ window.NarduRating = (function () {
     const opponent = normalizeRating(opponentRating);
     const delta = next(user.rating, opponent, didWin ? 1 : 0) - user.rating;
     const projectedRating = user.rating + delta;
-    if (mode !== 'remote') {
+    const confirmed = needsConfirmedRating(mode, details.score);
+    if (!confirmed) {
       user.rating = projectedRating;
       user.tier = tierFor(user.rating);
       user.ratingEligible = true;
@@ -243,7 +254,7 @@ window.NarduRating = (function () {
       ratingAfter: projectedRating,
       tierAfter: tierFor(projectedRating),
     };
-    if (mode === 'remote') {
+    if (confirmed) {
       // A spectator or stale tab can compute a plausible local result. Keep
       // the profile unchanged until the server confirms participant identity
       // and the exact finished room; a rejected result leaves no local +1.
