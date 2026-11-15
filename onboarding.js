@@ -47,8 +47,8 @@
       ['Rating visibility', 'Use Privacy to choose whether other players can see your rating.']],
   ];
   const practiceStep = [lobby, '#start-onboarding',
-      ['Пробная партия с ботом', 'Кубики выпадут автоматически. Передвиньте шашку и подтвердите ход. Пробная партия без рейтинга.'],
-      ['Practice with a bot', 'The dice roll automatically. Move a checker and confirm your turn. The practice game is unrated.'],
+      ['Пробная партия с ботом', 'Сыграйте два хода, попробуйте снять шашки и найдите кнопки игровой комнаты. Пробная партия без рейтинга.'],
+      ['Practice with a bot', 'Play two turns, practice bearing off, and find the game room controls. The practice game is unrated.'],
   ];
   const labels = {
     ru: { title: 'Знакомство с сайтом', guestIntro: 'Гайд покажет, как найти соперника, начать игру без регистрации и сыграть пробную партию с ботом.', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
