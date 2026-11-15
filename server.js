@@ -607,6 +607,7 @@ function publicUser(user) {
     name: user.nickname,
     nickname: user.nickname,
     email: user.email,
+    createdAt: user.createdAt || null,
     rating: user.rating,
     tier: user.tier,
     ratingEligible: true,

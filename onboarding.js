@@ -2,6 +2,8 @@
   'use strict';
 
   const storagePrefix = 'narduh-onboarding-v1:';
+  // Include accounts created on the day the site guide first went live.
+  const guideLaunch = Date.parse('2026-11-14T00:00:00+05:00');
   const lobby = 'index.html';
   const account = 'settings.html';
   const lobbySteps = [
@@ -268,6 +270,22 @@
     });
   }
 
+  function eligibleByCreationDate(createdAt) {
+    return Date.parse(createdAt) >= guideLaunch;
+  }
+
+  async function checkExistingSession(user) {
+    if (user.createdAt || !window.NarduSupabase?.configured?.()) return false;
+    try {
+      const client = await window.NarduSupabase.client();
+      const { data, error } = await client.auth.getSession();
+      const authUser = data?.session?.user;
+      return !error && authUser?.id === user.id && eligibleByCreationDate(authUser.created_at);
+    } catch {
+      return false;
+    }
+  }
+
   function initialize() {
     const buttons = [...document.querySelectorAll('[data-onboarding-start]')];
     const user = window.NarduApp?.getUser();
@@ -286,10 +304,15 @@
     }
     window.addEventListener('nardu:langchange', localize);
     localize();
-    const resume = () => {
-      state = read(progressKey);
+    const resume = async () => {
       if (page === lobby && new URLSearchParams(location.search).has('join')) return;
-      if (guest && !state) setState('pending', 0);
+      state = read(progressKey);
+      if (page === lobby && !state) {
+        const eligible = guest || eligibleByCreationDate(user.createdAt) || await checkExistingSession(user);
+        if (window.NarduApp?.getUser()?.id !== user.id || dialog?.open) return;
+        state = read(progressKey);
+        if (eligible && !state) setState('pending', 0);
+      }
       if ((state?.status === 'pending' && page === lobby)
         || (state?.status === 'active' && steps[state.step]?.[0] === page)) render(true);
     };
