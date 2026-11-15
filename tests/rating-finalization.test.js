@@ -10,6 +10,7 @@ function loadRating({
   failLocalWrite = false,
   profile = {},
   sessionUserId = 'user-1',
+  lookup,
   respond = () => ({ data: { ok: true, delta: 12, rating: 1412, tier: 'Silver' }, error: null }),
 } = {}) {
   const user = {
@@ -66,6 +67,14 @@ function loadRating({
         return respond();
       },
       from(table) {
+        if (table === 'rating_events' && lookup) {
+          const filters = {};
+          return {
+            select(columns) { assert.equal(columns, 'result_key'); return this; },
+            eq(field, value) { filters[field] = value; return this; },
+            async maybeSingle() { return lookup(filters); },
+          };
+        }
         directWrites.push(table);
         throw new Error('Unexpected direct write');
       },
@@ -116,9 +125,10 @@ const finishedAt = 1794750000000;
 const resultKey = `${finishedAt}:white:normal`;
 const newPlayer = { rating: 1000, tier: 'Bronze', history: [] };
 
-function recordBotRoom(rating) {
+function recordBotRoom(rating, onlyIfMissing = false) {
   return rating.record('Hard bot', 1500, true, 'bot', resultKey, {
     winner: 'white',
+    onlyIfMissing,
     score: { roomCode, finalState: { phase: 'over', winner: 'white', finishedAt } },
     history: [{ from: 1, to: 'off', color: 'white' }],
     finishedAt: new Date(finishedAt).toISOString(),
@@ -158,6 +168,26 @@ test('a fresh player gets only the server-confirmed rating for a win in a real b
   assert.equal(writes.at(-1).history[0].resultKey, resultKey);
   assert.equal(writes.at(-1).history[0].delta, 19);
   assert.deepEqual(directWrites, []);
+});
+
+test('returning from a finished room repairs only a missing award', async () => {
+  for (const existing of [true, false]) {
+    const { rating, writes, rpcCalls } = loadRating({
+      lookup: filters => {
+        assert.deepEqual(filters, { user_id: 'user-1', result_key: resultKey });
+        return { data: existing ? { result_key: resultKey } : null, error: null };
+      },
+    });
+    const result = await recordBotRoom(rating, true).syncPromise;
+    assert.equal(rpcCalls.length, existing ? 0 : 1);
+    if (existing) {
+      assert.equal(result, null);
+      assert.deepEqual(writes, []);
+    } else {
+      assert.equal(result.rating, 1412);
+      assert.equal(rpcCalls[0].payload.p_result_key, resultKey);
+    }
+  }
 });
 
 test('a stale local identity cannot submit a guarded bot room rating', async () => {

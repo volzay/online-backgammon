@@ -727,6 +727,10 @@ window.NarduController = (function () {
   }
 
   function prepareRoomReload() {
+    if (mode === 'bot' && state?.phase === 'over' && state.gameOverPublishedAt) {
+      clearRoomSnapshots();
+      return false;
+    }
     return writeRoomSnapshot({ session: true, persistent: true });
   }
 
@@ -1144,6 +1148,12 @@ window.NarduController = (function () {
       if (!botAnalysisReady) {
         throw new Error('Bot room reservation was not confirmed.');
       }
+      if (restored?.phase === 'over' && ['white', 'dark'].includes(restored.winner)) {
+        state = restored;
+        adoptBotIdentity(state, true);
+        attachRuntimeStateFields(roomCode);
+        return leaveRestoredBotResult(startupGeneration);
+      }
       if (restored) {
         state = restoreBotTelemetry(restored, state);
         adoptBotIdentity(state, true);
@@ -1192,6 +1202,26 @@ window.NarduController = (function () {
     });
     botAnalysisStartupPromise = attempt;
     return attempt;
+  }
+
+  async function leaveRestoredBotResult(startupGeneration) {
+    const finished = state;
+    state.gameOverPublishedAt = new Date().toISOString();
+    clearRoomSnapshots();
+    try {
+      const player = window.NarduApp?.getUser?.();
+      if (player && !player.guest && player.ratingEligible !== false && botDifficulty !== 'hard-neuro'
+        && Number.isSafeInteger(state.finishedAt) && state.finishedAt > 0) {
+        const rating = submitRoomRating(gameResultKey(), true);
+        await waitForResultRating(rating?.syncPromise);
+      }
+    } catch (error) {
+      console.warn('Could not check rating of restored result', error?.message || error);
+    }
+    if (state !== finished || startupGeneration !== botAnalysisStartupGeneration) return false;
+    clearAll();
+    location.replace('index.html');
+    return true;
   }
 
   function waitingForLongBotExperience() {
@@ -2100,9 +2130,9 @@ window.NarduController = (function () {
     ]);
   }
 
-  function waitForResultRating() {
-    if (!ratingSyncInFlight) return Promise.resolve();
-    return Promise.race([ratingSyncInFlight, wait(3000)]);
+  function waitForResultRating(pending = ratingSyncInFlight) {
+    if (!pending) return Promise.resolve();
+    return Promise.race([pending, wait(3000)]);
   }
 
   function ensureRemoteFinalStatePublished() {
@@ -5870,21 +5900,7 @@ window.NarduController = (function () {
       const recordRating = () => {
         if (!sameResult() || ratingPendingKey === resultKey || localRatingRecordedKey === resultKey
           || (ratingRetryKey === resultKey && ratingRetryScheduled)) return;
-        const r = safeStep('Record local rating', () => NarduRating.record(opponentName, opponentRating, didWin, mode, resultKey, {
-          resultType: state.resultType || '',
-          winner: state.winner,
-          score: {
-            ...state.score,
-            roomCode: remoteCode || state.roomCode || '',
-            off: { ...state.off },
-            finalState: {
-              ...remoteStatePayload(),
-              history: undefined,
-            },
-          },
-          history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
-          finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
-        }));
+        const r = safeStep('Record local rating', () => submitRoomRating(resultKey));
         if (r?.authoritativePending) {
           ratingPendingKey = resultKey;
         } else if (r) {
@@ -5973,6 +5989,22 @@ window.NarduController = (function () {
     } finally {
       renderGameOverModal();
     }
+  }
+
+  function submitRoomRating(resultKey, onlyIfMissing = false) {
+    return NarduRating.record(opponentName, opponentRating, state.winner === playerColor, mode, resultKey, {
+      onlyIfMissing,
+      resultType: state.resultType || '',
+      winner: state.winner,
+      score: {
+        ...state.score,
+        roomCode: remoteCode || state.roomCode || '',
+        off: { ...state.off },
+        finalState: { ...remoteStatePayload(), history: undefined },
+      },
+      history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
+      finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
+    });
   }
 
   function gameResultKey() {

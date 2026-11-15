@@ -68,7 +68,7 @@ window.NarduRating = (function () {
     return mode === 'remote' || (mode === 'bot' && Boolean(score?.roomCode) && window.NarduSupabase?.configured?.());
   }
 
-  async function syncSupabaseRating(user, entry) {
+  async function syncSupabaseRating(user, entry, { onlyIfMissing = false } = {}) {
     if (!window.NarduSupabase?.configured?.() || !user?.id) return null;
     const client = await window.NarduSupabase.client();
     const rating = normalizeRating(user.rating);
@@ -84,6 +84,11 @@ window.NarduRating = (function () {
     }
 
     if (entry?.resultKey) {
+      if (onlyIfMissing) {
+        const { data, error } = await client.from('rating_events')
+          .select('result_key').eq('user_id', user.id).eq('result_key', entry.resultKey).maybeSingle();
+        if (error || data) return null;
+      }
       const { data: result, error: resultError } = await client.rpc('record_rating_result', {
         p_result_key: String(entry.resultKey || '').slice(0, 120),
         p_opponent: String(entry.opponent || '').slice(0, 32),
@@ -227,6 +232,9 @@ window.NarduRating = (function () {
   function record(opponentName, opponentRating, didWin, mode = 'bot', resultKey = '', details = {}) {
     const user = NarduApp.getUser();
     if (!isRatedUser(user)) return null;
+    const onlyIfMissing = details.onlyIfMissing === true;
+    if (onlyIfMissing && (mode !== 'bot' || !resultKey || !details.score?.roomCode
+      || !window.NarduSupabase?.configured?.())) return null;
     assignProfileRating(user);
     const opponent = normalizeRating(opponentRating);
     const delta = next(user.rating, opponent, didWin ? 1 : 0) - user.rating;
@@ -260,7 +268,7 @@ window.NarduRating = (function () {
       // and the exact finished room; a rejected result leaves no local +1.
       const initialUserId = user.id;
       const submit = window.NarduSupabase?.configured?.()
-        ? syncSupabaseRating({ ...user }, syncEntry)
+        ? syncSupabaseRating({ ...user }, syncEntry, { onlyIfMissing })
         : syncServerRating({ ...user, rating: projectedRating, tier: tierFor(projectedRating) }, syncEntry);
       const syncPromise = Promise.resolve(submit).then(authoritative => {
         if (!authoritative) return null;
