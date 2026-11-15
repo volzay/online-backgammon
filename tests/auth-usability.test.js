@@ -13,7 +13,7 @@ const rulesHtml = fs.readFileSync(path.join(ROOT, 'rules.html'), 'utf8');
 function authRuntime({
   href = 'https://example.test/login.html',
   lang = 'ru',
-  signupGuide = false,
+  siteGuideDisabled = false,
   supabaseConfigured = true,
   nicknameLookup = null,
   signIn = null,
@@ -39,7 +39,7 @@ function authRuntime({
     id: 'user-1',
     email: 'player@example.test',
     created_at: '2026-11-15T07:00:00Z',
-    user_metadata: { nickname: 'tester1', ...(signupGuide ? { site_guide_signup: true } : {}) },
+    user_metadata: { nickname: 'tester1', site_guide_disabled: siteGuideDisabled },
   };
   const profile = {
     id: authUser.id,
@@ -212,7 +212,6 @@ test('optional recovery email preserves nickname-only registration', async () =>
   await withEmail.auth.register({ nickname: 'tester1', email: 'player@example.test', password: 'secret12' });
   assert.equal(withEmail.calls.nicknameRegistration, null);
   assert.equal(withEmail.calls.emailRegistration.email, 'player@example.test');
-  assert.equal(withEmail.calls.emailRegistration.options.data.site_guide_signup, true);
   assert.equal(withEmail.calls.emailRegistration.options.emailRedirectTo, 'https://example.test/login.html');
 });
 
@@ -488,16 +487,16 @@ test('inline auth page scripts remain syntactically valid', () => {
 });
 
 
-test('email confirmation offers the site guide only for a new signup and never for password recovery', async () => {
-  for (const [signupGuide, recovery, expected] of [[true, false, true], [false, false, false], [true, true, false]]) {
-    const { auth } = authRuntime({ signupGuide, href: `https://example.test/login.html?${recovery ? 'recovery=1&' : ''}code=fixture` });
-    assert.equal((await auth.handleAuthRedirect()).showSiteGuide, expected);
-  }
+test('email sign-in carries the account guide preference into a new browser', async () => {
+  const { auth } = authRuntime({ siteGuideDisabled: true, href: 'https://example.test/login.html?code=fixture' });
+  const { user } = await auth.handleAuthRedirect();
+  assert.equal(user.siteGuideDisabled, true);
 });
 
 
-test('password login carries account creation time into the lobby profile', async () => {
-  const { auth } = authRuntime();
+test('password login carries account creation time and guide preference into the lobby profile', async () => {
+  const { auth } = authRuntime({ siteGuideDisabled: true });
   const { user } = await auth.login({ identifier: 'tester1', password: 'secret12' });
   assert.equal(user.createdAt, '2026-11-15T07:00:00Z');
+  assert.equal(user.siteGuideDisabled, true);
 });

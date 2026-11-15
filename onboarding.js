@@ -52,14 +52,15 @@
   ];
   const labels = {
     ru: { title: 'Знакомство с сайтом', guestIntro: 'Гайд покажет, как найти соперника, начать игру без регистрации и сыграть пробную партию с ботом.', intro: 'Гайд покажет, как начать партию, пригласить игрока и пользоваться личным кабинетом.',
-      start: 'Начать', launch: 'Гайд по сайту', skip: 'Пропустить', back: 'Назад', next: 'Далее',
+      start: 'Начать', launch: 'Гайд по сайту', skip: 'Пропустить', back: 'Назад', next: 'Далее', optOut: 'Больше не показывать',
       account: 'В кабинет', lobby: 'В лобби', practice: 'В пробную партию', step: 'Шаг' },
     en: { title: 'Welcome to the site', guestIntro: 'See how to find an opponent, start a game as a guest and play a practice game with a bot.', intro: 'This guide shows how to start a game, invite a player and use your account.',
-      start: 'Start', launch: 'Site guide', skip: 'Skip', back: 'Back', next: 'Next',
+      start: 'Start', launch: 'Site guide', skip: 'Skip', back: 'Back', next: 'Next', optOut: 'Don’t show again',
       account: 'Open account', lobby: 'Back to lobby', practice: 'Play a practice game', step: 'Step' },
   };
   const language = () => document.documentElement.lang === 'en' ? 'en' : 'ru';
   const page = location.pathname.endsWith('/settings.html') ? account : lobby;
+  let player;
   let progressKey;
   let guest;
   let steps;
@@ -70,6 +71,7 @@
   let frame;
   let observer;
   let previousFocus;
+  let preferenceSync = Promise.resolve();
 
   function keyFor(user) {
     return user?.id ? storagePrefix + (user.guest === true ? 'guest' : user.id) : null;
@@ -85,12 +87,33 @@
     catch { /* Continue the tour in this document if storage is unavailable. */ }
   }
 
-  function enroll(id) {
-    if (typeof id !== 'string' || !id) return;
-    const key = keyFor({ id });
-    if (!read(key)) write(key, { status: 'pending', step: 0 });
+  function preferenceKey(user) {
+    return `${keyFor(user)}:disabled`;
   }
-  window.NarduOnboarding = { enroll, keyFor };
+
+  function optedOut(user) {
+    return user.siteGuideDisabled === true || read(preferenceKey(user)) === true;
+  }
+
+  function offer(user) {
+    const key = keyFor(user);
+    if (key) write(key, { status: optedOut(user) ? 'skipped' : 'pending', step: 0 });
+  }
+  window.NarduOnboarding = { offer, keyFor };
+
+  function savePreference() {
+    const disabled = view.optOut.checked;
+    write(preferenceKey(player), disabled);
+    if (guest || !window.NarduSupabase?.configured?.()) return;
+    preferenceSync = preferenceSync.then(async () => {
+      const client = await window.NarduSupabase.client();
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      if (data?.session?.user?.id !== player.id) return;
+      const result = await client.auth.updateUser({ data: { site_guide_disabled: disabled } });
+      if (result.error) throw result.error;
+    }).catch(error => console.warn('Could not sync site guide preference', error?.message || error));
+  }
 
   function setState(status, step = state?.step || 0) {
     state = { status, step };
@@ -118,6 +141,10 @@
           </div>
         </div>
         <p id="onboarding-text" class="onboarding-text"></p>
+        <label class="onboarding-preference">
+          <input type="checkbox" class="onboarding-opt-out">
+          <span class="onboarding-opt-out-label"></span>
+        </label>
         <div class="onboarding-controls">
           <button type="button" class="onboarding-skip"></button>
           <button type="button" class="onboarding-back"></button>
@@ -128,8 +155,10 @@
     view = {
       card: part('card'), shades: [...dialog.querySelectorAll('.onboarding-shade')], spotlight: part('spotlight'),
       progress: part('progress'), title: part('title'), text: part('text'),
+      preference: part('preference'), optOut: part('opt-out'), optOutLabel: part('opt-out-label'),
       skip: part('skip'), back: part('back'), next: part('next'),
     };
+    view.optOut.addEventListener('change', savePreference);
     view.next.addEventListener('click', () => {
       if (state.status === 'pending') goToStep(0);
       else if (state.step === steps.length - 1) {
@@ -147,6 +176,7 @@
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab') return;
       const controls = [view.skip, view.back, view.next].filter(button => !button.hidden);
+      if (!view.preference.hidden) controls.unshift(view.optOut);
       const boundary = event.shiftKey ? controls.at(0) : controls.at(-1);
       if (document.activeElement !== boundary) return;
       event.preventDefault();
@@ -192,6 +222,9 @@
     const [title, text] = step ? step[lang === 'ru' ? 2 : 3] : [copy.title, guest ? copy.guestIntro : copy.intro];
     view.title.textContent = title;
     view.text.textContent = text;
+    view.preference.hidden = !pending;
+    view.optOutLabel.textContent = copy.optOut;
+    view.optOut.checked = optedOut(player);
     view.progress.hidden = pending;
     view.progress.textContent = pending ? '' : `${copy.step} ${state.step + 1} / ${steps.length}`;
     view.skip.textContent = copy.skip;
@@ -280,7 +313,8 @@
       const client = await window.NarduSupabase.client();
       const { data, error } = await client.auth.getSession();
       const authUser = data?.session?.user;
-      return !error && authUser?.id === user.id && eligibleByCreationDate(authUser.created_at);
+      return !error && authUser?.id === user.id && authUser.user_metadata?.site_guide_disabled !== true
+        && eligibleByCreationDate(authUser.created_at);
     } catch {
       return false;
     }
@@ -291,6 +325,7 @@
     const user = window.NarduApp?.getUser();
     if (!buttons.length || !user?.id || (user.guest && page !== lobby) || window.NARDU_ENTRY_BLOCKED
       || typeof document.createElement('dialog').showModal !== 'function') return;
+    player = user;
     guest = user.guest === true;
     steps = [...lobbySteps, ...(guest ? [] : accountSteps), practiceStep];
     progressKey = keyFor(user);
@@ -307,13 +342,13 @@
     const resume = async () => {
       if (page === lobby && new URLSearchParams(location.search).has('join')) return;
       state = read(progressKey);
-      if (page === lobby && !state) {
+      if (page === lobby && !state && !optedOut(user)) {
         const eligible = guest || eligibleByCreationDate(user.createdAt) || await checkExistingSession(user);
         if (window.NarduApp?.getUser()?.id !== user.id || dialog?.open) return;
         state = read(progressKey);
-        if (eligible && !state) setState('pending', 0);
+        if (eligible && !state && !optedOut(user)) setState('pending', 0);
       }
-      if ((state?.status === 'pending' && page === lobby)
+      if ((state?.status === 'pending' && !optedOut(user))
         || (state?.status === 'active' && steps[state.step]?.[0] === page)) render(true);
     };
     window.addEventListener('pageshow', event => {

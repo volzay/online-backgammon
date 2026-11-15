@@ -12,6 +12,7 @@
       nickname,
       email: profile.email || authUser.email || "",
       createdAt: authUser.created_at || null,
+      siteGuideDisabled: metadata.site_guide_disabled === true,
       rating,
       tier: profile.tier || NarduApp.ratingTierFor(rating),
       ratingEligible: profile.rating_eligible !== false,
@@ -319,7 +320,7 @@
       email,
       password,
       options: {
-        data: { nickname, name: nickname, site_guide_signup: true },
+        data: { nickname, name: nickname },
         emailRedirectTo: publicPageUrl(authCallbackDestination()),
       },
     });
@@ -428,7 +429,6 @@
       user: await profileForAuthUser(supabase, data.session.user),
       authRedirect: true,
       passwordRecovery,
-      showSiteGuide: !passwordRecovery && data.session.user.user_metadata?.site_guide_signup === true,
     };
   }
 
