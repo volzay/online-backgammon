@@ -232,8 +232,8 @@
           showPasswordRecovery(redirect);
           return;
         }
-        if (redirect.showSiteGuide) window.NarduOnboarding?.enroll(redirect.user.id);
         NarduApp.setUser(redirect.user);
+        window.NarduOnboarding?.offer(redirect.user);
         const destination = postLoginDestination();
         NarduApp.clearReauthContext?.();
         location.replace(destination);
@@ -283,6 +283,7 @@
     try {
       const data = await NarduAuth.login({ identifier, password });
       NarduApp.setUser(data.user);
+      window.NarduOnboarding?.offer(data.user);
       const destination = postLoginDestination();
       NarduApp.clearReauthContext?.();
       location.href = destination;
@@ -304,6 +305,7 @@
         setMessage('login-message', NarduApp.t('err_session'), 'error');
         return;
       }
+      window.NarduOnboarding?.offer(guest);
       NarduApp.clearReauthContext?.();
       location.href = NarduAuth.postAuthDestination();
     } finally {
@@ -384,7 +386,9 @@
     setMessage('recovery-message', '');
     try {
       const data = await NarduAuth.updateRecoveredPassword(password);
-      NarduApp.setUser(data.user || recoveryProfile);
+      const user = data.user || recoveryProfile;
+      NarduApp.setUser(user);
+      window.NarduOnboarding?.offer(user);
       NarduApp.clearReauthContext?.();
       location.replace(NarduAuth.postAuthDestination());
     } catch (error) {
