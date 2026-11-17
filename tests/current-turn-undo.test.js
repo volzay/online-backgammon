@@ -28,6 +28,8 @@ function harness() {
   math.random = () => { throw new Error('Undo must not generate any dice or random value'); };
   const undoButton = { disabled: true, title: '', addEventListener() {} };
   const calls = { published: [] };
+  const turnLabel = { textContent: '' };
+  const turnStatus = { dataset: {}, querySelector: () => turnLabel };
   const window = { addEventListener() {}, setTimeout: setTimer,
     NarduApp: { getUser: () => ({ id: 'undo-user', name: 'Tester' }), paintUser() {}, formatRating: () => '1500' },
     NarduSound: { click() {} } };
@@ -37,7 +39,8 @@ function harness() {
     requestAnimationFrame: callback => callback(),
     document: { hidden: false, visibilityState: 'visible', addEventListener() {},
       getElementById: id => id === 'undo-btn' ? undoButton : null,
-      querySelector: () => null, querySelectorAll: () => [], body: { classList: { remove() {}, add() {} } } },
+      querySelector: selector => selector === '[data-turn-status]' ? turnStatus : null,
+      querySelectorAll: () => [], body: { classList: { remove() {}, add() {} } } },
     location: { href: 'https://example.test/room.html?mode=bot&game=QM5N-CCQG&variant=long&difficulty=easy',
       pathname: '/room.html', search: '?mode=bot&game=QM5N-CCQG&variant=long&difficulty=easy', hostname: 'example.test' },
     history: { replaceState() {} } };
@@ -55,10 +58,12 @@ function harness() {
       setState(next, ownColor = next.turn, playMode = 'hotseat') { state = next; variant = next.variant; mode = playMode;
         botDifficulty = next.botDifficulty;
         playerColor = ownColor; remoteCode = ''; botAnalysisRestorePending = false; },
-      setUndo(next) { undoStack = next; } },
+      setUndo(next) { undoStack = next; },
+      setDrag(from) { setSelection(from); dragState = { active: true, from, pointerId: 1 }; },
+      onPointerUp, diceUsageAlternative },
   };`), context);
   return { context, window, game: window.NarduGame, controller: window.NarduController,
-    api: window.NarduController.__undoTest, pending, undoButton, calls };
+    api: window.NarduController.__undoTest, pending, undoButton, calls, turnLabel };
 }
 
 function position(h, { variant = 'long', color = 'white', points, bar = { white: 0, dark: 0 },
@@ -319,4 +324,58 @@ test('authoritative remote state replaces stale undo; an ended turn and spectato
   assert.equal(h.undoButton.disabled, true);
   h.api.undoLastMove();
   assert.equal(h.controller.getState().turnMoves.length, 1);
+});
+
+function maxDiceHintPosition(h) {
+  const points = {};
+  for (const [point, count] of [[24, 10], [22, 1], [11, 3], [8, 1]]) points[point] = { color: 'white', count };
+  for (const point of [23, 20, 19, 12, 10, 9, 7, 6, 5]) points[point] = { color: 'dark', count: point === 12 ? 7 : 1 };
+  return position(h, { points, rolled: [2, 3] });
+}
+
+test('attempting a move that strands a playable die shows a legal example and preserves the selected checker', () => {
+  const h = harness();
+  const state = maxDiceHintPosition(h);
+  h.api.setState(state);
+  const points = clone(state.points);
+  h.controller.onPointClick(24);
+  h.controller.onPointClick(21);
+  assert.match(h.turnLabel.textContent, /нужно сделать 2 хода.*24→22 \(2\), 11→8 \(3\)/);
+  assert.equal(state.selected, 24);
+  assert.deepEqual(clone(state.hints), [22]);
+  assert.deepEqual(clone(state.dice), [2, 3]);
+  assert.deepEqual(clone(state.points), points);
+  h.controller.onPointClick(11);
+  assert.doesNotMatch(h.turnLabel.textContent, /нужно сделать/);
+  assert.equal(state.selected, 11);
+});
+
+test('dropping a checker on a nonmaximal move shows the same example in the selected language', () => {
+  const h = harness();
+  const state = maxDiceHintPosition(h);
+  h.context.localStorage.setItem('narduh-lang', 'en');
+  h.api.setState(state);
+  h.api.setDrag(24);
+  const point = { dataset: { point: '21' }, closest(selector) { return selector === '.board' ? {} : null; } };
+  h.context.document.elementFromPoint = () => ({ closest: selector => selector === '[data-point]' ? point : null });
+  h.api.onPointerUp({ pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 20, preventDefault() {} });
+  assert.match(h.turnLabel.textContent, /must play 2 moves.*24→22 \(2\), 11→8 \(3\)/);
+  assert.deepEqual(clone(state.dice), [2, 3]);
+  assert.equal(state.turnMoves.length, 0);
+});
+
+test('the maximum-dice hint excludes occupied destinations, the higher-die rule and short backgammon', () => {
+  const h = harness();
+  h.api.setState(maxDiceHintPosition(h));
+  assert.equal(h.api.diceUsageAlternative(22, 20), null, 'a dark checker occupies 20');
+  const higherDie = position(h, { points: { 24: { color: 'white', count: 15 },
+    12: { color: 'dark', count: 14 }, 19: { color: 'dark', count: 1 } }, rolled: [2, 3] });
+  h.api.setState(higherDie);
+  assert.equal(h.game.bestMoveSequences(higherDie)[0].length, 1);
+  assert.equal(h.game.bestMoveSequences(higherDie)[0][0].die, 3);
+  assert.equal(h.api.diceUsageAlternative(24, 22), null);
+  const short = maxDiceHintPosition(h);
+  short.variant = 'short';
+  h.api.setState(short);
+  assert.equal(h.api.diceUsageAlternative(24, 21), null);
 });

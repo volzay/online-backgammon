@@ -206,6 +206,7 @@ window.NarduController = (function () {
       turn_your_first_roll: 'Ваш первый ход: бросаем кубики',
       turn_your_roll: 'Ваш ход: бросаем кубики',
       turn_choose_move: 'Ваш ход: выберите шашку',
+      turn_use_more_dice: 'На этом броске нужно сделать {count} хода. Например, {moves}.',
       turn_no_moves: 'Доступных ходов нет',
       turn_other: 'Ходит {name}',
       turn_watching: 'Ход: {name}',
@@ -294,6 +295,7 @@ window.NarduController = (function () {
       turn_your_first_roll: 'Your first move: rolling dice',
       turn_your_roll: 'Your turn: rolling dice',
       turn_choose_move: 'Your turn: choose a checker',
+      turn_use_more_dice: 'You must play {count} moves on this roll. Try {moves}.',
       turn_no_moves: 'No available moves',
       turn_other: '{name} is moving',
       turn_watching: 'Turn: {name}',
@@ -2917,6 +2919,14 @@ window.NarduController = (function () {
     paintPlayerSideLabels(opponentColor);
 
     const status = currentTurnStatus();
+    const example = status.tone === 'active' && state.phase === 'move' && !isRolling
+      ? pending?.diceUsageHint : null;
+    if (example) {
+      status.text = tr('turn_use_more_dice', {
+        count: example.length,
+        moves: example.map(move => `${move.from}→${move.bearOff ? tr('borne_off') : move.to} (${move.die})`).join(', '),
+      });
+    }
     paintTurnStatus(status.text, status.tone);
 
     if (state.turn !== 'white' && state.turn !== 'dark') return;
@@ -3906,6 +3916,7 @@ window.NarduController = (function () {
         doUserMove(from, action.dest.die, action.dest);
         return;
       }
+      if (showDiceUsageHint(pending.from, point)) return;
       pending = null;
       state.selected = null; state.hints = []; state.fullHints = [];
     }
@@ -3913,8 +3924,8 @@ window.NarduController = (function () {
     /* try selecting */
     if (NarduGame.pointColor(state, point) === state.turn) {
       const targets = selectableTargets(point);
-      if (targets.dests.length === 0 && targets.fullDests.length === 0) { render(); return; }
-      setSelection(point, targets);
+      if (targets.dests.length || targets.fullDests.length) setSelection(point, targets);
+      else if (showDiceUsageHint(point)) return;
     }
     render();
   }
@@ -3989,6 +4000,26 @@ window.NarduController = (function () {
     );
   }
 
+  function diceUsageAlternative(from, to) {
+    if (variant !== 'long' || state.phase !== 'move' || state.dice.length < 2) return null;
+    const matches = move => move?.from === from && (to === undefined || move.to === to);
+    if (!NarduGame.legalNextMoves(state, state.turn).some(matches)) return null;
+    const sequences = NarduGame.bestMoveSequences(state, state.turn);
+    const first = sequences[0];
+    // When only one die can be played, the separate high-die rule may apply.
+    if (!first || first.length < 2 || sequences.some(sequence => matches(sequence[0]))) return null;
+    return sequences.find(sequence => sequence[0]?.from === from) || first;
+  }
+
+  function showDiceUsageHint(from, to) {
+    const example = diceUsageAlternative(from, to);
+    if (!example) return false;
+    if (pending?.from !== from) setSelection(from);
+    pending.diceUsageHint = example;
+    render();
+    return true;
+  }
+
   function preferredMoveAction(fullDestinations, destinations, point) {
     const single = destinations.find(destination => destination.to === point);
     if (point === 0 && single) return { type: 'single', dest: single };
@@ -4037,7 +4068,10 @@ window.NarduController = (function () {
     /* clicking the bear track confirms a bear-off when a destination of 0 is legal */
     if (!pending || state.turn !== color) return;
     const action = moveActionForPoint(pending.from, 0);
-    if (!action) return;
+    if (!action) {
+      showDiceUsageHint(pending.from, 0);
+      return;
+    }
     const from = pending.from;
     pending = null; state.selected = null; state.hints = []; state.fullHints = [];
     if (action.type === 'sequence') {
@@ -4064,11 +4098,11 @@ window.NarduController = (function () {
   }
 
   /* ── drag and drop checker movement ───────── */
-  function canStartCheckerDrag(point) {
-    if (isAnimating || isRolling || state.phase !== 'move' || !isMyTurn()) return false;
-    if (NarduGame.pointColor(state, point) !== state.turn) return false;
+  function checkerDragTargets(point) {
+    if (isAnimating || isRolling || state.phase !== 'move' || !isMyTurn()) return null;
+    if (NarduGame.pointColor(state, point) !== state.turn) return null;
     const targets = selectableTargets(point);
-    return targets.dests.length > 0 || targets.fullDests.length > 0;
+    return targets.dests.length || targets.fullDests.length || diceUsageAlternative(point) ? targets : null;
   }
 
   function onPointerDown(e) {
@@ -4077,7 +4111,8 @@ window.NarduController = (function () {
     const board = pt?.closest('.board');
     if (!pt || !board) return;
     const point = parseInt(pt.dataset.point, 10);
-    if (Number.isNaN(point) || !canStartCheckerDrag(point)) return;
+    const targets = Number.isNaN(point) ? null : checkerDragTargets(point);
+    if (!targets) return;
     const checker = pt.querySelector('.stack')?.lastElementChild;
     if (!checker) return;
 
@@ -4097,7 +4132,7 @@ window.NarduController = (function () {
       active: false,
       sourceClone: checker.cloneNode(true),
       sourceRect: checker.getBoundingClientRect(),
-      targets: selectableTargets(point),
+      targets,
       clone: null,
       hiddenChecker: null,
       hoverEl: null,
@@ -4159,7 +4194,8 @@ window.NarduController = (function () {
     dragState.hoverEl?.classList.remove('drag-over');
     dragState.hoverEl = null;
     const drop = dropActionAt(dragState.from, clientX, clientY);
-    if (drop?.point) {
+    if (!drop?.type) return;
+    if (drop.point) {
       const el = document.querySelector(`[data-point="${drop.point}"]`);
       el?.classList.add('drag-over');
       dragState.hoverEl = el;
@@ -4186,8 +4222,9 @@ window.NarduController = (function () {
     const from = dragState.from;
     const drop = dropActionAt(from, e.clientX, e.clientY);
 
-    if (!drop) {
+    if (!drop?.type) {
       cleanupDrag();
+      if (drop) showDiceUsageHint(from, drop.point ?? 0);
       return;
     }
     const dragClone = cleanupDrag({ restoreHidden: false, removeClone: false });
@@ -4241,8 +4278,7 @@ window.NarduController = (function () {
     if (pt && pt.closest('.board')) {
       const point = parseInt(pt.dataset.point, 10);
       if (!Number.isNaN(point)) {
-        const action = moveActionForPoint(from, point);
-        return action ? { ...action, point } : null;
+        return { ...moveActionForPoint(from, point), point };
       }
     }
 
@@ -4250,8 +4286,7 @@ window.NarduController = (function () {
     if (bear) {
       const color = bear.classList.contains('white') ? 'white' : 'dark';
       if (color !== state.turn) return null;
-      const action = moveActionForPoint(from, 0);
-      return action ? { ...action, bear: color } : null;
+      return { ...moveActionForPoint(from, 0), bear: color };
     }
     return null;
   }
