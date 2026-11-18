@@ -1,3 +1,5 @@
+import { routeFenceBurden } from '../../lib/long-bot-fence-audit.js';
+
 /**
  * A deterministic, side-effect-free reviewer for long-bot decisions.
  *
@@ -71,10 +73,20 @@ export function dedupeCandidatesByAfterPosition(candidates, scoreField = null) {
  * better than the selected move. Tags are intentionally based on replayed
  * features rather than the eventual game result.
  */
-export function structuralDominanceTags(selected, recommended) {
+export function structuralDominanceTags(selected, recommended, context = {}) {
   const chosen = selected?.features || {};
   const better = recommended?.features || {};
   const tags = new Set();
+  // Recompute from legal replay boards, never from archived/client risk
+  // fields. This tag can describe a terminal-proven defect; it cannot grant
+  // learning credit without the existing complete-cohort/confidence gates.
+  const validContext = context.state?.variant === 'long'
+    && routeFenceBurden(context.state, context.color) !== null;
+  const selectedBurden = validContext ? routeFenceBurden(selected?.after, context.color) : null;
+  const recommendedBurden = validContext ? routeFenceBurden(recommended?.after, context.color) : null;
+  if (selectedBurden !== null && recommendedBurden !== null && recommendedBurden < selectedBurden) {
+    tags.add('head-fence-exposure');
+  }
 
   if (
     greater(better.outsideReduction, chosen.outsideReduction)
@@ -211,7 +223,9 @@ export function reviewLongBotDecision(decision, candidates, replay = {}) {
   const regretLcb = eligibility.regretLcb;
   const minRegret = Math.max(0, finiteNumber(replay.minRegret, 0));
   const minRegretLcb = Math.max(0, finiteNumber(replay.minRegretLcb, minRegret));
-  const categories = structuralDominanceTags(selected, recommended);
+  const categories = structuralDominanceTags(selected, recommended, {
+    state: decision.stateSnapshotV2, color: decision.color,
+  });
 
   const common = {
     accepted: true,

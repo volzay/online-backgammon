@@ -418,6 +418,8 @@ function strategicReviewLedger() {
     engineVersion: ENGINE_VERSION, source: 'engine', choiceCount: 2,
     stateSnapshotV2: { schema: 'long-state-v2', variant: 'long', phase: 'move', turn: 'white',
       points: { 6: { color: 'white', count: 14 }, 7: { color: 'white', count: 1 }, 13: { color: 'dark', count: 15 } },
+      dice: [1, 2], rolled: [1, 2],
+      firstMoveDone: { white: true, dark: true }, headPlayedThisTurn: { white: false, dark: false },
       off: { white: 0, dark: 0 }, bar: { white: 0, dark: 0 } },
     selected: { features: {}, tactical: { distributionComplete: true,
       recoveryDistributionComplete: true, continuationCoverageComplete: true } },

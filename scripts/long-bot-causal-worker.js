@@ -10,10 +10,9 @@
  * complete legal coverage and paired terminal-outcome rollouts with rigorous
  * simultaneous confidence bounds. Static scores can never create evidence.
  *
- * Until server-signed experience snapshots exist, recursively learned games
- * are deliberately excluded: only the canonical empty frozen experience can
- * create new evidence. Learned patterns can still be consumed by v35; they
- * simply cannot train the next generation yet.
+ * A nonempty root snapshot requires server attestation for the leased archive.
+ * The worker replays that snapshot for the archived choice, then clears it
+ * before evaluating the same cold continuation for every paired branch.
  */
 
 const crypto = require('node:crypto');
@@ -24,6 +23,7 @@ const { pathToFileURL } = require('node:url');
 const {
   DEFAULT_LIMITS: DEFAULT_SHADOW_LIMITS,
   afterPositionKey,
+  applyLegalSequence,
   canonicalMoveKey,
   canonicalMoves,
   generateLongBotShadowReplay,
@@ -52,6 +52,7 @@ const VERIFIED_SCOPES = new WeakSet();
 const LEGACY_PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
 const PROGRESS_SCHEMA = 'long-server-causal-progress-v2';
 const ENGINE_VERSION = 'long-analytic-v35';
+const WARM_EXPERIENCE_ATTESTATION = 'long-server-warm-experience-attestation-v1';
 const WORKER_RELEASE = 'long-server-causal-review-v1';
 const EVIDENCE_SCHEMA = 'long-server-causal-evidence-v1';
 const POLICY_ROLE = 'current-frozen-cold-re-review';
@@ -73,7 +74,7 @@ const RPC_TRANSPORT_DIAGNOSTIC_CODES = new Set([
   ...RPC_PRECONNECT_CODES, 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_SOCKET',
   'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
 ]);
-const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v2';
+const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v3';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
   strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
@@ -129,6 +130,8 @@ const EXECUTABLE_DEPENDENCIES = Object.freeze([
   ['paired-rollout', path.join(__dirname, 'long-bot-paired-rollout.js')],
   ['terminal-journal', path.join(__dirname, 'long-bot-terminal-journal.js')],
   ['production-fence', path.join(__dirname, 'long-bot-production-fence.js')],
+  ['review-curriculum', path.join(ROOT, 'lib/long-bot-review-curriculum.js')],
+  ['fence-audit', path.join(ROOT, 'lib/long-bot-fence-audit.js')],
   ['shadow-replay', path.join(__dirname, 'generate-long-bot-shadow-replay.js')],
   ['simulator-dice', path.join(__dirname, 'simulate-long-bot-regression.js')],
   ['production-dispatch', path.join(ROOT, 'strong-bot.js')],
@@ -497,6 +500,18 @@ function archivedEarlyStrategicThreat(game, decision) {
   const color = decision.color;
   const opponent = color === 'white' ? 'dark' : 'white';
   const head = color === 'white' ? 24 : 12;
+  const rolled = snapshot.rolled;
+  const dice = snapshot.dice;
+  const futureRisk = nativeFinite(features.prospectiveFenceExtensionBefore);
+  const smallChoiceFutureThreat = decision.choiceCount <= 3
+    && Array.isArray(rolled) && rolled.length === 2
+    && rolled.every(die => Number.isInteger(die) && die >= 1 && die <= 6)
+    && rolled[0] !== rolled[1]
+    && Array.isArray(dice) && dice.length === 2
+    && (dice[0] === rolled[0] && dice[1] === rolled[1]
+      || dice[0] === rolled[1] && dice[1] === rolled[0])
+    && snapshot.points[head]?.color === color && snapshot.points[head].count > 0
+    && futureRisk !== null && futureRisk >= 60;
   let startZoneCheckers = 0;
   let headFencePriority = 0;
   let fenceBlocked = 0;
@@ -530,21 +545,27 @@ function archivedEarlyStrategicThreat(game, decision) {
   const signals = [];
   if (missedRescue) signals.push('early-missed-start-zone-rescue');
   if (headFencePriority) signals.push('early-head-fence-pressure');
-  return { priority, fenceBlocked, signals };
+  if (smallChoiceFutureThreat) signals.push('early-small-choice-future-head-threat');
+  return { priority, fenceBlocked, signals,
+    ...(smallChoiceFutureThreat ? { smallChoiceFutureThreat: true } : {}) };
 }
 
 // Shared by the production worker and the offline army curriculum. At most
-// two of four slots come from the first half of bot turns. Prefer the first
+// two of four slots are reserved for the first half of bot turns. Prefer the first
 // contested-fence onset and a later, more severe contested fence; a generic
-// missed-rescue hint must not crowd both out. The other slots retain the old
-// tier / reverse-ledger ordering, including late prime-loss reviews.
+// missed-rescue hint must not crowd both out. One native two/three-position
+// future-head threat may take the second early slot, keeping the existing
+// first pre-threat/contested onset. Other slots retain the old tier ordering.
 function prioritizeStrategicReviewRisks(risks, maximum) {
   const reserve = Math.min(2, Math.floor(maximum / 2));
   const early = risks.filter(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  const predecessors = risks.filter(risk => risk.earlyWindow && risk.preThreat)
+    .sort((left, right) => left.index - right.index);
   const developing = early.filter(risk => risk.earlyThreat.fenceBlocked >= 3);
   const contested = developing.filter(risk => risk.earlyThreat.signals.includes('early-missed-start-zone-rescue'));
   const onsetPool = contested.length ? contested : developing;
-  const onset = [...onsetPool].sort((left, right) => left.index - right.index)[0];
+  const onset = predecessors[0]
+    || [...onsetPool].sort((left, right) => left.index - right.index)[0];
   const selected = reserve > 0 && onset ? [onset] : [];
   if (selected.length < reserve && onset) {
     const laterContested = contested.filter(risk => risk.index !== onset.index);
@@ -562,39 +583,106 @@ function prioritizeStrategicReviewRisks(risks, maximum) {
       || right.tier - left.tier || right.index - left.index)
     .slice(0, reserve - selected.length));
   const chosen = selected.slice(0, reserve);
+  const futureThreat = risks.filter(risk => risk.earlyWindow
+    && risk.earlyThreat.smallChoiceFutureThreat === true
+    && risk.capacity?.eligible === true && Number.isSafeInteger(risk.capacity.uniquePositions)
+    && risk.capacity.uniquePositions >= 2 && risk.capacity.uniquePositions <= 3)
+    .sort((left, right) => left.index - right.index)[0];
+  if (futureThreat && !chosen.some(risk => risk.index === futureThreat.index)) {
+    if (chosen.length < reserve) chosen.push(futureThreat);
+    else if (reserve > 1) chosen[reserve - 1] = futureThreat;
+  }
   const chosenIndexes = new Set(chosen.map(risk => risk.index));
   return [...chosen, ...risks.filter(risk => !chosenIndexes.has(risk.index))
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
 }
 
-function productionStrategicReviewPlan(game) {
+function attachPreThreatHints(game, risks) {
+  // Lazy import avoids a cycle: the curriculum uses this module's native
+  // snapshot validation. Scheduling is bound into the executable digest and
+  // never grants evidence or changes the archived selected move.
+  const { preThreatDecisionHints } = require('../lib/long-bot-review-curriculum');
+  const hints = new Map(preThreatDecisionHints(game, { minimumBlocked: 2 })
+    .map(hint => [hint.index, hint]));
+  return risks.map(risk => ({ ...risk, preThreat: hints.get(risk.index) || null }));
+}
+
+const reviewCapacityCache = new Map();
+function productionReviewCapacity(game, decision) {
+  if (archivedOutsideCount(game, decision) === null) return { eligible: false, reason: 'invalid-board' };
+  const key = canonicalJson(decision.stateSnapshotV2);
+  if (reviewCapacityCache.has(key)) return reviewCapacityCache.get(key);
+  const result = (() => {
+    try {
+      const runtime = loadRuntime();
+      const state = stateFromSnapshot(decision.stateSnapshotV2);
+      const sequences = runtime.game.bestMoveSequences(state, state.turn).filter(sequence => sequence.length);
+      if (sequences.length > DEFAULT_LIMITS.maxLegalSequences) {
+        return { eligible: false, reason: 'shadow-replay-legal-sequence-limit' };
+      }
+      const positions = new Set();
+      for (const sequence of sequences) {
+        const after = applyLegalSequence(runtime.game, state, sequence);
+        if (!after) return { eligible: false, reason: 'legal-sequence-application-failed' };
+        positions.add(afterPositionKey(after));
+        if (positions.size > DEFAULT_ROLLOUT_LIMITS.maxUniquePositions) {
+          return { eligible: false, reason: 'rollout-position-limit', minimumPositions: positions.size };
+        }
+      }
+      return { eligible: positions.size > 1, reason: positions.size > 1 ? '' : 'no-alternative-board',
+        uniquePositions: positions.size };
+    } catch {
+      return { eligible: false, reason: 'legal-sequence-enumeration-failed' };
+    }
+  })();
+  // Board-only, bounded memo. Client choiceCount, scores and risk claims never
+  // establish capacity. This is not a legality/evidence substitute: selected
+  // decisions still require the full native shadow and all K x N outcomes.
+  if (reviewCapacityCache.size >= 256) reviewCapacityCache.delete(reviewCapacityCache.keys().next().value);
+  reviewCapacityCache.set(key, Object.freeze(result));
+  return result;
+}
+
+function attachReviewCapacity(game, risks) {
+  const decisions = trainingDecisions(game);
+  return risks.map(risk => ({ ...risk, capacity: risk.envelopeFailure
+    ? { eligible: false, reason: 'invalid-envelope' }
+    : productionReviewCapacity(game, decisions[risk.index]) }));
+}
+
+function productionStrategicReviewPlan(game, options = {}) {
   const botRows = trainingDecisions(game).map((decision, index) => ({ decision, index }))
     .filter(({ decision }) => botDecision(decision, game));
-  const risks = botRows.map(({ decision, index }, ordinal) => ({
+  const risks = attachReviewCapacity(game, attachPreThreatHints(game, botRows.map(({ decision, index }, ordinal) => ({
     index, ...archivedStrategicRisk(game, decision),
     earlyWindow: ordinal < Math.ceil(botRows.length / 2),
     earlyThreat: archivedEarlyStrategicThreat(game, decision),
-    envelopeFailure: trustedDecisionEnvelopeFailure(game, decision),
-  }));
+    envelopeFailure: trustedDecisionEnvelopeFailure(game, decision, options),
+  }))));
   // A malformed archived decision still receives an explicit original-ledger
   // rejection, but cannot consume one of the four expensive review slots for
   // independently valid decisions in the same finished game.
   const reviewable = prioritizeStrategicReviewRisks(
-    risks.filter(risk => !risk.envelopeFailure), PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
-  const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure)
+    risks.filter(risk => !risk.envelopeFailure && risk.capacity.eligible), PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
+  const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure || !risk.capacity.eligible)
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
-  const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  const preThreatReserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.preThreat);
+  const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow
+    && (risk.earlyThreat.priority > 0 || risk.earlyThreat.smallChoiceFutureThreat === true));
   return {
     schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
     strategy: 'strategic-risk',
-    ordering: reserved ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+    ordering: preThreatReserved ? 'pre-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+      : reserved ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
       : 'strategic-tier-then-reverse-original-bot-ledger',
     riskRole: 'curriculum-only',
     outcomeUsed: false,
     maximumExpensiveReviews: PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
     expensiveDecisionIndexes: reviewable.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
-    risks: ordered.map(({ index, tier, signals, earlyWindow, earlyThreat }) => ({
-      index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : [])],
+    risks: ordered.map(({ index, tier, signals, earlyWindow, earlyThreat, preThreat, capacity }) => ({
+      index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : []),
+        ...(earlyWindow && preThreat ? [preThreat.signal] : [])],
+      capacity,
     })),
   };
 }
@@ -655,6 +743,46 @@ function emptyFrozenExperience(game, decision) {
   );
 }
 
+function archivedExperienceIsNonempty(experience) {
+  return Boolean(experience?.size > 0 || experience?.patternCount > 0
+    || (Array.isArray(experience?.patterns) && experience.patterns.length > 0));
+}
+
+function verifiedWarmRoot(game, decision, options) {
+  const scope = options[PRODUCTION_SCOPE];
+  if (!VERIFIED_SCOPES.has(scope) || !scope.warmExperience) return null;
+  const archived = replayExperienceForGame(game, null);
+  const used = replayExperienceForGame(game, decision);
+  if (!archived || !used
+    || (used !== archived && canonicalJson(used) !== canonicalJson(archived))
+    || archived.fingerprint !== decision.experienceFingerprint
+    || decision.replayInput?.experienceFingerprint !== archived.fingerprint
+    || decision.experienceFrozen !== true || decision.replayInput?.experienceFrozen !== true
+    || archived.size !== decision.experienceSize || archived.size !== decision.replayInput?.experienceSize) {
+    return null;
+  }
+  return scope.warmExperience;
+}
+
+function validatedWarmExperienceAttestation(attestation, job) {
+  if (attestation === null) return null;
+  const archived = replayExperienceForGame(job.game, null);
+  if (attestation?.schema !== WARM_EXPERIENCE_ATTESTATION
+    || attestation.archiveFingerprint !== job.archiveFingerprint
+    || attestation.runtimeDigest !== job.runtimeDigest
+    || attestation.policyImplementationId !== job.policyImplementationId
+    || typeof attestation.snapshotHash !== 'string' || !/^[0-9a-f]{64}$/.test(attestation.snapshotHash)
+    || !Array.isArray(attestation.patterns) || attestation.patterns.length < 1 || attestation.patterns.length > 256
+    || archived?.schema !== 'long-experience-replay-v1' || archived.engineVersion !== ENGINE_VERSION
+    || archived.complete !== true || archived.frozen !== true
+    || !Number.isSafeInteger(archived.size) || archived.size < 1
+    || archived.patternCount !== attestation.patterns.length
+    || canonicalJson(archived.patterns) !== canonicalJson(attestation.patterns)) {
+    throw new Error('Claimed causal review warm experience identity mismatch');
+  }
+  return Object.freeze({ snapshotHash: attestation.snapshotHash, patterns: attestation.patterns });
+}
+
 function compactPolicyCandidate(candidate) {
   return {
     after: candidate?.after,
@@ -663,6 +791,7 @@ function compactPolicyCandidate(candidate) {
     features: candidate?.features || {},
     experience: candidate?.experience || null,
     tactical: candidate?.tactical || null,
+    experienceAdjustment: Math.round(Number(candidate?.experienceAdjustment) || 0),
   };
 }
 
@@ -679,18 +808,30 @@ function regenerateArchivedSelection(game, decision, options = {}) {
   const policyFailure = archivedPolicyFailure(decision, options);
   if (policyFailure) return { ok: false, reason: policyFailure };
   const runtime = loadRuntime(options);
-  runtime.engine.setExperience([], 'server-causal-review');
-  const state = stateFromSnapshot(decision.stateSnapshotV2 || {});
-  const ranked = runtime.engine.rank(state, serverOwnedDecisionPolicy(decision, options));
-  const selected = compactPolicyCandidate(ranked?.[0]);
-  if (
-    afterPositionKey(selected) !== afterPositionKey(decision.selected)
-    || exactMoves(selected.moves) !== exactMoves(decision.selected?.moves)
-    || String(selected.experience?.contextKey || '') !== String(decision.selected?.experience?.contextKey || '')
-    || String(selected.experience?.actionKey || '') !== String(decision.selected?.experience?.actionKey || '')
-    || Number(decision.selected?.experienceAdjustment || 0) !== 0
-  ) return { ok: false, reason: 'archived-policy-not-reproduced' };
-  return { ok: true, selected };
+  const warm = verifiedWarmRoot(game, decision, options);
+  runtime.engine.setExperience(warm?.patterns || [], 'server-causal-review');
+  try {
+    if (warm) {
+      const snapshot = runtime.engine.experienceSnapshot();
+      if (snapshot.fingerprint !== decision.experienceFingerprint || snapshot.size !== decision.experienceSize) {
+        return { ok: false, reason: 'experience-replay-mismatch' };
+      }
+    }
+    const state = stateFromSnapshot(decision.stateSnapshotV2 || {});
+    const ranked = runtime.engine.rank(state, serverOwnedDecisionPolicy(decision, options));
+    const selected = compactPolicyCandidate(ranked?.[0]);
+    const archivedAdjustment = warm ? decision.selected?.experienceAdjustment : Number(decision.selected?.experienceAdjustment || 0);
+    if (
+      afterPositionKey(selected) !== afterPositionKey(decision.selected)
+      || exactMoves(selected.moves) !== exactMoves(decision.selected?.moves)
+      || String(selected.experience?.contextKey || '') !== String(decision.selected?.experience?.contextKey || '')
+      || String(selected.experience?.actionKey || '') !== String(decision.selected?.experience?.actionKey || '')
+      || selected.experienceAdjustment !== archivedAdjustment
+    ) return { ok: false, reason: 'archived-policy-not-reproduced' };
+    return { ok: true, selected };
+  } finally {
+    if (warm) runtime.engine.setExperience([], 'server-causal-review');
+  }
 }
 
 function validateDecisionResources(game, decision) {
@@ -785,7 +926,10 @@ function trustedDecisionEnvelopeFailure(game, decision, options = {}) {
   if (resourceFailure) return resourceFailure;
   const execution = exactExecution(decision);
   if (!execution.ok) return execution.reason;
-  if (!emptyFrozenExperience(game, decision)) return 'recursive-experience-provenance-unsigned';
+  if (verifiedWarmRoot(game, decision, options)) return '';
+  if (archivedExperienceIsNonempty(replayExperienceForGame(game, null)) || !emptyFrozenExperience(game, decision)) {
+    return 'recursive-experience-provenance-unsigned';
+  }
   return '';
 }
 
@@ -832,6 +976,7 @@ function offlineTerminalJournalBindings(game, decision, selected, options, nativ
   if (matchingIndexes.length !== 1) throw new Error('Terminal journal decision is not unique in the original ledger');
   const scope = options[PRODUCTION_SCOPE];
   const production = VERIFIED_SCOPES.has(scope);
+  const warm = verifiedWarmRoot(game, decision, options);
   return {
     schema: 'long-offline-terminal-journal-bindings-v1',
     policyRole: POLICY_ROLE, historicalImplementationAttested: false,
@@ -849,6 +994,8 @@ function offlineTerminalJournalBindings(game, decision, selected, options, nativ
     gameBytesSha256: nativeRuntime.gameBytesDigest, bundleBytesSha256: nativeRuntime.runtimeBytesDigest,
     node: process.versions.node, v8: process.versions.v8,
     originalSelectionPolicy: serverOwnedDecisionPolicy(decision, options),
+    ...(warm ? { rootExperienceSnapshotHash: warm.snapshotHash,
+      rootExperienceFingerprint: decision.experienceFingerprint } : {}),
     frozenFutureExperienceCanonical: canonicalJson(nativeRuntime.engine.experienceReplaySnapshot()),
     legalSetSemantics: 'every unique legal after-board, one fixed native ordered action per board',
     ...(production ? {
@@ -876,17 +1023,23 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   if (envelopeFailure) return { ...base, reason: envelopeFailure };
   const execution = exactExecution(decision);
 
-  // Always regenerate under the CURRENT frozen cold implementation. Matching
-  // the archived action does not attest which source build played originally.
-  // A client-provided replay is intentionally ignored.
+  const warm = verifiedWarmRoot(game, decision, options);
+  // Ignore client-provided replay. Static reconstruction uses the archived
+  // snapshot only after provenance validation. The shared VM must then shed
+  // the shadow source even when the replay returns early or throws.
   const shadowGenerator = options.shadowReplayGenerator || generateLongBotShadowReplay;
-  const shadow = await shadowGenerator(game, decision, {
-    ...options,
-    limits: {
-      ...DEFAULT_LIMITS,
-      ...(options.shadowLimits || {}),
-    },
-  });
+  let shadow;
+  try {
+    shadow = await shadowGenerator(game, decision, {
+      ...options,
+      limits: {
+        ...DEFAULT_LIMITS,
+        ...(options.shadowLimits || {}),
+      },
+    });
+  } finally {
+    if (warm) loadRuntime(options).engine.setExperience([], 'shadow-replay');
+  }
   if (!shadow?.ok || shadow.replay?.coverage?.complete !== true) {
     return { ...base, reason: shadow?.reason || 'complete-legal-replay-missing' };
   }
@@ -912,6 +1065,12 @@ async function reviewTrustedDecision(game, decision, options = {}) {
     const outcomeGenerator = options.pairedOutcomeGenerator || generatePairedPolicyOutcomes;
     const nativeRuntime = outcomeGenerator === generatePairedPolicyOutcomes && !options.runtime && !options.outcomeRunner
       ? loadRuntime(options) : null;
+    // Both branches retain the same cold continuation used before signed root
+    // experience. A leaked VM source invalidates the cohort instead of merely
+    // disabling its cache.
+    if (warm && nativeRuntime?.engine.experienceSize() !== 0) {
+      return { ...base, reason: 'paired-continuation-experience-not-cold' };
+    }
     // Attest actual server bytes/current policy, never a client/injected claim.
     const rolloutOptions = nativeRuntime ? {
       ...options,
@@ -969,7 +1128,9 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   if (!legalRecommendation) return { ...base, reason: 'rollout-recommendation-not-legal' };
 
   const reviewer = await loadReviewer();
-  const categories = reviewer.structuralDominanceTags(selected, legalRecommendation);
+  const categories = reviewer.structuralDominanceTags(selected, legalRecommendation, {
+    state: decision.stateSnapshotV2, color: decision.color,
+  });
   if (!categories.length) {
     return {
       ...base,
@@ -1019,7 +1180,8 @@ async function reviewTrustedDecision(game, decision, options = {}) {
     completeLegalCoverage: true,
     pairedRolloutComplete: true,
     confidenceBoundsComplete: true,
-    recursiveExperience: false,
+    recursiveExperience: Boolean(warm),
+    ...(warm ? { experienceSnapshotHash: warm.snapshotHash } : {}),
     legalSequenceCount: Number(shadow.replay.coverage.legalSequenceCount) || 0,
     uniquePositionCount: Number(shadow.replay.coverage.expectedCandidates) || 0,
     scoreSemantics: rollout.scoreSemantics,
@@ -1269,6 +1431,7 @@ function productionReviewSelectionTelemetry(plan, decisionIndex) {
     priorityRank: riskRank < 0 ? null : riskRank + 1,
     tier: risk.tier,
     signals: [...risk.signals],
+    ...(risk.capacity ? { capacity: { ...risk.capacity } } : {}),
   };
 }
 
@@ -1284,7 +1447,7 @@ async function reviewStrategicallyBoundedProductionDecision(
     throw new Error('Bounded production review requires an original bot decision index');
   }
   if (typeof expensiveReviewer !== 'function') throw new Error('Bounded production expensive reviewer is invalid');
-  const plan = productionStrategicReviewPlan(game);
+  const plan = productionStrategicReviewPlan(game, options);
   const reviewSelection = productionReviewSelectionTelemetry(plan, decisionIndex);
   const decisionEnvelopeFailures = indexes.map(index => ({
     index,
@@ -1595,8 +1758,13 @@ async function runResumableClaimedBatch(options) {
         archivePayloadText: job.archiveFingerprintSource, runtimeDigest: digest, policyImplementationId: implementationId }));
       const jobJournalDirectory = fence.prepareJobJournal({ jobBindingId });
       fence.recoverStaleWriterLocks({ jobBindingId });
+      const warmExperience = archivedExperienceIsNonempty(replayExperienceForGame(job.game, null))
+        ? validatedWarmExperienceAttestation(await fencedRpc('verify_long_bot_review_experience', {
+          p_job_id: job.jobId, p_worker_id: workerId, p_runtime_digest: digest,
+        }), job)
+        : null;
       const scope = Object.freeze({ jobId: job.jobId, archiveFingerprint: job.archiveFingerprint,
-        archiveFingerprintSource: job.archiveFingerprintSource });
+        archiveFingerprintSource: job.archiveFingerprintSource, warmExperience });
       VERIFIED_SCOPES.add(scope);
       let slice;
       try {
@@ -1810,6 +1978,9 @@ module.exports = {
   archivedOutsideCount,
   archivedStrategicRisk,
   archivedEarlyStrategicThreat,
+  attachPreThreatHints,
+  productionReviewCapacity,
+  attachReviewCapacity,
   prioritizeStrategicReviewRisks,
   botDecision,
   collisionResistantIdentities,
