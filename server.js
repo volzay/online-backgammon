@@ -1428,12 +1428,13 @@ function statusForAdmin(room) {
 
 function adminPlayersForRoom(room) {
   const players = [];
+  const hostColor = require("./admin-room-data.js").botPlayerColor(room.gameState || {}) === "dark" ? "dark" : "white";
   if (room.hostName) {
     const user = touchAdminUser({ name: room.hostName, rating: room.hostRating, registered: room.hostRegistered, ratingEligible: room.hostRatingEligible, source: room.hostRegistered ? "account" : "guest" });
     players.push({
       id: user?.id || `ply_${sha256(adminUserKey(room.hostName)).slice(0, 16)}`,
       name: room.hostName,
-      color: "white",
+      color: hostColor,
       rating: room.hostRegistered ? normalizeRating(room.hostRating) : null,
       tier: room.hostRegistered ? ratingTierFor(room.hostRating) : "",
       ratingEligible: Boolean(room.hostRegistered),
@@ -1444,7 +1445,7 @@ function adminPlayersForRoom(room) {
     players.push({
       id: user?.id || `ply_${sha256(adminUserKey(room.guestName)).slice(0, 16)}`,
       name: room.guestName,
-      color: "dark",
+      color: hostColor === "white" ? "dark" : "white",
       rating: room.guestRegistered ? normalizeRating(room.guestRating) : null,
       tier: room.guestRegistered ? ratingTierFor(room.guestRating) : "",
       ratingEligible: Boolean(room.guestRegistered),
@@ -1470,17 +1471,7 @@ function latestRoomEventAt(room) {
 }
 
 function rollStats(game) {
-  const rolls = (game?.history || []).filter(item => item.roll);
-  const doubles = rolls.filter(item => {
-    const [a, b] = String(item.roll).split(":").map(Number);
-    return Number.isFinite(a) && a === b;
-  });
-  return {
-    rolls: rolls.length,
-    doubles: doubles.length,
-    doubleRate: rolls.length ? doubles.length / rolls.length : 0,
-    lastRoll: rolls[0] ? { color: rolls[0].color, roll: rolls[0].roll, at: rolls[0].at, sha256: rolls[0].sha256 } : null,
-  };
+  return require("./admin-room-data.js").rollStats(game);
 }
 
 function adminSessionFromRoom(room) {

@@ -9,6 +9,11 @@
       const finalState = item?.final_state || {};
       const hasFinalState = Boolean(finalState.winner || finalState.finishedAt || finalState.history);
       if (!finalState.winner && !item?.winner) return;
+      // The training payload may omit history. Prefer the full room snapshot
+      // of that same finished game, without replacing a genuinely newer game.
+      if (finalState.finishedAt && completed.some(archive =>
+        archive.final_state?.finishedAt === finalState.finishedAt
+        && (archive.final_state?.winner || archive.winner) === (finalState.winner || item.winner))) return;
       completed.push({
         id: `training:${item.id || item.room_code || completed.length}`,
         result_key: `training:${item.id || item.room_code || completed.length}`,
@@ -19,6 +24,7 @@
           ? finalState.history.length
           : Number(item.decision_count || 0),
         final_state: hasFinalState ? finalState : null,
+        bot_color: item.bot_color || null,
         completed_at: item.completed_at || finalState.finishedAt || "",
       });
     });
@@ -45,19 +51,47 @@
   }
 
   function rollStats(game = {}) {
-    const rolls = (Array.isArray(game.history) ? game.history : []).filter(item => item?.roll);
-    const doubles = rolls.filter(item => {
-      const [a, b] = String(item.roll).split(":").map(Number);
-      return Number.isFinite(a) && a === b;
+    game = game || {};
+    const byColor = {
+      white: { rolls: 0, doubles: 0, doubleRate: 0 },
+      dark: { rolls: 0, doubles: 0, doubleRate: 0 },
+    };
+    const seen = new Set();
+    const rolls = (Array.isArray(game.history) ? game.history : []).filter(item => {
+      if (!item || !Object.hasOwn(byColor, item.color) || item.opening || item.openingRoll
+        || item.fairDiceProof?.request?.label === "opening" || !/^[1-6]:[1-6]$/.test(String(item.roll))) return false;
+      const id = item.fairDiceProof?.request?.id;
+      if (typeof id === "string" && id) {
+        if (seen.has(id)) return false;
+        seen.add(id);
+      }
+      const stats = byColor[item.color];
+      stats.rolls += 1;
+      if (item.roll[0] === item.roll[2]) stats.doubles += 1;
+      return true;
     });
+    for (const stats of Object.values(byColor)) {
+      stats.doubleRate = stats.rolls ? stats.doubles / stats.rolls : 0;
+    }
+    const doubles = byColor.white.doubles + byColor.dark.doubles;
     return {
+      historyAvailable: Array.isArray(game.history) && !(game.winner && game.history.length === 0),
+      byColor,
       rolls: rolls.length,
-      doubles: doubles.length,
-      doubleRate: rolls.length ? doubles.length / rolls.length : 0,
+      doubles,
+      doubleRate: rolls.length ? doubles / rolls.length : 0,
       lastRoll: rolls[0]
         ? { color: rolls[0].color, roll: rolls[0].roll, at: rolls[0].at, sha256: rolls[0].sha256 }
         : null,
     };
+  }
+
+  function botPlayerColor(game = {}, fallbackBotColor = null) {
+    const outcomeColor = game.analysis?.botMemory?.outcome?.botColor;
+    if (game.mode !== "bot" && !outcomeColor && !fallbackBotColor) return null;
+    if (["white", "dark"].includes(game.analysis?.playerColor)) return game.analysis.playerColor;
+    const botColor = ["white", "dark"].includes(outcomeColor) ? outcomeColor : fallbackBotColor;
+    return botColor === "white" ? "dark" : botColor === "dark" ? "white" : null;
   }
 
   function displayedGame(room) {
@@ -73,5 +107,5 @@
     return { game, liveGame, archive, archived: true };
   }
 
-  return { archives, latestArchive, borneOff, rollStats, displayedGame };
+  return { archives, latestArchive, borneOff, rollStats, botPlayerColor, displayedGame };
 });
