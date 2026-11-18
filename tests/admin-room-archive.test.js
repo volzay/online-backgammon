@@ -97,6 +97,11 @@ test("the room-list payload produces the same completed-game totals as room deta
   const selected = roomData.displayedGame(listRoom);
   assert.deepEqual(roomData.borneOff(selected.game), { white: 15, dark: 5 });
   assert.deepEqual(roomData.rollStats(selected.game), {
+    historyAvailable: true,
+    byColor: {
+      white: { rolls: 1, doubles: 1, doubleRate: 1 },
+      dark: { rolls: 1, doubles: 0, doubleRate: 0 },
+    },
     rolls: 2,
     doubles: 1,
     doubleRate: 0.5,

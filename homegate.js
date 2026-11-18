@@ -6,11 +6,12 @@ const TAB_KEY = "narduh_admin_tab";
 const ROOM_ARCHIVE_RETENTION_HOURS = 96;
 const SUPABASE_ROOM_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_state,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
 const SUPABASE_ROOM_LIST_BASE_SELECT = "id,code,variant,access,status,host_user_id,guest_user_id,host_name,guest_name,host_rating,guest_rating,host_registered,guest_registered,game_version,presence,left_players,created_at,joined_at,updated_at,archived_at,closed_reason";
-const SUPABASE_ROOM_LIST_SELECT = `${SUPABASE_ROOM_LIST_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,completed_at)`;
-const SUPABASE_ROOM_MONITOR_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,decision_count,final_state,completed_at)`;
+const SUPABASE_ROOM_LIST_SELECT = `${SUPABASE_ROOM_LIST_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,completed_at),bot_training_games(id,room_code,winner,result_type,bot_color,decision_count,completed_at)`;
+const SUPABASE_ROOM_MONITOR_SELECT = `${SUPABASE_ROOM_BASE_SELECT},room_game_archives(id,room_code,result_key,winner,result_type,borne_off,history_count,final_state,completed_at),bot_training_games(id,room_code,winner,result_type,bot_color,decision_count,final_state,completed_at)`;
 const SUPABASE_ROOM_DETAIL_SELECT = `${SUPABASE_ROOM_MONITOR_SELECT},room_messages(id,sender_user_id,sender_name,color,kind,text,audio_data,mime_type,duration,created_at)`;
 let adminScrollInteractionUntil = 0;
 let autoRefreshInFlight = false;
+const roomRollStatsCache = new Map();
 
 const state = {
   admin: null,
@@ -138,6 +139,7 @@ const adminDict = {
     no_players: "Нет игроков",
     borne_off: "Снято",
     doubles: "Дубли",
+    roll_stats_unavailable: "Нет данных о бросках",
     updated: "Обновлена",
     last_roll: "Последний бросок",
     winner: "Победитель",
@@ -285,6 +287,7 @@ const adminDict = {
     no_players: "No players",
     borne_off: "Borne off",
     doubles: "Doubles",
+    roll_stats_unavailable: "Roll data unavailable",
     updated: "Updated",
     last_roll: "Last roll",
     winner: "Winner",
@@ -631,8 +634,26 @@ function borneOffText(room) {
 }
 
 function doubleText(room) {
+  if (room.historyAvailable === false) return t("roll_stats_unavailable");
   const rate = room.rolls ? `${Math.round(room.doubleRate * 1000) / 10}%` : "0%";
   return `${room.doubles || 0}/${room.rolls || 0} (${rate})`;
+}
+
+function playerDoubleLines(room) {
+  return ["white", "dark"].map(color => {
+    const player = (room.players || []).find(item => item.color === color);
+    const label = `${t("doubles")} — ${player?.name ? `${player.name} (${colorLabel(color)})` : colorLabel(color)}`;
+    const stats = room.byColor?.[color];
+    const value = room.historyAvailable !== false && stats
+      ? doubleText(stats) : t("roll_stats_unavailable");
+    return { label, value };
+  });
+}
+
+function playerDoubleRows(room, detail = false) {
+  return playerDoubleLines(room).map(({ label, value }) => detail
+    ? `<div class="detail-row player-doubles"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`
+    : `<span class="player-doubles">${escapeHtml(label)}</span><span>${escapeHtml(value)}</span>`).join("");
 }
 
 function winnerText(summary) {
@@ -678,13 +699,15 @@ function rollStats(game) {
   return window.NarduAdminRoomData.rollStats(game);
 }
 
-function supabasePlayersForRoom(room) {
+function supabasePlayersForRoom(room, game = {}, stats = {}, fallbackBotColor = null) {
   const players = [];
+  const botPlayerColor = stats.playerColor || window.NarduAdminRoomData.botPlayerColor(game, fallbackBotColor);
+  const hostColor = botPlayerColor === "dark" ? "dark" : "white";
   if (room.host_name) {
     players.push({
       id: room.host_user_id || `host:${room.id}`,
       name: room.host_name,
-      color: "white",
+      color: hostColor,
       rating: room.host_registered ? room.host_rating : null,
       ratingEligible: Boolean(room.host_registered),
     });
@@ -693,7 +716,7 @@ function supabasePlayersForRoom(room) {
     players.push({
       id: room.guest_user_id || `guest:${room.id}`,
       name: room.guest_name,
-      color: "dark",
+      color: hostColor === "white" ? "dark" : "white",
       rating: room.guest_registered ? room.guest_rating : null,
       ratingEligible: Boolean(room.guest_registered),
     });
@@ -728,11 +751,43 @@ function supabaseRoomMessages(room) {
   })).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
 }
 
+async function loadRoomRollStats(client, rooms) {
+  const versionKey = room => JSON.stringify([
+    room.game_version ?? null,
+    ...(room.room_game_archives || []).map(a => [a.id, a.result_key, a.completed_at, a.history_count, a.winner]).sort(),
+    ...(room.bot_training_games || []).map(a => [a.id, a.completed_at, a.decision_count, a.winner, a.bot_color]).sort(),
+  ]);
+  const requested = new Map(rooms.filter(room => room.id).map(room => [room.id, versionKey(room)]));
+  const byId = new Map();
+  for (const [id, cached] of roomRollStatsCache) {
+    if (!requested.has(id)) roomRollStatsCache.delete(id);
+    else if (cached.version === requested.get(id)) byId.set(id, cached.stats);
+  }
+  const ids = [...requested.keys()].filter(id => !byId.has(id));
+  // Only aggregate counts cross this boundary; list polling never loads the
+  // complete histories or signed proofs of every archived room.
+  for (let offset = 0; offset < ids.length; offset += 500) {
+    try {
+      const { data, error } = await client.rpc("admin_room_roll_stats", { p_room_ids: ids.slice(offset, offset + 500) });
+      if (error || !Array.isArray(data)) continue;
+      for (const stats of data) {
+        if (!stats?.roomId || !requested.has(stats.roomId)) continue;
+        byId.set(stats.roomId, stats);
+        roomRollStatsCache.set(stats.roomId, { version: requested.get(stats.roomId), stats });
+      }
+    } catch {
+      // Detail/monitor snapshots still provide their own counts. A missing
+      // aggregate leaves collection values explicitly unavailable, never zero.
+    }
+  }
+  return room => byId.has(room.id) ? { ...room, adminRollStats: byId.get(room.id) } : room;
+}
+
 function supabaseRoomSummary(room, options = {}) {
   const { game, liveGame, archive: latestArchive, archived } = window.NarduAdminRoomData.displayedGame(room);
   const chatMessages = supabaseRoomMessages(room);
-  const players = supabasePlayersForRoom(room);
-  const stats = rollStats(game);
+  const stats = room.adminRollStats || rollStats(game);
+  const players = supabasePlayersForRoom(room, game, stats, archived ? latestArchive?.bot_color : null);
   const winnerColor = game.winner || latestArchive?.winner || null;
   const winnerPlayer = winnerColor ? players.find(player => player.color === winnerColor) : null;
   const borneOff = normalizedBorneOff(game);
@@ -851,6 +906,7 @@ function roomCard(room) {
         <span>${escapeHtml(resultTypeText(room))}</span>
         <span>${t("doubles")}</span>
         <span>${doubleText(room)}</span>
+        ${playerDoubleRows(room)}
         <span>${t("updated")}</span>
         <span>${fmtTime(room.updatedAt || room.archivedAt)}</span>
       </div>
@@ -889,6 +945,7 @@ function monitorCard(key) {
         <span>${room.lastRoll ? `${room.lastRoll.roll} · ${colorLabel(room.lastRoll.color)}` : "-"}</span>
         <span>${t("doubles")}</span>
         <span>${doubleText(room)}</span>
+        ${playerDoubleRows(room)}
         <span>${t("borne_off")}</span>
         <span class="monitor-number">${borneOffText(room)}</span>
         <span>${t("winner")}</span>
@@ -1000,6 +1057,7 @@ function gameProtocolText(detail = state.detail) {
     `${t("borne_off")}: ${t("white")} ${summary.borneOff?.white || 0}, ${t("dark")} ${summary.borneOffUnknown ? "?" : (summary.borneOff?.dark || 0)}`,
     `${t("rolls")}: ${summary.rolls || 0}`,
     `${t("doubles")}: ${doubleText(summary)}`,
+    ...playerDoubleLines(summary).map(({ label, value }) => `${label}: ${value}`),
     "",
     t("match_log").toUpperCase(),
   ];
@@ -1053,6 +1111,7 @@ function detailHtml() {
         <div class="detail-row"><span>${t("status")}</span><strong>${statusLabel(summary.status)}</strong></div>
         <div class="detail-row"><span>${t("players")}</span><strong>${escapeHtml(playerLine(summary))}</strong></div>
         <div class="detail-row"><span>${t("doubles")}</span><strong>${doubleText(summary)}</strong></div>
+        ${playerDoubleRows(summary, true)}
         <div class="detail-row"><span>${t("borne_off")}</span><strong>${borneOffText(summary)}</strong></div>
         <div class="detail-row"><span>${t("winner")}</span><strong>${escapeHtml(winnerText(summary))}</strong></div>
         <div class="detail-row"><span>${t("result")}</span><strong>${escapeHtml(resultTypeText(summary))}</strong></div>
@@ -1438,6 +1497,9 @@ async function refresh() {
       rooms = rooms.map(room => monitoredById.get(room.id) || room);
       archivedRooms = archivedRooms.map(room => monitoredById.get(room.id) || room);
     }
+    const withRollStats = await loadRoomRollStats(client, [...rooms, ...archivedRooms]);
+    rooms = rooms.map(withRollStats);
+    archivedRooms = archivedRooms.map(withRollStats);
     state.active = rooms.map(room => supabaseRoomSummary(room, { source: "active" }));
     state.archive = archivedRooms.map(room => supabaseRoomSummary(room, { source: "archive" }));
     state.audit = [];
