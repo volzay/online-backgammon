@@ -18,8 +18,9 @@ const clone = value => structuredClone(value);
 function safeSnapshot() {
   return {
     schema: 'long-state-v2', variant: 'long', phase: 'move', turn: 'dark',
-    points: { 12: { color: 'dark', count: 2 }, 24: { color: 'white', count: 15 } },
-    bar: { white: 0, dark: 0 }, off: { white: 0, dark: 13 },
+    points: { 12: { color: 'dark', count: 2 }, 18: { color: 'dark', count: 1 },
+      24: { color: 'white', count: 15 } },
+    bar: { white: 0, dark: 0 }, off: { white: 0, dark: 12 },
     dice: [2, 4], rolled: [2, 4], turnMoves: [],
     firstMoveDone: { white: true, dark: true },
     headPlayedThisTurn: { white: false, dark: false },
@@ -126,14 +127,14 @@ test('D3-shaped early fence risks reserve two deterministic reviews while late p
   const offline = selectReviewDecisionIndexes(game,
     { reviewSelection: 'strategic-risk', reviewWorkDecisions: 4 });
   assert.equal(plan.maximumExpensiveReviews, PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
-  assert.deepEqual(plan.expensiveDecisionIndexes, [7, 15, 46, 43],
-    'review the first developing fence and a more severe later fence');
+  assert.deepEqual(plan.expensiveDecisionIndexes, [6, 15, 46, 43],
+    'review the actual predecessor before the first fence and a more severe later fence');
   assert.deepEqual(offline.indexes, plan.expensiveDecisionIndexes);
   assert.deepEqual(offline.risks, plan.risks.slice(0, 4));
   assert.equal(plan.outcomeUsed, false);
   assert.equal(plan.riskRole, 'curriculum-only');
-  assert.match(plan.ordering, /^early-threat-reserve-/);
-  assert.ok(plan.risks[0].signals.includes('early-head-fence-pressure'));
+  assert.match(plan.ordering, /^pre-threat-reserve-/);
+  assert.ok(plan.risks[0].signals.includes('before-developing-head-fence'));
   assert.deepEqual(game, original);
 
   const changedOutcome = clone(game);
@@ -153,10 +154,11 @@ test('D3-shaped early fence risks reserve two deterministic reviews while late p
 test('native rescue hint can outrank a head fence, but malformed hints and invalid rows cannot take a slot', () => {
   const game = d3ShapedLedger();
   game.decisions[0].selected.features = { koksRescueOpportunity: 1, missedKoksRescue: 1 };
-  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [7, 15, 46, 43],
-    'an ordinary missed-exit hint must not crowd out an actual developing fence');
+  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [6, 15, 46, 43],
+    'an ordinary missed-exit hint must not crowd out the actual predecessor');
   game.decisions[18].selected.features = { koksRescueOpportunity: 2, missedKoksRescue: 1 };
-  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [18, 15, 46, 43]);
+  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [6, 18, 46, 43],
+    'a stronger rescue hint may use the other slot, not displace the predecessor');
   for (const value of ['1', true, 1.5, Infinity, -1, 5]) {
     const changed = clone(game.decisions[18]);
     changed.selected.features.missedKoksRescue = value;
@@ -164,7 +166,7 @@ test('native rescue hint can outrank a head fence, but malformed hints and inval
       ['early-head-fence-pressure'], `missedKoksRescue=${String(value)}`);
   }
   game.decisions[18].stateSnapshotV2.off.dark = 1;
-  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [7, 15, 46, 43],
+  assert.deepEqual(productionStrategicReviewPlan(game).expensiveDecisionIndexes, [6, 15, 46, 43],
     'invalid early row must not spend either reserved slot');
 });
 
@@ -198,7 +200,7 @@ test('bounded review spends exactly four slots and skips other early decisions w
         rollout: { coverage: { complete: true } } };
     }));
   }
-  assert.deepEqual(called, ['early-risk-7', 'early-risk-15', 'early-risk-43', 'early-risk-46']);
+  assert.deepEqual(called, ['early-risk-6', 'early-risk-15', 'early-risk-43', 'early-risk-46']);
   assert.equal(called.length, PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
   for (const index of [8, 11, 18]) {
     assert.equal(results[index].reason, 'production-strategic-risk-budget-skip');

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { headPressure, preThreatDecisionHints } = require('../lib/long-bot-review-curriculum');
 const { selectReviewDecisionIndexes, parseOptions, freezeTrainingRuntime } = require('../scripts/train-long-bot-causal-army');
 const { readRuntimeSnapshot } = require('../scripts/simulate-long-bot-regression');
+const { productionReviewCapacity } = require('../scripts/long-bot-causal-worker');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -74,18 +75,60 @@ test('predecessors retain original indexes across opponent rows and reject unkno
 test('pre-threat option is bounded and falls back without inventing predecessor hints', () => {
   assert.equal(parseOptions(['--review-selection', 'pre-threat']).reviewSelection, 'pre-threat');
   const source = game(); source.decisions = [decision(1), decision(1)];
+  for (const row of source.decisions) {
+    row.stateSnapshotV2.points[12].count = 14;
+    row.stateSnapshotV2.points[18] = { color: 'dark', count: 1 };
+    Object.assign(row.stateSnapshotV2, { dice: [2, 1], rolled: [2, 1], turnMoves: [],
+      firstMoveDone: { white: true, dark: true }, headPlayedThisTurn: { white: false, dark: false } });
+    const capacity = productionReviewCapacity(source, row);
+    assert.equal(capacity.eligible, true);
+    assert.ok(capacity.uniquePositions >= 2, 'fallback work requires genuine native alternatives');
+  }
   const selection = selectReviewDecisionIndexes(source, { reviewSelection: 'pre-threat', reviewWorkDecisions: 4 });
   assert.deepEqual(selection.indexes, [1, 0]);
   assert.deepEqual(selection.predecessorHints, []);
   assert.throws(() => selectReviewDecisionIndexes(game(), { reviewSelection: 'pre-threat', reviewWorkDecisions: 9 }));
 });
 
+test('a canonical forced turn and a missing-dice snapshot cannot create expensive fallback work', () => {
+  const forced = game(); forced.decisions = [decision(1), decision(1)];
+  for (const row of forced.decisions) {
+    Object.assign(row.stateSnapshotV2, { dice: [2, 1], rolled: [2, 1], turnMoves: [],
+      firstMoveDone: { white: true, dark: true }, headPlayedThisTurn: { white: false, dark: false } });
+    const capacity = productionReviewCapacity(forced, row);
+    assert.equal(capacity.eligible, false);
+    assert.equal(capacity.uniquePositions, 1, 'the complete legal turn has exactly one after-board');
+  }
+  assert.deepEqual(selectReviewDecisionIndexes(forced,
+    { reviewSelection: 'pre-threat', reviewWorkDecisions: 4 }).indexes, []);
+  const missing = game(); missing.decisions = [decision(1), decision(1)];
+  for (const row of missing.decisions) {
+    assert.equal(row.stateSnapshotV2.dice, undefined);
+    const capacity = productionReviewCapacity(missing, row);
+    assert.equal(capacity.eligible, false);
+    assert.equal(capacity.uniquePositions, 0, 'missing dice are not a forced legal turn');
+  }
+  assert.deepEqual(selectReviewDecisionIndexes(missing,
+    { reviewSelection: 'pre-threat', reviewWorkDecisions: 4 }).indexes, []);
+});
+
+test('production can locate the first two-anchor predecessor without changing the research default', () => {
+  const source = game();
+  source.decisions = [decision(1), decision(2)];
+  assert.deepEqual(preThreatDecisionHints(source), []);
+  assert.deepEqual(preThreatDecisionHints(source, { minimumBlocked: 2 }).map(h => [h.index, h.triggerIndex]), [[0, 1]]);
+  for (const value of [1, 7, '2', null, 2.5]) {
+    assert.throws(() => preThreatDecisionHints(source, { minimumBlocked: value }), /minimumBlocked/);
+  }
+});
+
 test('the immutable training artifact preserves the exact scheduling dependency', t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-threat-closure-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const frozen = freezeTrainingRuntime(readRuntimeSnapshot(path.join(__dirname, '..')), directory);
-  const target = 'lib/long-bot-review-curriculum.js';
-  assert.ok(frozen.files.some(file => file.name === target));
-  assert.ok(fs.readFileSync(path.join(frozen.directory, target)).equals(fs.readFileSync(path.join(__dirname, '..', target))));
-  assert.equal(fs.statSync(path.join(frozen.directory, target)).mode & 0o777, 0o444);
+  for (const target of ['lib/long-bot-review-curriculum.js', 'lib/long-bot-fence-audit.js']) {
+    assert.ok(frozen.files.some(file => file.name === target));
+    assert.ok(fs.readFileSync(path.join(frozen.directory, target)).equals(fs.readFileSync(path.join(__dirname, '..', target))));
+    assert.equal(fs.statSync(path.join(frozen.directory, target)).mode & 0o777, 0o444);
+  }
 });

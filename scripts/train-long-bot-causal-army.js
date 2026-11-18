@@ -529,21 +529,28 @@ function selectReviewDecisionIndexes(game, options) {
     strategy, ordering: 'reverse-original-bot-ledger', indexes: candidates.slice(-maximum).reverse().map(({ index }) => index),
     riskRole: 'curriculum-only', outcomeUsed: false, risks: [],
   };
-  const risks = candidates.map(({ decision, index }, ordinal) => ({
+  const risks = causalWorker.attachReviewCapacity(game, causalWorker.attachPreThreatHints(game, candidates.map(({ decision, index }, ordinal) => ({
     index, ...archivedStrategicRisk(game, decision),
     earlyWindow: ordinal < Math.ceil(candidates.length / 2),
     earlyThreat: causalWorker.archivedEarlyStrategicThreat(game, decision),
-  }));
-  const ordered = causalWorker.prioritizeStrategicReviewRisks(risks, maximum);
+  }))));
+  const ordered = causalWorker.prioritizeStrategicReviewRisks(risks.filter(risk => risk.capacity.eligible), maximum);
   const selected = ordered.slice(0, maximum);
   const reserved = selected.slice(0, Math.min(2, Math.floor(maximum / 2)))
-    .some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
-  return { strategy, ordering: reserved
+    .some(risk => risk.earlyWindow
+      && (risk.earlyThreat.priority > 0 || risk.earlyThreat.smallChoiceFutureThreat === true));
+  const preThreatReserved = selected.slice(0, Math.min(2, Math.floor(maximum / 2)))
+    .some(risk => risk.earlyWindow && risk.preThreat);
+  return { strategy, ordering: preThreatReserved
+    ? 'pre-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+    : reserved
     ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
     : 'strategic-tier-then-reverse-original-bot-ledger',
   indexes: selected.map(({ index }) => index), riskRole: 'curriculum-only', outcomeUsed: false,
-  risks: selected.map(({ index, tier, signals, earlyWindow, earlyThreat }) => ({
-    index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : [])],
+  risks: selected.map(({ index, tier, signals, earlyWindow, earlyThreat, preThreat, capacity }) => ({
+    index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : []),
+      ...(earlyWindow && preThreat ? [preThreat.signal] : [])],
+    capacity,
   })) };
 }
 

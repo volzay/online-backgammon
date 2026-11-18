@@ -829,6 +829,13 @@ test('full-envelope coverage counts remain native finite integers under scoped o
 
 function strategicProductionReviewFixture() {
   const { game, decision } = fixture();
+  // The generic proof-injection fixture has one native legal after-board.
+  // Scheduling now independently checks capacity, so give this selector-only
+  // fixture a third checker with genuine alternatives (no outcome label).
+  for (const board of [decision.stateSnapshotV2, decision.selected.after, decision.execution.executed.after]) {
+    board.points[18] = { color:'dark', count:1 };
+    board.off.dark = 12;
+  }
   const featureSets = [
     { primeRunBefore: 5, primeRunAfter: 4 },
     { headLandingBreak: 1 },

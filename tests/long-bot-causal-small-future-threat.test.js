@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 const worker = require('../scripts/long-bot-causal-worker');
 const { loadRuntime, stateFromSnapshot } = require('../scripts/generate-long-bot-shadow-replay');
+const { selectReviewDecisionIndexes } = require('../scripts/train-long-bot-causal-army');
 const clone = value => structuredClone(value);
 
 function snapshot(kind = 'four') {
@@ -75,6 +79,11 @@ test('native two/three-position future review keeps the current first pre-threat
     assert.ok(target.signals.includes('early-small-choice-future-head-threat'));
     assert.equal(plan.outcomeUsed, false);
     assert.equal(plan.riskRole, 'curriculum-only');
+    const offline = selectReviewDecisionIndexes(source,
+      { reviewSelection: 'strategic-risk', reviewWorkDecisions: 4 });
+    assert.deepEqual(offline.indexes, plan.expensiveDecisionIndexes);
+    assert.deepEqual(offline.risks, plan.risks.slice(0, 4));
+    assert.equal(offline.ordering, plan.ordering);
     assert.equal(JSON.stringify(source), frozen);
   }
 });
@@ -84,6 +93,8 @@ test('reported two choices cannot reserve a native four-position review or an in
   const plan = worker.productionStrategicReviewPlan(source);
   assert.equal(plan.risks.find(risk => risk.index === 2).capacity.uniquePositions, 4);
   assert.deepEqual(plan.expensiveDecisionIndexes, [4, 7, 19, 18]);
+  assert.deepEqual(selectReviewDecisionIndexes(source,
+    { reviewSelection: 'strategic-risk', reviewWorkDecisions: 4 }).indexes, plan.expensiveDecisionIndexes);
   source.decisions[2] = decision(2, 'two', 60);
   source.decisions[2].execution.complete = false;
   const invalid = worker.productionStrategicReviewPlan(source);
@@ -102,6 +113,21 @@ test('earliest eligible future review wins, while late hints and actual outcomes
   const changed = clone(source); changed.winner = 'dark'; changed.result_type = 'mars';
   changed.decisions.forEach(row => { row.selected.score = 1e99; row.regret = -1e99; });
   assert.deepEqual(worker.productionStrategicReviewPlan(changed), plan);
+});
+
+test('a future-only priority-zero hint keeps offline and production ordering telemetry identical', () => {
+  const source = game();
+  source.decisions[5] = decision(5); source.decisions[7] = decision(7);
+  source.decisions[2] = decision(2, 'two', 60);
+  const plan = worker.productionStrategicReviewPlan(source);
+  const offline = selectReviewDecisionIndexes(source,
+    { reviewSelection: 'strategic-risk', reviewWorkDecisions: 4 });
+  assert.equal(worker.archivedEarlyStrategicThreat(source, source.decisions[2]).priority, 0);
+  assert.equal(plan.expensiveDecisionIndexes[0], 2);
+  assert.match(plan.ordering, /^early-threat-reserve-/);
+  assert.deepEqual(offline.indexes, plan.expensiveDecisionIndexes);
+  assert.deepEqual(offline.risks, plan.risks.slice(0, 4));
+  assert.equal(offline.ordering, plan.ordering);
 });
 
 test('future-head hint retains strict native field, ordinary-roll and head-presence guards', () => {
@@ -158,4 +184,48 @@ test('the new reservation spends exactly four expensive calls and creates no evi
   assert.deepEqual(calls, [2, 4, 18, 19].map(index => `synthetic-decision-${index}`));
   assert.ok(results.every(result => result.evidence === null));
   assert.equal(results[7].reason, 'production-strategic-risk-budget-skip');
+});
+
+test('the effective signed-root attestation, replay, cold continuation and claim contracts remain byte-identical', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-causal-worker.js'), 'utf8');
+  // Public function-region hashes from the effective 9e9118af worker in
+  // runtime86. The curriculum patch must preserve every signed-root boundary.
+  const expected = {
+    verifiedWarmRoot: 'e5e105447c134a7c12896d198b2e024fccdffdc1d0bc85efac1fdb8503632372',
+    validatedWarmExperienceAttestation: '1a6e0a1df3513deed37bcb082aaa73cbb5e5c4fd4017fc055c819fb200be5caa',
+    regenerateArchivedSelection: '9b26b50f93beecb33a53e8bfd29eb4204c1471a2b12e3266ce7e68b4c019ed9b',
+    trustedDecisionEnvelopeFailure: 'b2e6661304ed8d6bed730ba97e9df4e7e5002a34dd1460282d8564664449dfbc',
+    offlineTerminalJournalBindings: 'c7b02d7576e59b8eed407a903e3d38ca56ff1a9e8fe3ead69c1144dd29761ec8',
+    reviewTrustedDecision: '6970b9bdadf01b1dab5d2a2f3dc5c82fce1e4dafec3a33a14295d98b9054ff08',
+    runClaimedBatch: '8439b4720817e77760df91b28e9bf5dff57c7f650047e45011724469a0df4871',
+  };
+  for (const [name, digest] of Object.entries(expected)) {
+    const at = source.search(new RegExp('^(?:async )?function ' + name + '\\(', 'm'));
+    assert.ok(at >= 0, name);
+    const tail = source.slice(at);
+    const next = tail.slice(1).search(/\n(?:async )?function [A-Za-z_$][A-Za-z0-9_$]*\(/);
+    const body = next < 0 ? tail : tail.slice(0, next + 1);
+    assert.equal(crypto.createHash('sha256').update(body).digest('hex'), digest, name);
+  }
+  assert.match(worker.productionStrategicReviewPlan.toString(), /productionStrategicReviewPlan\(game, options = \{\}\)/);
+  assert.match(worker.productionStrategicReviewPlan.toString(), /trustedDecisionEnvelopeFailure\(game, decision, options\)/);
+  assert.match(worker.reviewStrategicallyBoundedProductionDecision.toString(), /productionStrategicReviewPlan\(game, options\)/);
+  const paired = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-paired-rollout.js'));
+  assert.equal(crypto.createHash('sha256').update(paired).digest('hex'),
+    '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
+});
+
+test('reserving a future review cannot authorize an unsigned nonempty experience root', async () => {
+  const source = game(); source.decisions[2] = decision(2, 'two', 60);
+  const experience = source.final_state.analysis.botMemory.replayExperience;
+  experience.size = experience.patternCount = 1;
+  experience.patterns = [{ contextKey: 'unattested', actionKey: 'unattested', samples: 1 }];
+  let called = false;
+  const result = await worker.reviewStrategicallyBoundedProductionDecision(source, 2, {}, async () => {
+    called = true; return { evidence: {} };
+  });
+  assert.equal(called, false);
+  assert.equal(result.reason, 'production-decision-envelope-invalid');
+  assert.equal(result.targetInvalidReason, 'recursive-experience-provenance-unsigned');
+  assert.equal(result.evidence, null);
 });

@@ -10,10 +10,9 @@
  * complete legal coverage and paired terminal-outcome rollouts with rigorous
  * simultaneous confidence bounds. Static scores can never create evidence.
  *
- * Until server-signed experience snapshots exist, recursively learned games
- * are deliberately excluded: only the canonical empty frozen experience can
- * create new evidence. Learned patterns can still be consumed by v35; they
- * simply cannot train the next generation yet.
+ * A nonempty root snapshot requires server attestation for the leased archive.
+ * The worker replays that snapshot for the archived choice, then clears it
+ * before evaluating the same cold continuation for every paired branch.
  */
 
 const crypto = require('node:crypto');
@@ -53,6 +52,7 @@ const VERIFIED_SCOPES = new WeakSet();
 const LEGACY_PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
 const PROGRESS_SCHEMA = 'long-server-causal-progress-v2';
 const ENGINE_VERSION = 'long-analytic-v35';
+const WARM_EXPERIENCE_ATTESTATION = 'long-server-warm-experience-attestation-v1';
 const WORKER_RELEASE = 'long-server-causal-review-v1';
 const EVIDENCE_SCHEMA = 'long-server-causal-evidence-v1';
 const POLICY_ROLE = 'current-frozen-cold-re-review';
@@ -650,14 +650,14 @@ function attachReviewCapacity(game, risks) {
     : productionReviewCapacity(game, decisions[risk.index]) }));
 }
 
-function productionStrategicReviewPlan(game) {
+function productionStrategicReviewPlan(game, options = {}) {
   const botRows = trainingDecisions(game).map((decision, index) => ({ decision, index }))
     .filter(({ decision }) => botDecision(decision, game));
   const risks = attachReviewCapacity(game, attachPreThreatHints(game, botRows.map(({ decision, index }, ordinal) => ({
     index, ...archivedStrategicRisk(game, decision),
     earlyWindow: ordinal < Math.ceil(botRows.length / 2),
     earlyThreat: archivedEarlyStrategicThreat(game, decision),
-    envelopeFailure: trustedDecisionEnvelopeFailure(game, decision),
+    envelopeFailure: trustedDecisionEnvelopeFailure(game, decision, options),
   }))));
   // A malformed archived decision still receives an explicit original-ledger
   // rejection, but cannot consume one of the four expensive review slots for
@@ -743,6 +743,46 @@ function emptyFrozenExperience(game, decision) {
   );
 }
 
+function archivedExperienceIsNonempty(experience) {
+  return Boolean(experience?.size > 0 || experience?.patternCount > 0
+    || (Array.isArray(experience?.patterns) && experience.patterns.length > 0));
+}
+
+function verifiedWarmRoot(game, decision, options) {
+  const scope = options[PRODUCTION_SCOPE];
+  if (!VERIFIED_SCOPES.has(scope) || !scope.warmExperience) return null;
+  const archived = replayExperienceForGame(game, null);
+  const used = replayExperienceForGame(game, decision);
+  if (!archived || !used
+    || (used !== archived && canonicalJson(used) !== canonicalJson(archived))
+    || archived.fingerprint !== decision.experienceFingerprint
+    || decision.replayInput?.experienceFingerprint !== archived.fingerprint
+    || decision.experienceFrozen !== true || decision.replayInput?.experienceFrozen !== true
+    || archived.size !== decision.experienceSize || archived.size !== decision.replayInput?.experienceSize) {
+    return null;
+  }
+  return scope.warmExperience;
+}
+
+function validatedWarmExperienceAttestation(attestation, job) {
+  if (attestation === null) return null;
+  const archived = replayExperienceForGame(job.game, null);
+  if (attestation?.schema !== WARM_EXPERIENCE_ATTESTATION
+    || attestation.archiveFingerprint !== job.archiveFingerprint
+    || attestation.runtimeDigest !== job.runtimeDigest
+    || attestation.policyImplementationId !== job.policyImplementationId
+    || typeof attestation.snapshotHash !== 'string' || !/^[0-9a-f]{64}$/.test(attestation.snapshotHash)
+    || !Array.isArray(attestation.patterns) || attestation.patterns.length < 1 || attestation.patterns.length > 256
+    || archived?.schema !== 'long-experience-replay-v1' || archived.engineVersion !== ENGINE_VERSION
+    || archived.complete !== true || archived.frozen !== true
+    || !Number.isSafeInteger(archived.size) || archived.size < 1
+    || archived.patternCount !== attestation.patterns.length
+    || canonicalJson(archived.patterns) !== canonicalJson(attestation.patterns)) {
+    throw new Error('Claimed causal review warm experience identity mismatch');
+  }
+  return Object.freeze({ snapshotHash: attestation.snapshotHash, patterns: attestation.patterns });
+}
+
 function compactPolicyCandidate(candidate) {
   return {
     after: candidate?.after,
@@ -751,6 +791,7 @@ function compactPolicyCandidate(candidate) {
     features: candidate?.features || {},
     experience: candidate?.experience || null,
     tactical: candidate?.tactical || null,
+    experienceAdjustment: Math.round(Number(candidate?.experienceAdjustment) || 0),
   };
 }
 
@@ -767,18 +808,30 @@ function regenerateArchivedSelection(game, decision, options = {}) {
   const policyFailure = archivedPolicyFailure(decision, options);
   if (policyFailure) return { ok: false, reason: policyFailure };
   const runtime = loadRuntime(options);
-  runtime.engine.setExperience([], 'server-causal-review');
-  const state = stateFromSnapshot(decision.stateSnapshotV2 || {});
-  const ranked = runtime.engine.rank(state, serverOwnedDecisionPolicy(decision, options));
-  const selected = compactPolicyCandidate(ranked?.[0]);
-  if (
-    afterPositionKey(selected) !== afterPositionKey(decision.selected)
-    || exactMoves(selected.moves) !== exactMoves(decision.selected?.moves)
-    || String(selected.experience?.contextKey || '') !== String(decision.selected?.experience?.contextKey || '')
-    || String(selected.experience?.actionKey || '') !== String(decision.selected?.experience?.actionKey || '')
-    || Number(decision.selected?.experienceAdjustment || 0) !== 0
-  ) return { ok: false, reason: 'archived-policy-not-reproduced' };
-  return { ok: true, selected };
+  const warm = verifiedWarmRoot(game, decision, options);
+  runtime.engine.setExperience(warm?.patterns || [], 'server-causal-review');
+  try {
+    if (warm) {
+      const snapshot = runtime.engine.experienceSnapshot();
+      if (snapshot.fingerprint !== decision.experienceFingerprint || snapshot.size !== decision.experienceSize) {
+        return { ok: false, reason: 'experience-replay-mismatch' };
+      }
+    }
+    const state = stateFromSnapshot(decision.stateSnapshotV2 || {});
+    const ranked = runtime.engine.rank(state, serverOwnedDecisionPolicy(decision, options));
+    const selected = compactPolicyCandidate(ranked?.[0]);
+    const archivedAdjustment = warm ? decision.selected?.experienceAdjustment : Number(decision.selected?.experienceAdjustment || 0);
+    if (
+      afterPositionKey(selected) !== afterPositionKey(decision.selected)
+      || exactMoves(selected.moves) !== exactMoves(decision.selected?.moves)
+      || String(selected.experience?.contextKey || '') !== String(decision.selected?.experience?.contextKey || '')
+      || String(selected.experience?.actionKey || '') !== String(decision.selected?.experience?.actionKey || '')
+      || selected.experienceAdjustment !== archivedAdjustment
+    ) return { ok: false, reason: 'archived-policy-not-reproduced' };
+    return { ok: true, selected };
+  } finally {
+    if (warm) runtime.engine.setExperience([], 'server-causal-review');
+  }
 }
 
 function validateDecisionResources(game, decision) {
@@ -873,7 +926,10 @@ function trustedDecisionEnvelopeFailure(game, decision, options = {}) {
   if (resourceFailure) return resourceFailure;
   const execution = exactExecution(decision);
   if (!execution.ok) return execution.reason;
-  if (!emptyFrozenExperience(game, decision)) return 'recursive-experience-provenance-unsigned';
+  if (verifiedWarmRoot(game, decision, options)) return '';
+  if (archivedExperienceIsNonempty(replayExperienceForGame(game, null)) || !emptyFrozenExperience(game, decision)) {
+    return 'recursive-experience-provenance-unsigned';
+  }
   return '';
 }
 
@@ -920,6 +976,7 @@ function offlineTerminalJournalBindings(game, decision, selected, options, nativ
   if (matchingIndexes.length !== 1) throw new Error('Terminal journal decision is not unique in the original ledger');
   const scope = options[PRODUCTION_SCOPE];
   const production = VERIFIED_SCOPES.has(scope);
+  const warm = verifiedWarmRoot(game, decision, options);
   return {
     schema: 'long-offline-terminal-journal-bindings-v1',
     policyRole: POLICY_ROLE, historicalImplementationAttested: false,
@@ -937,6 +994,8 @@ function offlineTerminalJournalBindings(game, decision, selected, options, nativ
     gameBytesSha256: nativeRuntime.gameBytesDigest, bundleBytesSha256: nativeRuntime.runtimeBytesDigest,
     node: process.versions.node, v8: process.versions.v8,
     originalSelectionPolicy: serverOwnedDecisionPolicy(decision, options),
+    ...(warm ? { rootExperienceSnapshotHash: warm.snapshotHash,
+      rootExperienceFingerprint: decision.experienceFingerprint } : {}),
     frozenFutureExperienceCanonical: canonicalJson(nativeRuntime.engine.experienceReplaySnapshot()),
     legalSetSemantics: 'every unique legal after-board, one fixed native ordered action per board',
     ...(production ? {
@@ -964,17 +1023,23 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   if (envelopeFailure) return { ...base, reason: envelopeFailure };
   const execution = exactExecution(decision);
 
-  // Always regenerate under the CURRENT frozen cold implementation. Matching
-  // the archived action does not attest which source build played originally.
-  // A client-provided replay is intentionally ignored.
+  const warm = verifiedWarmRoot(game, decision, options);
+  // Ignore client-provided replay. Static reconstruction uses the archived
+  // snapshot only after provenance validation. The shared VM must then shed
+  // the shadow source even when the replay returns early or throws.
   const shadowGenerator = options.shadowReplayGenerator || generateLongBotShadowReplay;
-  const shadow = await shadowGenerator(game, decision, {
-    ...options,
-    limits: {
-      ...DEFAULT_LIMITS,
-      ...(options.shadowLimits || {}),
-    },
-  });
+  let shadow;
+  try {
+    shadow = await shadowGenerator(game, decision, {
+      ...options,
+      limits: {
+        ...DEFAULT_LIMITS,
+        ...(options.shadowLimits || {}),
+      },
+    });
+  } finally {
+    if (warm) loadRuntime(options).engine.setExperience([], 'shadow-replay');
+  }
   if (!shadow?.ok || shadow.replay?.coverage?.complete !== true) {
     return { ...base, reason: shadow?.reason || 'complete-legal-replay-missing' };
   }
@@ -1000,6 +1065,12 @@ async function reviewTrustedDecision(game, decision, options = {}) {
     const outcomeGenerator = options.pairedOutcomeGenerator || generatePairedPolicyOutcomes;
     const nativeRuntime = outcomeGenerator === generatePairedPolicyOutcomes && !options.runtime && !options.outcomeRunner
       ? loadRuntime(options) : null;
+    // Both branches retain the same cold continuation used before signed root
+    // experience. A leaked VM source invalidates the cohort instead of merely
+    // disabling its cache.
+    if (warm && nativeRuntime?.engine.experienceSize() !== 0) {
+      return { ...base, reason: 'paired-continuation-experience-not-cold' };
+    }
     // Attest actual server bytes/current policy, never a client/injected claim.
     const rolloutOptions = nativeRuntime ? {
       ...options,
@@ -1109,7 +1180,8 @@ async function reviewTrustedDecision(game, decision, options = {}) {
     completeLegalCoverage: true,
     pairedRolloutComplete: true,
     confidenceBoundsComplete: true,
-    recursiveExperience: false,
+    recursiveExperience: Boolean(warm),
+    ...(warm ? { experienceSnapshotHash: warm.snapshotHash } : {}),
     legalSequenceCount: Number(shadow.replay.coverage.legalSequenceCount) || 0,
     uniquePositionCount: Number(shadow.replay.coverage.expectedCandidates) || 0,
     scoreSemantics: rollout.scoreSemantics,
@@ -1375,7 +1447,7 @@ async function reviewStrategicallyBoundedProductionDecision(
     throw new Error('Bounded production review requires an original bot decision index');
   }
   if (typeof expensiveReviewer !== 'function') throw new Error('Bounded production expensive reviewer is invalid');
-  const plan = productionStrategicReviewPlan(game);
+  const plan = productionStrategicReviewPlan(game, options);
   const reviewSelection = productionReviewSelectionTelemetry(plan, decisionIndex);
   const decisionEnvelopeFailures = indexes.map(index => ({
     index,
@@ -1686,8 +1758,13 @@ async function runResumableClaimedBatch(options) {
         archivePayloadText: job.archiveFingerprintSource, runtimeDigest: digest, policyImplementationId: implementationId }));
       const jobJournalDirectory = fence.prepareJobJournal({ jobBindingId });
       fence.recoverStaleWriterLocks({ jobBindingId });
+      const warmExperience = archivedExperienceIsNonempty(replayExperienceForGame(job.game, null))
+        ? validatedWarmExperienceAttestation(await fencedRpc('verify_long_bot_review_experience', {
+          p_job_id: job.jobId, p_worker_id: workerId, p_runtime_digest: digest,
+        }), job)
+        : null;
       const scope = Object.freeze({ jobId: job.jobId, archiveFingerprint: job.archiveFingerprint,
-        archiveFingerprintSource: job.archiveFingerprintSource });
+        archiveFingerprintSource: job.archiveFingerprintSource, warmExperience });
       VERIFIED_SCOPES.add(scope);
       let slice;
       try {
