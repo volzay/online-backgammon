@@ -500,6 +500,18 @@ function archivedEarlyStrategicThreat(game, decision) {
   const color = decision.color;
   const opponent = color === 'white' ? 'dark' : 'white';
   const head = color === 'white' ? 24 : 12;
+  const rolled = snapshot.rolled;
+  const dice = snapshot.dice;
+  const futureRisk = nativeFinite(features.prospectiveFenceExtensionBefore);
+  const smallChoiceFutureThreat = decision.choiceCount <= 3
+    && Array.isArray(rolled) && rolled.length === 2
+    && rolled.every(die => Number.isInteger(die) && die >= 1 && die <= 6)
+    && rolled[0] !== rolled[1]
+    && Array.isArray(dice) && dice.length === 2
+    && (dice[0] === rolled[0] && dice[1] === rolled[1]
+      || dice[0] === rolled[1] && dice[1] === rolled[0])
+    && snapshot.points[head]?.color === color && snapshot.points[head].count > 0
+    && futureRisk !== null && futureRisk >= 60;
   let startZoneCheckers = 0;
   let headFencePriority = 0;
   let fenceBlocked = 0;
@@ -533,14 +545,17 @@ function archivedEarlyStrategicThreat(game, decision) {
   const signals = [];
   if (missedRescue) signals.push('early-missed-start-zone-rescue');
   if (headFencePriority) signals.push('early-head-fence-pressure');
-  return { priority, fenceBlocked, signals };
+  if (smallChoiceFutureThreat) signals.push('early-small-choice-future-head-threat');
+  return { priority, fenceBlocked, signals,
+    ...(smallChoiceFutureThreat ? { smallChoiceFutureThreat: true } : {}) };
 }
 
 // Shared by the production worker and the offline army curriculum. At most
-// two of four slots come from the first half of bot turns. Prefer the first
+// two of four slots are reserved for the first half of bot turns. Prefer the first
 // contested-fence onset and a later, more severe contested fence; a generic
-// missed-rescue hint must not crowd both out. The other slots retain the old
-// tier / reverse-ledger ordering, including late prime-loss reviews.
+// missed-rescue hint must not crowd both out. One native two/three-position
+// future-head threat may take the second early slot, keeping the existing
+// first pre-threat/contested onset. Other slots retain the old tier ordering.
 function prioritizeStrategicReviewRisks(risks, maximum) {
   const reserve = Math.min(2, Math.floor(maximum / 2));
   const early = risks.filter(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
@@ -568,6 +583,15 @@ function prioritizeStrategicReviewRisks(risks, maximum) {
       || right.tier - left.tier || right.index - left.index)
     .slice(0, reserve - selected.length));
   const chosen = selected.slice(0, reserve);
+  const futureThreat = risks.filter(risk => risk.earlyWindow
+    && risk.earlyThreat.smallChoiceFutureThreat === true
+    && risk.capacity?.eligible === true && Number.isSafeInteger(risk.capacity.uniquePositions)
+    && risk.capacity.uniquePositions >= 2 && risk.capacity.uniquePositions <= 3)
+    .sort((left, right) => left.index - right.index)[0];
+  if (futureThreat && !chosen.some(risk => risk.index === futureThreat.index)) {
+    if (chosen.length < reserve) chosen.push(futureThreat);
+    else if (reserve > 1) chosen[reserve - 1] = futureThreat;
+  }
   const chosenIndexes = new Set(chosen.map(risk => risk.index));
   return [...chosen, ...risks.filter(risk => !chosenIndexes.has(risk.index))
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
@@ -643,7 +667,8 @@ function productionStrategicReviewPlan(game) {
   const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure || !risk.capacity.eligible)
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
   const preThreatReserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.preThreat);
-  const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow
+    && (risk.earlyThreat.priority > 0 || risk.earlyThreat.smallChoiceFutureThreat === true));
   return {
     schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
     strategy: 'strategic-risk',
