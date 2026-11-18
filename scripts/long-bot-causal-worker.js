@@ -24,6 +24,7 @@ const { pathToFileURL } = require('node:url');
 const {
   DEFAULT_LIMITS: DEFAULT_SHADOW_LIMITS,
   afterPositionKey,
+  applyLegalSequence,
   canonicalMoveKey,
   canonicalMoves,
   generateLongBotShadowReplay,
@@ -73,7 +74,7 @@ const RPC_TRANSPORT_DIAGNOSTIC_CODES = new Set([
   ...RPC_PRECONNECT_CODES, 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_SOCKET',
   'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
 ]);
-const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v2';
+const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v3';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
   strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
@@ -129,6 +130,8 @@ const EXECUTABLE_DEPENDENCIES = Object.freeze([
   ['paired-rollout', path.join(__dirname, 'long-bot-paired-rollout.js')],
   ['terminal-journal', path.join(__dirname, 'long-bot-terminal-journal.js')],
   ['production-fence', path.join(__dirname, 'long-bot-production-fence.js')],
+  ['review-curriculum', path.join(ROOT, 'lib/long-bot-review-curriculum.js')],
+  ['fence-audit', path.join(ROOT, 'lib/long-bot-fence-audit.js')],
   ['shadow-replay', path.join(__dirname, 'generate-long-bot-shadow-replay.js')],
   ['simulator-dice', path.join(__dirname, 'simulate-long-bot-regression.js')],
   ['production-dispatch', path.join(ROOT, 'strong-bot.js')],
@@ -541,10 +544,13 @@ function archivedEarlyStrategicThreat(game, decision) {
 function prioritizeStrategicReviewRisks(risks, maximum) {
   const reserve = Math.min(2, Math.floor(maximum / 2));
   const early = risks.filter(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
+  const predecessors = risks.filter(risk => risk.earlyWindow && risk.preThreat)
+    .sort((left, right) => left.index - right.index);
   const developing = early.filter(risk => risk.earlyThreat.fenceBlocked >= 3);
   const contested = developing.filter(risk => risk.earlyThreat.signals.includes('early-missed-start-zone-rescue'));
   const onsetPool = contested.length ? contested : developing;
-  const onset = [...onsetPool].sort((left, right) => left.index - right.index)[0];
+  const onset = predecessors[0]
+    || [...onsetPool].sort((left, right) => left.index - right.index)[0];
   const selected = reserve > 0 && onset ? [onset] : [];
   if (selected.length < reserve && onset) {
     const laterContested = contested.filter(risk => risk.index !== onset.index);
@@ -567,34 +573,91 @@ function prioritizeStrategicReviewRisks(risks, maximum) {
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
 }
 
+function attachPreThreatHints(game, risks) {
+  // Lazy import avoids a cycle: the curriculum uses this module's native
+  // snapshot validation. Scheduling is bound into the executable digest and
+  // never grants evidence or changes the archived selected move.
+  const { preThreatDecisionHints } = require('../lib/long-bot-review-curriculum');
+  const hints = new Map(preThreatDecisionHints(game, { minimumBlocked: 2 })
+    .map(hint => [hint.index, hint]));
+  return risks.map(risk => ({ ...risk, preThreat: hints.get(risk.index) || null }));
+}
+
+const reviewCapacityCache = new Map();
+function productionReviewCapacity(game, decision) {
+  if (archivedOutsideCount(game, decision) === null) return { eligible: false, reason: 'invalid-board' };
+  const key = canonicalJson(decision.stateSnapshotV2);
+  if (reviewCapacityCache.has(key)) return reviewCapacityCache.get(key);
+  const result = (() => {
+    try {
+      const runtime = loadRuntime();
+      const state = stateFromSnapshot(decision.stateSnapshotV2);
+      const sequences = runtime.game.bestMoveSequences(state, state.turn).filter(sequence => sequence.length);
+      if (sequences.length > DEFAULT_LIMITS.maxLegalSequences) {
+        return { eligible: false, reason: 'shadow-replay-legal-sequence-limit' };
+      }
+      const positions = new Set();
+      for (const sequence of sequences) {
+        const after = applyLegalSequence(runtime.game, state, sequence);
+        if (!after) return { eligible: false, reason: 'legal-sequence-application-failed' };
+        positions.add(afterPositionKey(after));
+        if (positions.size > DEFAULT_ROLLOUT_LIMITS.maxUniquePositions) {
+          return { eligible: false, reason: 'rollout-position-limit', minimumPositions: positions.size };
+        }
+      }
+      return { eligible: positions.size > 1, reason: positions.size > 1 ? '' : 'no-alternative-board',
+        uniquePositions: positions.size };
+    } catch {
+      return { eligible: false, reason: 'legal-sequence-enumeration-failed' };
+    }
+  })();
+  // Board-only, bounded memo. Client choiceCount, scores and risk claims never
+  // establish capacity. This is not a legality/evidence substitute: selected
+  // decisions still require the full native shadow and all K x N outcomes.
+  if (reviewCapacityCache.size >= 256) reviewCapacityCache.delete(reviewCapacityCache.keys().next().value);
+  reviewCapacityCache.set(key, Object.freeze(result));
+  return result;
+}
+
+function attachReviewCapacity(game, risks) {
+  const decisions = trainingDecisions(game);
+  return risks.map(risk => ({ ...risk, capacity: risk.envelopeFailure
+    ? { eligible: false, reason: 'invalid-envelope' }
+    : productionReviewCapacity(game, decisions[risk.index]) }));
+}
+
 function productionStrategicReviewPlan(game) {
   const botRows = trainingDecisions(game).map((decision, index) => ({ decision, index }))
     .filter(({ decision }) => botDecision(decision, game));
-  const risks = botRows.map(({ decision, index }, ordinal) => ({
+  const risks = attachReviewCapacity(game, attachPreThreatHints(game, botRows.map(({ decision, index }, ordinal) => ({
     index, ...archivedStrategicRisk(game, decision),
     earlyWindow: ordinal < Math.ceil(botRows.length / 2),
     earlyThreat: archivedEarlyStrategicThreat(game, decision),
     envelopeFailure: trustedDecisionEnvelopeFailure(game, decision),
-  }));
+  }))));
   // A malformed archived decision still receives an explicit original-ledger
   // rejection, but cannot consume one of the four expensive review slots for
   // independently valid decisions in the same finished game.
   const reviewable = prioritizeStrategicReviewRisks(
-    risks.filter(risk => !risk.envelopeFailure), PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
-  const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure)
+    risks.filter(risk => !risk.envelopeFailure && risk.capacity.eligible), PRODUCTION_EXPENSIVE_REVIEW_LIMIT);
+  const ordered = [...reviewable, ...risks.filter(risk => risk.envelopeFailure || !risk.capacity.eligible)
     .sort((left, right) => right.tier - left.tier || right.index - left.index)];
+  const preThreatReserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.preThreat);
   const reserved = reviewable.slice(0, 2).some(risk => risk.earlyWindow && risk.earlyThreat.priority > 0);
   return {
     schema: PRODUCTION_REVIEW_SELECTION_SCHEMA,
     strategy: 'strategic-risk',
-    ordering: reserved ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+    ordering: preThreatReserved ? 'pre-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
+      : reserved ? 'early-threat-reserve-then-strategic-tier-then-reverse-original-bot-ledger'
       : 'strategic-tier-then-reverse-original-bot-ledger',
     riskRole: 'curriculum-only',
     outcomeUsed: false,
     maximumExpensiveReviews: PRODUCTION_EXPENSIVE_REVIEW_LIMIT,
     expensiveDecisionIndexes: reviewable.slice(0, PRODUCTION_EXPENSIVE_REVIEW_LIMIT).map(({ index }) => index),
-    risks: ordered.map(({ index, tier, signals, earlyWindow, earlyThreat }) => ({
-      index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : [])],
+    risks: ordered.map(({ index, tier, signals, earlyWindow, earlyThreat, preThreat, capacity }) => ({
+      index, tier, signals: [...signals, ...(earlyWindow ? earlyThreat.signals : []),
+        ...(earlyWindow && preThreat ? [preThreat.signal] : [])],
+      capacity,
     })),
   };
 }
@@ -969,7 +1032,9 @@ async function reviewTrustedDecision(game, decision, options = {}) {
   if (!legalRecommendation) return { ...base, reason: 'rollout-recommendation-not-legal' };
 
   const reviewer = await loadReviewer();
-  const categories = reviewer.structuralDominanceTags(selected, legalRecommendation);
+  const categories = reviewer.structuralDominanceTags(selected, legalRecommendation, {
+    state: decision.stateSnapshotV2, color: decision.color,
+  });
   if (!categories.length) {
     return {
       ...base,
@@ -1269,6 +1334,7 @@ function productionReviewSelectionTelemetry(plan, decisionIndex) {
     priorityRank: riskRank < 0 ? null : riskRank + 1,
     tier: risk.tier,
     signals: [...risk.signals],
+    ...(risk.capacity ? { capacity: { ...risk.capacity } } : {}),
   };
 }
 
@@ -1810,6 +1876,9 @@ module.exports = {
   archivedOutsideCount,
   archivedStrategicRisk,
   archivedEarlyStrategicThreat,
+  attachPreThreatHints,
+  productionReviewCapacity,
+  attachReviewCapacity,
   prioritizeStrategicReviewRisks,
   botDecision,
   collisionResistantIdentities,
