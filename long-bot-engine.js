@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306';
 
 /* bot-engine/long/metrics.ts */
 
@@ -45,6 +45,53 @@ function countAt(state, point, color = null) {
 
 function offCount(state, color) {
   return Number(state.off?.[color]) || 0;
+}
+
+// Exact board geometry in the player's direction of travel. Both arrays in a
+// quarter refer to the SAME six physical points: counting the opponent along
+// its own path here would lose which formations actually oppose each other.
+// This is an evidence descriptor, not an extra heuristic score or a probability.
+function quarterPositionProfile(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const exactCount = (value) => {
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+  };
+  const quarters = Array.from({ length: 4 }, (_, index) => {
+    const own = [];
+    const enemy = [];
+    for (let offset = 0; offset < 6; offset += 1) {
+      const stack = stackAt(state, path[index * 6 + offset]);
+      own.push(stack?.color === color ? exactCount(stack.count) : 0);
+      enemy.push(stack?.color === opponent ? exactCount(stack.count) : 0);
+    }
+    return {
+      index,
+      own,
+      opponent: enemy,
+      ownCount: own.reduce((total, count) => total + count, 0),
+      opponentCount: enemy.reduce((total, count) => total + count, 0),
+      ownOccupied: own.filter(count => count > 0).length,
+      opponentOccupied: enemy.filter(count => count > 0).length,
+      ownMaxStack: Math.max(...own),
+      opponentMaxStack: Math.max(...enemy),
+    };
+  });
+  const ownOff = exactCount(state.off?.[color]);
+  const opponentOff = exactCount(state.off?.[opponent]);
+  // Explicit separators retain zeroes and distinguish arrangement from totals.
+  // Avoid context/action key separators (`|` and `::`) so the key is one atom.
+  const key = `ql1:${quarters.map(quarter => (
+    `${quarter.own.join(',')}/${quarter.opponent.join(',')}`
+  )).join(';')};off=${ownOff},${opponentOff}`;
+  return {
+    schema: 'long-quarter-layout-v1',
+    key,
+    ownOff,
+    opponentOff,
+    quarters,
+  };
 }
 
 function checkersInTrackRange(state, color, start, end) {
@@ -1203,7 +1250,7 @@ function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) {
     - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
-function sequenceStats(before, after, color, sequence = []) {
+function sequenceStats(before, after, color, sequence = [], includeQuarterLayout = true) {
   const offGain = offCount(after, color) - offCount(before, color);
   const homeGain = homeBoardCount(after, color) - homeBoardCount(before, color);
   const pipGain = pipsFor(before, color) - pipsFor(after, color);
@@ -1259,7 +1306,16 @@ function sequenceStats(before, after, color, sequence = []) {
     .sort()
     .join('+');
 
+  // Describe both sides on the SAME six physical points in each quarter.
+  // These observations feed memory applicability and the audit trail only;
+  // they do not introduce an unverified attack/defence scoring preference.
+  const quarterLayouts = includeQuarterLayout ? {
+    quartersBefore: quarterPositionProfile(before, color),
+    quartersAfter: quarterPositionProfile(after, color),
+  } : {};
+
   return {
+    ...quarterLayouts,
     offGain,
     homeGain,
     pipGain,
@@ -1307,7 +1363,9 @@ function sequenceStats(before, after, color, sequence = []) {
 }
 
 function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LONG_BOT_WEIGHTS) {
-  const stats = sequenceStats(before, after, color, sequence);
+  // Hypothetical reply scoring consumes only numeric features. Keep detailed
+  // memory telemetry on actual ranked candidates, not every search-tree node.
+  const stats = sequenceStats(before, after, color, sequence, false);
   const pressure = phasePressure(before, color);
   const entryPressure = lateEntryPressure(before, color);
   const completionPressure = routeCompletionPressure(before, color);
@@ -2196,7 +2254,7 @@ function experienceDescriptor(
         : ownHead > 0
           ? 'head-development'
           : 'route';
-  const contextKey = [
+  const legacyContextKey = [
     phase,
     bucket('h', ownHead, [0, 1, 3, 7]),
     bucket('o', outside, [0, 2, 5, 9]),
@@ -2205,6 +2263,16 @@ function experienceDescriptor(
     bucket('tr', trap, [0, 40, 180, 600]),
     bucket('pd', pipDelta, [-36, -8, 9, 37]),
   ].join('|');
+
+  const quartersBefore = quarterPositionProfile(state, color);
+  const quartersAfter = features.quartersAfter?.schema === quartersBefore.schema
+    ? features.quartersAfter : null;
+  const quarterContextKey = quartersBefore.key;
+  const quarterActionKey = quartersAfter?.key || '';
+  // Keep the original seven context fields in place for archived readers.
+  // Exact own/opponent point counts now constrain applicability; two boards
+  // with equal totals but different gates or towers are different contexts.
+  const contextKey = `${legacyContextKey}|quarters:${quarterContextKey}`;
 
   const legacyActionKey = [
     signedFlag('head', features.headGain),
@@ -2232,7 +2300,9 @@ function experienceDescriptor(
     : Number(features.startZoneReduction || 0) > 0
       ? 'koks:gain'
       : 'koks:flat';
-  const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const routeActionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const actionKey = quarterActionKey
+    ? `${routeActionKey}|after-quarters:${quarterActionKey}` : routeActionKey;
   // These compact keys preserve the strategic intent that must transfer across
   // different dice and route signatures. The exact/family keys still provide
   // precision, while these keys let repeated home-shuffle and fence mistakes
@@ -2377,6 +2447,12 @@ function experienceDescriptor(
   return {
     contextKey,
     actionKey,
+    legacyContextKey,
+    quarterSchema: quartersBefore.schema,
+    quarterContextKey,
+    quarterActionKey,
+    quartersBefore,
+    quartersAfter,
     strategicActionKey,
     familyActionKey,
     legacyActionKey,
@@ -2448,11 +2524,12 @@ function normalizeExperiencePatterns(patterns = []) {
     mergePattern(normalized, key, contribution, contextKey, actionKey);
     if (contribution.exactOnly) return;
 
-    const phase = contextKey.split('|')[0] || 'route';
+    const phase = quarterScopedContext(contextKey.split('|')[0] || 'route', contextKey);
     const strategic = strategicContextKey(contextKey);
     mergePattern(normalized, `strategy:${strategic}::${actionKey}`, contribution, strategic, actionKey);
     mergePattern(normalized, `phase:${phase}::${actionKey}`, contribution, phase, actionKey);
-    mergePattern(normalized, `*::${actionKey}`, contribution, '*', actionKey);
+    const general = quarterScopedContext('*', contextKey);
+    mergePattern(normalized, `${general}::${actionKey}`, contribution, general, actionKey);
   });
   return normalized;
 }
@@ -2485,8 +2562,8 @@ function experienceAdjustment(descriptor, experience) {
   const contextLevels = [
     { key: descriptor.contextKey, minimum: 3, weight: 1 },
     { key: `strategy:${strategic}`, minimum: 5, weight: 0.78 },
-    { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
-    { key: '*', minimum: 16, weight: 0.28 },
+    { key: `phase:${quarterScopedContext(phase, descriptor.contextKey)}`, minimum: 8, weight: 0.52 },
+    { key: quarterScopedContext('*', descriptor.contextKey), minimum: 16, weight: 0.28 },
   ];
   const actionWeights = hasStrategicAction
     ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
@@ -2613,7 +2690,15 @@ function strategicContextKey(contextKey) {
   const dimensions = ['o', 'po', 'tr']
     .map(prefix => parts.find(part => part.startsWith(prefix)))
     .filter(Boolean);
-  return [phase, ...dimensions].join('|');
+  return quarterScopedContext([phase, ...dimensions].join('|'), contextKey);
+}
+
+function quarterScopedContext(base, contextKey) {
+  const geometry = String(contextKey || '').split('|').find(part => part.startsWith('quarters:'));
+  // Legacy observations keep their original namespace. They are neither
+  // discarded nor upgraded to evidence for an exact quarter arrangement.
+  // All generalized aliases of new observations retain the full geometry.
+  return geometry ? `${base}|${geometry}` : base;
 }
 
 function prepareReplyState(state, color, dice, expandDoubles = false) {

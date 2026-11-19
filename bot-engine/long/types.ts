@@ -113,6 +113,30 @@ export interface LongBotTacticalAnalysis {
   plies?: number;
 }
 
+export type LongBotQuarterCheckers = [number, number, number, number, number, number];
+
+export interface LongBotQuarterLayout {
+  /** Zero-based quarter on the evaluated player's route. */
+  index: 0 | 1 | 2 | 3;
+  own: LongBotQuarterCheckers;
+  /** Opponent counts on the same physical points and in the same order. */
+  opponent: LongBotQuarterCheckers;
+  ownCount: number;
+  opponentCount: number;
+  ownOccupied: number;
+  opponentOccupied: number;
+  ownMaxStack: number;
+  opponentMaxStack: number;
+}
+
+export interface LongBotQuarterPositionProfile {
+  schema: 'long-quarter-layout-v1';
+  key: string;
+  ownOff: number;
+  opponentOff: number;
+  quarters: [LongBotQuarterLayout, LongBotQuarterLayout, LongBotQuarterLayout, LongBotQuarterLayout];
+}
+
 export interface LongBotExperienceDescriptor {
   contextKey: string;
   actionKey: string;
@@ -120,6 +144,13 @@ export interface LongBotExperienceDescriptor {
   familyActionKey?: string;
   legacyActionKey?: string;
   behaviorActionKeys?: string[];
+  quarterSchema?: 'long-quarter-layout-v1';
+  quarterContextKey?: string;
+  quarterActionKey?: string;
+  /** Historical coarse descriptor retained for explicit legacy handling. */
+  legacyContextKey?: string;
+  quartersBefore?: LongBotQuarterPositionProfile;
+  quartersAfter?: LongBotQuarterPositionProfile | null;
   mistakeSeverity: number;
   riskSignal?: number;
   phase: string;
@@ -143,7 +174,7 @@ export interface LongBotRankedCandidate {
   after: LongBotState;
   score: number;
   baseScore?: number;
-  features: Record<string, number | string>;
+  features: Record<string, number | string | LongBotQuarterPositionProfile>;
   tactical?: LongBotTacticalAnalysis;
   experience?: LongBotExperienceDescriptor;
   experienceAdjustment?: number;
