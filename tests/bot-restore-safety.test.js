@@ -878,6 +878,11 @@ test('lobby re-entry restores only compact native decisions committed to the ser
   assert.deepEqual(saved.decisions[0].stateSnapshotV2, JSON.parse(JSON.stringify(committed.stateSnapshotV2)));
   assert.deepEqual(saved.decisions[0].execution.executed, JSON.parse(JSON.stringify(committed.execution.executed)));
   assert.equal(saved.decisions[0].policyImplementationId, engine.policyImplementationId);
+  assert.ok(saved.decisions[0].selected.experience.contextKey.includes('|quarters:ql1:'));
+  assert.ok(saved.decisions[0].selected.experience.actionKey.includes('|after-quarters:ql1:'));
+  assert.equal(saved.decisions[0].selected.experience.contextKey, committed.selected.experience.contextKey);
+  assert.equal(saved.decisions[0].selected.experience.actionKey, committed.selected.experience.actionKey);
+  assert.ok(Buffer.byteLength(JSON.stringify(saved.decisions[0]), 'utf8') <= 8192);
 
   const reentrySearch = '?mode=bot&game=SAFE-BOT&color=white&opp=Hard&oppR=1500&variant=long&opponent=bot&access=open&difficulty=hard';
   assert.equal(first.localStorage.getItem(`narduh-room-state:/room.html${reentrySearch}`), null);

@@ -42,6 +42,53 @@ export function offCount(state, color) {
   return Number(state.off?.[color]) || 0;
 }
 
+// Exact board geometry in the player's direction of travel. Both arrays in a
+// quarter refer to the SAME six physical points: counting the opponent along
+// its own path here would lose which formations actually oppose each other.
+// This is an evidence descriptor, not an extra heuristic score or a probability.
+export function quarterPositionProfile(state, color) {
+  const opponent = opponentOf(color);
+  const path = pathFor(color);
+  const exactCount = (value) => {
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+  };
+  const quarters = Array.from({ length: 4 }, (_, index) => {
+    const own = [];
+    const enemy = [];
+    for (let offset = 0; offset < 6; offset += 1) {
+      const stack = stackAt(state, path[index * 6 + offset]);
+      own.push(stack?.color === color ? exactCount(stack.count) : 0);
+      enemy.push(stack?.color === opponent ? exactCount(stack.count) : 0);
+    }
+    return {
+      index,
+      own,
+      opponent: enemy,
+      ownCount: own.reduce((total, count) => total + count, 0),
+      opponentCount: enemy.reduce((total, count) => total + count, 0),
+      ownOccupied: own.filter(count => count > 0).length,
+      opponentOccupied: enemy.filter(count => count > 0).length,
+      ownMaxStack: Math.max(...own),
+      opponentMaxStack: Math.max(...enemy),
+    };
+  });
+  const ownOff = exactCount(state.off?.[color]);
+  const opponentOff = exactCount(state.off?.[opponent]);
+  // Explicit separators retain zeroes and distinguish arrangement from totals.
+  // Avoid context/action key separators (`|` and `::`) so the key is one atom.
+  const key = `ql1:${quarters.map(quarter => (
+    `${quarter.own.join(',')}/${quarter.opponent.join(',')}`
+  )).join(';')};off=${ownOff},${opponentOff}`;
+  return {
+    schema: 'long-quarter-layout-v1',
+    key,
+    ownOff,
+    opponentOff,
+    quarters,
+  };
+}
+
 export function checkersInTrackRange(state, color, start, end) {
   return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
     if (stack.color !== color) return total;

@@ -1,0 +1,43 @@
+{
+  "schema": "long-quarter-cold-parity-v1",
+  "syntheticFixtures": true,
+  "noStrengthEvidence": true,
+  "decisions": 16,
+  "baselinePolicy": "91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac",
+  "currentPolicy": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+  "allSelectedMovesScoresNodesEqual": true,
+  "totalCpuMs": 12475.608,
+  "totalWallMs": 11705.298875,
+  "baselineCpuMs": 6246.133000000001,
+  "currentCpuMs": 6198.783000000001,
+  "baselineWallMs": 5894.699333000001,
+  "currentWallMs": 5760.060249000001,
+  "maxRecoveryBytes": 5403,
+  "maxFullBytes": 34090,
+  "recordedAt": "2026-11-19T15:55:34.349Z",
+  "scope": "local deterministic correctness and plumbing; no strength evaluation",
+  "tests": {
+    "passed": 206,
+    "skipped": 2,
+    "failed": 0,
+    "strengthenedRecoveryTestRechecked": true,
+    "groups": [
+      "quarter-experience",
+      "experience-v25/v33",
+      "causal exact-scope/memory/reviewer/loss pipeline",
+      "live signed-round learning",
+      "publication and policy compatibility",
+      "native cache",
+      "room restore",
+      "neural teacher and evaluation protocol",
+      "causal release"
+    ]
+  },
+  "build": "npm run build passed",
+  "deployed": false,
+  "serverTouched": false,
+  "protocolCriteriaChanged": false,
+  "planningBudgetsChanged": false,
+  "legacyDataModified": false,
+  "caveat": "Old causal lessons remain under their original policy identity and require explicit re-review before new-policy use. Exact four-quarter matching is not learned transfer between merely similar boards."
+}

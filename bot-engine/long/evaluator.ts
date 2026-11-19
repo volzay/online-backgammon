@@ -37,6 +37,7 @@ import {
   primeCrunchRisk,
   primeSustainability,
   prospectiveFenceInterruptionBreak,
+  quarterPositionProfile,
   routeCompletionPressure,
   routeTowerRisk,
   stuckRisk,
@@ -125,7 +126,7 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
-export function sequenceStats(before, after, color, sequence = []) {
+export function sequenceStats(before, after, color, sequence = [], includeQuarterLayout = true) {
   const offGain = offCount(after, color) - offCount(before, color);
   const homeGain = homeBoardCount(after, color) - homeBoardCount(before, color);
   const pipGain = pipsFor(before, color) - pipsFor(after, color);
@@ -181,7 +182,16 @@ export function sequenceStats(before, after, color, sequence = []) {
     .sort()
     .join('+');
 
+  // Describe both sides on the SAME six physical points in each quarter.
+  // These observations feed memory applicability and the audit trail only;
+  // they do not introduce an unverified attack/defence scoring preference.
+  const quarterLayouts = includeQuarterLayout ? {
+    quartersBefore: quarterPositionProfile(before, color),
+    quartersAfter: quarterPositionProfile(after, color),
+  } : {};
+
   return {
+    ...quarterLayouts,
     offGain,
     homeGain,
     pipGain,
@@ -229,7 +239,9 @@ export function sequenceStats(before, after, color, sequence = []) {
 }
 
 export function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LONG_BOT_WEIGHTS) {
-  const stats = sequenceStats(before, after, color, sequence);
+  // Hypothetical reply scoring consumes only numeric features. Keep detailed
+  // memory telemetry on actual ranked candidates, not every search-tree node.
+  const stats = sequenceStats(before, after, color, sequence, false);
   const pressure = phasePressure(before, color);
   const entryPressure = lateEntryPressure(before, color);
   const completionPressure = routeCompletionPressure(before, color);

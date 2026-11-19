@@ -9,6 +9,7 @@ import {
   outsideHomeCount,
   pipsFor,
   primeCrunchRisk,
+  quarterPositionProfile,
 } from './metrics.ts';
 
 const MAX_REPLY_SEQUENCES = 8;
@@ -818,7 +819,7 @@ export function experienceDescriptor(
         : ownHead > 0
           ? 'head-development'
           : 'route';
-  const contextKey = [
+  const legacyContextKey = [
     phase,
     bucket('h', ownHead, [0, 1, 3, 7]),
     bucket('o', outside, [0, 2, 5, 9]),
@@ -827,6 +828,16 @@ export function experienceDescriptor(
     bucket('tr', trap, [0, 40, 180, 600]),
     bucket('pd', pipDelta, [-36, -8, 9, 37]),
   ].join('|');
+
+  const quartersBefore = quarterPositionProfile(state, color);
+  const quartersAfter = features.quartersAfter?.schema === quartersBefore.schema
+    ? features.quartersAfter : null;
+  const quarterContextKey = quartersBefore.key;
+  const quarterActionKey = quartersAfter?.key || '';
+  // Keep the original seven context fields in place for archived readers.
+  // Exact own/opponent point counts now constrain applicability; two boards
+  // with equal totals but different gates or towers are different contexts.
+  const contextKey = `${legacyContextKey}|quarters:${quarterContextKey}`;
 
   const legacyActionKey = [
     signedFlag('head', features.headGain),
@@ -854,7 +865,9 @@ export function experienceDescriptor(
     : Number(features.startZoneReduction || 0) > 0
       ? 'koks:gain'
       : 'koks:flat';
-  const actionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const routeActionKey = `${strategicActionKey}|${rescueAction}|route:${features.routeSignature || 'none'}`;
+  const actionKey = quarterActionKey
+    ? `${routeActionKey}|after-quarters:${quarterActionKey}` : routeActionKey;
   // These compact keys preserve the strategic intent that must transfer across
   // different dice and route signatures. The exact/family keys still provide
   // precision, while these keys let repeated home-shuffle and fence mistakes
@@ -999,6 +1012,12 @@ export function experienceDescriptor(
   return {
     contextKey,
     actionKey,
+    legacyContextKey,
+    quarterSchema: quartersBefore.schema,
+    quarterContextKey,
+    quarterActionKey,
+    quartersBefore,
+    quartersAfter,
     strategicActionKey,
     familyActionKey,
     legacyActionKey,
@@ -1070,11 +1089,12 @@ export function normalizeExperiencePatterns(patterns = []) {
     mergePattern(normalized, key, contribution, contextKey, actionKey);
     if (contribution.exactOnly) return;
 
-    const phase = contextKey.split('|')[0] || 'route';
+    const phase = quarterScopedContext(contextKey.split('|')[0] || 'route', contextKey);
     const strategic = strategicContextKey(contextKey);
     mergePattern(normalized, `strategy:${strategic}::${actionKey}`, contribution, strategic, actionKey);
     mergePattern(normalized, `phase:${phase}::${actionKey}`, contribution, phase, actionKey);
-    mergePattern(normalized, `*::${actionKey}`, contribution, '*', actionKey);
+    const general = quarterScopedContext('*', contextKey);
+    mergePattern(normalized, `${general}::${actionKey}`, contribution, general, actionKey);
   });
   return normalized;
 }
@@ -1107,8 +1127,8 @@ export function experienceAdjustment(descriptor, experience) {
   const contextLevels = [
     { key: descriptor.contextKey, minimum: 3, weight: 1 },
     { key: `strategy:${strategic}`, minimum: 5, weight: 0.78 },
-    { key: `phase:${phase}`, minimum: 8, weight: 0.52 },
-    { key: '*', minimum: 16, weight: 0.28 },
+    { key: `phase:${quarterScopedContext(phase, descriptor.contextKey)}`, minimum: 8, weight: 0.52 },
+    { key: quarterScopedContext('*', descriptor.contextKey), minimum: 16, weight: 0.28 },
   ];
   const actionWeights = hasStrategicAction
     ? [1, 0.86, 0.68, ...(behaviorActionKeys.map(() => 0.58)), 0.5]
@@ -1235,7 +1255,15 @@ function strategicContextKey(contextKey) {
   const dimensions = ['o', 'po', 'tr']
     .map(prefix => parts.find(part => part.startsWith(prefix)))
     .filter(Boolean);
-  return [phase, ...dimensions].join('|');
+  return quarterScopedContext([phase, ...dimensions].join('|'), contextKey);
+}
+
+function quarterScopedContext(base, contextKey) {
+  const geometry = String(contextKey || '').split('|').find(part => part.startsWith('quarters:'));
+  // Legacy observations keep their original namespace. They are neither
+  // discarded nor upgraded to evidence for an exact quarter arrangement.
+  // All generalized aliases of new observations retain the full geometry.
+  return geometry ? `${base}|${geometry}` : base;
 }
 
 function prepareReplyState(state, color, dice, expandDoubles = false) {

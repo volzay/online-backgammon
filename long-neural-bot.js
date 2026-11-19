@@ -22,6 +22,7 @@ window.NarduNeuralBot = (function () {
   const TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID = '944b8a98e0e1d75e54ad6a1f89dd915570332ecf06cf29ad1f51ff3307fd4bc3';
   const TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
   const TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
+  const TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID = 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306';
   const POLICY_OPTIONS = Object.freeze({ maxCandidates: 32, replyTopCandidates: 2,
     replyCandidates: 4, replyWeight: 0.35 });
   const DEVELOPMENT_EVALUATION = Object.freeze({
@@ -145,7 +146,8 @@ window.NarduNeuralBot = (function () {
         && engine.policyImplementationId !== TEACHER_SEPARATED_RACE_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_OPENING_SUPPORT_POLICY_IMPLEMENTATION_ID
         && engine.policyImplementationId !== TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID
-        && engine.policyImplementationId !== TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID)
+        && engine.policyImplementationId !== TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID
+        && engine.policyImplementationId !== TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID)
       || typeof engine.consumeLastDecision !== 'function'
       || typeof teacher?.plan !== 'function'
       || typeof publicBot?.plan !== 'function') {
