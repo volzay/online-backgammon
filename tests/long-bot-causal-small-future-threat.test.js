@@ -186,7 +186,7 @@ test('the new reservation spends exactly four expensive calls and creates no evi
   assert.equal(results[7].reason, 'production-strategic-risk-budget-skip');
 });
 
-test('the effective signed-root attestation, replay, cold continuation and claim contracts remain byte-identical', () => {
+test('signed-root contracts remain byte-identical apart from the reviewed quarter cache registration', () => {
   const source = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-causal-worker.js'), 'utf8');
   // Public function-region hashes from the effective 9e9118af worker in
   // runtime86. The curriculum patch must preserve every signed-root boundary.
@@ -210,8 +210,25 @@ test('the effective signed-root attestation, replay, cold continuation and claim
   assert.match(worker.productionStrategicReviewPlan.toString(), /productionStrategicReviewPlan\(game, options = \{\}\)/);
   assert.match(worker.productionStrategicReviewPlan.toString(), /trustedDecisionEnvelopeFailure\(game, decision, options\)/);
   assert.match(worker.reviewStrategicallyBoundedProductionDecision.toString(), /productionStrategicReviewPlan\(game, options\)/);
-  const paired = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-paired-rollout.js'));
-  assert.equal(crypto.createHash('sha256').update(paired).digest('hex'),
+  const paired = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-paired-rollout.js'), 'utf8');
+  // Admit precisely this immutable native tuple plus its list/export entries.
+  // Hash the remaining bytes against the original proof, so changing rollout
+  // logic, scientific limits, older tuples or even unrelated bytes still fails.
+  const quarterRegistration = `// Quarter geometry is derived only from canonical board/off counts. Its exact
+// source tuple receives a separate namespace; old audited tuples stay intact.
+const QUARTER_GEOMETRY_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'ce5d1150655fd642e77f04488819eb5003b63413b712ed962144d6adf1a65bf3',
+});
+`;
+  const quarterReference = '  QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,\n';
+  assert.equal(paired.split(quarterRegistration).length - 1, 1,
+    'only the exact reviewed quarter tuple may be removed');
+  assert.equal(paired.split(quarterReference).length - 1, 2,
+    'the reviewed tuple occurs once in the admitted list and once in exports');
+  const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '');
+  assert.equal(crypto.createHash('sha256').update(originalPaired).digest('hex'),
     '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
 });
 

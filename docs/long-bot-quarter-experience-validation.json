@@ -39,5 +39,40 @@
   "protocolCriteriaChanged": false,
   "planningBudgetsChanged": false,
   "legacyDataModified": false,
-  "caveat": "Old causal lessons remain under their original policy identity and require explicit re-review before new-policy use. Exact four-quarter matching is not learned transfer between merely similar boards."
+  "caveat": "Old causal lessons remain under their original policy identity and require explicit re-review before new-policy use. Exact four-quarter matching is not learned transfer between merely similar boards.",
+  "releaseValidation": {
+    "fullLocalRun": {
+      "tests": 2029,
+      "passed": 1954,
+      "failed": 61,
+      "skipped": 14,
+      "seconds": 277.682,
+      "cause": "59 local-port sandbox EPERM cases; 2 expectations include deliberately expanded telemetry/tuple"
+    },
+    "corrections": {
+      "portTestsUnsandboxed": {
+        "passed": 65,
+        "failed": 0
+      },
+      "openingTelemetryCompatibility": {
+        "passed": 11,
+        "failed": 0
+      },
+      "reviewSourcePin": {
+        "passed": 1,
+        "failed": 0
+      },
+      "signedTransition": {
+        "passed": 7,
+        "failed": 0
+      }
+    },
+    "combinedUnique": {
+      "tests": 2036,
+      "passed": 2022,
+      "failed": 0,
+      "skipped": 14
+    },
+    "serverDriverMockChecks": 239
+  }
 }

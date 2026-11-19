@@ -25,7 +25,32 @@ function position(color='white',anchors=[2,6,8],head=12){
  return s;
 }
 const ranked=(engine,s,profile='v25')=>plain(engine.rank(plain(s),{...options,strategyProfile:profile}));
-const behavior=rows=>rows.map(c=>({sequence:c.sequence,score:c.score,baseScore:c.baseScore,features:c.features,tactical:c.tactical,experience:c.experience,experienceAdjustment:c.experienceAdjustment}));
+const behavior=(rows,quarterAware=false)=>rows.map(c=>{
+ const result={sequence:c.sequence,score:c.score,baseScore:c.baseScore,features:{...c.features},tactical:c.tactical,experience:{...c.experience},experienceAdjustment:c.experienceAdjustment};
+ if(quarterAware){
+  // The quarter extension adds applicability/audit data, not opening scores.
+  // Check that the new data exists before comparing every older semantic field.
+  const descriptor=result.experience;
+  assert.equal(descriptor.quarterSchema,'long-quarter-layout-v1');
+  assert.equal(descriptor.quartersBefore?.quarters.length,4);
+  assert.equal(descriptor.quartersAfter?.quarters.length,4);
+  assert.equal(descriptor.quarterContextKey,descriptor.quartersBefore.key);
+  assert.equal(descriptor.quarterActionKey,descriptor.quartersAfter.key);
+  assert.deepEqual(result.features.quartersBefore,descriptor.quartersBefore);
+  assert.deepEqual(result.features.quartersAfter,descriptor.quartersAfter);
+  const contextSuffix=`|quarters:${descriptor.quarterContextKey}`;
+  const actionSuffix=`|after-quarters:${descriptor.quarterActionKey}`;
+  assert.equal(descriptor.contextKey,`${descriptor.legacyContextKey}${contextSuffix}`);
+  assert.equal(descriptor.actionKey.indexOf(actionSuffix),descriptor.actionKey.length-actionSuffix.length);
+  assert.ok(descriptor.actionKey.endsWith(actionSuffix));
+  descriptor.contextKey=descriptor.contextKey.slice(0,-contextSuffix.length);
+  descriptor.actionKey=descriptor.actionKey.slice(0,-actionSuffix.length);
+  for(const key of ['quarterSchema','quarterContextKey','quarterActionKey','legacyContextKey','quartersBefore','quartersAfter'])delete descriptor[key];
+  delete result.features.quartersBefore;
+  delete result.features.quartersAfter;
+ }
+ return result;
+});
 
 test('both video skeletons cover every die face with three forward support stations, for either color',async()=>{
  const {openingSupportProfile}=await metrics;
@@ -77,11 +102,11 @@ test('support is counted across the seventh-to-sixth head-checker boundary',()=>
 });
 test('the control profile and positions outside the opening retain their frozen behavior',()=>{
  const opening=position();
- assert.deepEqual(behavior(ranked(current.engine,opening,'v19')),behavior(ranked(previous.engine,opening,'v19')));
+ assert.deepEqual(behavior(ranked(current.engine,opening,'v19'),true),behavior(ranked(previous.engine,opening,'v19')));
  const later=position('white',[2,6,8],6);
- assert.deepEqual(behavior(ranked(current.engine,later)),behavior(ranked(previous.engine,later)));
+ assert.deepEqual(behavior(ranked(current.engine,later),true),behavior(ranked(previous.engine,later)));
  const danger=position();danger.points[12].count=14;danger.off.dark=1;
- assert.deepEqual(behavior(ranked(current.engine,danger)),behavior(ranked(previous.engine,danger)));
+ assert.deepEqual(behavior(ranked(current.engine,danger),true),behavior(ranked(previous.engine,danger)));
 });
 test('an opening support pattern cannot override an existing three-point blockade',()=>{
  const s=position();s.points[12].count=12;
@@ -102,7 +127,7 @@ test('opponent already home disables opening preferences before the first bear-o
  const s=position();delete s.points[12];s.points[13]={color:'dark',count:15};
  const now=ranked(current.engine,s);
  assert.ok(now.length);assert.ok(now.every(c=>c.features.openingSupportAdjustment===undefined));
- assert.deepEqual(behavior(now),behavior(ranked(previous.engine,s)));
+ assert.deepEqual(behavior(now,true),behavior(ranked(previous.engine,s)));
 });
 
 test('first-entry defense requires complete replies and better absolute safety', async () => {
