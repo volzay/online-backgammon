@@ -6030,6 +6030,12 @@ window.NarduController = (function () {
   }
 
   function submitRoomRating(resultKey, onlyIfMissing = false) {
+    // The confirmed bot room already owns its board, history and training
+    // archive. Rating only needs its identity; copying the live ledger here
+    // can turn a tiny receipt request into a multi-megabyte upload.
+    const savedBotResult = mode === 'bot' && Boolean(remoteCode || state.roomCode)
+      && window.NarduSupabase?.configured?.();
+    const historyCount = Array.isArray(state.history) ? state.history.length : 0;
     return NarduRating.record(opponentName, opponentRating, state.winner === playerColor, mode, resultKey, {
       onlyIfMissing,
       resultType: state.resultType || '',
@@ -6038,9 +6044,12 @@ window.NarduController = (function () {
         ...state.score,
         roomCode: remoteCode || state.roomCode || '',
         off: { ...state.off },
-        finalState: { ...remoteStatePayload(), history: undefined },
+        finalState: savedBotResult
+          ? { finishedAt: state.finishedAt }
+          : { ...remoteStatePayload(), history: undefined },
       },
-      history: Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : [],
+      history: savedBotResult ? [] : (Array.isArray(state.history) ? state.history.map(item => ({ ...item })) : []),
+      historyCount,
       finishedAt: state.finishedAt ? new Date(state.finishedAt).toISOString() : new Date().toISOString(),
     });
   }

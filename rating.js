@@ -58,9 +58,10 @@ window.NarduRating = (function () {
   }
   function compactHistoryEntry(entry = {}) {
     const { history, ...compact } = entry;
-    const historyCount = Array.isArray(history)
-      ? history.length
-      : Math.max(0, Number(entry.historyCount) || 0);
+    const historyCount = Math.max(
+      Array.isArray(history) ? history.length : 0,
+      Number(entry.historyCount) || 0,
+    );
     return { ...compact, historyCount };
   }
 
@@ -89,7 +90,15 @@ window.NarduRating = (function () {
           .select('result_key').eq('user_id', user.id).eq('result_key', entry.resultKey).maybeSingle();
         if (error || data) return null;
       }
-      const { data: result, error: resultError } = await client.rpc('record_rating_result', {
+      // Bot room completion already saved the authoritative state and journal.
+      // Award from that saved result using selectors, without uploading the
+      // full analysis ledger again while the result window is waiting.
+      const savedBotResult = confirmed && entry.mode === 'bot' && Boolean(entry.score?.roomCode);
+      const rpcName = savedBotResult ? 'record_saved_bot_rating' : 'record_rating_result';
+      const payload = savedBotResult ? {
+        p_room_code: String(entry.score.roomCode),
+        p_result_key: String(entry.resultKey || '').slice(0, 120),
+      } : {
         p_result_key: String(entry.resultKey || '').slice(0, 120),
         p_opponent: String(entry.opponent || '').slice(0, 32),
         p_opponent_rating: Number.isFinite(Number(entry.opponentRating)) ? Number(entry.opponentRating) : DEFAULT_RATING,
@@ -100,7 +109,8 @@ window.NarduRating = (function () {
         p_score: entry.score && typeof entry.score === 'object' ? entry.score : {},
         p_history: Array.isArray(entry.history) ? entry.history.slice(0, 500) : [],
         p_finished_at: entry.finishedAt || new Date().toISOString(),
-      });
+      };
+      const { data: result, error: resultError } = await client.rpc(rpcName, payload);
       if (!resultError) {
         if (confirmed && (!Number.isInteger(result?.rating) || result.rating <= 0 || !Number.isInteger(result.delta))) return null;
         user.rating = normalizeRating(result?.rating);
@@ -257,6 +267,7 @@ window.NarduRating = (function () {
       winner: details.winner || '',
       score: details.score || null,
       history: fullHistory,
+      historyCount: Math.max(fullHistory.length, Number(details.historyCount) || 0),
       finishedAt: details.finishedAt || new Date().toISOString(),
       delta,
       ratingAfter: projectedRating,

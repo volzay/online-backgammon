@@ -201,9 +201,10 @@ test("admin history auto-refresh pauses while the operator is scrolling", () => 
   assert.match(schema, /create policy "admins can see all rooms"/);
 });
 
-test("rating client persists a result through the atomic server RPC", () => {
+test("rating client dispatches saved bot and full remote results through atomic server RPCs", () => {
   const source = fs.readFileSync(path.join(ROOT, "rating.js"), "utf8");
-  assert.match(source, /client\.rpc\('record_rating_result'/);
+  assert.match(source, /savedBotResult \? 'record_saved_bot_rating' : 'record_rating_result'/);
+  assert.match(source, /client\.rpc\(rpcName, payload\)/);
   assert.match(source, /syncPromise/);
   assert.match(source, /delta:\s*Number\(result\?\.delta/);
   assert.match(source, /rating:\s*user\.rating/);
