@@ -71,6 +71,16 @@ async function verify({ output, games = 2 }) {
     args: ['--disable-quic', '--host-resolver-rules=MAP api.201-51-7-193.sslip.io [2a03:6f00:a::ae1e],'
       + 'MAP api.201-51-7-193.2a03-6f00-a--ae1e.sslip.io [2a03:6f00:a::ae1e]'],
   });
+  async function dismissGuide(page) {
+    const skip = page.locator('#onboarding-dialog[open] .onboarding-skip');
+    try {
+      await skip.waitFor({ state: 'visible', timeout: 5000 });
+    } catch (error) {
+      if (error.name === 'TimeoutError') return;
+      throw error;
+    }
+    await skip.click();
+  }
   async function play(number) {
     const context = await browser.newContext({ viewport: { width: 1365, height: 1000 } });
     const page = await context.newPage();
@@ -87,11 +97,13 @@ async function verify({ output, games = 2 }) {
       await page.goto(`${ORIGIN}/login.html`);
       await page.locator('#guest-btn').click();
       await page.waitForURL('**/index.html');
+      await dismissGuide(page);
       await page.locator('[data-action=bot]').click();
       await page.locator('[data-create-option=variant][data-value=long]').click();
       await page.locator('[data-create-option=difficulty][data-value=hard]').click();
       await page.locator('#create-game-form button[type=submit]').click();
       await page.waitForURL('**/room.html**');
+      await dismissGuide(page);
       row.roomCode = new URL(page.url()).searchParams.get('game'); row.status = 'playing'; save();
       const deadline = Date.now() + 30 * 60 * 1000;
       while (Date.now() < deadline) {
