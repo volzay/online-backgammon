@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946';
 
 /* bot-engine/long/metrics.ts */
 
@@ -1460,6 +1460,50 @@ const EXPERIENCE_RISK_THRESHOLD = 1.1;
 const CANONICAL_DICE_WEIGHT = 36;
 const DICE_TAIL_WEIGHT = 6;
 
+// A symmetric, deliberately uncalibrated estimate in turns. This is an
+// ordering heuristic, not a win probability. Racing alone misses a rear
+// checker trapped behind a fence, even when that side has a large pip lead.
+function adaptiveTurnsRemaining(state, color) {
+  const racing = pipsFor(state, color) / (49 / 6);
+  const release = headCheckers(state, color);
+  const bearOff = homeReady(state, color) ? (15 - offCount(state, color)) / 2.3 : 0;
+  const delay = Math.log1p(opponentTrapRisk(state, color) / 80) * 0.8
+    + Math.log1p(fenceClosureRisk(state, color) / 60) * 0.45
+    + Math.log1p(escapeGatewayRisk(state, color) / 12) * 0.7
+    + primeCrunchRisk(state, color) * 1.5;
+  return Math.max(racing, release, bearOff) + delay;
+}
+
+function assessLongBotSituation(state, color, nextToMove = color) {
+  const opponent = opponentOf(color);
+  const ownTurns = adaptiveTurnsRemaining(state, color);
+  const opponentTurns = adaptiveTurnsRemaining(state, opponent);
+  const deficitTurns = ownTurns - opponentTurns + (nextToMove === color ? -0.5 : 0.5);
+  const equity = state.winner
+    ? (state.winner === color ? 1 : -1)
+    : Math.tanh(-deficitTurns / 6);
+  const comebackPressure = Math.max(0, Math.min(1, (deficitTurns - 0.75) / 5));
+  return {
+    model: 'heuristic-turn-equity-v1',
+    ownTurns,
+    opponentTurns,
+    deficitTurns,
+    equity,
+    comebackPressure,
+    mode: comebackPressure >= 0.15 ? 'counterplay' : deficitTurns < -1.5 ? 'protect' : 'balanced',
+  };
+}
+
+function adaptiveReplyUtility(tactical, situation) {
+  // Trailing positions may trade some lower-tail safety for real chances to
+  // reverse the game. The mean still dominates; variance by itself earns no
+  // reward. Ahead, the same rule protects against the bad dice tail.
+  const pressure = situation.comebackPressure;
+  return tactical.expectedEquity * 0.76
+    + tactical.lowerTailEquity * (0.24 - pressure * 0.16)
+    + tactical.upperTailEquity * pressure * 0.16;
+}
+
 function createAnalysisBudget(limit) {
   const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
   let used = 0;
@@ -1529,6 +1573,8 @@ function analyzeOpponentReplies(
   options = {},
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
+  const situation = options.situation || null;
+  const counterplayReplies = situation?.mode === 'counterplay';
   const configuredTacticalLimit = Math.max(
     1,
     Math.min(
@@ -1573,6 +1619,9 @@ function analyzeOpponentReplies(
     opponentPipGain: 0,
     opponentHeadRelease: 0,
     opponentOutsideReduction: 0,
+    selfEvaluation: 0,
+    opponentEvaluation: 0,
+    equityOutcomes: [],
     frontiers: [],
   }));
 
@@ -1607,20 +1656,29 @@ function analyzeOpponentReplies(
         legalReplies,
         accumulator.expandedReplyCoverage
           ? (expandedDouble ? MAX_DOUBLE_REPLY_SEQUENCES : MAX_REPLY_SEQUENCES)
-          : 2,
+          : counterplayReplies ? 4 : 2,
         { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
       );
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
+      let worstEquity = Infinity;
 
       for (const { sequence: reply, after: replyAfter } of replySequences) {
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
-        if (replyValue < worstValue) {
+        const replyEquity = counterplayReplies
+          ? assessLongBotSituation(replyAfter, color, color).equity
+          : 0;
+        // The opponent chooses a legal move serving its own board situation.
+        // Do not invent a pass when all legal replies happen to help us.
+        if (counterplayReplies
+          ? replyEquity < worstEquity || (replyEquity === worstEquity && replyValue < worstValue)
+          : replyValue < worstValue) {
           worstValue = replyValue;
           worstState = replyAfter;
+          worstEquity = replyEquity;
         }
       }
       if (!completedRoll) break;
@@ -1641,6 +1699,11 @@ function analyzeOpponentReplies(
           0,
           outsideHomeCount(replyState, opponent) - outsideHomeCount(worstState, opponent),
         ),
+        ...(situation ? {
+          selfEvaluation: evaluateState(worstState, color, weights),
+          opponentEvaluation: evaluateState(worstState, opponent, weights),
+          equity: assessLongBotSituation(worstState, color, color).equity,
+        } : {}),
       });
     }
 
@@ -1657,6 +1720,11 @@ function analyzeOpponentReplies(
       accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
       accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
       accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
+      if (situation) {
+        accumulator.selfEvaluation += result.selfEvaluation * roll.weight;
+        accumulator.opponentEvaluation += result.opponentEvaluation * roll.weight;
+        accumulator.equityOutcomes.push({ value: result.equity, weight: roll.weight });
+      }
       accumulator.frontiers.push({
         impact,
         state: result.state,
@@ -1690,6 +1758,25 @@ function analyzeOpponentReplies(
       doublesExpanded: expandDoubles,
       replyCoverageExpanded: accumulator.expandedReplyCoverage,
     };
+    if (situation) {
+      const outcomes = accumulator.equityOutcomes;
+      Object.assign(accumulator.candidate.tactical, {
+        decisionModel: situation.model,
+        selfEvaluation: evaluateState(accumulator.candidate.after, color, weights),
+        opponentEvaluation: evaluateState(accumulator.candidate.after, opponent, weights),
+        expectedSelfEvaluation: accumulator.selfEvaluation / accumulator.weight,
+        expectedOpponentEvaluation: accumulator.opponentEvaluation / accumulator.weight,
+        expectedEquity: outcomes.reduce((sum, item) => sum + item.value * item.weight, 0)
+          / accumulator.weight,
+        lowerTailEquity: weightedLowerTailMean(outcomes),
+        upperTailEquity: -weightedLowerTailMean(outcomes.map(item => ({ ...item, value: -item.value }))),
+        worstEquity: Math.min(...outcomes.map(item => item.value)),
+        opponentReplyModel: 'best-of-bounded-legal-replies-v1',
+      });
+      accumulator.candidate.tactical.adaptiveUtility = adaptiveReplyUtility(
+        accumulator.candidate.tactical, situation,
+      );
+    }
   });
 
   if (beforeDeepCandidate) {
@@ -1744,6 +1831,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
     'primeSustainabilityTacticalReservation',
+    'counterplayTacticalReservation',
   ];
   candidates.forEach((candidate) => {
     const key = positionKey(candidate.after);
@@ -1964,6 +2052,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(features.structuralIntegrityTacticalReservation || 0) > 0) return 0;
   if (Number(features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
+  if (Number(features.counterplayTacticalReservation || 0) > 0) return 1.75;
   if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
   if (Number(features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
@@ -1979,7 +2068,8 @@ function hasTacticalReservation(candidate) {
     || Number(features.startZoneEscapeTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
-    || Number(features.primeSustainabilityTacticalReservation || 0) > 0;
+    || Number(features.primeSustainabilityTacticalReservation || 0) > 0
+    || Number(features.counterplayTacticalReservation || 0) > 0;
 }
 
 function completeProvisionalLeaderAnalysis(
@@ -2821,6 +2911,7 @@ function createLongBotEngine(adapter, options = {}) {
     const budget = createAnalysisBudget(analysisNodeBudget);
     const strategyProfile = String(runtimeOptions.strategyProfile || 'v19').toLowerCase();
     const advancedStrategy = strategyProfile !== 'v19';
+    const situation = strategyProfile === 'v26' ? assessLongBotSituation(state, color) : null;
     const useExperience = advancedStrategy
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color, {
@@ -2890,6 +2981,15 @@ function createLongBotEngine(adapter, options = {}) {
         candidate.score += candidate.features.advancedStrategyAdjustment;
       }
       candidate.features.strategyProfile = strategyProfile;
+      if (situation) {
+        candidate.features.decisionMode = situation.mode;
+        candidate.features.positionEquityBefore = situation.equity;
+        candidate.features.deficitTurnsBefore = situation.deficitTurns;
+        candidate.features.comebackPressure = situation.comebackPressure;
+        candidate.features.positionEquityAfter = assessLongBotSituation(
+          candidate.after, color, opponentOf(color),
+        ).equity;
+      }
     });
     annotateAvoidableHomeShuffles(ranked, state, color);
     ranked.forEach((candidate) => {
@@ -3030,6 +3130,12 @@ function createLongBotEngine(adapter, options = {}) {
         ...tacticalPool.slice(1).filter(candidate => candidate !== contactDefense),
       ];
     }
+    if (situation) {
+      tacticalPool = reserveAdaptiveCounterplay(
+        state, color, tacticalPool, strategicallyRanked, situation,
+        runtimeOptions.maxTacticalCandidates,
+      );
+    }
     const advancedTacticallyAdjusted = new Set();
     const applyAdvancedTacticalAdjustment = (candidate) => {
       if (!advancedStrategy || advancedTacticallyAdjusted.has(candidate)) return;
@@ -3046,6 +3152,7 @@ function createLongBotEngine(adapter, options = {}) {
       budget,
       {
         expandDoubles: advancedStrategy,
+        situation,
         maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
@@ -3198,6 +3305,9 @@ function createLongBotEngine(adapter, options = {}) {
     );
     coldRanked = prioritizeFirstEntryFenceDefense(state, color, coldRanked, weights);
     coldRanked = prioritizeContactFenceDefense(color, coldRanked, contactDefense, weights);
+    if (situation) {
+      coldRanked = prioritizeAdaptiveCounterplay(state, color, coldRanked, tacticalPool, situation);
+    }
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -3364,6 +3474,78 @@ function tacticalCoveragePool(eligible, ranked) {
     pool.push(candidate);
   });
   return pool;
+}
+
+function reserveAdaptiveCounterplay(state, color, pool, ranked, situation, limit) {
+  if (situation.mode !== 'counterplay' || homeReady(state, color) || pool.length === 0) return pool;
+  const baseline = pool[0];
+  const alternatives = uniqueCandidatePositions(ranked).filter(candidate => (
+    candidate !== baseline
+    && candidate.features.positionEquityAfter > baseline.features.positionEquityAfter + 0.005
+    && Number(candidate.features.resultSafetyAfter) >= Number(baseline.features.resultSafetyAfter)
+    && Number(candidate.features.missedKoksRescue) <= Number(baseline.features.missedKoksRescue)
+    && isAdaptiveStructuralAlternative(state, color, candidate, baseline)
+  )).sort((left, right) => (
+    right.features.positionEquityAfter - left.features.positionEquityAfter
+    || right.score - left.score
+  ));
+  const creative = alternatives[0];
+  if (!creative) return pool;
+  creative.features.counterplayTacticalReservation = 1;
+  const width = Math.max(2, Math.min(MAX_TACTICAL_CANDIDATES, Number(limit) || MAX_TACTICAL_CANDIDATES));
+  // Keep the established leader and defensive reservations. A different plan
+  // gets one bounded slot, then has to survive the same reply calculation.
+  const result = pool.filter(candidate => candidate !== creative);
+  result.splice(Math.min(width - 1, result.length), 0, creative);
+  return result;
+}
+
+function isAdaptiveStructuralAlternative(state, color, candidate, baseline) {
+  const features = candidate.features;
+  const base = baseline.features;
+  // A speculative plan must not bury the last head checker or turn a large
+  // route stack into an immobile tower. Ordinary development can still be
+  // traded for a blocking/escape plan after the reply comparison.
+  return Number(features.maxRouteTowerAfter || 0) <= Math.max(5, Number(base.maxRouteTowerAfter || 0))
+    && (headCheckers(state, color) > 2
+      || Number(features.headGain || 0) >= Number(base.headGain || 0))
+    && (startZoneCount(state, color) > 2
+      || Number(features.startZoneReduction || 0) >= Number(base.startZoneReduction || 0));
+}
+
+function hasAdaptiveReplyEvidence(candidate) {
+  const tactical = candidate?.tactical;
+  return tactical?.decisionModel === 'heuristic-turn-equity-v1'
+    && tactical.distributionComplete === true
+    && tactical.rolls === 21 && tactical.distributionWeight === 36
+    && tactical.doublesExpanded === true
+    && ['adaptiveUtility', 'expectedEquity', 'lowerTailEquity', 'upperTailEquity', 'worstEquity']
+      .every(key => Number.isFinite(tactical[key]));
+}
+
+function prioritizeAdaptiveCounterplay(state, color, ranked, pool, situation) {
+  const baseline = ranked[0];
+  if (situation.mode !== 'counterplay'
+    || !hasAdaptiveReplyEvidence(baseline) || homeReady(state, color)
+    || isUncontestedLateRaceState(state, color, baseline.features)) return ranked;
+  const alternatives = uniqueCandidatePositions(pool).filter(candidate => (
+    candidate !== baseline && hasAdaptiveReplyEvidence(candidate)
+    && candidate.tactical.plies === baseline.tactical.plies
+    && Number(candidate.features.resultSafetyAfter) >= Number(baseline.features.resultSafetyAfter)
+    && Number(candidate.features.missedKoksRescue) <= Number(baseline.features.missedKoksRescue)
+    && isAdaptiveStructuralAlternative(state, color, candidate, baseline)
+    // A better optimistic tail cannot buy a substantially worse mean.
+    && candidate.tactical.expectedEquity >= baseline.tactical.expectedEquity - 0.015
+    && (situation.mode === 'counterplay'
+      || candidate.tactical.lowerTailEquity >= baseline.tactical.lowerTailEquity - 0.02)
+    && candidate.tactical.adaptiveUtility > baseline.tactical.adaptiveUtility + 0.015
+    && !isDeepFenceSafetyRegression(candidate, baseline)
+  )).sort((left, right) => right.tactical.adaptiveUtility - left.tactical.adaptiveUtility);
+  const selected = alternatives[0];
+  if (!selected) return ranked;
+  baseline.features.adaptiveDecisionBaseline = 1;
+  const result = ranked.includes(selected) ? ranked : [...ranked, selected];
+  return promoteCandidate(result, selected, 'adaptiveDecisionAdjustment');
 }
 
 function normalizeAnalysisNodeBudget(value, fallback) {
@@ -7476,7 +7658,7 @@ const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
   'narduh-long-bot-frozen-experience-v32:',
 ];
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
-  strategyProfile: 'v25',
+  strategyProfile: 'v26',
   maxCandidates: 64,
   analysisNodeBudget: 480,
 });
@@ -7866,6 +8048,19 @@ function decisionRecord(
     after: compactCandidateState(candidate.after),
     features: { ...(candidate.features || {}) },
     tactical: candidate.tactical ? {
+      ...(candidate.tactical.decisionModel ? {
+        decisionModel: candidate.tactical.decisionModel,
+        opponentReplyModel: candidate.tactical.opponentReplyModel,
+        selfEvaluation: candidate.tactical.selfEvaluation,
+        opponentEvaluation: candidate.tactical.opponentEvaluation,
+        expectedSelfEvaluation: candidate.tactical.expectedSelfEvaluation,
+        expectedOpponentEvaluation: candidate.tactical.expectedOpponentEvaluation,
+        expectedEquity: candidate.tactical.expectedEquity,
+        lowerTailEquity: candidate.tactical.lowerTailEquity,
+        upperTailEquity: candidate.tactical.upperTailEquity,
+        worstEquity: candidate.tactical.worstEquity,
+        adaptiveUtility: candidate.tactical.adaptiveUtility,
+      } : {}),
       expectedImpact: Math.round(candidate.tactical.expectedImpact),
       worstImpact: Math.round(candidate.tactical.worstImpact),
       rolls: candidate.tactical.rolls,

@@ -186,7 +186,7 @@ test('the new reservation spends exactly four expensive calls and creates no evi
   assert.equal(results[7].reason, 'production-strategic-risk-budget-skip');
 });
 
-test('signed-root contracts remain byte-identical apart from the reviewed quarter cache registration', () => {
+test('signed-root contracts remain byte-identical apart from the reviewed cache registrations', () => {
   const source = fs.readFileSync(path.join(__dirname, '../scripts/long-bot-causal-worker.js'), 'utf8');
   // Public function-region hashes from the effective 9e9118af worker in
   // runtime86. The curriculum patch must preserve every signed-root boundary.
@@ -227,7 +227,19 @@ const QUARTER_GEOMETRY_NATIVE_CACHE_POLICY = Object.freeze({
     'only the exact reviewed quarter tuple may be removed');
   assert.equal(paired.split(quarterReference).length - 1, 2,
     'the reviewed tuple occurs once in the admitted list and once in exports');
-  const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '');
+  const adaptiveRegistration = `// Adaptive assessment reads canonical board, turn, dice and result only.
+// Preserve all historical cache namespaces and bind this policy separately.
+const ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: 'cb0902f60ece78841a400b1448662183de2312f42ddfb7c7dc4eaa294d558a69',
+});
+`;
+  const adaptiveReference = '  ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,\n';
+  assert.equal(paired.split(adaptiveRegistration).length - 1, 1);
+  assert.equal(paired.split(adaptiveReference).length - 1, 2);
+  const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '')
+    .replace(adaptiveRegistration, '').replaceAll(adaptiveReference, '');
   assert.equal(crypto.createHash('sha256').update(originalPaired).digest('hex'),
     '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
 });

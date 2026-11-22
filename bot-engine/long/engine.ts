@@ -2,6 +2,7 @@ import { evaluateState, mergeWeights, scoreSequence, sequenceStats } from './eva
 import {
   MAX_TACTICAL_CANDIDATES,
   analyzeOpponentReplies,
+  assessLongBotSituation,
   createAnalysisBudget,
   experienceAdjustment,
   experienceDescriptor,
@@ -80,6 +81,7 @@ export function createLongBotEngine(adapter, options = {}) {
     const budget = createAnalysisBudget(analysisNodeBudget);
     const strategyProfile = String(runtimeOptions.strategyProfile || 'v19').toLowerCase();
     const advancedStrategy = strategyProfile !== 'v19';
+    const situation = strategyProfile === 'v26' ? assessLongBotSituation(state, color) : null;
     const useExperience = advancedStrategy
       || !Object.prototype.hasOwnProperty.call(runtimeOptions, 'strategyProfile');
     const sequences = adapter.legalSequences(state, color, {
@@ -149,6 +151,15 @@ export function createLongBotEngine(adapter, options = {}) {
         candidate.score += candidate.features.advancedStrategyAdjustment;
       }
       candidate.features.strategyProfile = strategyProfile;
+      if (situation) {
+        candidate.features.decisionMode = situation.mode;
+        candidate.features.positionEquityBefore = situation.equity;
+        candidate.features.deficitTurnsBefore = situation.deficitTurns;
+        candidate.features.comebackPressure = situation.comebackPressure;
+        candidate.features.positionEquityAfter = assessLongBotSituation(
+          candidate.after, color, opponentOf(color),
+        ).equity;
+      }
     });
     annotateAvoidableHomeShuffles(ranked, state, color);
     ranked.forEach((candidate) => {
@@ -289,6 +300,12 @@ export function createLongBotEngine(adapter, options = {}) {
         ...tacticalPool.slice(1).filter(candidate => candidate !== contactDefense),
       ];
     }
+    if (situation) {
+      tacticalPool = reserveAdaptiveCounterplay(
+        state, color, tacticalPool, strategicallyRanked, situation,
+        runtimeOptions.maxTacticalCandidates,
+      );
+    }
     const advancedTacticallyAdjusted = new Set();
     const applyAdvancedTacticalAdjustment = (candidate) => {
       if (!advancedStrategy || advancedTacticallyAdjusted.has(candidate)) return;
@@ -305,6 +322,7 @@ export function createLongBotEngine(adapter, options = {}) {
       budget,
       {
         expandDoubles: advancedStrategy,
+        situation,
         maxTacticalCandidates: runtimeOptions.maxTacticalCandidates,
         beforeDeepCandidate: advancedStrategy
           ? applyAdvancedTacticalAdjustment
@@ -457,6 +475,9 @@ export function createLongBotEngine(adapter, options = {}) {
     );
     coldRanked = prioritizeFirstEntryFenceDefense(state, color, coldRanked, weights);
     coldRanked = prioritizeContactFenceDefense(color, coldRanked, contactDefense, weights);
+    if (situation) {
+      coldRanked = prioritizeAdaptiveCounterplay(state, color, coldRanked, tacticalPool, situation);
+    }
     annotateAvoidableProspectiveFenceInterruptions(state, color, coldRanked);
     annotateAvoidableProspectiveFenceAnchorMisses(state, color, coldRanked);
     const coldSelected = coldRanked[0];
@@ -623,6 +644,78 @@ function tacticalCoveragePool(eligible, ranked) {
     pool.push(candidate);
   });
   return pool;
+}
+
+export function reserveAdaptiveCounterplay(state, color, pool, ranked, situation, limit) {
+  if (situation.mode !== 'counterplay' || homeReady(state, color) || pool.length === 0) return pool;
+  const baseline = pool[0];
+  const alternatives = uniqueCandidatePositions(ranked).filter(candidate => (
+    candidate !== baseline
+    && candidate.features.positionEquityAfter > baseline.features.positionEquityAfter + 0.005
+    && Number(candidate.features.resultSafetyAfter) >= Number(baseline.features.resultSafetyAfter)
+    && Number(candidate.features.missedKoksRescue) <= Number(baseline.features.missedKoksRescue)
+    && isAdaptiveStructuralAlternative(state, color, candidate, baseline)
+  )).sort((left, right) => (
+    right.features.positionEquityAfter - left.features.positionEquityAfter
+    || right.score - left.score
+  ));
+  const creative = alternatives[0];
+  if (!creative) return pool;
+  creative.features.counterplayTacticalReservation = 1;
+  const width = Math.max(2, Math.min(MAX_TACTICAL_CANDIDATES, Number(limit) || MAX_TACTICAL_CANDIDATES));
+  // Keep the established leader and defensive reservations. A different plan
+  // gets one bounded slot, then has to survive the same reply calculation.
+  const result = pool.filter(candidate => candidate !== creative);
+  result.splice(Math.min(width - 1, result.length), 0, creative);
+  return result;
+}
+
+function isAdaptiveStructuralAlternative(state, color, candidate, baseline) {
+  const features = candidate.features;
+  const base = baseline.features;
+  // A speculative plan must not bury the last head checker or turn a large
+  // route stack into an immobile tower. Ordinary development can still be
+  // traded for a blocking/escape plan after the reply comparison.
+  return Number(features.maxRouteTowerAfter || 0) <= Math.max(5, Number(base.maxRouteTowerAfter || 0))
+    && (headCheckers(state, color) > 2
+      || Number(features.headGain || 0) >= Number(base.headGain || 0))
+    && (startZoneCount(state, color) > 2
+      || Number(features.startZoneReduction || 0) >= Number(base.startZoneReduction || 0));
+}
+
+function hasAdaptiveReplyEvidence(candidate) {
+  const tactical = candidate?.tactical;
+  return tactical?.decisionModel === 'heuristic-turn-equity-v1'
+    && tactical.distributionComplete === true
+    && tactical.rolls === 21 && tactical.distributionWeight === 36
+    && tactical.doublesExpanded === true
+    && ['adaptiveUtility', 'expectedEquity', 'lowerTailEquity', 'upperTailEquity', 'worstEquity']
+      .every(key => Number.isFinite(tactical[key]));
+}
+
+export function prioritizeAdaptiveCounterplay(state, color, ranked, pool, situation) {
+  const baseline = ranked[0];
+  if (situation.mode !== 'counterplay'
+    || !hasAdaptiveReplyEvidence(baseline) || homeReady(state, color)
+    || isUncontestedLateRaceState(state, color, baseline.features)) return ranked;
+  const alternatives = uniqueCandidatePositions(pool).filter(candidate => (
+    candidate !== baseline && hasAdaptiveReplyEvidence(candidate)
+    && candidate.tactical.plies === baseline.tactical.plies
+    && Number(candidate.features.resultSafetyAfter) >= Number(baseline.features.resultSafetyAfter)
+    && Number(candidate.features.missedKoksRescue) <= Number(baseline.features.missedKoksRescue)
+    && isAdaptiveStructuralAlternative(state, color, candidate, baseline)
+    // A better optimistic tail cannot buy a substantially worse mean.
+    && candidate.tactical.expectedEquity >= baseline.tactical.expectedEquity - 0.015
+    && (situation.mode === 'counterplay'
+      || candidate.tactical.lowerTailEquity >= baseline.tactical.lowerTailEquity - 0.02)
+    && candidate.tactical.adaptiveUtility > baseline.tactical.adaptiveUtility + 0.015
+    && !isDeepFenceSafetyRegression(candidate, baseline)
+  )).sort((left, right) => right.tactical.adaptiveUtility - left.tactical.adaptiveUtility);
+  const selected = alternatives[0];
+  if (!selected) return ranked;
+  baseline.features.adaptiveDecisionBaseline = 1;
+  const result = ranked.includes(selected) ? ranked : [...ranked, selected];
+  return promoteCandidate(result, selected, 'adaptiveDecisionAdjustment');
 }
 
 function normalizeAnalysisNodeBudget(value, fallback) {

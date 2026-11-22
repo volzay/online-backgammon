@@ -1,0 +1,274 @@
+{
+  "schema": "long-bot-board-regression-positions-v1",
+  "source": "Board-only snapshots read from the requested rooms; no player identities or complete game histories.",
+  "positions": [
+    {
+      "room": "8JPN-KUD8",
+      "turn": 12,
+      "moves": [
+        {
+          "to": 3,
+          "die": 4,
+          "from": 7
+        },
+        {
+          "to": 23,
+          "die": 4,
+          "from": 3
+        },
+        {
+          "to": 18,
+          "die": 4,
+          "from": 22
+        },
+        {
+          "to": 14,
+          "die": 4,
+          "from": 18
+        }
+      ],
+      "state": {
+        "bar": {
+          "dark": 0,
+          "white": 0
+        },
+        "off": {
+          "dark": 0,
+          "white": 0
+        },
+        "dice": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "turn": "dark",
+        "phase": "move",
+        "points": {
+          "1": {
+            "color": "dark",
+            "count": 1
+          },
+          "2": {
+            "color": "white",
+            "count": 1
+          },
+          "4": {
+            "color": "white",
+            "count": 1
+          },
+          "5": {
+            "color": "white",
+            "count": 1
+          },
+          "6": {
+            "color": "dark",
+            "count": 2
+          },
+          "7": {
+            "color": "dark",
+            "count": 2
+          },
+          "8": {
+            "color": "white",
+            "count": 1
+          },
+          "9": {
+            "color": "dark",
+            "count": 1
+          },
+          "10": {
+            "color": "dark",
+            "count": 1
+          },
+          "11": {
+            "color": "white",
+            "count": 1
+          },
+          "12": {
+            "color": "dark",
+            "count": 5
+          },
+          "13": {
+            "color": "white",
+            "count": 1
+          },
+          "14": {
+            "color": "dark",
+            "count": 1
+          },
+          "17": {
+            "color": "dark",
+            "count": 1
+          },
+          "19": {
+            "color": "white",
+            "count": 4
+          },
+          "20": {
+            "color": "white",
+            "count": 1
+          },
+          "21": {
+            "color": "white",
+            "count": 1
+          },
+          "22": {
+            "color": "dark",
+            "count": 1
+          },
+          "24": {
+            "color": "white",
+            "count": 3
+          }
+        },
+        "rolled": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "schema": "long-state-v2",
+        "variant": "long",
+        "turnMoves": [],
+        "firstMoveDone": {
+          "dark": true,
+          "white": true
+        },
+        "headPlayedThisTurn": {
+          "dark": false,
+          "white": false
+        }
+      }
+    },
+    {
+      "room": "CTNM-E43Z",
+      "turn": 20,
+      "moves": [
+        {
+          "to": 1,
+          "die": 1,
+          "from": 2
+        },
+        {
+          "to": 17,
+          "die": 5,
+          "from": 22
+        }
+      ],
+      "state": {
+        "bar": {
+          "dark": 0,
+          "white": 0
+        },
+        "off": {
+          "dark": 0,
+          "white": 0
+        },
+        "dice": [
+          5,
+          1
+        ],
+        "turn": "dark",
+        "phase": "move",
+        "points": {
+          "1": {
+            "color": "dark",
+            "count": 1
+          },
+          "2": {
+            "color": "dark",
+            "count": 2
+          },
+          "3": {
+            "color": "white",
+            "count": 1
+          },
+          "4": {
+            "color": "dark",
+            "count": 2
+          },
+          "5": {
+            "color": "white",
+            "count": 1
+          },
+          "6": {
+            "color": "dark",
+            "count": 1
+          },
+          "7": {
+            "color": "white",
+            "count": 2
+          },
+          "8": {
+            "color": "white",
+            "count": 1
+          },
+          "9": {
+            "color": "white",
+            "count": 1
+          },
+          "10": {
+            "color": "white",
+            "count": 1
+          },
+          "11": {
+            "color": "white",
+            "count": 1
+          },
+          "12": {
+            "color": "dark",
+            "count": 4
+          },
+          "13": {
+            "color": "dark",
+            "count": 1
+          },
+          "14": {
+            "color": "white",
+            "count": 1
+          },
+          "15": {
+            "color": "white",
+            "count": 1
+          },
+          "17": {
+            "color": "dark",
+            "count": 1
+          },
+          "18": {
+            "color": "white",
+            "count": 1
+          },
+          "19": {
+            "color": "white",
+            "count": 2
+          },
+          "22": {
+            "color": "dark",
+            "count": 3
+          },
+          "24": {
+            "color": "white",
+            "count": 2
+          }
+        },
+        "rolled": [
+          5,
+          1
+        ],
+        "schema": "long-state-v2",
+        "variant": "long",
+        "turnMoves": [],
+        "firstMoveDone": {
+          "dark": true,
+          "white": true
+        },
+        "headPlayedThisTurn": {
+          "dark": false,
+          "white": false
+        }
+      }
+    }
+  ]
+}

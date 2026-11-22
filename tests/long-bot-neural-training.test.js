@@ -446,7 +446,7 @@ test('optional current-hard is an immutable v35 runtime with production resource
   assert.equal(hard.metadata.experiencePatterns, 0);
   assert.equal(hard.metadata.fallbackAllowed, false);
   assert.equal(hard.metadata.learningDuringEvaluation, false);
-  assert.deepEqual(hard.metadata.resources, { strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480 });
+  assert.deepEqual(hard.metadata.resources, { strategyProfile: 'v26', maxCandidates: 64, analysisNodeBudget: 480 });
   assert.match(hard.metadata.policyWeightsFingerprint, /^sha256:[a-f0-9]{64}$/);
 });
 

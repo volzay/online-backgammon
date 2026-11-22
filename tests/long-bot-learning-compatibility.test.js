@@ -7,7 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const builder = require('../scripts/build-long-bot-engine');
 const { OPENING_SUPPORT_POLICY, FIRST_ENTRY_FENCE_DEFENSE_POLICY, CONTACT_FENCE_DEFENSE_POLICY,
-  QUARTER_GEOMETRY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+  CURRENT_LONG_BOT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 const ROOT = path.join(__dirname, '..');
 const ORIGINAL = 'fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1';
 const PREVIOUS = '4aede916c0f3a219e84582d3a8277f50b1041d6b7ae541bff7b807c42c82f526';
@@ -20,7 +20,7 @@ const HISTORICAL_ACTUAL = 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa73
 const CLEAR_FINAL_RACE = '5cc8ff5d3120c3afd257e7cd1a17827814ef3896b20c316f778a6863d12768a0';
 const START_ZONE_ANALYSIS = '68d4a4f645374a29af252518d4391ddebe7ea200973aeb3852446be2e54a251d';
 const SEPARATED_RACE = '5b13ec7702cf503c2fee59c3b5b99ca5de630060eb6df03732ab6de4b221a605';
-const ACTUAL = QUARTER_GEOMETRY_POLICY;
+const ACTUAL = CURRENT_LONG_BOT_POLICY;
 const HISTORICAL_COMMIT = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const historicalEntries = () => [...builder.SOURCES, 'game.js', 'strong-bot.js'].map(file => [

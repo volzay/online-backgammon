@@ -122,7 +122,7 @@ test('VYS5-WGNB double-one turn stays legal and finishes inside the live latency
   const decision = plain(engine.consumeLastDecision());
   assert.ok(decision, 'the production hard bot must preserve its decision record');
   assert.deepEqual(decision.replayInput.runtime, {
-    strategyProfile: 'v25',
+    strategyProfile: 'v26',
     maxCandidates: 16,
     initialSequenceLimit: 16,
     maxTacticalCandidates: 2,

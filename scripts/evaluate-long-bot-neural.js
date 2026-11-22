@@ -35,9 +35,12 @@ const PREVIOUS_COMPLETE_JSYS_V35_POLICY_IMPLEMENTATION_ID = '904e7062dcb499ed120
 const PREVIOUS_JSYS_V35_POLICY_IMPLEMENTATION_ID = '541f4c011df371fe8201de56edd189d49ab40c18bf216c2c4b3dc080cf0733aa';
 const PREVIOUS_TACTICAL_V35_POLICY_IMPLEMENTATION_ID = '6c8c2e58287d73f855e4bb5b34fcee4f1e4eec91bb4c2c927370f50ad781fe89';
 const PREVIOUS_LIVE_V35_POLICY_IMPLEMENTATION_ID = '6109e41cae1c8711aed43c7e2f104d621beab314c0e6bcdf277901b2f0c4d690';
+const ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID = '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946';
+const ADAPTIVE_STRONG_BOT_DIGEST = '5fffae64c7cc75829f89516fd806cb00a7b8ae643e16630aaf347593e647e157';
 const APPROVED_V35_RUNTIME_TUPLES = Object.freeze(AUDITED_NATIVE_CACHE_POLICIES.map(tuple => Object.freeze({
   ...tuple,
-  strongBotBytesDigest: [
+  strongBotBytesDigest: tuple.policyImplementationId === ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID
+    ? ADAPTIVE_STRONG_BOT_DIGEST : [
     OPENING_SUPPORT_V35_POLICY_IMPLEMENTATION_ID,
     FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID,
     CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID,
@@ -57,6 +60,11 @@ const APPROVED_V35_RUNTIME_TUPLES = Object.freeze(AUDITED_NATIVE_CACHE_POLICIES.
       : PREVIOUS_V35_STRONG_BOT_DIGEST,
 })));
 const APPROVED_V35_RESOURCES = Object.freeze({ strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480 });
+const ADAPTIVE_V35_RESOURCES = Object.freeze({ ...APPROVED_V35_RESOURCES, strategyProfile: 'v26' });
+function approvedCurrentHardResources(policyImplementationId) {
+  return policyImplementationId === ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID
+    ? ADAPTIVE_V35_RESOURCES : APPROVED_V35_RESOURCES;
+}
 const APPROVED_V35_DISPATCH_WEIGHTS_FINGERPRINT = 'sha256:f9f0c7b0c51f92362c965793c28114c98dd5a7cfb81c7ccf9bbff25711800cc0';
 const PURPOSES = Object.freeze(['development-validation', 'held-out-confirmation']);
 const DEVELOPMENT_DOMAIN = 'nardu/long-neural/development-validation-dice/v1';
@@ -120,7 +128,8 @@ function createCurrentHard(snapshot, { loader = 'native' } = {}) {
   );
   if (frozen.engine.version !== 'long-analytic-v35' || frozen.experienceCount !== 0
     || !approvedRuntime
-    || trainer.canonical(frozen.engine.productionOptions) !== trainer.canonical(APPROVED_V35_RESOURCES)) {
+    || trainer.canonical(frozen.engine.productionOptions) !== trainer.canonical(
+      approvedCurrentHardResources(frozen.engine.policyImplementationId))) {
     throw new Error('current-hard requires the exact frozen v35 dispatcher with empty experience');
   }
   frozen.engine.beginExperienceSession?.();
@@ -553,5 +562,6 @@ if (require.main === module) {
 module.exports = { SCHEMA, OPPONENTS, PURPOSES, DEVELOPMENT_DOMAIN, readCurrentHardSnapshot,
   APPROVED_V35_RUNTIME_TUPLES,
   approvedCurrentHardTuple,
+  approvedCurrentHardResources,
   loadNativeCurrentHard, createCurrentHard, evaluationOptions, validateTrainingArtifact, wilson, pairedConfidence,
   validateBenchmarkProtocol, protocolOptions, summarizeResults, runEvaluation, cliOptions, main };

@@ -24,7 +24,7 @@ const CHILD_KILL_GRACE_MS = 1000;
 const FAMILY_ERROR_RATE = 0.05;
 const PER_BOUND_ERROR_RATE = FAMILY_ERROR_RATE / 2;
 const BONFERRONI_ONE_SIDED_Z = 1.959963984540054;
-const SUPPORTED_PROFILES = new Set(['v19', 'v25']);
+const SUPPORTED_PROFILES = new Set(['v19', 'v25', 'v26']);
 const VALUE_OPTIONS = new Set([
   'seeds', 'games-per-seed', 'seed-timeout-ms', 'jobs', 'min-win-rate',
   'max-severe-loss-rate', 'output', 'bot-nodes', 'control-nodes',
