@@ -199,6 +199,38 @@ test('Supabase transport aborts a stalled request at its deadline', async () => 
   assert.equal(timers.size, 0);
 });
 
+test('saved bot rating selectors use the bounded authenticated transport without automatic retry', async () => {
+  const timers = new Map();
+  const requests = [];
+  const client = await loadClient(quotaStorage(), {
+    fetchImpl: async (input, init) => {
+      requests.push({ input, init });
+      return new Promise((_, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {
+          name: 'AbortError',
+        })), { once: true });
+      });
+    },
+    setTimeoutImpl(handler, delay) { timers.set(1, { handler, delay }); return 1; },
+    clearTimeoutImpl(id) { timers.delete(id); },
+  });
+  const body = JSON.stringify({ p_room_code: 'TEST-RATE', p_result_key: '1794750000000:white:normal' });
+  const pending = client.options.global.fetch('https://example.supabase.co/rest/v1/rpc/record_saved_bot_rating', {
+    method: 'POST', headers: { Authorization: 'Bearer test-session' }, body,
+  });
+  assert.equal(timers.size, 1);
+  const [{ handler, delay }] = timers.values();
+  assert.equal(delay, 6000);
+  assert.equal(requests[0].init.headers.Authorization, 'Bearer test-session');
+  assert.equal(requests[0].init.body, body);
+  handler();
+
+  await assert.rejects(pending, error => error.name === 'TimeoutError' && error.code === 'SUPABASE_FETCH_TIMEOUT');
+  assert.equal(requests[0].init.signal.aborted, true);
+  assert.equal(requests.length, 1);
+  assert.equal(timers.size, 0);
+});
+
 test('Supabase transport keeps its deadline through a stalled response body', async () => {
   const timers = new Map();
   let nextTimerId = 0;
