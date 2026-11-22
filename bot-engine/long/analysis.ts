@@ -1,6 +1,7 @@
 import { evaluateState, scoreSequence } from './evaluator.ts';
 import {
   fenceClosureRisk,
+  escapeGatewayRisk,
   headCheckers,
   homeReady,
   offCount,
@@ -24,6 +25,50 @@ const MAX_EXPERIENCE_REWARD = 30000000;
 const EXPERIENCE_RISK_THRESHOLD = 1.1;
 export const CANONICAL_DICE_WEIGHT = 36;
 export const DICE_TAIL_WEIGHT = 6;
+
+// A symmetric, deliberately uncalibrated estimate in turns. This is an
+// ordering heuristic, not a win probability. Racing alone misses a rear
+// checker trapped behind a fence, even when that side has a large pip lead.
+function adaptiveTurnsRemaining(state, color) {
+  const racing = pipsFor(state, color) / (49 / 6);
+  const release = headCheckers(state, color);
+  const bearOff = homeReady(state, color) ? (15 - offCount(state, color)) / 2.3 : 0;
+  const delay = Math.log1p(opponentTrapRisk(state, color) / 80) * 0.8
+    + Math.log1p(fenceClosureRisk(state, color) / 60) * 0.45
+    + Math.log1p(escapeGatewayRisk(state, color) / 12) * 0.7
+    + primeCrunchRisk(state, color) * 1.5;
+  return Math.max(racing, release, bearOff) + delay;
+}
+
+export function assessLongBotSituation(state, color, nextToMove = color) {
+  const opponent = opponentOf(color);
+  const ownTurns = adaptiveTurnsRemaining(state, color);
+  const opponentTurns = adaptiveTurnsRemaining(state, opponent);
+  const deficitTurns = ownTurns - opponentTurns + (nextToMove === color ? -0.5 : 0.5);
+  const equity = state.winner
+    ? (state.winner === color ? 1 : -1)
+    : Math.tanh(-deficitTurns / 6);
+  const comebackPressure = Math.max(0, Math.min(1, (deficitTurns - 0.75) / 5));
+  return {
+    model: 'heuristic-turn-equity-v1',
+    ownTurns,
+    opponentTurns,
+    deficitTurns,
+    equity,
+    comebackPressure,
+    mode: comebackPressure >= 0.15 ? 'counterplay' : deficitTurns < -1.5 ? 'protect' : 'balanced',
+  };
+}
+
+export function adaptiveReplyUtility(tactical, situation) {
+  // Trailing positions may trade some lower-tail safety for real chances to
+  // reverse the game. The mean still dominates; variance by itself earns no
+  // reward. Ahead, the same rule protects against the bad dice tail.
+  const pressure = situation.comebackPressure;
+  return tactical.expectedEquity * 0.76
+    + tactical.lowerTailEquity * (0.24 - pressure * 0.16)
+    + tactical.upperTailEquity * pressure * 0.16;
+}
 
 export function createAnalysisBudget(limit) {
   const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
@@ -94,6 +139,8 @@ export function analyzeOpponentReplies(
   options = {},
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
+  const situation = options.situation || null;
+  const counterplayReplies = situation?.mode === 'counterplay';
   const configuredTacticalLimit = Math.max(
     1,
     Math.min(
@@ -138,6 +185,9 @@ export function analyzeOpponentReplies(
     opponentPipGain: 0,
     opponentHeadRelease: 0,
     opponentOutsideReduction: 0,
+    selfEvaluation: 0,
+    opponentEvaluation: 0,
+    equityOutcomes: [],
     frontiers: [],
   }));
 
@@ -172,20 +222,29 @@ export function analyzeOpponentReplies(
         legalReplies,
         accumulator.expandedReplyCoverage
           ? (expandedDouble ? MAX_DOUBLE_REPLY_SEQUENCES : MAX_REPLY_SEQUENCES)
-          : 2,
+          : counterplayReplies ? 4 : 2,
         { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
       );
       const beforeValue = evaluateState(replyState, color, weights);
       let worstValue = beforeValue;
       let worstState = replyState;
+      let worstEquity = Infinity;
 
       for (const { sequence: reply, after: replyAfter } of replySequences) {
         const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
         const ownValue = evaluateState(replyAfter, color, weights);
         const replyValue = ownValue - Math.max(0, opponentGain) * 0.08;
-        if (replyValue < worstValue) {
+        const replyEquity = counterplayReplies
+          ? assessLongBotSituation(replyAfter, color, color).equity
+          : 0;
+        // The opponent chooses a legal move serving its own board situation.
+        // Do not invent a pass when all legal replies happen to help us.
+        if (counterplayReplies
+          ? replyEquity < worstEquity || (replyEquity === worstEquity && replyValue < worstValue)
+          : replyValue < worstValue) {
           worstValue = replyValue;
           worstState = replyAfter;
+          worstEquity = replyEquity;
         }
       }
       if (!completedRoll) break;
@@ -206,6 +265,11 @@ export function analyzeOpponentReplies(
           0,
           outsideHomeCount(replyState, opponent) - outsideHomeCount(worstState, opponent),
         ),
+        ...(situation ? {
+          selfEvaluation: evaluateState(worstState, color, weights),
+          opponentEvaluation: evaluateState(worstState, opponent, weights),
+          equity: assessLongBotSituation(worstState, color, color).equity,
+        } : {}),
       });
     }
 
@@ -222,6 +286,11 @@ export function analyzeOpponentReplies(
       accumulator.opponentPipGain += result.opponentPipGain * roll.weight;
       accumulator.opponentHeadRelease += result.opponentHeadRelease * roll.weight;
       accumulator.opponentOutsideReduction += result.opponentOutsideReduction * roll.weight;
+      if (situation) {
+        accumulator.selfEvaluation += result.selfEvaluation * roll.weight;
+        accumulator.opponentEvaluation += result.opponentEvaluation * roll.weight;
+        accumulator.equityOutcomes.push({ value: result.equity, weight: roll.weight });
+      }
       accumulator.frontiers.push({
         impact,
         state: result.state,
@@ -255,6 +324,25 @@ export function analyzeOpponentReplies(
       doublesExpanded: expandDoubles,
       replyCoverageExpanded: accumulator.expandedReplyCoverage,
     };
+    if (situation) {
+      const outcomes = accumulator.equityOutcomes;
+      Object.assign(accumulator.candidate.tactical, {
+        decisionModel: situation.model,
+        selfEvaluation: evaluateState(accumulator.candidate.after, color, weights),
+        opponentEvaluation: evaluateState(accumulator.candidate.after, opponent, weights),
+        expectedSelfEvaluation: accumulator.selfEvaluation / accumulator.weight,
+        expectedOpponentEvaluation: accumulator.opponentEvaluation / accumulator.weight,
+        expectedEquity: outcomes.reduce((sum, item) => sum + item.value * item.weight, 0)
+          / accumulator.weight,
+        lowerTailEquity: weightedLowerTailMean(outcomes),
+        upperTailEquity: -weightedLowerTailMean(outcomes.map(item => ({ ...item, value: -item.value }))),
+        worstEquity: Math.min(...outcomes.map(item => item.value)),
+        opponentReplyModel: 'best-of-bounded-legal-replies-v1',
+      });
+      accumulator.candidate.tactical.adaptiveUtility = adaptiveReplyUtility(
+        accumulator.candidate.tactical, situation,
+      );
+    }
   });
 
   if (beforeDeepCandidate) {
@@ -309,6 +397,7 @@ function propagateEquivalentPositionAnalysis(candidates, accumulators) {
     'fenceEscapeTacticalReservation',
     'contestedHeadExitTacticalReservation',
     'primeSustainabilityTacticalReservation',
+    'counterplayTacticalReservation',
   ];
   candidates.forEach((candidate) => {
     const key = positionKey(candidate.after);
@@ -529,6 +618,7 @@ function tacticalReservationPriority(candidate) {
   if (Number(features.structuralIntegrityTacticalReservation || 0) > 0) return 0;
   if (Number(features.homeEntryTacticalReservation || 0) > 0) return 1;
   if (Number(features.primeSustainabilityTacticalReservation || 0) > 0) return 1.5;
+  if (Number(features.counterplayTacticalReservation || 0) > 0) return 1.75;
   if (Number(features.routeContinuityTacticalReservation || 0) > 0) return 2;
   if (Number(features.startZoneEscapeTacticalReservation || 0) > 0) return 2.5;
   if (Number(features.fenceEscapeTacticalReservation || 0) > 0) return 3;
@@ -544,7 +634,8 @@ function hasTacticalReservation(candidate) {
     || Number(features.startZoneEscapeTacticalReservation || 0) > 0
     || Number(features.fenceEscapeTacticalReservation || 0) > 0
     || Number(features.contestedHeadExitTacticalReservation || 0) > 0
-    || Number(features.primeSustainabilityTacticalReservation || 0) > 0;
+    || Number(features.primeSustainabilityTacticalReservation || 0) > 0
+    || Number(features.counterplayTacticalReservation || 0) > 0;
 }
 
 function completeProvisionalLeaderAnalysis(

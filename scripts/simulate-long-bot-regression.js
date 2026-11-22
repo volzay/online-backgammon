@@ -23,7 +23,7 @@ const VALUE_OPTIONS = new Set([
   'experience-output',
 ]);
 const FLAG_OPTIONS = new Set(['trace', 'learn']);
-const SUPPORTED_PROFILES = new Set(['v19', 'v25']);
+const SUPPORTED_PROFILES = new Set(['v19', 'v25', 'v26']);
 
 function fingerprintNamedBuffers(entries) {
   const hash = createHash('sha256');

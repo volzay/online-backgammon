@@ -81,7 +81,7 @@ test("hard long engine is installed in browser bundle", () => {
   assert.equal(typeof engine.setExperience, "function");
   assert.equal(typeof engine.experienceSize, "function");
   assert.deepEqual(JSON.parse(JSON.stringify(engine.productionOptions)), {
-    strategyProfile: "v25",
+    strategyProfile: "v26",
     maxCandidates: 64,
     analysisNodeBudget: 480,
   });
@@ -682,7 +682,7 @@ test("8KSQ-PUEY move 12 advances outside instead of shuffling inside home", () =
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
   assert.equal(decision.selected.features.outsidePipGain, 7);
-  assert.equal(decision.selected.features.strategyProfile, "v25");
+  assert.equal(decision.selected.features.strategyProfile, "v26");
 });
 
 test("ZQBE-SM3L move 37 distributes the route instead of building a six-checker tower", () => {
@@ -750,7 +750,7 @@ test("ZQBE-SM3L move 39 advances the laggard instead of growing a seven-checker 
   );
   assert.equal(decision.selected.features.maxRouteTowerAfter, 6);
   assert.equal(decision.selected.features.outsidePipGain, 7);
-  assert.equal(decision.selected.features.strategyProfile, "v25");
+  assert.equal(decision.selected.features.strategyProfile, "v26");
 });
 
 test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home", () => {
@@ -779,7 +779,7 @@ test("ZQBE-SM3L move 40 keeps advancing outside instead of shuffling inside home
   ]);
   assert.equal(decision.selected.features.homeShuffleMoves, 0);
   assert.equal(decision.selected.features.outsidePipGain, 5);
-  assert.equal(decision.selected.features.strategyProfile, "v25");
+  assert.equal(decision.selected.features.strategyProfile, "v26");
 });
 
 test("48RU-XSRE enters both available checkers instead of shuffling inside home", () => {
@@ -2188,7 +2188,7 @@ test("v25 preserves an active six-prime while its laggard is not critically trap
       >= decision.selected.features.primeScoreBefore,
   );
   assert.ok(decision.selected.features.trapBefore < 240);
-  assert.equal(decision.selected.features.strategyProfile, "v25");
+  assert.equal(decision.selected.features.strategyProfile, "v26");
 });
 
 test("late race preserves an active six-prime that traps opposing checkers", () => {

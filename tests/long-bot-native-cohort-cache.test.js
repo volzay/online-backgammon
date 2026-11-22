@@ -22,6 +22,7 @@ const {
   FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
+  ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -83,13 +84,13 @@ function runtime() {
   return value;
 }
 
-test('quarter-geometry identity enables a separately pinned cache without calling its planner', () => {
+test('adaptive identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, QUARTER_GEOMETRY_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, QUARTER_GEOMETRY_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, QUARTER_GEOMETRY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -106,6 +107,7 @@ test('quarter-geometry identity enables a separately pinned cache without callin
     FIRST_ENTRY_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
     CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
     QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
+    ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
@@ -128,6 +130,26 @@ test('active opening-support decisions are independent of metadata omitted from 
   const cache=createNativeColdCohortCache(native,limits());assert.equal(cache.observation().enabled,true);
   cache.putValidatedPlan(original,before[0].sequence.map(({from,die})=>({from,die})));
   assert.deepEqual(cache.getPlan(metadata),before[0].sequence.map(({from,die})=>({from,die})));
+});
+
+test('adaptive counterplay is independent of display history and private metadata omitted from cache keys', () => {
+  const native = loadRuntime();
+  native.engine.setExperience([], 'adaptive-cache-audit');
+  const fixture = require('./fixtures/long-bot-adaptive-room-positions.json').positions
+    .find(row => row.room === 'CTNM-E43Z');
+  const original = { ...clone(fixture.state), history: [] };
+  const changed = clone(original);
+  changed.history = [{ displayOnly: true, unusedFutureHint: [6, 6] }];
+  changed.analysis = { privatePlayerName: 'ignored', botMemory: { unrelated: true } };
+  const options = { strategyProfile: 'v26', maxCandidates: 16, analysisNodeBudget: 64 };
+  const first = native.engine.plan(original, options);
+  const a = native.engine.consumeLastDecision();
+  const second = native.engine.plan(changed, options);
+  const b = native.engine.consumeLastDecision();
+  assert.deepEqual(clone(first), clone(second));
+  assert.equal(a.selected.features.decisionMode, 'counterplay');
+  assert.equal(a.selected.tactical.expectedEquity, b.selected.tactical.expectedEquity);
+  assert.equal(a.selected.score, b.selected.score);
 });
 
 test('historical tuple is preserved; optimized, historical and mixed tuples never share a cache namespace', () => {

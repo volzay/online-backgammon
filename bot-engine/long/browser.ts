@@ -34,7 +34,7 @@ const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
   'narduh-long-bot-frozen-experience-v32:',
 ];
 const PRODUCTION_RUNTIME_OPTIONS = Object.freeze({
-  strategyProfile: 'v25',
+  strategyProfile: 'v26',
   maxCandidates: 64,
   analysisNodeBudget: 480,
 });
@@ -424,6 +424,19 @@ function decisionRecord(
     after: compactCandidateState(candidate.after),
     features: { ...(candidate.features || {}) },
     tactical: candidate.tactical ? {
+      ...(candidate.tactical.decisionModel ? {
+        decisionModel: candidate.tactical.decisionModel,
+        opponentReplyModel: candidate.tactical.opponentReplyModel,
+        selfEvaluation: candidate.tactical.selfEvaluation,
+        opponentEvaluation: candidate.tactical.opponentEvaluation,
+        expectedSelfEvaluation: candidate.tactical.expectedSelfEvaluation,
+        expectedOpponentEvaluation: candidate.tactical.expectedOpponentEvaluation,
+        expectedEquity: candidate.tactical.expectedEquity,
+        lowerTailEquity: candidate.tactical.lowerTailEquity,
+        upperTailEquity: candidate.tactical.upperTailEquity,
+        worstEquity: candidate.tactical.worstEquity,
+        adaptiveUtility: candidate.tactical.adaptiveUtility,
+      } : {}),
       expectedImpact: Math.round(candidate.tactical.expectedImpact),
       worstImpact: Math.round(candidate.tactical.worstImpact),
       rolls: candidate.tactical.rolls,

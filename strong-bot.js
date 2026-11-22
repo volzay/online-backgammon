@@ -1629,7 +1629,7 @@ window.NarduStrongBot = (function () {
             : undefined,
           strategyProfile: runtimeOptions.strategyProfile
             || productionOptions.strategyProfile
-            || 'v25',
+            || 'v26',
           weights: longEngineWeights(),
         });
         if (enginePlan?.length) return enginePlan;

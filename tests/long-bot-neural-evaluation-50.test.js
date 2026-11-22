@@ -8,7 +8,7 @@ const evaluator = require('../scripts/evaluate-long-bot-neural');
 const trainer = require('../scripts/train-long-bot-neural');
 const { fingerprintNamedBuffers } = require('../scripts/simulate-long-bot-regression');
 const neural = require('../lib/long-bot-neural');
-const { QUARTER_GEOMETRY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+const { CURRENT_LONG_BOT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 
 function protocol() {
   return { schema: 'long-neural-benchmark-protocol-v1', targetWinRate: 0.5,
@@ -136,10 +136,10 @@ test('native hard factory preserves captured v35 source/policy and selected open
 test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 15);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 16);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
   const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
-  assert.equal(actual.policyImplementationId, QUARTER_GEOMETRY_POLICY);
+  assert.equal(actual.policyImplementationId, CURRENT_LONG_BOT_POLICY);
   assert.equal(hard.metadata.policyImplementationId, actual.policyImplementationId);
   assert.equal(hard.metadata.sourceFingerprints['game.js'], `sha256:${actual.gameBytesDigest}`);
   assert.equal(hard.metadata.sourceFingerprints['long-bot-engine.js'], `sha256:${actual.runtimeBytesDigest}`);
@@ -147,7 +147,7 @@ test('current-hard approval pins every audited runtime tuple and rejects genuine
   const historical = evaluator.APPROVED_V35_RUNTIME_TUPLES.find(tuple => tuple.policyImplementationId
     === 'f86ffd7312a574935eaa4dc158aee777336762cd22e701143fa732d86f7a05f2');
   assert.ok(historical, 'the prior causal policy remains a separate approved runtime');
-  assert.equal(historical.strongBotBytesDigest, actual.strongBotBytesDigest);
+  assert.notEqual(historical.strongBotBytesDigest, actual.strongBotBytesDigest);
   assert.notEqual(historical.runtimeBytesDigest, actual.runtimeBytesDigest);
   assert.equal(evaluator.approvedCurrentHardTuple(historical.policyImplementationId, {
     'game.js': `sha256:${historical.gameBytesDigest}`,

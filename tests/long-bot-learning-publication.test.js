@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const builder = require('../scripts/build-long-bot-engine');
 const { verifyLongBotLearningCompatibility, ORIGINAL_LEARNING_POLICY,
-  HISTORICAL_COMPATIBLE_RELEASE, QUARTER_GEOMETRY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+  HISTORICAL_COMPATIBLE_RELEASE, CURRENT_LONG_BOT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 const ROOT = path.join(__dirname, '..');
 const HISTORICAL_COMMIT = '31c8f3ee452b4b93ffb9bfd886aad3ba77d24ff3';
 const historicalEntries = () => [...builder.SOURCES, 'game.js', 'strong-bot.js'].map(file => [
@@ -18,8 +18,8 @@ test('Pages preflight pins the quarter-geometry policy and rejects historical le
   const engineSource = builder.renderLongBotBundle(sourceEntries);
   const verified = verifyLongBotLearningCompatibility({ sourceEntries, engineSource });
   assert.equal(verified.required, true);
-  assert.equal(verified.policyImplementationId, QUARTER_GEOMETRY_POLICY);
-  assert.equal(verified.learningPolicyImplementationId, QUARTER_GEOMETRY_POLICY);
+  assert.equal(verified.policyImplementationId, CURRENT_LONG_BOT_POLICY);
+  assert.equal(verified.learningPolicyImplementationId, CURRENT_LONG_BOT_POLICY);
   assert.equal(verified.historicalAlias, false);
   assert.equal(builder.learningCompatibility(sourceEntries), null);
   const published = fs.readFileSync(path.join(ROOT, 'long-bot-engine.js'), 'utf8');
@@ -53,7 +53,7 @@ test('an unknown complete source identity cannot pass publication without explic
   const sourceEntries = builder.readPolicySourceEntries();
   const alteredEntries = sourceEntries.map(([name, bytes]) => [name, name === 'bot-engine/long/engine.ts'
     ? Buffer.concat([bytes, Buffer.from('\n// unaudited policy byte\n')]) : bytes]);
-  assert.notEqual(builder.policyImplementationId(alteredEntries), QUARTER_GEOMETRY_POLICY);
+  assert.notEqual(builder.policyImplementationId(alteredEntries), CURRENT_LONG_BOT_POLICY);
   assert.throws(() => verifyLongBotLearningCompatibility({
     sourceEntries: alteredEntries, engineSource: builder.renderLongBotBundle(alteredEntries),
   }), /preserve audited causal learning/);

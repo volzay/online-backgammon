@@ -153,6 +153,7 @@ window.NarduController = (function () {
   const NEURAL_TEACHER_FIRST_ENTRY_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = 'd3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109';
   const NEURAL_TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
   const NEURAL_TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID = 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306';
+  const NEURAL_TEACHER_ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID = '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946';
   // A live production load has legitimately taken almost seven seconds.  Do
   // not freeze an empty session until both bounded loader attempts can finish.
   // Restored frozen sessions take the separate immediate/deferred path below.
@@ -4851,7 +4852,9 @@ window.NarduController = (function () {
           && window.NarduLongBotEngine?.policyImplementationId
             !== NEURAL_TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID
           && window.NarduLongBotEngine?.policyImplementationId
-            !== NEURAL_TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID)
+            !== NEURAL_TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID
+          && window.NarduLongBotEngine?.policyImplementationId
+            !== NEURAL_TEACHER_ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID)
         || typeof window.NarduStrongBot?.plan !== 'function') {
         throw new Error('Verified long-analytic-v35 teacher assets missing');
       }

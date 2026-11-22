@@ -455,7 +455,7 @@ test('production decision envelope replays the deployed live-doubles policy and 
   const live = actualArchivedDecision(PRODUCTION_LIVE_DOUBLES_POLICY, [4, 4, 4, 4]);
   assert.equal(isProductionLiveDoublesDecision(live.decision), true);
   assert.deepEqual(serverOwnedDecisionPolicy(live.decision), {
-    strategyProfile: 'v25',
+    strategyProfile: 'v26',
     maxCandidates: 16,
     initialSequenceLimit: 16,
     maxTacticalCandidates: 2,

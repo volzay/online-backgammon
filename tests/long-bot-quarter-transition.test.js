@@ -5,11 +5,12 @@ const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const builder = require('../scripts/build-long-bot-engine');
+const { QUARTER_GEOMETRY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
 
 const root = path.join(__dirname, '..');
 const migration = fs.readFileSync(path.join(root, 'supabase/long-bot-quarter-experience-transition.sql'), 'utf8');
 const activation = fs.readFileSync(path.join(root, 'ops/timeweb/activate-quarter-experience.sql'), 'utf8');
+const adaptiveActivation = fs.readFileSync(path.join(root, 'ops/timeweb/activate-adaptive-experience.sql'), 'utf8');
 const statements = text => text.replace(/^\s*--.*$/gm, '');
 const lookup = '  select * into active from private.long_bot_causal_serving_runtime()\n'
   + '  where singleton and explicitly_approved and policy_implementation_id = p_policy_implementation_id;\n'
@@ -79,13 +80,23 @@ test('transition never rewrites old snapshots, evidence, archives, jobs or signi
 test('activation pins both policies and admits only a new immutable future runtime', () => {
   const sql = statements(activation);
   assert.match(sql, /old_policy constant text := '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac'/);
-  assert.match(sql, new RegExp(`new_policy constant text := '${builder.policyImplementationId()}'`));
+  assert.match(sql, new RegExp(`new_policy constant text := '${QUARTER_GEOMETRY_POLICY}'`));
   assert.match(sql, /:'new_runtime_digest'/);
   assert.match(sql, /exists \(select 1 from private\.long_bot_causal_releases where runtime_digest = new_digest\)/);
   assert.match(sql, /insert into private\.long_bot_causal_warm_review_releases/);
   assert.match(sql, /new_digest, new_policy, old_serving\.reviewer_version, true, false, cutover_at, null, true/);
   assert.match(sql, /cutover_at := pg_catalog\.clock_timestamp\(\)/);
   assert.doesNotMatch(sql, /\bperform\b|enqueue_long_bot_causal_release|\b(?:delete|truncate|create or replace|drop)\b/i);
+});
+
+test('adaptive activation pins the new policy and preserves the same reviewed transition body', () => {
+  const { CURRENT_LONG_BOT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+  assert.equal(adaptiveActivation,
+    activation.replaceAll('quarter', 'adaptive')
+      .replace("old_policy constant text := '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac'",
+        `old_policy constant text := '${QUARTER_GEOMETRY_POLICY}'`)
+      .replace(`new_policy constant text := '${QUARTER_GEOMETRY_POLICY}'`,
+        `new_policy constant text := '${CURRENT_LONG_BOT_POLICY}'`));
 });
 
 test('activation blocks active old rooms and preserves closed admission and enabled predecessors', () => {

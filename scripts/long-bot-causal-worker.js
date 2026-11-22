@@ -77,7 +77,7 @@ const RPC_TRANSPORT_DIAGNOSTIC_CODES = new Set([
 const PRODUCTION_REVIEW_SELECTION_SCHEMA = 'long-server-causal-strategic-risk-selection-v3';
 const REVIEWER_PATH = path.join(ROOT, 'bot-engine', 'long', 'reviewer.ts');
 const PRODUCTION_POLICY = Object.freeze({
-  strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480,
+  strategyProfile: 'v26', maxCandidates: 64, analysisNodeBudget: 480,
   weights: Object.freeze({
     opponentHeadFreedom: 48000, headLandingExposure: 62000, headRelease: 9800,
     foothold: 4300, homeEntry: 145000, rushPenalty: 12500,
@@ -91,7 +91,7 @@ const PRODUCTION_POLICY = Object.freeze({
 // replay what production actually selected without accepting arbitrary client
 // resource knobs.
 const PRODUCTION_LIVE_DOUBLES_POLICY = Object.freeze({
-  strategyProfile: 'v25',
+  strategyProfile: 'v26',
   maxCandidates: 16,
   initialSequenceLimit: 16,
   maxTacticalCandidates: 2,
@@ -110,6 +110,12 @@ const PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY = Object.freeze({
   analysisNodeBudget: 12,
   weights: PRODUCTION_POLICY.weights,
 });
+// Earlier games retain their exact decision policy. They are replay inputs,
+// never substitutes for the adaptive policy selected in new games.
+const PRODUCTION_PREVIOUS_POLICY = Object.freeze({ ...PRODUCTION_POLICY, strategyProfile: 'v25' });
+const PRODUCTION_PREVIOUS_LIVE_DOUBLES_POLICY = Object.freeze({
+  ...PRODUCTION_LIVE_DOUBLES_POLICY, strategyProfile: 'v25',
+});
 const PRODUCTION_POLICY_ENVELOPE = Object.freeze({
   schema: 'long-v35-production-decision-policy-envelope-v1',
   selector: Object.freeze({
@@ -123,6 +129,8 @@ const PRODUCTION_POLICY_ENVELOPE = Object.freeze({
   ordinary: PRODUCTION_POLICY,
   liveDoubles: PRODUCTION_LIVE_DOUBLES_POLICY,
   replayOnlyLegacyLiveDoubles: PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY,
+  replayOnlyPreviousOrdinary: PRODUCTION_PREVIOUS_POLICY,
+  replayOnlyPreviousLiveDoubles: PRODUCTION_PREVIOUS_LIVE_DOUBLES_POLICY,
 });
 const EXECUTABLE_DEPENDENCIES = Object.freeze([
   ['worker', __filename],
@@ -244,14 +252,14 @@ function serverOwnedPolicy(options = {}) {
   if (options.trustedTrainingPolicy === undefined) return PRODUCTION_POLICY;
   const policy = options.trustedTrainingPolicy;
   if (
-    !policy || policy.strategyProfile !== 'v25'
+    !policy || !['v25', 'v26'].includes(policy.strategyProfile)
     || !Number.isInteger(policy.maxCandidates) || policy.maxCandidates < 1 || policy.maxCandidates > 128
     || !Number.isInteger(policy.analysisNodeBudget) || policy.analysisNodeBudget < 1 || policy.analysisNodeBudget > 1150
     || (policy.weights !== undefined && canonicalJson(policy.weights) !== canonicalJson(PRODUCTION_POLICY.weights))
     || Object.keys(policy).some(key => !['strategyProfile', 'maxCandidates', 'analysisNodeBudget', 'weights'].includes(key))
   ) throw new Error('Invalid explicit trusted offline training policy');
   return {
-    strategyProfile: 'v25', maxCandidates: policy.maxCandidates, analysisNodeBudget: policy.analysisNodeBudget,
+    strategyProfile: policy.strategyProfile, maxCandidates: policy.maxCandidates, analysisNodeBudget: policy.analysisNodeBudget,
     ...(policy.weights === undefined ? {} : { weights: PRODUCTION_POLICY.weights }),
   };
 }
@@ -279,8 +287,14 @@ function isProductionLiveDoublesDecision(decision) {
 
 function serverOwnedDecisionPolicy(decision, options = {}) {
   if (options.trustedTrainingPolicy !== undefined) return serverOwnedPolicy(options);
-  if (!isProductionLiveDoublesDecision(decision)) return PRODUCTION_POLICY;
   const archived = decision?.replayInput?.runtime;
+  if (!isProductionLiveDoublesDecision(decision)) {
+    return canonicalJson(archived) === canonicalJson(PRODUCTION_PREVIOUS_POLICY)
+      ? PRODUCTION_PREVIOUS_POLICY : PRODUCTION_POLICY;
+  }
+  if (canonicalJson(archived) === canonicalJson(PRODUCTION_PREVIOUS_LIVE_DOUBLES_POLICY)) {
+    return PRODUCTION_PREVIOUS_LIVE_DOUBLES_POLICY;
+  }
   return canonicalJson(archived) === canonicalJson(PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY)
     ? PRODUCTION_LEGACY_LIVE_DOUBLES_POLICY
     : PRODUCTION_LIVE_DOUBLES_POLICY;
@@ -840,7 +854,7 @@ function validateDecisionResources(game, decision) {
   const approvedPolicy = serverOwnedDecisionPolicy(decision);
   const allowedRuntimeKeys = new Set(Object.keys(approvedPolicy));
   if (
-    !runtime || runtime.strategyProfile !== 'v25'
+    !runtime || runtime.strategyProfile !== approvedPolicy.strategyProfile
     || typeof runtime !== 'object' || Array.isArray(runtime)
     || Object.keys(runtime).some(key => !allowedRuntimeKeys.has(key))
     || !Number.isInteger(runtime.maxCandidates)

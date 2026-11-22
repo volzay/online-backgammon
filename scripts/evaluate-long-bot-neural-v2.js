@@ -168,7 +168,7 @@ function validateReport(report, artifact = null) {
       && metadata.experienceFingerprint === fingerprintNamedBuffers([['experience.json', Buffer.from('[]')]])
       && metadata.learningDuringEvaluation === false && metadata.fallbackAllowed === false
       && metadata.policyWeightsFingerprint === 'sha256:f9f0c7b0c51f92362c965793c28114c98dd5a7cfb81c7ccf9bbff25711800cc0'
-      && canonical(metadata.resources) === canonical({ strategyProfile: 'v25', maxCandidates: 64, analysisNodeBudget: 480 })
+      && canonical(metadata.resources) === canonical(hard.approvedCurrentHardResources(metadata.policyImplementationId))
       && hard.APPROVED_V35_RUNTIME_TUPLES.some(tuple => metadata.policyImplementationId === tuple.policyImplementationId
         && captured.sourceFingerprints['game.js'] === `sha256:${tuple.gameBytesDigest}`
         && captured.sourceFingerprints['long-bot-engine.js'] === `sha256:${tuple.runtimeBytesDigest}`),

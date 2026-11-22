@@ -27,7 +27,7 @@ const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_DECISIONS = 4096;
 const MAX_OUTCOMES = 100000;
-const STRATEGY_PROFILES = Object.freeze(['v19', 'v20', 'v25']);
+const STRATEGY_PROFILES = Object.freeze(['v19', 'v20', 'v25', 'v26']);
 const clone = legacy.clone, fingerprint = legacy.fingerprint;
 const equal = (a, b) => legacy.canonical(a) === legacy.canonical(b);
 function check(ok, reason) { if (!ok) throw Error(`Hard teacher: ${reason}`); }
