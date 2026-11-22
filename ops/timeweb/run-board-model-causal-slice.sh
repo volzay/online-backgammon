@@ -1,13 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# A seven-slot cycle is coprime with the old 5-, 6- and 10-slot schedules.
+# An eleven-slot cycle is coprime with the older 5-, 6-, 7- and 10-slot schedules.
 # This preserves access to every predecessor queue within the existing caps.
 application=/opt/online-backgammon-board-model-2eac358a-r1
 state=/var/lib/online-backgammon-hard-board-model-2eac358a-review
 previous=/opt/online-backgammon-adaptive-dispatch-v26/run-adaptive-review-slice.sh
-slot=$(( $(/usr/bin/date -u +%s) / 600 % 7 ))
-if (( slot != 0 && slot != 2 && slot != 4 )) || [[ -e "$state/pause-admission" ]]; then
+slot=$(( $(/usr/bin/date -u +%s) / 600 % 11 ))
+if (( slot != 0 && slot != 3 && slot != 7 && slot != 10 )) || [[ -e "$state/pause-admission" ]]; then
   exec /usr/bin/bash "$previous"
 fi
 # Only an authenticated native claimed=0 receipt may fall through to old work.

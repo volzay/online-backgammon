@@ -50,3 +50,17 @@ test('the adaptive review schedule cannot permanently exclude an existing clock 
       .some(i => i % period === phase && ![0, 2, 4].includes(i % 7)), `period ${period}, phase ${phase}`);
   }
 });
+
+test('board-model release leaves every older 5/6/7/10-slot lane reachable', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../ops/timeweb/run-board-model-causal-slice.sh'), 'utf8');
+  assert.match(source, /\/ 600 % 11/);
+  assert.match(source, /slot != 0 && slot != 3 && slot != 7 && slot != 10/);
+  const newSlots = new Set([0, 3, 7, 10]);
+  for (const period of [5, 6, 7, 10]) {
+    const reachable = new Set();
+    for (let tick = 0; tick < 11 * period; tick++) {
+      if (!newSlots.has(tick % 11)) reachable.add(tick % period);
+    }
+    assert.equal(reachable.size, period, `predecessor period ${period}`);
+  }
+});
