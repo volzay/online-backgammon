@@ -144,6 +144,14 @@ const ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY = Object.freeze({
   gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
   runtimeBytesDigest: 'cb0902f60ece78841a400b1448662183de2312f42ddfb7c7dc4eaa294d558a69',
 });
+// Exact-position board advice reads only canonical rules state. Cold
+// continuations contain no advice; the metadata-independence tests audit this
+// new tuple separately without relabelling historical caches or evidence.
+const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: '91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8',
+});
 const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   AUDITED_NATIVE_CACHE_POLICY,
   HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -161,6 +169,7 @@ const AUDITED_NATIVE_CACHE_POLICIES = Object.freeze([
   CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
   ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
+  BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
 ]);
 const DEFAULT_ROLLOUT_LIMITS = Object.freeze({
   samples: 32,
@@ -845,6 +854,7 @@ module.exports = {
   QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
+  BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
   SCORE_SEMANTICS,

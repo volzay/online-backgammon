@@ -1123,6 +1123,9 @@ export function normalizeExperiencePatterns(patterns = []) {
   const contributions = new Map();
   const normalized = new Map();
   (Array.isArray(patterns) ? patterns : []).forEach((pattern) => {
+    // Board-model advice has no observed win/loss counts. It is applied by
+    // the exact-position selector, never converted into outcome evidence.
+    if (pattern?.creditVersion === 10) return;
     const contextKey = String(pattern?.contextKey || pattern?.context_key || '');
     const actionKey = String(pattern?.actionKey || pattern?.action_key || '');
     if (!contextKey || !actionKey) return;

@@ -1,0 +1,1916 @@
+{
+  "schema": "long-board-model-regression-positions-v1",
+  "description": "Board/move data only from real losses; no client decisions or fabricated outcome labels.",
+  "lemFinal": {
+    "variant": "long",
+    "winner": "white",
+    "bar": {
+      "dark": 0,
+      "white": 0
+    },
+    "off": {
+      "dark": 3,
+      "white": 15
+    },
+    "points": {
+      "13": {
+        "color": "dark",
+        "count": 1
+      },
+      "14": {
+        "color": "dark",
+        "count": 1
+      },
+      "15": {
+        "color": "dark",
+        "count": 1
+      },
+      "16": {
+        "color": "dark",
+        "count": 2
+      },
+      "17": {
+        "color": "dark",
+        "count": 6
+      },
+      "18": {
+        "color": "dark",
+        "count": 1
+      }
+    },
+    "history": [
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 3
+      },
+      {
+        "roll": "3:2",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 18,
+        "to": 15,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 17,
+        "to": "снято",
+        "die": 5
+      },
+      {
+        "roll": "5:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 5
+      },
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 6
+      },
+      {
+        "roll": "6:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 16,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 15,
+        "to": "снято",
+        "die": 3
+      },
+      {
+        "roll": "4:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 3,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "roll": "2:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 19,
+        "to": 17,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 19,
+        "die": 6
+      },
+      {
+        "roll": "6:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 6,
+        "to": "снято",
+        "die": 6
+      },
+      {
+        "roll": "6:2",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 4,
+        "to": 1,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 5,
+        "to": 4,
+        "die": 1
+      },
+      {
+        "roll": "1:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 6,
+        "to": 2,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 3,
+        "to": "снято",
+        "die": 3
+      },
+      {
+        "roll": "4:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 20,
+        "to": 16,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 20,
+        "die": 5
+      },
+      {
+        "roll": "5:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 6,
+        "to": 2,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "roll": "4:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 20,
+        "to": 17,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 22,
+        "to": 20,
+        "die": 2
+      },
+      {
+        "roll": "2:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 2,
+        "to": "снято",
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": "снято",
+        "die": 4
+      },
+      {
+        "roll": "2:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 23,
+        "to": 22,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 23,
+        "die": 2
+      },
+      {
+        "roll": "2:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 6,
+        "to": 3,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 3,
+        "to": "снято",
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 3,
+        "to": "снято",
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 7,
+        "to": 4,
+        "die": 3
+      },
+      {
+        "roll": "3:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 19,
+        "to": 17,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 19,
+        "die": 6
+      },
+      {
+        "roll": "6:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 6,
+        "to": 4,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 8,
+        "to": 6,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 9,
+        "to": 7,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 9,
+        "die": 2
+      },
+      {
+        "roll": "2:2",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 20,
+        "to": 16,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 20,
+        "die": 5
+      },
+      {
+        "roll": "5:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 9,
+        "to": 8,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 10,
+        "to": 4,
+        "die": 6
+      },
+      {
+        "roll": "1:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 20,
+        "to": 15,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "roll": "5:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 10,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 6,
+        "die": 5
+      },
+      {
+        "roll": "5:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 20,
+        "to": 17,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 19,
+        "to": 18,
+        "die": 1
+      },
+      {
+        "roll": "3:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 9,
+        "to": 3,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "roll": "6:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 23,
+        "to": 17,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 21,
+        "to": 16,
+        "die": 5
+      },
+      {
+        "roll": "5:6",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 11,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 12,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 12,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 12,
+        "die": 4
+      },
+      {
+        "roll": "4:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 17,
+        "to": 14,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "roll": "5:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 11,
+        "die": 5
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 15,
+        "die": 1
+      },
+      {
+        "roll": "5:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 22,
+        "to": 20,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 5,
+        "to": 1,
+        "die": 4
+      },
+      {
+        "roll": "2:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 14,
+        "to": 11,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 20,
+        "to": 14,
+        "die": 6
+      },
+      {
+        "roll": "3:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 21,
+        "to": 19,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 5,
+        "die": 1
+      },
+      {
+        "roll": "1:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 16,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 19,
+        "die": 5
+      },
+      {
+        "roll": "5:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 5,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 22,
+        "die": 3
+      },
+      {
+        "roll": "3:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 5,
+        "to": 2,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 9,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 12,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 16,
+        "die": 3
+      },
+      {
+        "roll": "3:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 1,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 23,
+        "die": 2
+      },
+      {
+        "roll": "2:6",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": 3,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 9,
+        "to": 4,
+        "die": 5
+      },
+      {
+        "roll": "5:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 8,
+        "to": 7,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 1,
+        "die": 6
+      },
+      {
+        "roll": "1:6",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 9,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 20,
+        "to": 16,
+        "die": 4
+      },
+      {
+        "roll": "3:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 6,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 21,
+        "die": 4
+      },
+      {
+        "roll": "4:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 12,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 20,
+        "to": 15,
+        "die": 5
+      },
+      {
+        "roll": "3:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 6,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 23,
+        "die": 2
+      },
+      {
+        "roll": "1:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 5,
+        "to": 2,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 12,
+        "to": 9,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 16,
+        "die": 3
+      },
+      {
+        "roll": "3:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 21,
+        "to": 17,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 21,
+        "to": 18,
+        "die": 3
+      },
+      {
+        "roll": "3:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 9,
+        "to": 5,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 20,
+        "to": 19,
+        "die": 1
+      },
+      {
+        "roll": "1:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 22,
+        "to": 17,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "roll": "5:5",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 12,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 15,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "roll": "3:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 7,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 8,
+        "to": 6,
+        "die": 2
+      },
+      {
+        "roll": "3:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 16,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 18,
+        "die": 6
+      },
+      {
+        "roll": "2:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 8,
+        "to": 6,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 8,
+        "to": 7,
+        "die": 1
+      },
+      {
+        "roll": "1:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 15,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 18,
+        "die": 6
+      },
+      {
+        "roll": "6:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 16,
+        "to": 13,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "roll": "3:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 4,
+        "to": 2,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 10,
+        "to": 4,
+        "die": 6
+      },
+      {
+        "roll": "2:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 8,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 21,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 21,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 21,
+        "to": 17,
+        "die": 4
+      },
+      {
+        "roll": "4:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 10,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 18,
+        "die": 6
+      },
+      {
+        "roll": "1:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 8,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "roll": "4:5",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 10,
+        "to": 4,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 10,
+        "die": 5
+      },
+      {
+        "roll": "5:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 1,
+        "die": 5
+      },
+      {
+        "roll": "5:6",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 15,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 19,
+        "die": 5
+      },
+      {
+        "roll": "5:4",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 22,
+        "to": 16,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 4,
+        "to": 22,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 4,
+        "die": 6
+      },
+      {
+        "roll": "6:6",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 13,
+        "to": 11,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "roll": "2:3",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 22,
+        "to": 21,
+        "die": 1
+      },
+      {
+        "color": "dark",
+        "from": 4,
+        "to": 1,
+        "die": 3
+      },
+      {
+        "roll": "1:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 5,
+        "die": 6
+      },
+      {
+        "roll": "6:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 4,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 4,
+        "to": 22,
+        "die": 6
+      },
+      {
+        "roll": "6:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 14,
+        "to": 13,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 14,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 16,
+        "to": 15,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "1:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 6,
+        "die": 6
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 8,
+        "die": 2
+      },
+      {
+        "roll": "6:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 16,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "1:2",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 6,
+        "to": 4,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 1,
+        "to": 21,
+        "die": 4
+      },
+      {
+        "roll": "4:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 18,
+        "die": 5
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "1:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 4,
+        "to": 1,
+        "die": 3
+      },
+      {
+        "roll": "2:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 15,
+        "to": 11,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "4:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 11,
+        "to": 8,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 11,
+        "die": 1
+      },
+      {
+        "roll": "3:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 17,
+        "to": 15,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 8,
+        "to": 3,
+        "die": 5
+      },
+      {
+        "roll": "2:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 7,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 4,
+        "die": 3
+      },
+      {
+        "roll": "3:5",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 17,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 21,
+        "to": 19,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 21,
+        "die": 2
+      },
+      {
+        "color": "white",
+        "from": 11,
+        "to": 9,
+        "die": 2
+      },
+      {
+        "roll": "2:2",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 6,
+        "die": 4
+      },
+      {
+        "roll": "2:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 14,
+        "to": 11,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "3:1",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 7,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 6,
+        "die": 1
+      },
+      {
+        "roll": "5:1",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 14,
+        "die": 4
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 19,
+        "die": 5
+      },
+      {
+        "roll": "4:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "color": "dark",
+        "from": 3,
+        "to": 22,
+        "die": 5
+      },
+      {
+        "roll": "5:2",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 19,
+        "to": 18,
+        "die": 1
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 19,
+        "die": 5
+      },
+      {
+        "roll": "1:5",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 7,
+        "die": 5
+      },
+      {
+        "color": "dark",
+        "from": 7,
+        "to": 3,
+        "die": 4
+      },
+      {
+        "roll": "4:5",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 14,
+        "to": 8,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 18,
+        "to": 14,
+        "die": 4
+      },
+      {
+        "roll": "4:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 7,
+        "die": 3
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "roll": "2:3",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 18,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 8,
+        "to": 2,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 14,
+        "to": 8,
+        "die": 6
+      },
+      {
+        "color": "white",
+        "from": 20,
+        "to": 14,
+        "die": 6
+      },
+      {
+        "roll": "6:6",
+        "color": "white"
+      },
+      {
+        "color": "dark",
+        "from": 10,
+        "to": 6,
+        "die": 4
+      },
+      {
+        "color": "dark",
+        "from": 12,
+        "to": 10,
+        "die": 2
+      },
+      {
+        "roll": "2:4",
+        "color": "dark"
+      },
+      {
+        "color": "white",
+        "from": 23,
+        "to": 20,
+        "die": 3
+      },
+      {
+        "color": "white",
+        "from": 24,
+        "to": 23,
+        "die": 1
+      },
+      {
+        "roll": "1:3",
+        "color": "white"
+      },
+      {
+        "opening": true,
+        "winnerColor": "white"
+      }
+    ]
+  },
+  "positions": [
+    {
+      "room": "LEM5-RES8",
+      "turnIndex": 2,
+      "state": {
+        "variant": "long",
+        "phase": "move",
+        "turn": "dark",
+        "points": {
+          "2": {
+            "color": "white",
+            "count": 1
+          },
+          "6": {
+            "color": "dark",
+            "count": 1
+          },
+          "7": {
+            "color": "dark",
+            "count": 1
+          },
+          "8": {
+            "color": "white",
+            "count": 1
+          },
+          "12": {
+            "color": "dark",
+            "count": 13
+          },
+          "24": {
+            "color": "white",
+            "count": 13
+          }
+        },
+        "bar": {
+          "white": 0,
+          "dark": 0
+        },
+        "off": {
+          "white": 0,
+          "dark": 0
+        },
+        "score": {
+          "white": 0,
+          "dark": 0
+        },
+        "dice": [
+          4,
+          5
+        ],
+        "rolled": [
+          4,
+          5
+        ],
+        "firstMoveDone": {
+          "white": true,
+          "dark": true
+        },
+        "headPlayedThisTurn": {
+          "white": false,
+          "dark": false
+        },
+        "turnMoves": [],
+        "history": [],
+        "winner": null,
+        "resultType": null,
+        "openingRoll": null,
+        "startedAt": 0,
+        "finishedAt": null,
+        "turnClock": {
+          "white": 0,
+          "dark": 0,
+          "active": null,
+          "startedAt": null
+        },
+        "matchScore": {
+          "white": 0,
+          "dark": 0,
+          "target": 5,
+          "recordedWinner": null
+        }
+      },
+      "executedMoves": [
+        {
+          "from": 7,
+          "to": 3,
+          "die": 4
+        },
+        {
+          "from": 12,
+          "to": 7,
+          "die": 5
+        }
+      ]
+    },
+    {
+      "room": "8JPN-KUD8",
+      "turnIndex": 4,
+      "state": {
+        "variant": "long",
+        "phase": "move",
+        "turn": "dark",
+        "points": {
+          "8": {
+            "color": "white",
+            "count": 1
+          },
+          "9": {
+            "color": "dark",
+            "count": 1
+          },
+          "10": {
+            "color": "dark",
+            "count": 2
+          },
+          "12": {
+            "color": "dark",
+            "count": 11
+          },
+          "13": {
+            "color": "white",
+            "count": 1
+          },
+          "15": {
+            "color": "white",
+            "count": 1
+          },
+          "16": {
+            "color": "white",
+            "count": 1
+          },
+          "19": {
+            "color": "white",
+            "count": 1
+          },
+          "20": {
+            "color": "dark",
+            "count": 1
+          },
+          "23": {
+            "color": "white",
+            "count": 1
+          },
+          "24": {
+            "color": "white",
+            "count": 9
+          }
+        },
+        "bar": {
+          "white": 0,
+          "dark": 0
+        },
+        "off": {
+          "white": 0,
+          "dark": 0
+        },
+        "score": {
+          "white": 0,
+          "dark": 0
+        },
+        "dice": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "rolled": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "firstMoveDone": {
+          "white": true,
+          "dark": true
+        },
+        "headPlayedThisTurn": {
+          "white": false,
+          "dark": false
+        },
+        "turnMoves": [],
+        "history": [],
+        "winner": null,
+        "resultType": null,
+        "openingRoll": null,
+        "startedAt": 0,
+        "finishedAt": null,
+        "turnClock": {
+          "white": 0,
+          "dark": 0,
+          "active": null,
+          "startedAt": null
+        },
+        "matchScore": {
+          "white": 0,
+          "dark": 0,
+          "target": 5,
+          "recordedWinner": null
+        }
+      },
+      "executedMoves": [
+        {
+          "to": 9,
+          "die": 3,
+          "from": 12
+        },
+        {
+          "to": 7,
+          "die": 3,
+          "from": 10
+        },
+        {
+          "to": 6,
+          "die": 3,
+          "from": 9
+        },
+        {
+          "to": 3,
+          "die": 3,
+          "from": 6
+        }
+      ]
+    },
+    {
+      "room": "CTNM-E43Z",
+      "turnIndex": 6,
+      "state": {
+        "variant": "long",
+        "phase": "move",
+        "turn": "dark",
+        "points": {
+          "5": {
+            "color": "dark",
+            "count": 1
+          },
+          "6": {
+            "color": "dark",
+            "count": 3
+          },
+          "7": {
+            "color": "dark",
+            "count": 1
+          },
+          "8": {
+            "color": "white",
+            "count": 1
+          },
+          "11": {
+            "color": "white",
+            "count": 1
+          },
+          "12": {
+            "color": "dark",
+            "count": 9
+          },
+          "17": {
+            "color": "white",
+            "count": 1
+          },
+          "18": {
+            "color": "white",
+            "count": 1
+          },
+          "19": {
+            "color": "white",
+            "count": 1
+          },
+          "20": {
+            "color": "white",
+            "count": 1
+          },
+          "21": {
+            "color": "white",
+            "count": 2
+          },
+          "23": {
+            "color": "dark",
+            "count": 1
+          },
+          "24": {
+            "color": "white",
+            "count": 7
+          }
+        },
+        "bar": {
+          "white": 0,
+          "dark": 0
+        },
+        "off": {
+          "white": 0,
+          "dark": 0
+        },
+        "score": {
+          "white": 0,
+          "dark": 0
+        },
+        "dice": [
+          4,
+          2
+        ],
+        "rolled": [
+          4,
+          2
+        ],
+        "firstMoveDone": {
+          "white": true,
+          "dark": true
+        },
+        "headPlayedThisTurn": {
+          "white": false,
+          "dark": false
+        },
+        "turnMoves": [],
+        "history": [],
+        "winner": null,
+        "resultType": null,
+        "openingRoll": null,
+        "startedAt": 0,
+        "finishedAt": null,
+        "turnClock": {
+          "white": 0,
+          "dark": 0,
+          "active": null,
+          "startedAt": null
+        },
+        "matchScore": {
+          "white": 0,
+          "dark": 0,
+          "target": 5,
+          "recordedWinner": null
+        }
+      },
+      "executedMoves": [
+        {
+          "to": 10,
+          "die": 2,
+          "from": 12
+        },
+        {
+          "to": 6,
+          "die": 4,
+          "from": 10
+        }
+      ]
+    }
+  ]
+}

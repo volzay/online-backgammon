@@ -1,7 +1,7 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2';
 
 /* bot-engine/long/metrics.ts */
 
@@ -2557,6 +2557,9 @@ function normalizeExperiencePatterns(patterns = []) {
   const contributions = new Map();
   const normalized = new Map();
   (Array.isArray(patterns) ? patterns : []).forEach((pattern) => {
+    // Board-model advice has no observed win/loss counts. It is applied by
+    // the exact-position selector, never converted into outcome evidence.
+    if (pattern?.creditVersion === 10) return;
     const contextKey = String(pattern?.contextKey || pattern?.context_key || '');
     const actionKey = String(pattern?.actionKey || pattern?.action_key || '');
     if (!contextKey || !actionKey) return;
@@ -3331,6 +3334,8 @@ function createLongBotEngine(adapter, options = {}) {
       coldRanked,
       coldSelected,
     );
+    if (strategyProfile === 'v26') applyBoardModelLesson(state, color, finalRanked, ranked,
+      coldSelected, selectedExperiencePatterns, adapter);
     finalRanked.forEach((candidate) => {
       candidate.features.analysisNodesUsed = budget.used;
       candidate.features.analysisNodeBudget = budget.limit;
@@ -3376,10 +3381,10 @@ function createLongBotEngine(adapter, options = {}) {
       experienceSources.set(String(source || 'runtime'), Array.isArray(patterns) ? patterns : []);
       selectedExperiencePatterns = selectExperiencePatterns(experienceSources);
       experience = normalizeExperiencePatterns(selectedExperiencePatterns);
-      return experience.size;
+      return experience.size + selectedExperiencePatterns.filter(p => p.creditVersion === 10).length;
     },
     experienceSize() {
-      return experience.size;
+      return experience.size + selectedExperiencePatterns.filter(p => p.creditVersion === 10).length;
     },
     experienceSnapshotEntries() {
       return Array.from(experience.entries())
@@ -3393,12 +3398,88 @@ function createLongBotEngine(adapter, options = {}) {
           Number(pattern.severeLosses) || 0,
           Number(pattern.signalWeight) || 0,
           Number(pattern.winWeight) || 0,
-        ]);
+        ]).concat(selectedExperiencePatterns.filter(p => p.creditVersion === 10)
+          .map(p => [`board:${p.positionKey}`, p.aggregateId, p.actionKey, p.preferredActionKey])
+          .sort(([a], [b]) => a.localeCompare(b)));
     },
     experienceSnapshotPatterns() {
       return selectedExperiencePatterns.map(pattern => ({ ...pattern }));
     },
   };
+}
+
+// A model-reviewed lesson is local advice, not a terminal win-probability
+// certificate. Match the complete board/rules state and the current cold
+// action, so a lesson from a predecessor cannot override an already fixed move.
+function boardLessonPositionKey(state, color = state.turn) {
+  const pair = value => [Number(value?.white) || 0, Number(value?.dark) || 0];
+  return JSON.stringify([
+    'long-board-lesson-position-v1', color,
+    Object.entries(state.points || {}).filter(([, p]) => p?.count > 0)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([p, s]) => [Number(p), s.color, s.count]),
+    pair(state.bar), pair(state.off), [...(state.dice || [])], [...(state.rolled || [])],
+    [!!state.firstMoveDone?.white, !!state.firstMoveDone?.dark],
+    [!!state.headPlayedThisTurn?.white, !!state.headPlayedThisTurn?.dark],
+    (state.turnMoves || []).map(m => [m.color, m.from, m.to, m.die]),
+  ]);
+}
+
+function validBoardModelLesson(p) {
+  return p?.creditVersion === 10 && p.evidenceSchema === 'long-server-board-model-pattern-v1'
+    && p.trustDomain === 'nardu/server-long-bot-board-model/v1'
+    && p.reviewerVersion === 'long-board-model-review-v1'
+    && p.scoreSemantics === 'heuristic-turn-equity-v1'
+    && p.outcomeUsed === false && p.terminalOutcomeConfirmed === false
+    && p.samples === 1 && p.losses === 0 && p.wins === 0
+    && /^[0-9a-f]{64}$/.test(p.runtimeDigest || '')
+    && /^[0-9a-f]{64}$/.test(p.aggregateId || '')
+    && typeof p.positionKey === 'string' && p.positionKey.length > 0 && p.positionKey.length <= 4096
+    && typeof p.contextKey === 'string' && typeof p.actionKey === 'string'
+    && typeof p.preferredActionKey === 'string' && p.preferredActionKey !== p.actionKey
+    && Number.isFinite(p.utilityGain) && p.utilityGain >= 0.025 && p.utilityGain <= 2
+    && Number.isFinite(p.equityGain) && p.equityGain >= 0.025 && p.equityGain <= 2
+    && [p.baseline, p.recommended].every(m => m && ['utility', 'expectedEquity',
+      'lowerTailEquity', 'selfEvaluation', 'opponentEvaluation'].every(k => Number.isFinite(m[k])))
+    && Math.abs(p.recommended.utility - p.baseline.utility - p.utilityGain) < 1e-9
+    && Math.abs(p.recommended.expectedEquity - p.baseline.expectedEquity - p.equityGain) < 1e-9
+    && p.recommended.lowerTailEquity >= p.baseline.lowerTailEquity - 0.060000001
+    && p.diceOutcomes === 21 && p.diceWeight === 36
+    && Array.isArray(p.preferredMoves) && p.preferredMoves.length >= 1 && p.preferredMoves.length <= 4
+    && p.preferredMoves.every(m => Number.isInteger(m.from) && m.from >= 1 && m.from <= 24
+      && Number.isInteger(m.to) && m.to >= 0 && m.to <= 24
+      && Number.isInteger(m.die) && m.die >= 1 && m.die <= 6);
+}
+
+function applyBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter) {
+  // Independently confirmed terminal corrections take precedence over a
+  // model teacher. A weaker model must not reverse their selected action.
+  if (!baseline || !ranked.length || ranked[0] !== baseline) return;
+  const positionKey = boardLessonPositionKey(state, color);
+  const lesson = patterns.filter(validBoardModelLesson).find(p => p.positionKey === positionKey
+    && p.contextKey === baseline.experience?.contextKey && p.actionKey === baseline.experience?.actionKey);
+  if (!lesson) return;
+  if (patterns.some(p => p.creditVersion === 9 && p.contextKey === lesson.contextKey
+    && p.actionKey === lesson.preferredActionKey)) return;
+  const proposed = adapter.applySequence(state, lesson.preferredMoves, color);
+  const key = after => JSON.stringify([Object.entries(after.points || {})
+    .filter(([, p]) => p?.count > 0).sort(([a], [b]) => Number(a) - Number(b)),
+    after.off?.white || 0, after.off?.dark || 0]);
+  const preferred = proposed && eligible.find(c => key(c.after) === key(proposed));
+  if (!preferred || preferred === baseline
+    || Number(preferred.experienceAdjustment || 0) < 0
+    || Number(preferred.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
+    || Number(preferred.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) return;
+  preferred.experience = experienceDescriptor(state, color, preferred.features, preferred.tactical);
+  preferred.features.boardModelLessonApplied = 1;
+  preferred.features.boardModelLessonUtilityGain = lesson.utilityGain;
+  preferred.boardModelLesson = { aggregateId: lesson.aggregateId, sourceRoom: lesson.sourceRoom,
+    sourceArchiveId: lesson.sourceArchiveId, scoreSemantics: lesson.scoreSemantics,
+    terminalOutcomeConfirmed: false, evaluation: { ...lesson.recommended },
+    diceOutcomes: lesson.diceOutcomes, diceWeight: lesson.diceWeight };
+  const index = ranked.indexOf(preferred);
+  if (index >= 0) ranked.splice(index, 1);
+  ranked.unshift(preferred);
 }
 
 function selectExperiencePatterns(sources) {
@@ -7817,7 +7898,7 @@ function createBrowserLongBotEngine(game, options = {}) {
     setExperience(patterns, source = 'runtime') {
       const sourceKey = String(source || 'runtime');
       const snapshot = Array.isArray(patterns)
-        ? patterns.filter(pattern => pattern?.creditVersion !== 9 || serverCausalPatterns([pattern]))
+        ? patterns.filter(pattern => ![9, 10].includes(pattern?.creditVersion) || serverCausalPatterns([pattern]))
           .map(pattern => ({ ...pattern }))
         : [];
       if (experienceFrozen) {
@@ -7897,6 +7978,8 @@ function createBrowserLongBotEngine(game, options = {}) {
     learningPolicyImplementationId: LEARNING_COMPATIBILITY?.learningPolicyImplementationId || POLICY_IMPLEMENTATION_ID,
     learningCompatibility: LEARNING_COMPATIBILITY,
     acceptsLearningPolicyImplementationId,
+    validBoardModelLesson,
+    boardLessonPositionKey,
   };
 
   function experienceSnapshot() {
@@ -7992,7 +8075,8 @@ function createBrowserLongBotEngine(game, options = {}) {
 function serverCausalPatterns(patterns) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && Array.isArray(patterns) && patterns.length <= 256 && patterns.every(pattern => (
-    pattern?.creditVersion === 9
+    (validBoardModelLesson(pattern) && pattern.policyImplementationId === POLICY_IMPLEMENTATION_ID)
+    || pattern?.creditVersion === 9
     && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
     && pattern?.reviewerVersion === 'long-server-causal-review-v1'
     && pattern?.trustDomain === 'nardu/server-long-bot-causal/v1'
@@ -8126,6 +8210,7 @@ function decisionRecord(
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
     experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),
+    boardModelLesson: candidate.boardModelLesson ? { ...candidate.boardModelLesson } : null,
   }));
   if (!candidates.length) return null;
 

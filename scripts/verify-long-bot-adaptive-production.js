@@ -30,6 +30,7 @@ function observeAdaptiveGame() {
     experienceLoad: memory?.experienceLoad, coverage: memory?.coverage,
     decisions: (memory?.decisions || []).map(decision => {
       const tactic = decision.selected?.tactical;
+      const lesson = decision.selected?.boardModelLesson;
       const features = decision.selected?.features || {};
       const execution = decision.execution;
       const executedMoves = execution?.executedMoves || execution?.executed?.moves;
@@ -47,10 +48,15 @@ function observeAdaptiveGame() {
         counterplayReserved: Number(features.counterplayTacticalReservation) === 1,
         counterplaySelected: Object.hasOwn(features, 'adaptiveDecisionAdjustment'),
         complete: execution?.complete === true, exact,
-        decisionModel: tactic?.decisionModel,
-        diceComplete: tactic?.distributionComplete === true && tactic.rolls === 21
-          && tactic.distributionWeight === 36,
-        finiteEvaluations: ['selfEvaluation', 'opponentEvaluation', 'expectedSelfEvaluation',
+        evaluationSource: lesson ? 'frozen-board-model-lesson' : 'live-tactical-search',
+        boardModelLessonId: lesson?.aggregateId || null,
+        decisionModel: lesson?.scoreSemantics || tactic?.decisionModel,
+        diceComplete: lesson ? lesson.diceOutcomes === 21 && lesson.diceWeight === 36
+          : tactic?.distributionComplete === true && tactic.rolls === 21
+            && tactic.distributionWeight === 36,
+        finiteEvaluations: lesson ? ['selfEvaluation', 'opponentEvaluation', 'expectedEquity',
+          'lowerTailEquity', 'utility'].every(key => Number.isFinite(lesson.evaluation?.[key]))
+          : ['selfEvaluation', 'opponentEvaluation', 'expectedSelfEvaluation',
           'expectedOpponentEvaluation', 'expectedEquity', 'lowerTailEquity', 'upperTailEquity',
           'adaptiveUtility'].every(key => Number.isFinite(tactic?.[key])),
         analysisNodesUsed: features.analysisNodesUsed, analysisNodeBudget: features.analysisNodeBudget,
