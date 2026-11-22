@@ -1,23 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
-# Share the existing bounded service between the new policy and its retained
-# predecessor queues. Do not replace any historical immutable runtime.
+# A seven-slot cycle is coprime with the old 5-, 6- and 10-slot schedules.
+# This preserves access to every predecessor queue within the existing caps.
 application=/opt/online-backgammon-hard-adaptive-1aebb4b1-r2
 state=/var/lib/online-backgammon-hard-adaptive-1aebb4b1-review
 previous=/opt/online-backgammon-hard-quarters-d33a1c62/ops/timeweb/dispatch-targeted.sh
-if [[ -e "$state/pause-admission" ]]; then exit 0; fi
-exec 9>"$state/dispatch.flock"
-/usr/bin/flock --exclusive --nonblock 9 || exit 0
-next=adaptive
-if [[ -r "$state/next-policy" ]]; then IFS= read -r next < "$state/next-policy"; fi
-if [[ "$next" == previous ]]; then
-  printf 'adaptive\n' > "$state/next-policy"
+slot=$(( $(/usr/bin/date -u +%s) / 600 % 7 ))
+if (( slot != 0 && slot != 2 && slot != 4 )) || [[ -e "$state/pause-admission" ]]; then
   exec /usr/bin/bash "$previous"
 fi
-[[ "$next" == adaptive ]] || exit 1
-printf 'previous\n' > "$state/next-policy"
-cd "$application"
-exec /usr/bin/flock --exclusive --nonblock --no-fork "$state/worker.flock" \
-  /usr/bin/node scripts/long-bot-causal-worker.js --once \
-  --production-journal-dir "$state/terminal-journal"
+# Only an authenticated native claimed=0 receipt may fall through to old work.
+# A positive claim, error or ambiguous output must never admit another queue.
+if result=$(
+  cd "$application" || exit 1
+  exec /usr/bin/flock --exclusive --nonblock --no-fork "$state/worker.flock" \
+    /usr/bin/node scripts/long-bot-causal-worker.js --once \
+    --production-journal-dir "$state/terminal-journal" 2>/dev/null
+); then
+  :
+else
+  result_status=$?
+  unset result
+  exit "$result_status"
+fi
+if status=$(printf '%s' "$result" | /usr/bin/node -e 'const fs=require("node:fs");
+try {
+  const row=JSON.parse(fs.readFileSync(0,"utf8"));
+  if (!row || Array.isArray(row) || typeof row!=="object"
+    || Object.keys(row).some(key=>!["workerId","claimed","lifecycle","completed"].includes(key))
+    || ("workerId" in row && (typeof row.workerId!=="string" || row.workerId.length<1 || row.workerId.length>128))
+    || row.lifecycle!=="long-server-resumable-slices-v2"
+    || !Number.isSafeInteger(row.claimed) || row.claimed<0 || !Array.isArray(row.completed)
+    || (row.claimed===0 && row.completed.length!==0)) throw Error();
+  process.stdout.write(row.claimed===0?"empty":"handled");
+} catch { process.stderr.write("Adaptive review receipt rejected\\n");process.exit(65); }'); then
+  unset result
+else
+  result_status=$?
+  unset result
+  exit "$result_status"
+fi
+[[ "$status" == handled ]] && exit 0
+[[ "$status" == empty ]] || exit 65
+exec /usr/bin/bash "$previous"
