@@ -90,13 +90,25 @@ test('activation pins both policies and admits only a new immutable future runti
 });
 
 test('adaptive activation pins the new policy and preserves the same reviewed transition body', () => {
-  const { CURRENT_LONG_BOT_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+  const { ADAPTIVE_COUNTERPLAY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
   assert.equal(adaptiveActivation,
     activation.replaceAll('quarter', 'adaptive')
       .replace("old_policy constant text := '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac'",
         `old_policy constant text := '${QUARTER_GEOMETRY_POLICY}'`)
       .replace(`new_policy constant text := '${QUARTER_GEOMETRY_POLICY}'`,
-        `new_policy constant text := '${CURRENT_LONG_BOT_POLICY}'`));
+        `new_policy constant text := '${ADAPTIVE_COUNTERPLAY_POLICY}'`));
+});
+
+test('board-model activation pins its own policy and only exposes typed model lessons', () => {
+  const { CURRENT_LONG_BOT_POLICY, ADAPTIVE_COUNTERPLAY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
+  const sql = statements(fs.readFileSync(path.join(root, 'ops/timeweb/activate-board-model-experience.sql'), 'utf8'));
+  assert.ok(sql.includes(`old_policy constant text := '${ADAPTIVE_COUNTERPLAY_POLICY}'`));
+  assert.ok(sql.includes(`new_policy constant text := '${CURRENT_LONG_BOT_POLICY}'`));
+  assert.match(sql, /p->>'policyImplementationId' is distinct from new_policy/);
+  assert.match(sql, /p->>'evidenceSchema' is distinct from 'long-server-board-model-pattern-v1'/);
+  assert.match(sql, /p->'terminalOutcomeConfirmed' is distinct from 'false'::jsonb/);
+  assert.match(sql, /if published_count_before <> 0 then/);
+  assert.doesNotMatch(sql, /(?:insert into|update|delete from)\s+(?:public\.bot_training_games|private\.long_bot_causal_evidence|private\.long_bot_signed_experience_snapshots)/i);
 });
 
 test('activation blocks active old rooms and preserves closed admission and enabled predecessors', () => {
