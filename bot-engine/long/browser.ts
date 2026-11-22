@@ -1,4 +1,4 @@
-import { createLongBotEngine } from './engine.ts';
+import { createLongBotEngine, validBoardModelLesson, boardLessonPositionKey } from './engine.ts';
 import { createNarduGameAdapter } from './nardu-game-adapter.ts';
 
 const ENGINE_VERSION = 'long-analytic-v35';
@@ -193,7 +193,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
     setExperience(patterns, source = 'runtime') {
       const sourceKey = String(source || 'runtime');
       const snapshot = Array.isArray(patterns)
-        ? patterns.filter(pattern => pattern?.creditVersion !== 9 || serverCausalPatterns([pattern]))
+        ? patterns.filter(pattern => ![9, 10].includes(pattern?.creditVersion) || serverCausalPatterns([pattern]))
           .map(pattern => ({ ...pattern }))
         : [];
       if (experienceFrozen) {
@@ -273,6 +273,8 @@ export function createBrowserLongBotEngine(game, options = {}) {
     learningPolicyImplementationId: LEARNING_COMPATIBILITY?.learningPolicyImplementationId || POLICY_IMPLEMENTATION_ID,
     learningCompatibility: LEARNING_COMPATIBILITY,
     acceptsLearningPolicyImplementationId,
+    validBoardModelLesson,
+    boardLessonPositionKey,
   };
 
   function experienceSnapshot() {
@@ -368,7 +370,8 @@ export function createBrowserLongBotEngine(game, options = {}) {
 function serverCausalPatterns(patterns) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && Array.isArray(patterns) && patterns.length <= 256 && patterns.every(pattern => (
-    pattern?.creditVersion === 9
+    (validBoardModelLesson(pattern) && pattern.policyImplementationId === POLICY_IMPLEMENTATION_ID)
+    || pattern?.creditVersion === 9
     && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
     && pattern?.reviewerVersion === 'long-server-causal-review-v1'
     && pattern?.trustDomain === 'nardu/server-long-bot-causal/v1'
@@ -502,6 +505,7 @@ function decisionRecord(
     } : null,
     experience: candidate.experience ? { ...candidate.experience } : null,
     experienceAdjustment: Math.round(Number(candidate.experienceAdjustment) || 0),
+    boardModelLesson: candidate.boardModelLesson ? { ...candidate.boardModelLesson } : null,
   }));
   if (!candidates.length) return null;
 

@@ -238,8 +238,21 @@ const ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY = Object.freeze({
   const adaptiveReference = '  ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,\n';
   assert.equal(paired.split(adaptiveRegistration).length - 1, 1);
   assert.equal(paired.split(adaptiveReference).length - 1, 2);
+  const boardRegistration = `// Exact-position board advice reads only canonical rules state. Cold
+// continuations contain no advice; the metadata-independence tests audit this
+// new tuple separately without relabelling historical caches or evidence.
+const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
+  policyImplementationId: '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2',
+  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+  runtimeBytesDigest: '91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8',
+});
+`;
+  const boardReference = '  BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,\n';
+  assert.equal(paired.split(boardRegistration).length - 1, 1);
+  assert.equal(paired.split(boardReference).length - 1, 2);
   const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '')
-    .replace(adaptiveRegistration, '').replaceAll(adaptiveReference, '');
+    .replace(adaptiveRegistration, '').replaceAll(adaptiveReference, '')
+    .replace(boardRegistration, '').replaceAll(boardReference, '');
   assert.equal(crypto.createHash('sha256').update(originalPaired).digest('hex'),
     '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
 });

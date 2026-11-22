@@ -23,6 +23,7 @@ const {
   CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
   QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
   ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
+  BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -84,13 +85,13 @@ function runtime() {
   return value;
 }
 
-test('adaptive identity enables a separately pinned cache without calling its planner', () => {
+test('board-learning identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -108,6 +109,7 @@ test('adaptive identity enables a separately pinned cache without calling its pl
     CONTACT_FENCE_DEFENSE_NATIVE_CACHE_POLICY,
     QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
     ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
+    BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
