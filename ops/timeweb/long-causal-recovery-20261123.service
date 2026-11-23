@@ -1,0 +1,23 @@
+[Unit]
+Description=Scoped recovery of the 43 historical long-bot reviews
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/online-backgammon-causal-recovery-20261123/campaign.complete
+
+[Service]
+Type=simple
+User=nardy-worker
+Group=nardy-worker
+EnvironmentFile=/etc/online-backgammon/long-bot-causal-worker.env
+Environment=CAUSAL_RECOVERY_JOURNAL=/var/lib/online-backgammon-causal-recovery-20261123/terminal-journal
+ExecStart=/usr/bin/node /opt/online-backgammon-causal-recovery-20261123/supervise-causal-recovery.cjs /opt/online-backgammon-causal-recovery-20261123/causal-recovery-plan-v2-20261123.json
+StateDirectory=online-backgammon-causal-recovery-20261123
+StateDirectoryMode=0700
+UMask=0077
+CPUQuota=80%
+MemoryMax=768M
+RuntimeMaxSec=8h
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+

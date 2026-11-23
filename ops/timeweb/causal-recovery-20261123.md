@@ -44,3 +44,19 @@ Check campaign counts through `private.long_bot_causal_recovery_targets` and
 its effective jobs. Audit original sources and prefixes through the original
 grants and original jobs, including superseded executions. These are separate
 questions; a replacement being queued is not a completed analysis.
+
+The persistent `long-causal-recovery-20261123` service uses its own private
+state/journal directory, not the ordinary learner's global lock. Prepare that
+directory with `isolate-causal-recovery-journals.cjs` while holding the original
+global flock and after stopping the recovery worker. It copies only the 43
+effective job namespaces, verifies every file byte, retains the originals and
+keeps all keys on the same host. Native runtime and policy identities do not
+change when the authenticated journal is reopened at its isolated location.
+
+`long-bot-isolated-recovery-v1.sql` reserves those historical runtimes for their
+exact recovery workers and permits only source-checked operational renewal of
+the 43 effective grants, bounded to 45 days from their creation. No attempt,
+sample, review, outcome or confidence value is reset. Six-hour service slices
+yield between native batches; the timer resumes them and survives reboot. A
+private completion marker stops further launches only after all 43 effective
+jobs actually complete. Ordinary current-policy learning continues independently.
