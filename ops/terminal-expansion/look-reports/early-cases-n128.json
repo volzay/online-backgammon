@@ -1,0 +1,129 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T18:50:15.303Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 128,
+  "results": [
+    {
+      "id": "8JPN-KUD8-d1",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 50,
+      "comparisons": [
+        {
+          "candidateId": "d55f3aa925b6c68e4eb80146e2cf654cebc28e6ede1773b5fc9cd37f84ab8eb4",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 23,
+            "sweepLosses": 22,
+            "splitPairs": 83
+          },
+          "observedGain": 0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.27062412227812516,
+          "originalHoeffdingLower": -0.3647176226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "bdfe0cc8e885adfa0515df660f84e0b6dd71536de548c466db0ffe0aeaaee962",
+          "sealedSha256": "b6102860dc3d8bc21be9593635fa95ddfb07e0cf89bb6f8f504dbd252fe1b5c4"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "ffce753a74a394045c4c0b4c8a5b9247b96bb69b895057b3f2db4a5e620d85aa",
+          "sealedSha256": "1f96d1c1d79e92a5102115e1c0663cc0c59406469c23ec37b19e627afea362e0"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "bd7e8ce93af8f707a3d5b0aa4af165e984bfdd2ee420cab5010f76332d3075a1",
+          "sealedSha256": "cf416caa374cf34af7319f417e36e9f24c83e70da8973ba314f17b78ff282809"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "c32d8b1b315bb84857a0bee1f3efbbbf5be057877441cef0bda2295fd6a9db39",
+          "sealedSha256": "b92d2a2864f8c6fc9b1cd6e6bf0b5e11256467324ef128fb918c340c3edd49ce"
+        }
+      ]
+    },
+    {
+      "id": "CTNM-E43Z-d1",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 56,
+      "comparisons": [
+        {
+          "candidateId": "2694de2d14ebd447526a7f9ef1d6a4bb1ab90af04993e10abff3fe01f2abe3a2",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 20,
+            "sweepLosses": 21,
+            "splitPairs": 87
+          },
+          "observedGain": -0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.24742599202219395,
+          "originalHoeffdingLower": -0.3803426226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "2bbf926735acecf9a7d0de0bc8c83af7df7e9ca06f2303f2b3ff1447af645f7c",
+          "sealedSha256": "241ff95cdbcf671770b403e29f295117a6bf722761368cbb0e9ffb7a1ccef22a"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "4e58dee6af52648862c6bd8ca8a5b4d7455ab97af2c4cb625569f687b7731292",
+          "sealedSha256": "bb0043d947fb4111c8a945c3c3b320a2a0ac05e090dda5124ac84b0b07048cb8"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "5757588234e8c4e862e84c8760161810f824e8c35626a441fe9161d12c4c4ee7",
+          "sealedSha256": "ebd8beafefe7241b512d71cb5b9f2904329f9df67082b0a60f3c198aa8b072ed"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "2326e83ad4e6efef7bf5e7a21076fa8eacdc45c717fcb1b331f0f700c3ca83cb",
+          "sealedSha256": "715ea37b85aba669650d03b6456a5c37a44d0ddeb98dbd24fc098b5aa8376974"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "8JPN-KUD8-d1",
+    "CTNM-E43Z-d1"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}

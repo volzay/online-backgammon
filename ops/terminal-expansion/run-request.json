@@ -1,9 +1,10 @@
 {
-  "requestSequence": 2,
+  "requestSequence": 3,
   "look": 512,
   "cohorts": [
-    "8JPN-KUD8-d19"
+    "8JPN-KUD8-d1",
+    "CTNM-E43Z-d1"
   ],
-  "previousLookReportPath": "look-reports/8JPN-KUD8-d19-n128.json",
-  "previousLookReportSha256": "b96d88962c02f01355a0dc393474202cbfc2059e0ec99f19f3ccfc36ff09fdbd"
+  "previousLookReportPath": "look-reports/early-cases-n128.json",
+  "previousLookReportSha256": "59ea542dedeb7d117d18653a58ca9202476872f2895388739e9024912d08d8dd"
 }
