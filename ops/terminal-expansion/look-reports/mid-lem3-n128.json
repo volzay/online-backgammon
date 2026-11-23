@@ -1,0 +1,213 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T19:37:13.471Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 128,
+  "results": [
+    {
+      "id": "CTNM-E43Z-d5",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 52,
+      "comparisons": [
+        {
+          "candidateId": "6560cd1fe4b28a563ce6b5bfa49d6e4d45a03306ac8627c457a4bdc242b2a6d8",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 12,
+            "sweepLosses": 21,
+            "splitPairs": 95
+          },
+          "observedGain": -0.0703125,
+          "pairedLower": -1,
+          "pairedUpper": 0.16749614009901492,
+          "originalHoeffdingLower": -0.4708615502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "cef4799a4e6b412a5274b8a9eef2187d52aca2e671205c71e74910516cd5ee2a",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 17,
+            "sweepLosses": 27,
+            "splitPairs": 84
+          },
+          "observedGain": -0.078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.1873992348691793,
+          "originalHoeffdingLower": -0.4786740502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "98a7455043629f6bdc8e74a7c901171b6ee66108c7fcb66d42c277c6cc862feb",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 12,
+            "sweepLosses": 19,
+            "splitPairs": 97
+          },
+          "observedGain": -0.0546875,
+          "pairedLower": -1,
+          "pairedUpper": 0.1771178169081864,
+          "originalHoeffdingLower": -0.4552365502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "505a18689f337d67763e61931883618d3afa92857bd9ac14071c4e68118d9351",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 13,
+            "sweepLosses": 24,
+            "splitPairs": 91
+          },
+          "observedGain": -0.0859375,
+          "pairedLower": -1,
+          "pairedUpper": 0.162844875958303,
+          "originalHoeffdingLower": -0.4864865502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "9aab477bdc5ba80b72dc47ee5ac0545980d8761446670b614c9ca8470bfd1129",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 19,
+            "sweepLosses": 25,
+            "splitPairs": 84
+          },
+          "observedGain": -0.046875,
+          "pairedLower": -1,
+          "pairedUpper": 0.21751318736216874,
+          "originalHoeffdingLower": -0.4474240502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "97ac578ab72ed7ff7707e7358c9fb59b487c5762007e1717d63dc6e547943227",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 13,
+            "sweepLosses": 16,
+            "splitPairs": 99
+          },
+          "observedGain": -0.0234375,
+          "pairedLower": -1,
+          "pairedUpper": 0.20121541275214838,
+          "originalHoeffdingLower": -0.4239865502525104,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6d4665121360c44dc769ea3a994f58aa6924415d25ffd91668b8348e16a15e72",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 14,
+            "sweepLosses": 23,
+            "splitPairs": 91
+          },
+          "observedGain": -0.0703125,
+          "pairedLower": -1,
+          "pairedUpper": 0.17829014738495985,
+          "originalHoeffdingLower": -0.4708615502525104,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "558cb69a80410427db46411eb7779bf77ad741043ca5c4cdedf3dedf302160cb",
+          "sealedSha256": "9380a9d26d902ce92415bdc7672e0e98378f15c3398a7f197ef30fc83f866171"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "0778d74244e421a83a1a94875a579f6b4ac441ff5f0deb5d36e9593dee2771b1",
+          "sealedSha256": "4d635d43cb7ca65d18d94a04b860390115183dc07c04e93cf1919cb907e2ca59"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "cba497470bafbd394d3e3d564a7583aadfab613083d30a9e3e6ad58e7b2f7e48",
+          "sealedSha256": "3c56d3035395a78e3d8fc5f3de8fdd5bcaceb45cb35eecdb0780e58641b30aa0"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "cdf9072c417d640b8892e43979da3cd7283d2a64d72c951a7ff01747ec27e432",
+          "sealedSha256": "d69b37aa8eb5af79a8afbec6b93b219fa15bce479a981592da0bb2218801dfd0"
+        }
+      ]
+    },
+    {
+      "id": "LEM5-RES8-t3",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 45,
+      "comparisons": [
+        {
+          "candidateId": "42526e5af5fca7c06256eb0b5559526bb8ae942a7c354d7a1a7dc74657c63b8b",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 25,
+            "sweepLosses": 14,
+            "splitPairs": 89
+          },
+          "observedGain": 0.0859375,
+          "pairedLower": -1,
+          "pairedUpper": 0.3256101146515107,
+          "originalHoeffdingLower": -0.2865926226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+        "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+        "legalScope": "two-prespecified-model-actions"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "5bc3c460fbb7ac5070aafd6224580d765f2831dd4a35abc7f66360936f318fd6",
+          "sealedSha256": "e5e80a923ebeb3b71111d06bde297579bd5924e92087ccc2a8b7f25a1c573894"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "251440d5e43fa79bd751ee4149e766aa9ba04614f702705f18587d84078aafd4",
+          "sealedSha256": "aac4783c6cb93f5189683154f2e29cbf4c86eb3f60f51be5fcfc6c528cbd1ba8"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "0724da76981f8021da6d9724a595a9abc3a17ffd1522765f9e48bf4015136ba7",
+          "sealedSha256": "dbf4883a66a96a0a965401cd5b5dd876b349b2a6976e62008d5debde122fbb1a"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "dc57dab8c2adc260d99391482600033daa9ef0200f9ee63b3ff4aa97341c6281",
+          "sealedSha256": "8eefedd4be0c590b95c0942f75b9f84cd5ef9c766b5e48d39f35caf373b8ef62"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "CTNM-E43Z-d5",
+    "LEM5-RES8-t3"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}
