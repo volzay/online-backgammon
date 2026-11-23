@@ -1,10 +1,10 @@
 {
-  "requestSequence": 3,
+  "requestSequence": 4,
   "look": 512,
   "cohorts": [
-    "8JPN-KUD8-d1",
-    "CTNM-E43Z-d1"
+    "CTNM-E43Z-d5",
+    "LEM5-RES8-t3"
   ],
-  "previousLookReportPath": "look-reports/early-cases-n128.json",
-  "previousLookReportSha256": "59ea542dedeb7d117d18653a58ca9202476872f2895388739e9024912d08d8dd"
+  "previousLookReportPath": "look-reports/mid-lem3-n128.json",
+  "previousLookReportSha256": "9aedb2cb7c93f5105a94240faaa3a69df04cbc6f662e0bfbfa5b057e84c8be4d"
 }

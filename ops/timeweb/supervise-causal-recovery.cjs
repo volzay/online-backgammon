@@ -11,6 +11,15 @@ async function main(){
  plan.sort((a,b)=>b.jobId-a.jobId);
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
  if(!url||!key)throw Error('Production endpoint required');
+ const journal=process.env.CAUSAL_RECOVERY_JOURNAL||'/var/lib/online-backgammon-causal-worker/terminal-journal';
+ const isolated=journal==='/var/lib/online-backgammon-causal-recovery-20261123/terminal-journal';
+ if(!isolated&&journal!=='/var/lib/online-backgammon-causal-worker/terminal-journal')throw Error('Fixed private recovery root required');
+ const marker=path.join(path.dirname(journal),'campaign.complete'),started=Date.now();
+ if(isolated){
+  const r=await fetch(url.replace(/\/$/,'')+'/rest/v1/rpc/renew_long_bot_recovery_campaign',{
+   method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',Connection:'close'},body:'{}',signal:AbortSignal.timeout(15000)});
+  if(!r.ok||(await r.json()).renewed!==43)throw Error('Recovery scope renewal failed');
+ }
  async function status(x){
   let r;
   // This RPC only reads metadata. Retry bounded transient transport/server
@@ -27,22 +36,24 @@ async function main(){
   const s=await r.json();if(s.jobId!==x.jobId||s.runtimeDigest!==x.runtime||s.invalidated||!s.sourceUnchanged)throw Error('Recovery source/grant changed');return s;
  }
  const run=x=>new Promise((resolve,reject)=>{
-  const child=spawn('/usr/bin/flock',['--exclusive','--wait','30','--no-fork',
-   '/var/lib/online-backgammon-causal-worker/worker.flock',process.execPath,
+  const child=spawn('/usr/bin/flock',['--exclusive','--conflict-exit-code','75','--wait','30','--no-fork',
+   path.join(path.dirname(journal),'worker.flock'),process.execPath,
    path.join(__dirname,'run-causal-job-recovery.cjs'),'--run',x.worker,x.runtime],{stdio:'inherit'});
   child.on('error',reject);child.on('exit',code=>resolve(code));
  });
  for(let round=0;round<100;round++){
   let remaining=0;
-  for(const x of plan){const s=await status(x);
+  for(const x of plan){
+   if(isolated&&Date.now()-started>=21600000){console.log(JSON.stringify({yielded:true,reason:'bounded-six-hour-service-slice'}));return;}
+   const s=await status(x);
    if(s.status==='complete')continue;
    if(['failed','rejected'].includes(s.status))throw Error('Recovery needs investigation: '+JSON.stringify(s));
    remaining++;const code=await run(x);
-   if(code!==0&&code!==1)throw Error('Recovery supervisor child exit '+code);
+   if(code!==0&&code!==75)throw Error('Native recovery worker failed, exit '+code);
    const after=await status(x);console.log(JSON.stringify({round,jobId:x.jobId,status:after.status,slices:after.slices}));
    if(['failed','rejected'].includes(after.status))throw Error('Recovery stopped with '+after.status+' job '+x.jobId);
   }
-  if(!remaining){console.log(JSON.stringify({done:true,completed:43}));return;}
+  if(!remaining){if(isolated)fs.writeFileSync(marker,JSON.stringify({completed:43,at:new Date().toISOString()})+'\n',{mode:0o600});console.log(JSON.stringify({done:true,completed:43}));return;}
  }
  throw Error('Bounded recovery supervision exhausted');
 }

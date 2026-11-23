@@ -1,0 +1,11 @@
+[Unit]
+Description=Continue scoped long-bot recovery after bounded service slices
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=2min
+AccuracySec=15s
+Unit=long-causal-recovery-20261123.service
+
+[Install]
+WantedBy=timers.target
