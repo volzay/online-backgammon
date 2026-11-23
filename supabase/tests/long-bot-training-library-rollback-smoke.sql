@@ -35,13 +35,18 @@ begin
  c:=public.claim_long_bot_training_library(repeat('f',64),repeat('e',64),owner,'review');
  result:=public.checkpoint_long_bot_training_library(g.id,c->>'fingerprint',repeat('f',64),owner,0,'{"status":"no-applicable-improvement","turnIndex":0,"positionHash":"test-hash"}');
  if result->>'cursor'<>'1'then raise exception 'Review receipt not checkpointed';end if;
+ if public.get_long_bot_experience_patterns(null) is distinct from before_patterns then raise exception 'Existing advice changed';end if;
  update public.bot_training_games set final_state=final_state||'{"trainingLibraryRollbackProbe":true}'where id=g.id;
  if exists(select 1 from private.long_bot_training_source_heads where game_id=g.id and fingerprint=c->>'fingerprint')then raise exception 'Source change did not invalidate advice';end if;
  if not exists(select 1 from private.long_bot_training_library where game_id=g.id and runtime_digest=repeat('f',64)and classification_status='pending')then raise exception 'Changed source not enqueued';end if;
  if has_function_privilege('anon','public.claim_long_bot_training_library(text,text,uuid,text)','execute')
   or has_function_privilege('authenticated','public.checkpoint_long_bot_training_library(uuid,text,text,uuid,integer,jsonb)','execute')
   or has_table_privilege('authenticated','private.long_bot_training_library','select')then raise exception 'Private sources exposed';end if;
- if public.get_long_bot_experience_patterns(null) is distinct from before_patterns then raise exception 'Existing advice changed';end if;
+ perform set_config('request.jwt.claims',jsonb_build_object('email',(public.admin_email_whitelist())[1])::text,true);
+ result:=public.admin_long_bot_training_library(0,0);
+ if jsonb_typeof(result->'modelAdvice') is distinct from 'object'
+  or result#>'{modelAdvice,lessons}' is null or result#>'{modelAdvice,sources}' is null
+ then raise exception 'Malformed administrator lesson statistics';end if;
  raise notice 'PASS: backfill, leases, stale writes, forged advice, capacity retry, receipts, source invalidation and permissions';
 end $test$;
 rollback;
