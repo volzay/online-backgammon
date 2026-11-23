@@ -57,13 +57,33 @@ jobs:
       - name: Attest encrypted native results
         if: always()
         id: signature
+        continue-on-error: true
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: expanded-results/*.sealed.json
+      - name: Wait before retrying the transparency log
+        if: always() && steps.signature.outcome == 'failure'
+        run: sleep 10
+      - name: Retry attesting the same encrypted results
+        if: always() && steps.signature.outcome == 'failure'
+        id: signature_retry1
+        continue-on-error: true
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: expanded-results/*.sealed.json
+      - name: Wait before the final transparency-log attempt
+        if: always() && steps.signature.outcome == 'failure' && steps.signature_retry1.outcome == 'failure'
+        run: sleep 10
+      - name: Require a successful attestation on the final attempt
+        if: always() && steps.signature.outcome == 'failure' && steps.signature_retry1.outcome == 'failure'
+        id: signature_retry2
         uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
         with:
           subject-path: expanded-results/*.sealed.json
       - name: Include signature bundle
-        if: always() && steps.signature.outcome == 'success'
+        if: always() && (steps.signature.outcome == 'success' || steps.signature_retry1.outcome == 'success' || steps.signature_retry2.outcome == 'success')
         env:
-          BUNDLE: ${{ steps.signature.outputs.bundle-path }}
+          BUNDLE: ${{ steps.signature.outcome == 'success' && steps.signature.outputs.bundle-path || steps.signature_retry1.outcome == 'success' && steps.signature_retry1.outputs.bundle-path || steps.signature_retry2.outputs.bundle-path }}
         run: cp "$BUNDLE" expanded-results/attestation.sigstore.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
