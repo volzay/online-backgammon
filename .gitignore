@@ -4,3 +4,9 @@ node_modules/
 .netlify/
 dist/
 data/
+# Private inputs and encrypted CI results are never source files.
+ops/terminal-compute/workloads/
+private-compute-input/
+private-compute-keys/
+terminal-key-exchange/
+terminal-results/

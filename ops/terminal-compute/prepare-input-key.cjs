@@ -1,0 +1,11 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const id=process.argv[2],lock=JSON.parse(fs.readFileSync(path.join(__dirname,'input-lock.json')));
+if(!lock.workloads[id]||process.platform!=='linux'||process.versions.node!=='24.15.0'||!/^[0-9a-f]{40}$/.test(process.env.GITHUB_SHA||''))throw Error('Exact native GitHub job required');
+fs.mkdirSync('private-compute-keys',{mode:0o700});fs.mkdirSync('terminal-key-exchange',{mode:0o755});
+const pair=crypto.generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
+fs.writeFileSync('private-compute-keys/'+id+'.pem',pair.privateKey,{mode:0o600,flag:'wx'});
+const record={schema:process.env.SAMPLE_START===undefined?'long-requested-compute-public-key-v1':'long-requested-compute-fragment-public-key-v1',id,sourceCommit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,inputSha256:lock.workloads[id].sha256,publicKey:pair.publicKey,
+ ...(process.env.SAMPLE_START===undefined?{}:{sampleStart:Number(process.env.SAMPLE_START),sampleEnd:Number(process.env.SAMPLE_START)+8})};
+fs.writeFileSync('terminal-key-exchange/'+id+'.json',JSON.stringify(record,null,2)+'\n',{mode:0o644,flag:'wx'});
+console.log('Prepared one-time public input key '+id);

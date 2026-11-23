@@ -1,0 +1,129 @@
+{
+  "schema": "requested-native-compute-input-lock-v1",
+  "capsules": {
+    "current-0eab9068.tar.gz": "783d6c74ace9646e5fa4748eeae652c43d9fd20884a3b1988ab91024a3079c14",
+    "quarter-18f05baf.tar.gz": "8bed0a2ad6ded57e95d128886f58c60a99253787a4a77a8fa011782734534572"
+  },
+  "workloads": {
+    "8JPN-KUD8-d1": {
+      "file": "8JPN-KUD8-d1.json",
+      "sha256": "2d5a47c798a7e7ec9a40e02a5c880c72293b49a77e4aa14200a626a91d0fa705",
+      "manifestId": "ca06ec99db584a861932b21de2f93a03acf0c4e3d2681c2a6ae0f6076248f9a4",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "8JPN-KUD8-d19": {
+      "file": "8JPN-KUD8-d19.json",
+      "sha256": "0ed50b086352ca995c900831be0281fdd94512dbb0250e1bd64ecfd07c987f76",
+      "manifestId": "09850d932a937faaa00b6688c6fcad47ad79aa5ff93ae097c3863c1b54157a26",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 3,
+      "terminalEndpoints": 96
+    },
+    "8JPN-KUD8-d33": {
+      "file": "8JPN-KUD8-d33.json",
+      "sha256": "9ae796fbb68729fcc60a03d94b6ca635b5228b3313a4d2bb71409c743dc8fab7",
+      "manifestId": "04fa7efaa4c8ee35e902c56d3dfd248cce31955dfceafcc2196155b356d0774e",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 19,
+      "terminalEndpoints": 608
+    },
+    "8JPN-KUD8-d7": {
+      "file": "8JPN-KUD8-d7.json",
+      "sha256": "8ec4aa1c12fec343609c4f97e3da0a232aaa9cb4989ffcee01a7206e651b4246",
+      "manifestId": "517eae4f96942db8cf3584121c083f7806ab8f3679d7a09553dd2f51fd62daaa",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 17,
+      "terminalEndpoints": 544
+    },
+    "CTNM-E43Z-d1": {
+      "file": "CTNM-E43Z-d1.json",
+      "sha256": "717cd6f9dc41f64f1799af27e81b68f3d6808b2afe7402fbf1663178a57e0332",
+      "manifestId": "4ffff1953b6de1930e0c8a8e28cf440748f978e254f6958b58301c6dce2b7a2b",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "CTNM-E43Z-d13": {
+      "file": "CTNM-E43Z-d13.json",
+      "sha256": "fbe8cfaaabac5614f85a1dffb69435c6b1ff582a46516c4349a1facaa810e361",
+      "manifestId": "c640ec76abfaffa0dd5cbd96702f1e1056a54863874d38abb9f81170cb795e20",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 16,
+      "terminalEndpoints": 512
+    },
+    "CTNM-E43Z-d5": {
+      "file": "CTNM-E43Z-d5.json",
+      "sha256": "02caa453f481f45382a9df592bf852dda48642315ecb17fd45e10075ed978ea5",
+      "manifestId": "e8ee20a3e2d000baf23d1770c62dacefa59259b893dc90c3470a9b38e0ac40bb",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 8,
+      "terminalEndpoints": 256
+    },
+    "CTNM-E43Z-d9": {
+      "file": "CTNM-E43Z-d9.json",
+      "sha256": "7c79db374c618623367eefbac721fa2e3e423b39e34153358f25d55ddc82dbd5",
+      "manifestId": "b2c1317ea0f28758645d57ee2dc5e4c7726bd00d0e1b097c4447fee18d6ec2de",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 16,
+      "terminalEndpoints": 512
+    },
+    "LEM5-RES8-t11": {
+      "file": "LEM5-RES8-t11.json",
+      "sha256": "82ecce0ebb062a532477f4fe27c5ed85ca78b3613f5d7a3d2ae40fe91c69ab85",
+      "manifestId": "bcb2547abef9b28801ae7ab3ec6d768b8fc6cc4f05fe7e21ddc2fe696f9c75a0",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t12": {
+      "file": "LEM5-RES8-t12.json",
+      "sha256": "4f10963b9b15d927ea1119b2925bba02ec7e7a90df5587b71534e3ad748d1e4c",
+      "manifestId": "cc8e2603e3e372c94abcccb52c6433e2433f6b17702ef79e2d1d7467e3528945",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t13": {
+      "file": "LEM5-RES8-t13.json",
+      "sha256": "6249094cd54bce94fac83cc28fc7398663a29ce6cf0540dac19491f2e3de6304",
+      "manifestId": "4a0047aab28eaddec651255e6cc27a17f7910df70276de75940d3501c5eb1fd5",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t17": {
+      "file": "LEM5-RES8-t17.json",
+      "sha256": "7b291fa355516d226ec8e1d261a9ab65b9c147512c8c4e03ef1e840049666843",
+      "manifestId": "1b3f8928f8addb88236ae05ef32357ab8eebe721a5541e9fe64e7c6f0181f249",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t18": {
+      "file": "LEM5-RES8-t18.json",
+      "sha256": "ec200b8c1c300ecab849167b483097426cc719369a1d9ecf78d384a3f71ebad9",
+      "manifestId": "b59ceb1d61f0c772dbca89bdc8c46a30f1a14cf72762ec856ccc94ca0ce36f9d",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t3": {
+      "file": "LEM5-RES8-t3.json",
+      "sha256": "8ba03db078ac68001723652821b5ab6a8f3da77617f7a4720929a490d41a60c2",
+      "manifestId": "4396b0e92c2ccc3e664722053e5993690511b863d9fcf57c6c1f948806c01882",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    },
+    "LEM5-RES8-t6": {
+      "file": "LEM5-RES8-t6.json",
+      "sha256": "6e0fdfc54f9c62fa6e5e4ca81fcfa85a57661d24597244a3cf3f4fded8518a8d",
+      "manifestId": "693cc1b063ad02222e211854bfa39fdd92df21493efb5eaff872b22194dc84ef",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2,
+      "terminalEndpoints": 64
+    }
+  }
+}
