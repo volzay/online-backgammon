@@ -121,13 +121,13 @@ begin
   if not exists (select 1 from private.long_bot_causal_serving_runtime()
       where runtime_digest = new_digest and policy_implementation_id = new_policy)
     or exists(select 1 from jsonb_array_elements(public.get_long_bot_experience_patterns(null)) p
-      where p->>'policyImplementationId' not in(old_policy,'2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2')
+      where p->>'policyImplementationId' not in(old_policy,new_policy,'2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2')
         or p->>'evidenceSchema' is distinct from 'long-server-board-model-pattern-v1'
         or p->'terminalOutcomeConfirmed' is distinct from 'false'::jsonb) then
     raise exception 'The new serving identity or typed model lessons differ from the reviewed transition.';
   end if;
-  if public.get_long_bot_experience_patterns(null) is distinct from published_before then
-    raise exception 'Original typed model advice changed during activation.';
+  if not public.get_long_bot_experience_patterns(null) @> published_before then
+    raise exception 'Original typed model advice was removed or changed during activation.';
   end if;
   select pg_catalog.encode(extensions.digest(secret, 'sha256'), 'hex')
     into signing_key_hash_after from private.long_bot_experience_signing_key where singleton;
