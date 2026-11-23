@@ -1,0 +1,628 @@
+diff --git a/scripts/long-bot-causal-worker.js b/scripts/long-bot-causal-worker.js
+index cb847f0..937392d 100644
+--- a/scripts/long-bot-causal-worker.js
++++ b/scripts/long-bot-causal-worker.js
+@@ -49,7 +49,8 @@ const ROOT = path.join(__dirname, '..');
+ // options, browser telemetry and exported helpers cannot construct it.
+ const PRODUCTION_SCOPE = Symbol('verified-production-review-slice');
+ const VERIFIED_SCOPES = new WeakSet();
+-const PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
++const LEGACY_PROGRESS_SCHEMA = 'long-server-causal-progress-v1';
++const PROGRESS_SCHEMA = 'long-server-causal-progress-v2';
+ const ENGINE_VERSION = 'long-analytic-v35';
+ const WORKER_RELEASE = 'long-server-causal-review-v1';
+ const EVIDENCE_SCHEMA = 'long-server-causal-evidence-v1';
+@@ -580,6 +581,10 @@ async function reviewTrustedDecision(game, decision, options = {}) {
+   }
+   const legalSelected = findExactShadowSelected(decision, shadow.replay.candidates);
+   if (!legalSelected) return { ...base, reason: 'selected-shadow-identity-mismatch' };
++  const uniqueLegalPositions = new Set(shadow.replay.candidates.map(afterPositionKey));
++  if (uniqueLegalPositions.size < 2) {
++    return { ...base, reason: 'rollout-alternatives-missing' };
++  }
+   let reproduced;
+   try {
+     reproduced = options.archivedSelectionReplay
+@@ -887,20 +892,53 @@ function productionDecisionIndexes(game) {
+   return trainingDecisions(game).flatMap((decision, index) => botDecision(decision, game) ? [index] : []);
+ }
+ 
++function validProductionRolloutCheckpoint(value) {
++  if (value === null) return true;
++  const keys = ['manifestId', 'sampleIndex', 'candidateIndex', 'candidateId', 'plies', 'checkpointHash', 'stateHash'];
++  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && !types.isProxy(value)
++    && canonicalJson(Object.keys(value).sort()) === canonicalJson(keys.sort())
++    && /^[0-9a-f]{64}$/.test(String(value.manifestId || ''))
++    && /^[0-9a-f]{64}$/.test(String(value.candidateId || ''))
++    && /^[0-9a-f]{64}$/.test(String(value.checkpointHash || ''))
++    && /^[0-9a-f]{64}$/.test(String(value.stateHash || ''))
++    && Number.isSafeInteger(value.sampleIndex) && value.sampleIndex >= 0 && value.sampleIndex < 128
++    && Number.isSafeInteger(value.candidateIndex) && value.candidateIndex >= 0 && value.candidateIndex < 24
++    && Number.isSafeInteger(value.plies) && value.plies >= 1 && value.plies < 600);
++}
++
++function normalizeProductionProgress(game, progress) {
++  if (!progress || typeof progress !== 'object' || Array.isArray(progress) || types.isProxy(progress)) {
++    throw new Error('Malformed server causal progress');
++  }
++  const legacyKeys = ['schema', 'finishedReviews', 'currentDecisionIndex', 'currentTerminalOutcomes', 'slices', 'stalledSlices'];
++  const currentKeys = [...legacyKeys, 'currentRolloutCheckpoint'];
++  if (progress.schema === LEGACY_PROGRESS_SCHEMA
++    && canonicalJson(Object.keys(progress).sort()) === canonicalJson(legacyKeys.sort())) {
++    // v1 could persist only complete terminal endpoints. Any computation after
++    // the last endpoint was uncommitted, so this is the sole safe migration
++    // boundary: resume from that endpoint with no invented mid-game state.
++    return { ...structuredClone(progress), schema: PROGRESS_SCHEMA, currentRolloutCheckpoint: null };
++  }
++  if (progress.schema !== PROGRESS_SCHEMA
++    || canonicalJson(Object.keys(progress).sort()) !== canonicalJson(currentKeys.sort())) {
++    throw new Error('Malformed server causal progress');
++  }
++  return structuredClone(progress);
++}
++
+ function validateProductionProgress(game, progress) {
+-  const keys = ['schema', 'finishedReviews', 'currentDecisionIndex', 'currentTerminalOutcomes', 'slices', 'stalledSlices'];
++  const normalized = normalizeProductionProgress(game, progress);
+   const indexes = productionDecisionIndexes(game);
+-  if (!progress || typeof progress !== 'object' || Array.isArray(progress) || types.isProxy(progress)
+-    || canonicalJson(Object.keys(progress).sort()) !== canonicalJson(keys.sort())
+-    || progress.schema !== PROGRESS_SCHEMA || !Array.isArray(progress.finishedReviews)
+-    || progress.finishedReviews.length > indexes.length
+-    || !Number.isSafeInteger(progress.currentTerminalOutcomes) || progress.currentTerminalOutcomes < 0
+-    || progress.currentTerminalOutcomes > 3072
+-    || !Number.isSafeInteger(progress.slices) || progress.slices < 0 || progress.slices > 10240
+-    || !Number.isSafeInteger(progress.stalledSlices) || progress.stalledSlices < 0 || progress.stalledSlices > 10) {
++  if (!Array.isArray(normalized.finishedReviews)
++    || normalized.finishedReviews.length > indexes.length
++    || !Number.isSafeInteger(normalized.currentTerminalOutcomes) || normalized.currentTerminalOutcomes < 0
++    || normalized.currentTerminalOutcomes > 3072
++    || !Number.isSafeInteger(normalized.slices) || normalized.slices < 0 || normalized.slices > 10240
++    || !Number.isSafeInteger(normalized.stalledSlices) || normalized.stalledSlices < 0 || normalized.stalledSlices > 10
++    || !validProductionRolloutCheckpoint(normalized.currentRolloutCheckpoint)) {
+     throw new Error('Malformed server causal progress');
+   }
+-  for (const [offset, item] of progress.finishedReviews.entries()) {
++  for (const [offset, item] of normalized.finishedReviews.entries()) {
+     const review = item?.review;
+     if (!item || canonicalJson(Object.keys(item).sort()) !== canonicalJson(['decisionIndex', 'review'])
+       || item.decisionIndex !== indexes[offset] || !review || typeof review !== 'object'
+@@ -913,36 +951,63 @@ function validateProductionProgress(game, progress) {
+       throw new Error('Server causal progress is not an exact finished original-ledger prefix');
+     }
+   }
+-  const next = indexes[progress.finishedReviews.length] ?? null;
+-  if (progress.currentDecisionIndex !== next
+-    && !(progress.slices === 0 && progress.finishedReviews.length === 0
+-      && progress.currentDecisionIndex === null && progress.currentTerminalOutcomes === 0)) {
++  const next = indexes[normalized.finishedReviews.length] ?? null;
++  if (normalized.currentDecisionIndex !== next
++    && !(normalized.slices === 0 && normalized.finishedReviews.length === 0
++      && normalized.currentDecisionIndex === null && normalized.currentTerminalOutcomes === 0
++      && normalized.currentRolloutCheckpoint === null)) {
+     throw new Error('Server causal progress cursor mismatch');
+   }
+-  if (next === null && progress.currentTerminalOutcomes !== 0) throw new Error('Completed progress retained partial outcomes');
++  if (next === null && (normalized.currentTerminalOutcomes !== 0
++    || normalized.currentRolloutCheckpoint !== null)) throw new Error('Completed progress retained partial outcomes');
+   return { indexes, next };
+ }
+ 
++function rolloutCheckpointAdvanced(previous, next) {
++  if (previous === null) return next !== null;
++  if (next === null) return false;
++  for (const key of ['manifestId', 'sampleIndex', 'candidateIndex', 'candidateId']) {
++    if (previous[key] !== next[key]) throw new Error('Current terminal rollout checkpoint identity changed without a completed endpoint');
++  }
++  if (next.plies < previous.plies) throw new Error('Current terminal rollout checkpoint regressed');
++  if (next.plies === previous.plies && (next.checkpointHash !== previous.checkpointHash
++    || next.stateHash !== previous.stateHash)) throw new Error('Current terminal rollout checkpoint conflicted at the same ply');
++  return next.plies > previous.plies;
++}
++
+ function advanceProductionProgress(game, previous, decisionIndex, review) {
+-  const { indexes, next } = validateProductionProgress(game, previous);
++  const normalizedPrevious = normalizeProductionProgress(game, previous);
++  const { indexes, next } = validateProductionProgress(game, normalizedPrevious);
+   if (next === null || decisionIndex !== next || review?.decisionId !== String(trainingDecisions(game)[next].id || '')) {
+     throw new Error('Production slice is not the next original decision');
+   }
+   if (review.reason === 'rollout-runtime-failed') throw new Error(`Native rollout failed: ${review.detail || review.reason}`);
+   const partial = review.reason === 'rollout-time-limit';
+   const count = partial ? review.rollout?.terminalJournalObservation?.completedTerminalOutcomes : 0;
++  const checkpoint = partial ? review.rollout?.terminalJournalObservation?.activeCheckpoint : null;
+   if (partial && (review.status !== 'rejected' || review.evidence
+     || review.rollout?.coverage?.complete !== false || !Number.isSafeInteger(count)
+-    || count < previous.currentTerminalOutcomes || count > 3072)) {
++    || count < normalizedPrevious.currentTerminalOutcomes || count > 3072
++    || !validProductionRolloutCheckpoint(checkpoint))) {
+     throw new Error('Partial production slice lacks authenticated monotonic terminal progress');
+   }
+-  const finishedReviews = previous.finishedReviews.map(item => structuredClone(item));
++  let checkpointProgress = false;
++  if (partial && count === normalizedPrevious.currentTerminalOutcomes) {
++    checkpointProgress = rolloutCheckpointAdvanced(normalizedPrevious.currentRolloutCheckpoint, checkpoint);
++    if (normalizedPrevious.currentRolloutCheckpoint !== null && checkpoint === null) {
++      throw new Error('Current terminal rollout checkpoint disappeared without a completed endpoint');
++    }
++  }
++  const finishedReviews = normalizedPrevious.finishedReviews.map(item => structuredClone(item));
+   if (!partial) finishedReviews.push({ decisionIndex, review: structuredClone(review) });
+   const progress = {
+     schema: PROGRESS_SCHEMA, finishedReviews,
+     currentDecisionIndex: indexes[finishedReviews.length] ?? null,
+-    currentTerminalOutcomes: count, slices: previous.slices + 1,
+-    stalledSlices: partial && count === previous.currentTerminalOutcomes ? previous.stalledSlices + 1 : 0,
++    currentTerminalOutcomes: count,
++    currentRolloutCheckpoint: partial ? structuredClone(checkpoint) : null,
++    slices: normalizedPrevious.slices + 1,
++    stalledSlices: partial && count === normalizedPrevious.currentTerminalOutcomes && !checkpointProgress
++      ? normalizedPrevious.stalledSlices + 1 : 0,
+   };
+   validateProductionProgress(game, progress);
+   return progress;
+@@ -1041,7 +1106,10 @@ async function runResumableClaimedBatch(options) {
+   }), digest, implementationId);
+   // Malformed identities/progress are not caught as job failures: they must
+   // never consume someone else's release or source revision.
+-  for (const job of jobs) validateProductionProgress(job.game, job.progress);
++  for (const job of jobs) {
++    validateProductionProgress(job.game, job.progress);
++    job.progress = normalizeProductionProgress(job.game, job.progress);
++  }
+   const completed = [];
+   for (const job of jobs) {
+     try {
+@@ -1095,7 +1163,7 @@ async function runResumableClaimedBatch(options) {
+       completed.push({ jobId: job.jobId, accepted: false, reason: 'worker-error', detail: String(error?.message || error) });
+     }
+   }
+-  return { workerId, claimed: jobs.length, lifecycle: 'long-server-resumable-slices-v1', completed };
++  return { workerId, claimed: jobs.length, lifecycle: 'long-server-resumable-slices-v2', completed };
+ }
+ 
+ async function runClaimedBatch(options = {}) {
+@@ -1213,7 +1281,7 @@ function helpText() {
+     '',
+     'Production mode requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+     'The service-role secret must never be exposed to the browser.',
+-    'Offline terminal journals preserve only validated complete slots; partial cohorts never create evidence.',
++    'Offline terminal journals preserve complete slots and authenticated in-game checkpoints; partial cohorts never create evidence.',
+   ].join('\n');
+ }
+ 
+@@ -1277,8 +1345,10 @@ module.exports = {
+   trainingDecisions,
+   trustedReviewSelection,
+   uniqueCausalEvidence,
++  LEGACY_PROGRESS_SCHEMA,
+   PROGRESS_SCHEMA,
+   productionDecisionIndexes,
++  normalizeProductionProgress,
+   validateProductionProgress,
+   advanceProductionProgress,
+   aggregateProductionResult,
+diff --git a/scripts/long-bot-paired-rollout.js b/scripts/long-bot-paired-rollout.js
+index 6f65450..20fe388 100644
+--- a/scripts/long-bot-paired-rollout.js
++++ b/scripts/long-bot-paired-rollout.js
+@@ -11,7 +11,7 @@ const {
+   stateFromSnapshot,
+ } = require('./generate-long-bot-shadow-replay');
+ const { createDiceStream } = require('./simulate-long-bot-regression');
+-const { createTerminalJournal } = require('./long-bot-terminal-journal');
++const { CHECKPOINT_SCHEMA, createTerminalJournal } = require('./long-bot-terminal-journal');
+ 
+ const SCORE_SEMANTICS = 'long-paired-terminal-win-probability-v1';
+ const NATIVE_CACHE_VERSION = 'native-cold-v1';
+@@ -140,6 +140,44 @@ function nativeCacheCheckpoint(state) {
+   return clone(checkpoint);
+ }
+ 
++function durableRolloutCheckpointState(state) {
++  if (canonicalNativeState(state) === null) return null;
++  const checkpoint = clone(state);
++  checkpoint.history = [];
++  delete checkpoint.analysis;
++  return checkpoint;
++}
++
++function resumeTerminalRollout(checkpoint, afterState, seeds, limits) {
++  if (checkpoint === undefined || checkpoint === null) {
++    return { state: clone(afterState), plies: 0, rolls: { white: 0, dark: 0 } };
++  }
++  const exact = ['schema', 'sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state',
++    'stateHash', 'manifestId', 'checkpointHash'];
++  if (!nativeData(checkpoint) || !checkpoint || Array.isArray(checkpoint)
++    || stableStringify(Object.keys(checkpoint).sort()) !== stableStringify(exact.sort())
++    || checkpoint.schema !== CHECKPOINT_SCHEMA
++    || !/^[0-9a-f]{64}$/.test(String(checkpoint.manifestId || ''))
++    || !/^[0-9a-f]{64}$/.test(String(checkpoint.checkpointHash || ''))
++    || !/^[0-9a-f]{64}$/.test(String(checkpoint.stateHash || ''))
++    || stableStringify(checkpoint.seeds) !== stableStringify(seeds)
++    || !Number.isSafeInteger(checkpoint.plies) || checkpoint.plies < 1 || checkpoint.plies >= limits.maxPlies
++    || !checkpoint.rolls || Object.keys(checkpoint.rolls).sort().join(',') !== 'dark,white'
++    || !['white', 'dark'].every(color => Number.isSafeInteger(checkpoint.rolls[color])
++      && checkpoint.rolls[color] >= 0 && checkpoint.rolls[color] <= limits.maxPlies)
++    || checkpoint.rolls.white + checkpoint.rolls.dark !== checkpoint.plies
++    || canonicalNativeState(checkpoint.state) === null
++    || digest(stableStringify(checkpoint.state)) !== checkpoint.stateHash
++    || checkpoint.state.phase !== 'roll' || checkpoint.state.winner !== null
++    || checkpoint.state.resultType !== null || checkpoint.state.dice.length !== 0
++    || checkpoint.state.rolled.length !== 0 || checkpoint.state.turnMoves.length !== 0
++    || checkpoint.state.headPlayedThisTurn.white !== false
++    || checkpoint.state.headPlayedThisTurn.dark !== false) {
++    throw new Error('Authenticated terminal rollout checkpoint is invalid');
++  }
++  return { state: clone(checkpoint.state), plies: checkpoint.plies, rolls: clone(checkpoint.rolls) };
++}
++
+ function createNativeColdCohortCache(runtime, limits, attestation = {}, hashKey = digest) {
+   const stats = { mode: limits.cacheMode, version: NATIVE_CACHE_VERSION, enabled: false, bypassReason: '',
+     namespaceFingerprint: null, planHits: 0, planMisses: 0, suffixHits: 0, suffixMisses: 0, evictions: 0, entries: 0, bytes: 0 };
+@@ -282,13 +320,17 @@ function applyCompleteAction(runtime, decision, candidate) {
+ }
+ 
+ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, startedAt, metadata = {}) {
+-  const state = clone(afterState);
++  const resumed = resumeTerminalRollout(metadata.resumeCheckpoint, afterState, seeds, limits);
++  const state = resumed.state;
+   const streams = {
+     white: createDiceStream(seeds.white),
+     dark: createDiceStream(seeds.dark),
+   };
+-  let plies = 0;
+-  const rolls = { white: 0, dark: 0 };
++  let plies = resumed.plies;
++  const rolls = resumed.rolls;
++  for (const color of ['white', 'dark']) {
++    for (let index = 0; index < rolls[color]; index += 1) streams[color].roll();
++  }
+   const visited = [];
+   const cache = metadata.nativeCache;
+   // Winner/total-plies is the ONLY rollout result contract. Under the exact
+@@ -338,6 +380,13 @@ function playTerminalRollout(runtime, afterState, botColor, seeds, limits, start
+     }
+     if (beforePlan && !cachedPlan && Array.isArray(plan) && appliedPlanMoves === plan.length) cache.putValidatedPlan(beforePlan, plan);
+     if (!state.winner) runtime.game.endTurn(state);
++    if (!state.winner && plies < limits.maxPlies && typeof metadata.saveCheckpoint === 'function') {
++      const durableState = durableRolloutCheckpointState(state);
++      if (!durableState || durableState.phase !== 'roll') {
++        return { complete: false, reason: 'rollout-checkpoint-state-invalid' };
++      }
++      metadata.saveCheckpoint({ state: durableState, plies, rolls: { ...rolls } });
++    }
+   }
+   if (!state.winner) return { complete: false, reason: 'rollout-ply-limit' };
+   sealVisited(state.winner, plies);
+@@ -473,7 +522,12 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
+     namespaceFingerprint: null, planHits: 0, planMisses: 0, suffixHits: 0, suffixMisses: 0,
+     evictions: 0, entries: 0, bytes: 0,
+   };
+-  const startedAt = Date.now();
++  // The slice budget belongs to NEW terminal simulation, not authenticated
++  // journal recovery. Opening a large durable cohort and replaying its saved
++  // prefix are bounded I/O, but charging them can make every retry expire at
++  // the same active checkpoint forever. Start this clock lazily at the first
++  // unfinished slot reached after the saved prefix.
++  let startedAt = null;
+   const accumulators = candidates.map(candidate => ({
+     candidate,
+     afterState: applyCompleteAction(runtime, decision, candidate),
+@@ -521,26 +575,33 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
+     for (let sample = 0; sample < limits.samples; sample += 1) {
+       const seeds = seedsBySample[sample];
+       for (const [currentCandidateIndex, accumulator] of accumulators.entries()) {
+-        if (Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
+-          coverage: { complete: false, sample, evaluatedCandidates: accumulator.outcomes.length,
+-            completedTerminalOutcomes, requiredTerminalOutcomes, samplesPerCandidate: limits.samples,
+-            candidateCount: candidates.length, currentCandidateIndex },
+-          cacheObservation: cacheObservation(),
+-          ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
+-        });
+-        const saved = journal?.lookup(sample, candidateIds[currentCandidateIndex], seeds);
+-        if (Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
++        const candidateId = candidateIds[currentCandidateIndex];
++        const saved = journal?.lookup(sample, candidateId, seeds);
++        // Authenticated terminal endpoints are already-completed work. Replay
++        // their bounded metadata even after this slice's compute deadline so
++        // we always reach the one active checkpoint (or first unfinished
++        // slot). Otherwise a timeout while scanning an earlier saved slot can
++        // report a cursor that contradicts the later authenticated checkpoint
++        // and make a normal resume fail closed in PostgreSQL.
++        if (!saved && startedAt === null) startedAt = Date.now();
++        if (!saved && Date.now() - startedAt > limits.maxElapsedMs) return failure('rollout-time-limit', {
+           coverage: { complete: false, sample, evaluatedCandidates: accumulator.outcomes.length,
+             completedTerminalOutcomes, requiredTerminalOutcomes, samplesPerCandidate: limits.samples,
+             candidateCount: candidates.length, currentCandidateIndex },
+           cacheObservation: cacheObservation(),
+           ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
+         });
++        if (saved) journal?.clearCheckpoint(sample, candidateId, seeds);
++        const resumeCheckpoint = saved ? null : journal?.lookupCheckpoint(sample, candidateId, seeds);
+         const runner = options.outcomeRunner || playTerminalRollout;
+         const outcome = saved ? { ...saved, botWon: saved.winner === botColor } : await runner(
+           runtime, accumulator.afterState, botColor,
+           seeds, limits, startedAt, { sample, candidate: accumulator.candidate, nativeCache,
+-            nativeHistoryProjection: !bypass && nativeCache?.enabled() === true },
++            nativeHistoryProjection: !bypass && nativeCache?.enabled() === true,
++            ...(journal ? { resumeCheckpoint,
++              saveCheckpoint: checkpoint => journal.saveCheckpoint({
++                sampleIndex: sample, candidateId, seeds, ...checkpoint,
++              }) } : {}) },
+         );
+         if (
+           !outcome?.complete
+@@ -556,7 +617,7 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
+           ...(journal ? { terminalJournalObservation: journalObservation() } : {}),
+         });
+         if (saved) resumedTerminalOutcomes += 1;
+-        else if (journal) journal.commit({ sampleIndex: sample, candidateId: candidateIds[currentCandidateIndex],
++        else if (journal) journal.commit({ sampleIndex: sample, candidateId,
+           seeds, winner: outcome.winner, plies: outcome.plies, complete: true });
+         accumulator.outcomes.push(outcome.botWon ? 1 : 0);
+         completedTerminalOutcomes += 1;
+diff --git a/scripts/long-bot-terminal-journal.js b/scripts/long-bot-terminal-journal.js
+index 5e03119..525c98a 100644
+--- a/scripts/long-bot-terminal-journal.js
++++ b/scripts/long-bot-terminal-journal.js
+@@ -2,7 +2,8 @@
+ 
+ // This primitive is an authenticated, server-owned OFFLINE progress store.
+ // It never evaluates a position, accepts a client label or emits learning
+-// evidence. Only the caller's already-validated terminal endpoints are stored.
++// evidence. It stores validated terminal endpoints plus one HMAC-authenticated
++// in-game continuation checkpoint; neither partial form is learning evidence.
+ const fs = require('node:fs');
+ const path = require('node:path');
+ const crypto = require('node:crypto');
+@@ -11,11 +12,14 @@ const { types } = require('node:util');
+ const MANIFEST_SCHEMA = 'long-bot-terminal-cohort-manifest-v1';
+ const JOURNAL_SCHEMA = 'long-bot-terminal-journal-v1';
+ const SLOT_SCHEMA = 'long-bot-terminal-slot-v1';
++const CHECKPOINT_SCHEMA = 'long-bot-terminal-rollout-checkpoint-v1';
++const CHECKPOINT_ENVELOPE_SCHEMA = 'long-bot-terminal-checkpoint-envelope-v1';
+ const KEY_NAME = 'terminal-journal.key';
+ const LOCK_NAME = 'writer.lock';
+ const MANIFEST_NAME = 'manifest.json';
+ const MAX_MANIFEST_BYTES = 8388608;
+ const MAX_SLOT_BYTES = 16384;
++const MAX_CHECKPOINT_BYTES = 131072;
+ const HASH = /^[0-9a-f]{64}$/;
+ const clone = value => JSON.parse(JSON.stringify(value));
+ const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
+@@ -101,6 +105,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+   let rootIdentity, cohortIdentity, keyIdentity, lockIdentity, key, lockBytes;
+   let closed = false, faulted = false, ignoredTemporaryFiles = 0;
+   const records = new Map();
++  const checkpoints = new Map();
+   const identity = stat => `${stat.dev}:${stat.ino}`;
+ 
+   function noSymlinkComponents(target) {
+@@ -182,10 +187,27 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+     checkpoint('after-directory-fsync');
+   }
+ 
++  function atomicReplace(name, bytes, mode) {
++    const target = path.join(cohortDirectory, name);
++    const temporary = path.join(cohortDirectory, `.tmp-checkpoint-${crypto.randomBytes(16).toString('hex')}`);
++    createExclusive(temporary, bytes, mode);
++    checkpoint('after-checkpoint-temp-fsync');
++    if (!readRegular(temporary, mode, bytes.length).bytes.equals(bytes)) error('temporary-preimage-mismatch');
++    fs.renameSync(temporary, target);
++    checkpoint('after-checkpoint-rename-before-directory-fsync');
++    syncDirectory(cohortDirectory);
++    if (!readRegular(target, mode, bytes.length).bytes.equals(bytes)) error('committed-preimage-mismatch');
++    checkpoint('after-checkpoint-directory-fsync');
++  }
++
+   function slotName(sampleIndex, candidateId) {
+     return `slot-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`;
+   }
+ 
++  function checkpointName(sampleIndex, candidateId) {
++    return `checkpoint-s${String(sampleIndex).padStart(3, '0')}-c${candidateId}.json`;
++  }
++
+   function validateSlot(slot, sampleIndex, candidateId, seeds) {
+     if (!nativeJson(slot) || !exactKeys(slot,
+       ['sampleIndex', 'candidateId', 'seeds', 'winner', 'plies', 'complete', 'manifestId'])
+@@ -220,6 +242,45 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+     return envelope.payload;
+   }
+ 
++  function validateCheckpoint(value, sampleIndex, candidateId, seeds) {
++    if (!nativeJson(value) || !exactKeys(value,
++      ['schema', 'sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state', 'stateHash', 'manifestId'])
++      || value.schema !== CHECKPOINT_SCHEMA || value.manifestId !== manifestId
++      || !Number.isSafeInteger(value.sampleIndex) || value.sampleIndex < 0 || value.sampleIndex >= immutable.sampleCount
++      || typeof value.candidateId !== 'string' || !candidateIds.has(value.candidateId)
++      || !validSeeds(value.seeds) || canonical(value.seeds) !== canonical(immutable.seedsBySample[value.sampleIndex])
++      || !Number.isSafeInteger(value.plies) || value.plies < 1 || value.plies >= immutable.maxPlies
++      || !exactKeys(value.rolls, ['white', 'dark'])
++      || !['white', 'dark'].every(color => Number.isSafeInteger(value.rolls[color])
++        && value.rolls[color] >= 0 && value.rolls[color] <= immutable.maxPlies)
++      || value.rolls.white + value.rolls.dark !== value.plies
++      || !nativeJson(value.state) || !value.state || Array.isArray(value.state)
++      || typeof value.stateHash !== 'string' || !HASH.test(value.stateHash)
++      || value.stateHash !== sha256(canonical(value.state))
++      || sampleIndex !== undefined && value.sampleIndex !== sampleIndex
++      || candidateId !== undefined && value.candidateId !== candidateId
++      || seeds !== undefined && canonical(value.seeds) !== canonical(seeds)) error('checkpoint-invalid');
++  }
++
++  function readCheckpoint(name) {
++    const { bytes } = readRegular(path.join(cohortDirectory, name), 0o600, MAX_CHECKPOINT_BYTES);
++    let envelope;
++    try { envelope = JSON.parse(bytes); } catch { error('checkpoint-json-invalid'); }
++    if (!nativeJson(envelope) || !exactKeys(envelope, ['schema', 'payload', 'payloadHash', 'mac'])
++      || envelope.schema !== CHECKPOINT_ENVELOPE_SCHEMA
++      || typeof envelope.payloadHash !== 'string' || !HASH.test(envelope.payloadHash)
++      || typeof envelope.mac !== 'string' || !HASH.test(envelope.mac)) error('checkpoint-envelope-invalid');
++    const payload = canonical(envelope.payload), payloadHash = sha256(payload);
++    if (payloadHash !== envelope.payloadHash
++      || !crypto.timingSafeEqual(Buffer.from(envelope.mac, 'hex'), Buffer.from(mac(payload, payloadHash), 'hex'))) {
++      error('checkpoint-authentication-failed');
++    }
++    validateCheckpoint(envelope.payload);
++    if (checkpointName(envelope.payload.sampleIndex, envelope.payload.candidateId) !== name
++      || canonical(envelope) !== bytes.toString('utf8')) error('checkpoint-preimage-or-filename-mismatch');
++    return { payload: envelope.payload, checkpointHash: payloadHash };
++  }
++
+   function validateRequest(sampleIndex, candidateId, seeds) {
+     if (!Number.isSafeInteger(sampleIndex) || sampleIndex < 0 || sampleIndex >= immutable.sampleCount
+       || typeof candidateId !== 'string' || !candidateIds.has(candidateId)
+@@ -273,7 +334,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+     const names = fs.readdirSync(cohortDirectory);
+     if (names.length > 40000) error('directory-entry-limit');
+     for (const name of names) {
+-      if (!/^\.tmp-(?:manifest|slot)-[0-9a-f]{32}$/.test(name)) continue;
++      if (!/^\.tmp-(?:manifest|slot|checkpoint)-[0-9a-f]{32}$/.test(name)) continue;
+       const temporary = path.join(cohortDirectory, name), stat = fs.lstatSync(temporary);
+       const expectedMode = name.startsWith('.tmp-manifest-') ? 0o444 : 0o600;
+       if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== ownerUid
+@@ -285,10 +346,22 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+     if (readRegular(manifestPath, 0o444, MAX_MANIFEST_BYTES).bytes.toString('utf8') !== preimage) error('manifest-preimage-mismatch');
+     for (const name of fs.readdirSync(cohortDirectory)) {
+       if (name === MANIFEST_NAME || name === LOCK_NAME) continue;
+-      if (!/^slot-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) error('unexpected-file');
+-      const slot = readSlot(name), id = `${slot.sampleIndex}:${slot.candidateId}`;
+-      if (records.has(id)) error('duplicate-slot');
+-      records.set(id, slot);
++      if (/^slot-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) {
++        const slot = readSlot(name), id = `${slot.sampleIndex}:${slot.candidateId}`;
++        if (records.has(id)) error('duplicate-slot');
++        records.set(id, slot);
++      } else if (/^checkpoint-s\d{3}-c[0-9a-f]{64}\.json$/.test(name)) {
++        const current = readCheckpoint(name), id = `${current.payload.sampleIndex}:${current.payload.candidateId}`;
++        if (checkpoints.has(id) || checkpoints.size > 0) error('duplicate-checkpoint');
++        checkpoints.set(id, current);
++      } else error('unexpected-file');
++    }
++    for (const [id, current] of checkpoints) {
++      if (!records.has(id)) continue;
++      fs.unlinkSync(path.join(cohortDirectory,
++        checkpointName(current.payload.sampleIndex, current.payload.candidateId)));
++      checkpoints.delete(id);
++      syncDirectory(cohortDirectory);
+     }
+     guard();
+   } catch (cause) {
+@@ -309,9 +382,73 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+     return clone(slot);
+   }
+ 
++  function lookupCheckpoint(sampleIndex, candidateId, seeds) {
++    guard(); validateRequest(sampleIndex, candidateId, seeds);
++    const id = `${sampleIndex}:${candidateId}`, name = checkpointName(sampleIndex, candidateId);
++    if (!fs.existsSync(path.join(cohortDirectory, name))) {
++      if (checkpoints.has(id)) error('checkpoint-disappeared');
++      return null;
++    }
++    const current = readCheckpoint(name);
++    validateCheckpoint(current.payload, sampleIndex, candidateId, seeds);
++    checkpoints.set(id, current);
++    return { ...clone(current.payload), checkpointHash: current.checkpointHash };
++  }
++
++  function clearCheckpoint(sampleIndex, candidateId, seeds, expectedHash) {
++    guard(); validateRequest(sampleIndex, candidateId, seeds);
++    const id = `${sampleIndex}:${candidateId}`, name = checkpointName(sampleIndex, candidateId);
++    const target = path.join(cohortDirectory, name);
++    if (!fs.existsSync(target)) {
++      if (checkpoints.has(id)) error('checkpoint-disappeared');
++      return false;
++    }
++    const current = readCheckpoint(name);
++    validateCheckpoint(current.payload, sampleIndex, candidateId, seeds);
++    if (expectedHash !== undefined && current.checkpointHash !== expectedHash) error('checkpoint-hash-mismatch');
++    fs.unlinkSync(target);
++    syncDirectory(cohortDirectory);
++    checkpoints.delete(id);
++    return true;
++  }
++
+   return Object.freeze({
+     manifestId,
+     lookup,
++    lookupCheckpoint,
++    saveCheckpoint(value) {
++      guard();
++      if (!nativeJson(value) || !exactKeys(value,
++        ['sampleIndex', 'candidateId', 'seeds', 'plies', 'rolls', 'state'])) error('checkpoint-invalid');
++      validateRequest(value.sampleIndex, value.candidateId, value.seeds);
++      const payload = { schema: CHECKPOINT_SCHEMA, sampleIndex: value.sampleIndex,
++        candidateId: value.candidateId, seeds: clone(value.seeds), plies: value.plies,
++        rolls: clone(value.rolls), state: clone(value.state), stateHash: sha256(canonical(value.state)), manifestId };
++      validateCheckpoint(payload);
++      const id = `${payload.sampleIndex}:${payload.candidateId}`;
++      if (checkpoints.size > 0 && !checkpoints.has(id)) error('checkpoint-slot-conflict');
++      const existing = lookupCheckpoint(payload.sampleIndex, payload.candidateId, payload.seeds);
++      if (existing) {
++        const current = checkpoints.get(id);
++        if (payload.plies < existing.plies) error('checkpoint-regression');
++        if (payload.plies === existing.plies) {
++          if (canonical(current.payload) !== canonical(payload)) error('checkpoint-conflict');
++          return { committed: false, duplicate: true, checkpoint: clone(existing) };
++        }
++      }
++      const payloadText = canonical(payload), payloadHash = sha256(payloadText);
++      const bytes = Buffer.from(canonical({ schema: CHECKPOINT_ENVELOPE_SCHEMA, payload,
++        payloadHash, mac: mac(payloadText, payloadHash) }));
++      if (bytes.length > MAX_CHECKPOINT_BYTES) error('checkpoint-too-large');
++      try {
++        atomicReplace(checkpointName(payload.sampleIndex, payload.candidateId), bytes, 0o600);
++        guard();
++        checkpoints.set(id, { payload, checkpointHash: payloadHash });
++      } catch (cause) { faulted = true; throw cause; }
++      return { committed: true, duplicate: false,
++        checkpoint: { ...clone(payload), checkpointHash: payloadHash } };
++    },
++    clearCheckpoint,
+     commit(outcome) {
+       guard();
+       if (!nativeJson(outcome) || !exactKeys(outcome, Object.prototype.hasOwnProperty.call(outcome || {}, 'manifestId')
+@@ -323,6 +460,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+       const existing = lookup(slot.sampleIndex, slot.candidateId, slot.seeds);
+       if (existing) {
+         if (canonical(existing) !== canonical(slot)) error('slot-conflict');
++        clearCheckpoint(slot.sampleIndex, slot.candidateId, slot.seeds);
+         return { committed: false, duplicate: true, slot: clone(existing) };
+       }
+       const payload = canonical(slot), payloadHash = sha256(payload);
+@@ -332,6 +470,7 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+         atomicCommit(slotName(slot.sampleIndex, slot.candidateId), bytes, 0o600);
+         guard();
+         records.set(`${slot.sampleIndex}:${slot.candidateId}`, slot);
++        clearCheckpoint(slot.sampleIndex, slot.candidateId, slot.seeds);
+       } catch (cause) { faulted = true; throw cause; }
+       return { committed: true, duplicate: false, slot: clone(slot) };
+     },
+@@ -341,10 +480,19 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+         const current = readSlot(slotName(slot.sampleIndex, slot.candidateId));
+         if (canonical(current) !== canonical(slot)) error('slot-drift');
+       }
++      for (const current of checkpoints.values()) {
++        const reread = readCheckpoint(checkpointName(current.payload.sampleIndex, current.payload.candidateId));
++        if (canonical(reread) !== canonical(current)) error('checkpoint-drift');
++      }
++      const active = checkpoints.size === 1 ? [...checkpoints.values()][0] : null;
+       return { schema: JOURNAL_SCHEMA, manifestId, completedTerminalOutcomes: records.size,
+         requiredTerminalOutcomes: immutable.sampleCount * immutable.candidateIds.length,
+         sampleCount: immutable.sampleCount, candidateCount: immutable.candidateIds.length,
+         complete: records.size === immutable.sampleCount * immutable.candidateIds.length,
++        activeCheckpoint: active ? { manifestId, sampleIndex: active.payload.sampleIndex,
++          candidateIndex: immutable.candidateIds.indexOf(active.payload.candidateId),
++          candidateId: active.payload.candidateId, plies: active.payload.plies,
++          checkpointHash: active.checkpointHash, stateHash: active.payload.stateHash } : null,
+         ignoredTemporaryFiles, learningEvidence: false };
+     },
+     close() {
+@@ -354,4 +502,5 @@ function createTerminalJournal({ directory, manifest, _testHooks } = {}) {
+   });
+ }
+ 
+-module.exports = { MANIFEST_SCHEMA, JOURNAL_SCHEMA, SLOT_SCHEMA, canonicalManifest, createTerminalJournal };
++module.exports = { MANIFEST_SCHEMA, JOURNAL_SCHEMA, SLOT_SCHEMA, CHECKPOINT_SCHEMA,
++  CHECKPOINT_ENVELOPE_SCHEMA, canonicalManifest, createTerminalJournal };

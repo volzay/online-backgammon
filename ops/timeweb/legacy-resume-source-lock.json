@@ -1,0 +1,55 @@
+{
+  "schema": "long-legacy-same-policy-resume-backport-v1",
+  "sourceCommit": "ac943a4657fc16b4833283c1da5642075f6297e4",
+  "parentCommit": "8301680fd64c195e4ba663e3ca33f5794f45104d",
+  "originalRuntimeDigest": "430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a",
+  "policyImplementationId": "fcdc849c54cb2c12ba4fac25d6b8f4d623e70589674fd77bdb08b16381d46aa1",
+  "patchedFiles": [
+    "scripts/long-bot-causal-worker.js",
+    "scripts/long-bot-paired-rollout.js",
+    "scripts/long-bot-terminal-journal.js"
+  ],
+  "sourceParentFiles": {
+    "game.js": "6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    "long-bot-engine.js": "caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d",
+    "scripts/long-bot-causal-worker.js": "55d6427f8e831a7a3db81e3420d383dbd82d01dc26e7aa22b9f6c1b972ed19db",
+    "bot-engine/long/reviewer.ts": "14b95efb19d606394515897954431b18efe70b5fc8f2714957167f709a9b690a",
+    "scripts/long-bot-paired-rollout.js": "55fd11ed8b2569267fff5ce901417ed2f99839c6d225deda82d6d5b85eb1a185",
+    "scripts/long-bot-terminal-journal.js": "49aaec00235a5f12b5708ec662a90cf8d13a3f181459c8a68d4a037f1dbb516c",
+    "scripts/long-bot-production-fence.js": "f2bfa6724abc75ee4ac85dcf75e04250c81d1faa570c247aa2248e3b3c2964a8",
+    "scripts/generate-long-bot-shadow-replay.js": "4c14eacbdfa6c83160b3583a897401597366a87bbb80cd86f5096b4ffd2c5b36",
+    "scripts/simulate-long-bot-regression.js": "831093d0b3d53e737b2efd9fb724947b5c8b730101f3278aac05d05b97990508",
+    "strong-bot.js": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+    "scripts/build-long-bot-engine.js": "58e4c2a3fcd160b62fda17c7f9c058a6eed003d2b176b966b914a6813f5a229f",
+    "bot-engine/long/metrics.ts": "8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31",
+    "bot-engine/long/evaluator.ts": "60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6",
+    "bot-engine/long/analysis.ts": "24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932",
+    "bot-engine/long/engine.ts": "2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b",
+    "bot-engine/long/nardu-game-adapter.ts": "f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08",
+    "bot-engine/long/browser.ts": "c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4"
+  },
+  "sourceTargetFiles": {
+    "game.js": "6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    "long-bot-engine.js": "caef0f369bb9438ff3be7edd9c986dcf5ba5d967fe6233054d731673d5b43b0d",
+    "scripts/long-bot-causal-worker.js": "3f78ca67c94fd1f4f3b72926d94f9358a50395bd01c564a32111e861309f9139",
+    "bot-engine/long/reviewer.ts": "14b95efb19d606394515897954431b18efe70b5fc8f2714957167f709a9b690a",
+    "scripts/long-bot-paired-rollout.js": "bf6b339e417693ea46ea37f4874e17aa8c023d1d180f28a3d6a74ccdb8231049",
+    "scripts/long-bot-terminal-journal.js": "01b6ae5c78d645a9fd0285d1a669c29829931c38bf3271d3164edb222c1c19a3",
+    "scripts/long-bot-production-fence.js": "f2bfa6724abc75ee4ac85dcf75e04250c81d1faa570c247aa2248e3b3c2964a8",
+    "scripts/generate-long-bot-shadow-replay.js": "4c14eacbdfa6c83160b3583a897401597366a87bbb80cd86f5096b4ffd2c5b36",
+    "scripts/simulate-long-bot-regression.js": "831093d0b3d53e737b2efd9fb724947b5c8b730101f3278aac05d05b97990508",
+    "strong-bot.js": "49d17327ad4bc93393e1cf76619279341b520984be9af023c5b550091fd96573",
+    "scripts/build-long-bot-engine.js": "58e4c2a3fcd160b62fda17c7f9c058a6eed003d2b176b966b914a6813f5a229f",
+    "bot-engine/long/metrics.ts": "8b9f767c67c07071f9deae7c43928f32aab35510f7b8477541ade18efd222d31",
+    "bot-engine/long/evaluator.ts": "60174f290cb93994c6ef871f40e1df537aba760197740317d8a7aaf996efbab6",
+    "bot-engine/long/analysis.ts": "24f4135e29c84213f406a89d58f29b01c59d7a1e9f1b228f0dcd2f85a2f28932",
+    "bot-engine/long/engine.ts": "2bd192f607f3aa1e82e55e27ae193b25557ad69f2a4658569d02d53adbe31f0b",
+    "bot-engine/long/nardu-game-adapter.ts": "f0f1d24d008238c409a8619b1a71e5ef165f995adc3e4594e46ad7c0cc88af08",
+    "bot-engine/long/browser.ts": "c50058b9493181b3acdba167de165e3ed912eab6bd142dc67cfb2673721747f4"
+  },
+  "patchSha256": "f51467c785504663d8294bdb16dcf448e74fec7f6274b4070c7bb64f4c1bb785",
+  "exactParentFilesRequired": [
+    "scripts/long-bot-causal-worker.js",
+    "scripts/long-bot-terminal-journal.js"
+  ]
+}

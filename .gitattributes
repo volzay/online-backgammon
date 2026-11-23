@@ -1,0 +1,2 @@
+# Unified patch context lines deliberately retain their leading space.
+ops/timeweb/legacy-causal-ply-resume.patch -whitespace
