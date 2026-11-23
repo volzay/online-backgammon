@@ -1,10 +1,11 @@
 {
-  "requestSequence": 4,
+  "requestSequence": 5,
   "look": 512,
   "cohorts": [
-    "CTNM-E43Z-d5",
-    "LEM5-RES8-t3"
+    "LEM5-RES8-t6",
+    "LEM5-RES8-t11",
+    "LEM5-RES8-t12"
   ],
-  "previousLookReportPath": "look-reports/mid-lem3-n128.json",
-  "previousLookReportSha256": "9aedb2cb7c93f5105a94240faaa3a69df04cbc6f662e0bfbfa5b057e84c8be4d"
+  "previousLookReportPath": "look-reports/lem3b-n128.json",
+  "previousLookReportSha256": "053507303ec2e7b6e90dff9c78d3aa2e52cb49eee4f1456a5d69fa93c87d044c"
 }
