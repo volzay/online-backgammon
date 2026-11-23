@@ -1,0 +1,85 @@
+{
+  "schema": "long-expanded-study-input-lock-v1",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "capsules": {
+    "current-0eab9068.tar.gz": "783d6c74ace9646e5fa4748eeae652c43d9fd20884a3b1988ab91024a3079c14",
+    "quarter-18f05baf.tar.gz": "8bed0a2ad6ded57e95d128886f58c60a99253787a4a77a8fa011782734534572"
+  },
+  "workloads": {
+    "8JPN-KUD8-d7": {
+      "sha256": "8efe6985575c6e79c663757120b6135d659781afa36f6a9b13ca05d18f476759",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 17
+    },
+    "8JPN-KUD8-d1": {
+      "sha256": "792e7d0821ed9b7ad2a6bb8904886d298e9e51eef348a8ef736787f1da1cd50c",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 2
+    },
+    "8JPN-KUD8-d33": {
+      "sha256": "ac62a88a1a2aefb6a939175739c2c17870564a30dd1dae01ef19b25575ca1579",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 19
+    },
+    "8JPN-KUD8-d19": {
+      "sha256": "7f28e5f4a69fa67b9de931288250458f9efd24661484828f95efe40c52dd3e1c",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 3
+    },
+    "CTNM-E43Z-d5": {
+      "sha256": "f7e1a5e025d8919b9fdf8dca2f677f1a9a8b0c9a01b3dad91b7019aa22911dfa",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 8
+    },
+    "CTNM-E43Z-d1": {
+      "sha256": "b6b49dd16349455a847847ccc418c08baa5ef04aefc4cbf507e8a216efd058ed",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 2
+    },
+    "CTNM-E43Z-d9": {
+      "sha256": "b188d772765e80cc6b7651d965843d6d58bea207669cc19cac2e4ab6d0e8cee2",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 16
+    },
+    "CTNM-E43Z-d13": {
+      "sha256": "eb7260f7ddf68fa824057b65c57743c8ec4f2741637a3a9f81bb5269913ec925",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "candidates": 16
+    },
+    "LEM5-RES8-t3": {
+      "sha256": "aebc31e054e2227d34d6b8edd0024ba89af8be0af092818be03f3cc34600d03a",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t6": {
+      "sha256": "447b79581d6326cde7856fb8f62be3d00290536a274f89a2c4a089227225b077",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t11": {
+      "sha256": "55bf71a6f57829c5e7693ea79f5f14f5282fe4c94eb5df72fa62525b725a8dbf",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t12": {
+      "sha256": "d965559cc1106ec4e3a7fbc5986aaefc08293d3dd16af9aee3e29febfba9d300",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t13": {
+      "sha256": "1df5732950147ea3d57a862e20e6d9423cd3f9b4e77bcb9d06fa0442b992904f",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t17": {
+      "sha256": "dc27af8c27f0ac25415f4c05d00ec088b187f0bf0d60fa4f822fd1522d67fa15",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    },
+    "LEM5-RES8-t18": {
+      "sha256": "9a37c9f465df9525e5863062b80bbcca50313f9b66d230c9eaba1835bad27b73",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "candidates": 2
+    }
+  }
+}

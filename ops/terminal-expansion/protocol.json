@@ -1,0 +1,176 @@
+{
+  "schema": "long-expanded-fixed-look-terminal-study-v1",
+  "preparedAt": "2026-11-23T17:59:23.813Z",
+  "originalInputs": 15,
+  "newIndependentSamplesOnly": true,
+  "stages": [
+    128,
+    512,
+    1024
+  ],
+  "maxPairsPerCase": 1024,
+  "familywiseAlpha": 0.05,
+  "minEffectLowerBound": 0.08,
+  "comparisons": 82,
+  "positiveCaseAlpha": 0.0005555555555555556,
+  "pairedComparisonAlpha": 0.0001016260162601626,
+  "positiveRule": "original-simultaneous-Hoeffding-and-paired-CP-lower-bounds-both-above-0.08",
+  "futilityRule": "every-prespecified-alternative-paired-CP-upper-bound-at-most-0.08",
+  "noWithinLookOptionalStopping": true,
+  "noExtensionAfterFinalLook": true,
+  "originalPoliciesRetained": true,
+  "terminalProofsNeverAliasedToCurrentPolicy": true,
+  "cases": [
+    {
+      "id": "8JPN-KUD8-d7",
+      "inputSha256": "8efe6985575c6e79c663757120b6135d659781afa36f6a9b13ca05d18f476759",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "203f7a81175d6e8296dc098c79a059d840dc73441aa79b3fb140aac020101f5c",
+      "candidates": 17,
+      "originalManifestId": "517eae4f96942db8cf3584121c083f7806ab8f3679d7a09553dd2f51fd62daaa",
+      "seedOffset": 4096
+    },
+    {
+      "id": "8JPN-KUD8-d1",
+      "inputSha256": "792e7d0821ed9b7ad2a6bb8904886d298e9e51eef348a8ef736787f1da1cd50c",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "470dca2a8a1b27c5447574bd90b521ca29df7a2a92aef8e1fd62ee972e2c8725",
+      "candidates": 2,
+      "originalManifestId": "ca06ec99db584a861932b21de2f93a03acf0c4e3d2681c2a6ae0f6076248f9a4",
+      "seedOffset": 4096
+    },
+    {
+      "id": "8JPN-KUD8-d33",
+      "inputSha256": "ac62a88a1a2aefb6a939175739c2c17870564a30dd1dae01ef19b25575ca1579",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "934fefe7b89ddb47e51e969ab0ec187db65c446cf893191166b8c3ef59c57e8d",
+      "candidates": 19,
+      "originalManifestId": "04fa7efaa4c8ee35e902c56d3dfd248cce31955dfceafcc2196155b356d0774e",
+      "seedOffset": 4096
+    },
+    {
+      "id": "8JPN-KUD8-d19",
+      "inputSha256": "7f28e5f4a69fa67b9de931288250458f9efd24661484828f95efe40c52dd3e1c",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "356e9aec3406ccdb589e47fcd7ef258f46b8de7edf46584cc665e9abd98038ff",
+      "candidates": 3,
+      "originalManifestId": "09850d932a937faaa00b6688c6fcad47ad79aa5ff93ae097c3863c1b54157a26",
+      "seedOffset": 4096
+    },
+    {
+      "id": "CTNM-E43Z-d5",
+      "inputSha256": "f7e1a5e025d8919b9fdf8dca2f677f1a9a8b0c9a01b3dad91b7019aa22911dfa",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "23e8de8ed008768fc709608e66469321acaf94a09c14c8537ea6e4e87c600121",
+      "candidates": 8,
+      "originalManifestId": "e8ee20a3e2d000baf23d1770c62dacefa59259b893dc90c3470a9b38e0ac40bb",
+      "seedOffset": 4096
+    },
+    {
+      "id": "CTNM-E43Z-d1",
+      "inputSha256": "b6b49dd16349455a847847ccc418c08baa5ef04aefc4cbf507e8a216efd058ed",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "fcc4c1435445cde92560f0effe8bf97738b9c37a539d403134a703108354b4d8",
+      "candidates": 2,
+      "originalManifestId": "4ffff1953b6de1930e0c8a8e28cf440748f978e254f6958b58301c6dce2b7a2b",
+      "seedOffset": 4096
+    },
+    {
+      "id": "CTNM-E43Z-d9",
+      "inputSha256": "b188d772765e80cc6b7651d965843d6d58bea207669cc19cac2e4ab6d0e8cee2",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "28ae344e75d834c8720724264b085e544675be128cc7267ebd9911b2c13dee1d",
+      "candidates": 16,
+      "originalManifestId": "b2c1317ea0f28758645d57ee2dc5e4c7726bd00d0e1b097c4447fee18d6ec2de",
+      "seedOffset": 4096
+    },
+    {
+      "id": "CTNM-E43Z-d13",
+      "inputSha256": "eb7260f7ddf68fa824057b65c57743c8ec4f2741637a3a9f81bb5269913ec925",
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "controlId": "829eeff7eed4e47e62854a29eeab84e4df262675a4a6cbc10741c711679db4d4",
+      "candidates": 16,
+      "originalManifestId": "c640ec76abfaffa0dd5cbd96702f1e1056a54863874d38abb9f81170cb795e20",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t3",
+      "inputSha256": "aebc31e054e2227d34d6b8edd0024ba89af8be0af092818be03f3cc34600d03a",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "f710f3dd57545b7ddb73cf4c820a97659ffdd1368a47d105db778a8ccd68a8b4",
+      "candidates": 2,
+      "originalManifestId": "4396b0e92c2ccc3e664722053e5993690511b863d9fcf57c6c1f948806c01882",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t6",
+      "inputSha256": "447b79581d6326cde7856fb8f62be3d00290536a274f89a2c4a089227225b077",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "48f9d143a79ea024233cfe576126054678e25a3f2b123372906aec134c86775b",
+      "candidates": 2,
+      "originalManifestId": "693cc1b063ad02222e211854bfa39fdd92df21493efb5eaff872b22194dc84ef",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t11",
+      "inputSha256": "55bf71a6f57829c5e7693ea79f5f14f5282fe4c94eb5df72fa62525b725a8dbf",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "f1545c2dbed6d44396e6f4b146a6ecfb0229ee9f758298aeb89b5455e039afe8",
+      "candidates": 2,
+      "originalManifestId": "bcb2547abef9b28801ae7ab3ec6d768b8fc6cc4f05fe7e21ddc2fe696f9c75a0",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t12",
+      "inputSha256": "d965559cc1106ec4e3a7fbc5986aaefc08293d3dd16af9aee3e29febfba9d300",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "d0a8e39deffa87bc4413bef255e6616012b205e5f40b3f9076ee0c04fe2db71a",
+      "candidates": 2,
+      "originalManifestId": "cc8e2603e3e372c94abcccb52c6433e2433f6b17702ef79e2d1d7467e3528945",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t13",
+      "inputSha256": "1df5732950147ea3d57a862e20e6d9423cd3f9b4e77bcb9d06fa0442b992904f",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "ab9101dc8673a774c174dafb35deaf6233ca6ae4abb127841760d8415c885d2b",
+      "candidates": 2,
+      "originalManifestId": "4a0047aab28eaddec651255e6cc27a17f7910df70276de75940d3501c5eb1fd5",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t17",
+      "inputSha256": "dc27af8c27f0ac25415f4c05d00ec088b187f0bf0d60fa4f822fd1522d67fa15",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "4fe3ae30b52c19a22bd2bf78b95327962ac57ab9488bdc3abd956f8615cc8f00",
+      "candidates": 2,
+      "originalManifestId": "1b3f8928f8addb88236ae05ef32357ab8eebe721a5541e9fe64e7c6f0181f249",
+      "seedOffset": 4096
+    },
+    {
+      "id": "LEM5-RES8-t18",
+      "inputSha256": "9a37c9f465df9525e5863062b80bbcca50313f9b66d230c9eaba1835bad27b73",
+      "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "controlId": "6668aff635ed147f1f7e564a4ca853e67cdb86bb970948decbf480c80c122245",
+      "candidates": 2,
+      "originalManifestId": "b59ceb1d61f0c772dbca89bdc8c46a30f1a14cf72762ec856ccc94ca0ce36f9d",
+      "seedOffset": 4096
+    }
+  ],
+  "protocolSha256": "63e45b47c80e03db43ce7d5635bb52ed41764de826c6a660ad20d5b01f410255"
+}

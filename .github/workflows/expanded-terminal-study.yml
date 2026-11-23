@@ -1,0 +1,74 @@
+name: Expanded prespecified terminal statistics
+on:
+  push:
+    branches: [codex/expanded-statistics-runs]
+    paths: [ops/terminal-expansion/run-request.json]
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - id: matrix
+        run: node ops/terminal-expansion/plan-matrix.cjs
+  native:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@66f83c8206e0997178c8fd7bf1da9efccf5dd388
+        with:
+          node-version: '24.15.0'
+      - name: Install the original immutable native kernels
+        run: |
+          node ops/terminal-expansion/verify-inputs.cjs
+          sudo chown root:root /opt
+          sudo chmod 0755 /opt
+          sudo useradd --system --uid 2000 --no-create-home --shell /usr/sbin/nologin nardy-worker
+          sudo install -d -m 0755 /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-expanded-compute-v1/workloads /opt/online-backgammon-compute-node
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/quarter-18f05baf.tar.gz -C /opt/online-backgammon-hard-quarters-cached-v1
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/current-0eab9068.tar.gz -C /opt/online-backgammon-live-transfer-7a263bcd-r2
+          sudo cp ops/terminal-expansion/workloads/*.json /opt/online-backgammon-expanded-compute-v1/workloads/
+          sudo cp ops/terminal-expansion/input-lock.json ops/terminal-expansion/native-child.cjs /opt/online-backgammon-expanded-compute-v1/
+          sudo cp "$(command -v node)" /opt/online-backgammon-compute-node/node
+          sudo chown -R root:root /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-expanded-compute-v1 /opt/online-backgammon-compute-node
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-expanded-compute-v1 -type d -exec chmod 0755 {} +
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-expanded-compute-v1 -type f -exec chmod 0444 {} +
+          sudo chmod 0555 /opt/online-backgammon-compute-node/node
+      - name: Complete the assigned independent 32-pair fragment
+        env:
+          COHORT: ${{ matrix.cohort }}
+          START: ${{ matrix.start }}
+        run: node ops/terminal-expansion/run-fragment.cjs "$COHORT" "$START"
+      - name: Attest encrypted native results
+        if: always()
+        id: signature
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: expanded-results/*.sealed.json
+      - name: Include signature bundle
+        if: always() && steps.signature.outcome == 'success'
+        env:
+          BUNDLE: ${{ steps.signature.outputs.bundle-path }}
+        run: cp "$BUNDLE" expanded-results/attestation.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: expanded-${{ matrix.cohort }}-s${{ matrix.start }}-${{ github.run_attempt }}
+          path: expanded-results/
+          retention-days: 7
+          if-no-files-found: error
