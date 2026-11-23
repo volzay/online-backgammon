@@ -1,0 +1,85 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T18:32:19.656Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 128,
+  "results": [
+    {
+      "id": "8JPN-KUD8-d19",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 25,
+      "comparisons": [
+        {
+          "candidateId": "7dee9d5c3d1dcb2fc8beaf825fecb24c5ee9a0a1d61d893cb09bb35e9b8982a7",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 4,
+            "sweepLosses": 12,
+            "splitPairs": 112
+          },
+          "observedGain": -0.0625,
+          "pairedLower": -1,
+          "pairedUpper": 0.11416538620139605,
+          "originalHoeffdingLower": -0.3857817131158471,
+          "confirmed": false
+        },
+        {
+          "candidateId": "92b78b8b9ae16fcd45a65b0c3d9984a52f06c6d06bfd8fcbbfb230481b76e02e",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 5,
+            "sweepLosses": 12,
+            "splitPairs": 111
+          },
+          "observedGain": -0.0546875,
+          "pairedLower": -1,
+          "pairedUpper": 0.12708599370049356,
+          "originalHoeffdingLower": -0.3857817131158471,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "9434dfe0926bb8ea8eb43d2312e3c3f30145608098c6fa3069b84e4fa26058ec",
+          "sealedSha256": "a5d5855c0b5a38e748f308ad264f719d297d922473ca3e68c324bd5c13892083"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "8677fd37bc8e5a85a5a00f16051efbba5c5aea264dd1b6e64af1780f7a7c7027",
+          "sealedSha256": "bb5ac836c59799b6fc6357f295b301038b068e29cb68cb121dc18b7e022b5e2d"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "08d46d4169024c22231ca0399b8703fd78927fa7231a030a8351c7098db053e9",
+          "sealedSha256": "e1f9966d9bd6f6c92dc8c070f8176dc54f587b3eaa617df1283a2ae7fe4b44e5"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "5e12e43d29954003c65d52b349736beb865dbe76aaf887551e603876903c8b3f",
+          "sealedSha256": "cc661aa247e85a34a4888593054db048bb203f83bbcd2e772118fd9265748e8f"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "8JPN-KUD8-d19"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}

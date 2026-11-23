@@ -3,6 +3,7 @@
 // its original immutable worker, with its original private authenticated journal.
 const {spawn}=require('node:child_process');
 const ROOTS=Object.freeze({
+ '009d62ab33510b5d644afd667fc935827dfacedd89a9cc524898224d6a83a3d9':'/opt/online-backgammon-causal-recovery-fcdc-v2-20261123',
  '430a0f4ea942c2282b8529fcf39fe9347194d1124432b3dc8b4d0fad25594a2a':'/opt/online-backgammon-causal-worker.pre-ac943a4-20260919T0630Z',
  '3851848f4dae179c2f8ad6a1d1e8f66c39a1300b7b1dcb671d46b3c564dbaff7':'/opt/online-backgammon-causal-worker.previous-20260926T210404Z',
  '434af2595488a4265243951ce7918cab420e647c3c190a492b0428c382f52162':'/opt/online-backgammon-causal-worker.previous-07c0796',
