@@ -29,10 +29,10 @@ function identity({ production = false } = {}) {
   if (engine.policyImplementationId !== policyImplementationId()) throw Error('Stale generated policy');
   return { runtimeDigest:h.digest('hex'), policyImplementationId:engine.policyImplementationId };
 }
-function replayFinishedHistory(finalState, botColor, runtime = loadRuntime()) {
+function replayFinishedHistory(finalState, botColor, runtime = loadRuntime(), options = {}) {
   const { game } = runtime;
   if (finalState?.variant !== 'long' || !['white','dark'].includes(botColor)
-    || finalState.winner !== game.opponentOf(botColor) || finalState.off?.[finalState.winner] !== 15
+    || !(options.allowWins ? ['white','dark'].includes(finalState.winner) : finalState.winner === game.opponentOf(botColor)) || finalState.off?.[finalState.winner] !== 15
     || !Array.isArray(finalState.history) || finalState.history.length > 1500) throw Error('Not a complete long loss');
   const state = game.initialState('long');
   let start = null, moves = [], opening = false;
@@ -42,7 +42,8 @@ function replayFinishedHistory(finalState, botColor, runtime = loadRuntime()) {
     const legal = game.bestMoveSequences(start, start.turn);
     if (!legal.some(q => canonicalMoveKey(q) === canonicalMoveKey(moves))
       && (moves.length || legal.some(q => q.length))) throw Error('Incomplete maximum-use history turn');
-    if (start.turn === botColor) turns.push({ state:stateFromSnapshot(start), executedMoves:canonicalMoves(moves) });
+    if (start.turn === botColor || options.includeOpponent) turns.push({ state:stateFromSnapshot(start), executedMoves:canonicalMoves(moves),
+      ...(options.includeOpponent ? { actor:start.turn === botColor ? 'bot' : 'opponent' } : {}) });
     game.endTurn(state); start = null; moves = [];
   };
   for (const event of [...finalState.history].reverse()) {
@@ -135,7 +136,10 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
       utilityGain:utility(recommended)-utility(baseline),
       equityGain:recommended.tactical.expectedEquity-baseline.tactical.expectedEquity,
       diceOutcomes:21, diceWeight:36, rootPositions:candidates.length,
-      sourceRoom:source.roomCode, sourceArchiveId:source.archiveId, sourceFingerprint:source.fingerprint,
+      sourceRoom:source.roomCode,
+      ...(source.trainingGameId ? { sourceKind:'bot-training-game',sourceTrainingGameId:source.trainingGameId,
+        ...(source.archiveId ? { sourceArchiveId:source.archiveId } : {}) } : { sourceArchiveId:source.archiveId }),
+      sourceFingerprint:source.fingerprint,
       sourcePolicyImplementationId:source.sourcePolicyImplementationId || null, turnIndex,
       samples:1, losses:0, wins:0, outcomeUsed:false, terminalOutcomeConfirmed:false,
       baseline:measurements(baseline), recommended:measurements(recommended),

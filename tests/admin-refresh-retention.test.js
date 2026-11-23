@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../homegate.js'), 'utf8');
 
-function runtime(prune) {
+function runtime(prune, library = async () => ({ data: { summary: { total: 439 } }, error: null })) {
   const calls = [], warnings = [];
   const state = { backend: 'supabase', admin: { id: 'existing-admin' }, watch: [],
     active: [], archive: [], users: [], detailKey: '', adminTab: 'rooms', archiveCleanupWarning: '' };
@@ -15,6 +15,7 @@ function runtime(prune) {
       calls.push(name);
       if (name === 'admin_prune_room_archive') return prune();
       if (name === 'admin_player_stats') return { data: [], error: null };
+      if (name === 'admin_long_bot_training_library') return library();
       throw Error('Unexpected RPC ' + name);
     },
     from(table) {
@@ -35,7 +36,7 @@ function runtime(prune) {
       return query;
     },
   };
-  const context = { state, console: { warn: (...args) => warnings.push(args) },
+  const context = { state, setTimeout, clearTimeout, console: { warn: (...args) => warnings.push(args) },
     ROOM_ARCHIVE_RETENTION_HOURS: 96, SUPABASE_ROOM_LIST_SELECT: '', SUPABASE_ROOM_MONITOR_SELECT: '',
     supabaseClient: async () => client, scrollSnapshot: () => ({}), restoreScrollSnapshot() {},
     loadRoomRollStats: async () => room => room,
@@ -88,4 +89,12 @@ test('base schema and deploy migration contain the same archive-retention functi
   const migration = fs.readFileSync(path.join(__dirname, '../supabase/admin-archive-training-retention-v1.sql'), 'utf8');
   const functions = migration.slice(migration.indexOf('-- Training sources'), migration.indexOf('notify pgrst')).trim();
   assert.ok(schema.includes(functions));
+});
+
+test('an unavailable training catalogue cannot hide rooms or players', async () => {
+  const r = runtime(() => ({ error: null }), async () => { throw Error('library unavailable'); });
+  await r.context.refresh();
+  assert.equal(r.state.active[0].id, 'active-room');
+  assert.equal(r.state.users[0].id, 'existing-player');
+  assert.equal(r.warnings.length, 1);
 });

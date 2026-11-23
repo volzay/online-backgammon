@@ -1,0 +1,9 @@
+[Unit]
+Description=Continue the hard long training library after each bounded slice
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=20s
+Persistent=true
+Unit=long-bot-training-library.service
+[Install]
+WantedBy=timers.target

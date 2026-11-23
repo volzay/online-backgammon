@@ -639,6 +639,7 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
     after.off?.white || 0, after.off?.dark || 0]);
   const preferred = proposed && eligible.find(c => key(c.after) === key(proposed));
   if (!preferred || preferred === baseline
+    || !isAdaptiveStructuralAlternative(state, color, preferred, baseline)
     || Number(preferred.experienceAdjustment || 0) < 0
     || Number(preferred.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
     || Number(preferred.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) return;
@@ -695,6 +696,7 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
   const proposals = [];
   for (const candidate of eligible) {
     if (candidate === baseline
+      || !isAdaptiveStructuralAlternative(state, color, candidate, baseline)
       || Number(candidate.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
       || Number(candidate.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) continue;
     const descriptor = experienceDescriptor(state, color, candidate.features, candidate.tactical);
