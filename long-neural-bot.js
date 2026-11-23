@@ -24,6 +24,7 @@ window.NarduNeuralBot = (function () {
   const TEACHER_CONTACT_FENCE_DEFENSE_POLICY_IMPLEMENTATION_ID = '91355600fc8e60029a6093941996c462a73785ba6ffc90318ec4b596de4e7dac';
   const TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID = 'd33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306';
   const TEACHER_ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID = '1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946';
+  const TEACHER_LIVE_TRANSFER_POLICY_IMPLEMENTATION_ID = '7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7';
   const TEACHER_BOARD_MODEL_POLICY_IMPLEMENTATION_ID = '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2';
   const POLICY_OPTIONS = Object.freeze({ maxCandidates: 32, replyTopCandidates: 2,
     replyCandidates: 4, replyWeight: 0.35 });
@@ -152,7 +153,8 @@ window.NarduNeuralBot = (function () {
         && engine.policyImplementationId !== TEACHER_QUARTER_GEOMETRY_POLICY_IMPLEMENTATION_ID
           && engine.policyImplementationId
             !== TEACHER_ADAPTIVE_COUNTERPLAY_POLICY_IMPLEMENTATION_ID
-          && engine.policyImplementationId !== TEACHER_BOARD_MODEL_POLICY_IMPLEMENTATION_ID)
+          && engine.policyImplementationId !== TEACHER_BOARD_MODEL_POLICY_IMPLEMENTATION_ID
+          && engine.policyImplementationId !== TEACHER_LIVE_TRANSFER_POLICY_IMPLEMENTATION_ID)
       || typeof engine.consumeLastDecision !== 'function'
       || typeof teacher?.plan !== 'function'
       || typeof publicBot?.plan !== 'function') {

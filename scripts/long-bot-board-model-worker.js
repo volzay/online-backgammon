@@ -83,7 +83,7 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
   const [analysis, { createNarduGameAdapter }, { mergeWeights }] = await teacherModules();
   const { analyzeOpponentReplies, assessLongBotSituation, createAnalysisBudget, adaptiveReplyUtility } = analysis;
   const adapter = createNarduGameAdapter(game, { generatedSequenceFastPath:true });
-  const state = turn.state, runtimeOptions = liveOptions(state), deadline = Date.now() + (options.maxElapsedMs || 90000);
+  const state = turn.state, runtimeOptions = liveOptions(state), deadline = Date.now() + (options.maxElapsedMs || 180000);
   engine.setExperience([], 'server');
   const cold = engine.rank(state, runtimeOptions)[0];
   if (!cold) return { status:'forced-pass', turnIndex };
@@ -93,7 +93,7 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
     if (!after) throw Error('Native legal sequence failed replay');
     const key = afterPositionKey(after);
     if (unique.has(key)) continue;
-    if (unique.size >= 64) return { status:'capacity', turnIndex };
+    if (unique.size >= (options.maxRootPositions || 256)) return { status:'capacity', turnIndex };
     const described = engine.describeSequence(state, sequence, runtimeOptions);
     unique.set(key, { after, sequence, score:0, features:described.features, experience:described.experience });
   }
@@ -159,7 +159,7 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
   }
   return { status:'no-applicable-improvement', turnIndex, rootPositions:candidates.length };
 }
-async function runOnce({ rooms = null, maxTurns = 2 } = {}) {
+async function runOnce({ rooms = null, maxTurns = 1 } = {}) {
   const id = identity({ production:true });
   const rpc = (name,args) => supabaseRpc(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,name,args);
   let source = await rpc('next_long_bot_board_review', { p_policy:id.policyImplementationId,
@@ -181,6 +181,9 @@ async function runOnce({ rooms = null, maxTurns = 2 } = {}) {
   const started=Date.now();
   while (cursor < turns.length && count < maxTurns && Date.now()-started < 180000) {
     const review = await reviewTurn(turns[cursor], source, cursor, id);
+    // Resource exhaustion remains pending work. Never advance its cursor.
+    if (review.status === 'capacity') return { reviewerVersion:VERSION,...id,roomCode:source.roomCode,
+      reviewed:count,reviewedTurns:cursor,totalTurns:turns.length,lessons,deferred:true };
     const receipt = await rpc('checkpoint_long_bot_board_review', { p_archive_id:source.archiveId,
       p_fingerprint:source.fingerprint, p_policy:id.policyImplementationId, p_runtime:id.runtimeDigest,
       p_previous:cursor, p_total:turns.length, p_review:review });

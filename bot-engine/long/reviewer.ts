@@ -242,6 +242,11 @@ export function reviewLongBotDecision(decision, candidates, replay = {}) {
     recommendedPolicyScore: recommendedScore,
     regret,
     regretLcb,
+    // A wide interval is not evidence that the move was good. Keep the
+    // legacy status contract, but report the scientific conclusion explicitly.
+    statisticalConclusion: eligibility.eligible && regretLcb !== null
+      ? regretLcb > minRegretLcb ? 'positive-lower-bound' : 'inconclusive'
+      : 'diagnostic-only',
     categories,
     learningEligible: eligibility.eligible,
     learningIneligibleReason: eligibility.reason,

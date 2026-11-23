@@ -103,7 +103,7 @@ test('board-model activation pins its own policy and only exposes typed model le
   const { CURRENT_LONG_BOT_POLICY, ADAPTIVE_COUNTERPLAY_POLICY } = require('../scripts/verify-long-bot-learning-compatibility');
   const sql = statements(fs.readFileSync(path.join(root, 'ops/timeweb/activate-board-model-experience.sql'), 'utf8'));
   assert.ok(sql.includes(`old_policy constant text := '${ADAPTIVE_COUNTERPLAY_POLICY}'`));
-  assert.ok(sql.includes(`new_policy constant text := '${CURRENT_LONG_BOT_POLICY}'`));
+  assert.ok(sql.includes("new_policy constant text := '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2'"));
   assert.match(sql, /p->>'policyImplementationId' is distinct from new_policy/);
   assert.match(sql, /p->>'evidenceSchema' is distinct from 'long-server-board-model-pattern-v1'/);
   assert.match(sql, /p->'terminalOutcomeConfirmed' is distinct from 'false'::jsonb/);

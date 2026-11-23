@@ -93,16 +93,32 @@ function renderLongBotBundle(sourceEntries = readPolicySourceEntries()) {
   const sourceBytes = new Map(sourceEntries);
   const implementationId = policyImplementationId(sourceEntries);
   const compatibility = learningCompatibility(sourceEntries);
+  const boardCompatibility = boardModelCompatibility(sourceEntries);
   const compatibilityLine = compatibility
     ? `\n  const NARDU_LONG_BOT_LEARNING_COMPATIBILITY = Object.freeze({ ...${JSON.stringify(compatibility)}, compatiblePolicyImplementationIds: Object.freeze(${JSON.stringify(compatibility.compatiblePolicyImplementationIds)}), sourceFingerprints: Object.freeze(${JSON.stringify(compatibility.sourceFingerprints)}) });`
     : '';
+  const boardCompatibilityLine = boardCompatibility
+    ? `\n  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze(${JSON.stringify(boardCompatibility)});` : '';
   const body = SOURCES
     .map(file => {
       return `\n/* ${file} */\n${stripModuleSyntax(sourceBytes.get(file).toString('utf8'))}`;
     })
     .join("\n");
 
-  return `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '${implementationId}';${compatibilityLine}\n${body}\n}());\n`;
+  return `/* generated from bot-engine/long/*.ts */\n(function () {\n  'use strict';\n  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '${implementationId}';${compatibilityLine}${boardCompatibilityLine}\n${body}\n}());\n`;
+}
+
+// This alias authorizes board-model advice only. It never accepts old causal
+// evidence or changes its policy ID. Any source/rules/dispatch change revokes it.
+const BOARD_MODEL_TRANSFER_POLICY = "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7";
+function boardModelCompatibility(entries = readPolicySourceEntries()) {
+  const id = policyImplementationId(entries);
+  if (id !== BOARD_MODEL_TRANSFER_POLICY) return null;
+  return { schema:'long-board-model-transfer-compat-v1', policyImplementationId:id,
+    sourcePolicyImplementationId:'2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2',
+    sourceBundleSha256:'91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8',
+    sourceRulesSha256:'6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
+    scope:'model-advice-only-with-fresh-dice-comparison', terminalEvidenceAlias:false };
 }
 
 function buildLongBotEngine() {
@@ -117,6 +133,7 @@ module.exports.writeOutputAtomically = writeOutputAtomically;
 module.exports.readPolicySourceEntries = readPolicySourceEntries;
 module.exports.policyImplementationId = policyImplementationId;
 module.exports.learningCompatibility = learningCompatibility;
+module.exports.boardModelCompatibility = boardModelCompatibility;
 module.exports.HISTORY_FREE_LEARNING_SOURCES = HISTORY_FREE_LEARNING_SOURCES;
 module.exports.SOURCES = Object.freeze([...SOURCES]);
 module.exports.renderLongBotBundle = renderLongBotBundle;

@@ -135,6 +135,7 @@ test('a loss without counterfactual regret produces neither credit nor penalty',
 
   const result = reviewLongBotDecision(decision, [selected, replayedWorseAlternative], replay);
   assert.equal(result.status, 'no-regret');
+  assert.equal(result.statisticalConclusion, 'diagnostic-only');
   assert.equal(result.credit, 0);
   assert.deepEqual(result.records, []);
   assert.equal(result.outcomeUsed, false);
@@ -149,6 +150,7 @@ test('a win can still expose a structural mistake from replayed candidates', asy
   assert.equal(result.status, 'confirmed-regret');
   assert.equal(result.regret, 30);
   assert.equal(result.regretLcb, 22);
+  assert.equal(result.statisticalConclusion, 'positive-lower-bound');
   assert.equal(result.outcomeUsed, false);
   assert.equal(result.records.length, 1);
   assert.equal(result.records[0].evidenceType, 'negative-selected-penalty');
@@ -228,6 +230,7 @@ test('equivalent resulting boards are deduplicated before regret is computed', a
   assert.equal(dedupeCandidatesByAfterPosition([selected, sameBoardDifferentOrder]).length, 1);
   const result = reviewLongBotDecision(decision, [selected, sameBoardDifferentOrder], replay);
   assert.equal(result.status, 'no-regret');
+  assert.equal(result.statisticalConclusion, 'diagnostic-only');
   assert.equal(result.uniquePositionCount, 1);
   assert.deepEqual(result.records, []);
 });
@@ -398,4 +401,16 @@ test('resulting-position identity includes the bar and cannot collapse distinct 
 
   assert.notEqual(afterPositionKey(base), afterPositionKey(onBar));
   assert.equal(dedupeCandidatesByAfterPosition([base, onBar]).length, 2);
+});
+
+test('a positive observed gap with overlapping bounds remains statistically inconclusive', async () => {
+  const { reviewLongBotDecision } = await loadReviewer();
+  const { decision, replay, selected, recommended } = fixture();
+  recommended.policyScoreLcb = 101;
+  const result = reviewLongBotDecision(decision, [selected, recommended], replay);
+  assert.equal(result.status, 'no-regret');
+  assert.equal(result.statisticalConclusion, 'inconclusive');
+  assert.equal(result.regret, 30);
+  assert.equal(result.regretLcb, -2);
+  assert.deepEqual(result.records, []);
 });
