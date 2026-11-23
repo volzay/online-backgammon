@@ -23,6 +23,39 @@ returns integer language sql stable security definer set search_path='' as $$
   where g.job_id=p_job and g.expires_at>now() and j.invalidated_at is null),3)
 $$;
 revoke all on function private.long_bot_causal_attempt_limit(bigint)from public,anon,authenticated,service_role;
+-- These grants refer to existing jobs. Avoid the general queue's archive
+-- discovery scan; retain approval -> archive -> job locking and every source,
+-- eligibility, ownership and progress check before issuing one exact lease.
+create or replace function private.claim_long_bot_recovery_grant(p_worker text,p_runtime text)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare g private.long_bot_causal_recovery_grants;j private.long_bot_causal_review_jobs;
+ a private.long_bot_causal_runtime;game public.bot_training_games;archive_id uuid;payload jsonb;
+begin
+ if coalesce(auth.role(),'')<>'service_role'then raise exception 'Worker role required'using errcode='42501';end if;
+ select * into g from private.long_bot_causal_recovery_grants where worker_id=p_worker;
+ if g.job_id is null or g.runtime_digest<>p_runtime or g.expires_at<=now()then raise exception 'Exact live recovery grant required';end if;
+ select * into a from private.long_bot_causal_approved_runtime(p_runtime);
+ if a.singleton is null then raise exception 'Original approved runtime required';end if;
+ select training_game_id into archive_id from private.long_bot_causal_review_jobs where id=g.job_id;
+ select * into game from public.bot_training_games where id=archive_id for share;
+ select * into j from private.long_bot_causal_review_jobs where id=g.job_id for update;
+ if j.runtime_digest<>p_runtime or j.archive_fingerprint<>g.archive_fingerprint or j.invalidated_at is not null
+  or j.archive_fingerprint is distinct from private.long_bot_causal_archive_fingerprint(game)
+  or not private.long_bot_causal_archive_is_eligible(game)
+  or not private.long_bot_causal_archive_routes_to(game,p_runtime)
+  or not exists(select 1 from private.long_bot_requested_review_scopes s where s.worker_id=p_worker and s.runtime_digest=p_runtime and s.job_id=j.id)
+ then raise exception 'Recovery source or scope differs';end if;
+ perform private.long_bot_causal_validate_progress(game,j.progress);
+ if j.status in('complete','rejected','failed')or j.available_at>now()or(j.status='leased'and j.lease_until>now())then return '[]'::jsonb;end if;
+ if j.status not in('pending','leased')or j.attempts>=g.max_attempts then raise exception 'Recovery operational attempts exhausted';end if;
+ update private.long_bot_causal_review_jobs set status='leased',attempts=attempts+1,lease_owner=p_worker,
+  lease_until=now()+interval '15 minutes',updated_at=now()where id=j.id;
+ payload:=private.long_bot_causal_archive_payload(game);
+ return jsonb_build_array(jsonb_build_object('jobId',j.id,'runtimeDigest',j.runtime_digest,
+  'policyImplementationId',a.policy_implementation_id,'archiveFingerprint',j.archive_fingerprint,
+  'archiveFingerprintSource',payload::text,'trainingGame',payload));
+end $$;
+revoke all on function private.claim_long_bot_recovery_grant(text,text)from public,anon,authenticated,service_role;
 do $routing$
 declare d text;needle text:='select case when exists (';
 begin
@@ -42,6 +75,16 @@ begin
   d:=replace(d,'$function$',') end $function$');
   -- pg_get_functiondef uses the delimiter twice; restore its opening.
   d:=replace(d,'AS ) end $function$','AS $function$');
+  execute d;
+ end if;
+ d:=pg_get_functiondef('public.claim_long_bot_causal_review_jobs(text,integer,text)'::regprocedure);
+ if position('private.claim_long_bot_recovery_grant' in d)=0 then
+  if position('  select * into active from private.long_bot_causal_approved_runtime(p_runtime_digest);' in d)=0 then raise exception 'Unexpected claim approval contract';end if;
+  d:=replace(d,'  select * into active from private.long_bot_causal_approved_runtime(p_runtime_digest);',
+   $fast$  if exists(select 1 from private.long_bot_causal_recovery_grants where worker_id=p_worker_id)then
+    return private.claim_long_bot_recovery_grant(p_worker_id,p_runtime_digest);
+   end if;
+   select * into active from private.long_bot_causal_approved_runtime(p_runtime_digest);$fast$);
   execute d;
  end if;
 end $routing$;
