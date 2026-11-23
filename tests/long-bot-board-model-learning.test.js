@@ -39,7 +39,14 @@ for(const p of fixture.positions)test(`${p.room}: real board model lesson change
  engine.beginExperienceSession(`next-${p.room}`);assert.equal(engine.experienceSize(),0);
  engine.setExperience([{...lesson,policyImplementationId:'0'.repeat(64)}],'server');assert.equal(engine.experienceSize(),0);
  engine.setExperience([lesson],'server');const different=structuredClone(p.state);different.dice.reverse();
- if(JSON.stringify(different.dice)!==JSON.stringify(p.state.dice))assert.equal(engine.rank(different,liveOptions(different))[0].features.boardModelLessonApplied,undefined);
+ if(JSON.stringify(different.dice)!==JSON.stringify(p.state.dice)){
+  const next=engine.rank(different,liveOptions(different))[0];
+  if(next.features.boardModelLessonApplied===1){
+   assert.equal(next.boardModelLesson.transferred,true);
+   assert.equal(next.boardModelLesson.evaluationSource,'live-learned-transfer-comparison-v1');
+   assert.equal(next.boardModelLesson.diceOutcomes,21);
+  }
+ }
  engine.setExperience([],'server');
  const terminalPenalty={creditVersion:9,evidenceSchema:'long-server-causal-pattern-v1',
   reviewerVersion:'long-server-causal-review-v1',trustDomain:'nardu/server-long-bot-causal/v1',

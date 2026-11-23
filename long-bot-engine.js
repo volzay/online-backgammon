@@ -1,7 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2';
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7';
+  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
 
 /* bot-engine/long/metrics.ts */
 
@@ -3334,8 +3335,12 @@ function createLongBotEngine(adapter, options = {}) {
       coldRanked,
       coldSelected,
     );
-    if (strategyProfile === 'v26') applyBoardModelLesson(state, color, finalRanked, ranked,
-      coldSelected, selectedExperiencePatterns, adapter);
+    if (strategyProfile === 'v26') {
+      const exactLesson = applyBoardModelLesson(state, color, finalRanked, ranked,
+        coldSelected, selectedExperiencePatterns, adapter);
+      if (!exactLesson) applyTransferredBoardModelLesson(state, color, finalRanked, ranked,
+        coldSelected, selectedExperiencePatterns, adapter, weights, situation);
+    }
     finalRanked.forEach((candidate) => {
       candidate.features.analysisNodesUsed = budget.used;
       candidate.features.analysisNodeBudget = budget.limit;
@@ -3479,6 +3484,119 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
     diceOutcomes: lesson.diceOutcomes, diceWeight: lesson.diceWeight };
   const index = ranked.indexOf(preferred);
   if (index >= 0) ranked.splice(index, 1);
+  ranked.unshift(preferred);
+  return true;
+}
+
+function boardModelContextDistance(left, right) {
+  const a = String(left || '').split('|quarters:')[0].split('|');
+  const b = String(right || '').split('|quarters:')[0].split('|');
+  if (a.length !== 7 || b.length !== 7 || a[0] !== b[0] || a[3] !== b[3]) return Infinity;
+  let distance = 0;
+  for (const i of [1, 2, 4, 5, 6]) {
+    const av = Number(a[i].replace(/^[a-z]+/, '')), bv = Number(b[i].replace(/^[a-z]+/, ''));
+    if (!Number.isFinite(av) || !Number.isFinite(bv) || Math.abs(av - bv) > 1) return Infinity;
+    distance += Math.abs(av - bv);
+  }
+  return distance <= 3 ? distance : Infinity;
+}
+
+function boardModelActionFields(key) {
+  const allowed = new Set(['head', 'entry', 'trap', 'prospective-fence', 'freedom',
+    'distribution', 'support', 'home', 'off', 'tower', 'prime', 'block', 'koks']);
+  return new Map(String(key || '').split('|').map(part => part.split(':'))
+    .filter(([name, value]) => allowed.has(name) && value !== undefined));
+}
+
+// Memory proposes search candidates. Only a NEW, complete comparison on the
+// actual current board can authorize a transferred choice. Neither historical
+// model scores nor a loose pattern match become an executable move by itself.
+function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
+  if (!baseline || ranked[0] !== baseline || !situation) return;
+  const lessons = patterns.filter(validBoardModelLesson);
+  if (!lessons.length) return;
+  const baseDescriptor = baseline.experience;
+  if (patterns.some(p => p.creditVersion === 9 && p.contextKey === baseDescriptor?.contextKey)) return;
+  const baseFields = boardModelActionFields(baseDescriptor?.actionKey);
+  const contexts = lessons.map(lesson => {
+    const from = boardModelActionFields(lesson.actionKey), to = boardModelActionFields(lesson.preferredActionKey);
+    return { lesson, distance: boardModelContextDistance(baseDescriptor?.contextKey, lesson.contextKey),
+      contrasts: [...from].filter(([name, value]) => to.has(name) && to.get(name) !== value)
+        .map(([name, value]) => [name, value, to.get(name)]) };
+  }).filter(item => Number.isFinite(item.distance) && item.contrasts.length);
+  if (!contexts.length) return;
+  const proposals = [];
+  for (const candidate of eligible) {
+    if (candidate === baseline
+      || Number(candidate.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
+      || Number(candidate.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) continue;
+    const descriptor = experienceDescriptor(state, color, candidate.features, candidate.tactical);
+    if (patterns.some(p => p.creditVersion === 9 && p.contextKey === descriptor.contextKey
+      && p.actionKey === descriptor.actionKey)) continue;
+    const fields = boardModelActionFields(descriptor.actionKey);
+    const support = contexts.map(item => ({ ...item, matches:item.contrasts.filter(([name, from, to]) =>
+      baseFields.get(name) === from && fields.get(name) === to).length }))
+      .filter(item => item.matches > 0)
+      .sort((a, b) => a.distance - b.distance || b.matches - a.matches
+        || b.lesson.utilityGain - a.lesson.utilityGain || a.lesson.aggregateId.localeCompare(b.lesson.aggregateId));
+    if (support.length) proposals.push({ candidate, descriptor, support });
+  }
+  proposals.sort((a, b) => a.support[0].distance - b.support[0].distance
+    || b.support[0].matches - a.support[0].matches
+    || b.support[0].lesson.utilityGain - a.support[0].lesson.utilityGain
+    || b.candidate.score - a.candidate.score);
+  const seen = new Set();
+  const position = c => JSON.stringify([Object.entries(c.after.points).sort(([a], [b]) => Number(a)-Number(b)), c.after.off]);
+  const selected = proposals.filter(item => {
+    const key = position(item.candidate);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  }).slice(0, 2);
+  if (!selected.length) return;
+  const compared = [baseline, ...selected.map(item => item.candidate)]
+    .map(candidate => ({ ...candidate, score:0, tactical:null, features:{ ...candidate.features } }));
+  const learningBudget = createAnalysisBudget(compared.length * 21);
+  analyzeOpponentReplies(adapter, color, compared, weights, learningBudget,
+    { expandDoubles:true, situation, maxTacticalCandidates:compared.length });
+  if (compared.some(c => c.tactical?.distributionComplete !== true
+    || c.tactical.rolls !== 21 || c.tactical.distributionWeight !== 36)) return;
+  const control = compared.find(c => c.sequence === baseline.sequence);
+  const utility = c => adaptiveReplyUtility(c.tactical, situation);
+  const tailAllowance = 0.06 * situation.comebackPressure;
+  const improvements = selected.map(item => ({ ...item,
+    evaluated:compared.find(c => c.sequence === item.candidate.sequence) }))
+    .filter(item => item.evaluated.tactical.expectedEquity >= control.tactical.expectedEquity + 0.025
+      && utility(item.evaluated) >= utility(control) + 0.025
+      && item.evaluated.tactical.lowerTailEquity >= control.tactical.lowerTailEquity - tailAllowance)
+    .sort((a,b) => utility(b.evaluated)-utility(a.evaluated));
+  const best = improvements[0];
+  if (!best) return;
+  const preferred = best.candidate, source = best.support[0].lesson, tactic = best.evaluated.tactical;
+  preferred.experience = best.descriptor;
+  preferred.tactical = { ...tactic, evaluationSource:'live-learned-transfer-comparison-v1' };
+  preferred.features.boardModelLessonApplied = 1;
+  preferred.features.boardModelLessonTransferred = 1;
+  preferred.features.boardModelLessonUtilityGain = utility(best.evaluated)-utility(control);
+  preferred.features.boardModelLessonAnalysisNodesUsed = learningBudget.used;
+  preferred.features.boardModelLessonAnalysisNodeBudget = learningBudget.limit;
+  preferred.boardModelLesson = { aggregateId:source.aggregateId, sourceRoom:source.sourceRoom,
+    sourcePolicyImplementationId:source.policyImplementationId,
+    supportingAggregateIds:best.support.slice(0,8).map(s => s.lesson.aggregateId),
+    supportingSourceRooms:[...new Set(best.support.slice(0,8).map(s => s.lesson.sourceRoom))],
+    transferred:true, contextDistance:best.support[0].distance,
+    evaluationSource:'live-learned-transfer-comparison-v1',
+    scoreSemantics:'heuristic-turn-equity-v1', terminalOutcomeConfirmed:false,
+    evaluation:{ expectedEquity:tactic.expectedEquity, utility:utility(best.evaluated),
+      lowerTailEquity:tactic.lowerTailEquity, selfEvaluation:tactic.expectedSelfEvaluation,
+      opponentEvaluation:tactic.expectedOpponentEvaluation },
+    controlEvaluation:{ expectedEquity:control.tactical.expectedEquity, utility:utility(control),
+      lowerTailEquity:control.tactical.lowerTailEquity,
+      selfEvaluation:control.tactical.expectedSelfEvaluation,
+      opponentEvaluation:control.tactical.expectedOpponentEvaluation },
+    analysisNodesUsed:learningBudget.used, analysisNodeBudget:learningBudget.limit,
+    diceOutcomes:21, diceWeight:36 };
+  const index = ranked.indexOf(preferred);
+  if (index >= 0) ranked.splice(index,1);
   ranked.unshift(preferred);
 }
 
@@ -7732,6 +7850,18 @@ function acceptsLearningPolicyImplementationId(value) {
       || !!LEARNING_COMPATIBILITY
         && LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(value));
 }
+const BOARD_MODEL_COMPATIBILITY = typeof NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY === 'object'
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY !== null
+  && Object.isFrozen(NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY)
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.schema === 'long-board-model-transfer-compat-v1'
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.policyImplementationId === POLICY_IMPLEMENTATION_ID
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.sourcePolicyImplementationId === '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2'
+  ? NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY : null;
+
+function acceptsBoardModelPolicyImplementationId(value) {
+  return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
+    && (value === POLICY_IMPLEMENTATION_ID || value === BOARD_MODEL_COMPATIBILITY?.sourcePolicyImplementationId);
+}
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
   'narduh-long-bot-frozen-experience-v34:',
@@ -7979,6 +8109,8 @@ function createBrowserLongBotEngine(game, options = {}) {
     learningCompatibility: LEARNING_COMPATIBILITY,
     acceptsLearningPolicyImplementationId,
     validBoardModelLesson,
+    acceptsBoardModelPolicyImplementationId,
+    boardModelCompatibility: BOARD_MODEL_COMPATIBILITY,
     boardLessonPositionKey,
   };
 
@@ -8075,7 +8207,7 @@ function createBrowserLongBotEngine(game, options = {}) {
 function serverCausalPatterns(patterns) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && Array.isArray(patterns) && patterns.length <= 256 && patterns.every(pattern => (
-    (validBoardModelLesson(pattern) && pattern.policyImplementationId === POLICY_IMPLEMENTATION_ID)
+    (validBoardModelLesson(pattern) && acceptsBoardModelPolicyImplementationId(pattern.policyImplementationId))
     || pattern?.creditVersion === 9
     && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
     && pattern?.reviewerVersion === 'long-server-causal-review-v1'

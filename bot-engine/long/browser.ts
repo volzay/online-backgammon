@@ -27,6 +27,18 @@ function acceptsLearningPolicyImplementationId(value) {
       || !!LEARNING_COMPATIBILITY
         && LEARNING_COMPATIBILITY.compatiblePolicyImplementationIds.includes(value));
 }
+const BOARD_MODEL_COMPATIBILITY = typeof NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY === 'object'
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY !== null
+  && Object.isFrozen(NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY)
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.schema === 'long-board-model-transfer-compat-v1'
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.policyImplementationId === POLICY_IMPLEMENTATION_ID
+  && NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY.sourcePolicyImplementationId === '2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2'
+  ? NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY : null;
+
+function acceptsBoardModelPolicyImplementationId(value) {
+  return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
+    && (value === POLICY_IMPLEMENTATION_ID || value === BOARD_MODEL_COMPATIBILITY?.sourcePolicyImplementationId);
+}
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [
   'narduh-long-bot-frozen-experience-v34:',
@@ -274,6 +286,8 @@ export function createBrowserLongBotEngine(game, options = {}) {
     learningCompatibility: LEARNING_COMPATIBILITY,
     acceptsLearningPolicyImplementationId,
     validBoardModelLesson,
+    acceptsBoardModelPolicyImplementationId,
+    boardModelCompatibility: BOARD_MODEL_COMPATIBILITY,
     boardLessonPositionKey,
   };
 
@@ -370,7 +384,7 @@ export function createBrowserLongBotEngine(game, options = {}) {
 function serverCausalPatterns(patterns) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
     && Array.isArray(patterns) && patterns.length <= 256 && patterns.every(pattern => (
-    (validBoardModelLesson(pattern) && pattern.policyImplementationId === POLICY_IMPLEMENTATION_ID)
+    (validBoardModelLesson(pattern) && acceptsBoardModelPolicyImplementationId(pattern.policyImplementationId))
     || pattern?.creditVersion === 9
     && pattern?.evidenceSchema === 'long-server-causal-pattern-v1'
     && pattern?.reviewerVersion === 'long-server-causal-review-v1'

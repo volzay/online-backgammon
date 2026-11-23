@@ -1,0 +1,434 @@
+{
+  "schema": "real-loss-lessons-and-held-out-online-state-v1",
+  "trainingRooms": [
+    "LEM5-RES8"
+  ],
+  "heldOutRoom": "NGKR-DZWK",
+  "state": {
+    "schema": "long-state-v2",
+    "variant": "long",
+    "phase": "move",
+    "turn": "dark",
+    "points": {
+      "1": {
+        "color": "white",
+        "count": 1
+      },
+      "5": {
+        "color": "dark",
+        "count": 1
+      },
+      "6": {
+        "color": "dark",
+        "count": 1
+      },
+      "11": {
+        "color": "dark",
+        "count": 1
+      },
+      "12": {
+        "color": "dark",
+        "count": 11
+      },
+      "18": {
+        "color": "white",
+        "count": 1
+      },
+      "21": {
+        "color": "dark",
+        "count": 1
+      },
+      "24": {
+        "color": "white",
+        "count": 13
+      }
+    },
+    "bar": {
+      "white": 0,
+      "dark": 0
+    },
+    "off": {
+      "white": 0,
+      "dark": 0
+    },
+    "dice": [
+      2,
+      5
+    ],
+    "rolled": [
+      2,
+      5
+    ],
+    "firstMoveDone": {
+      "white": true,
+      "dark": true
+    },
+    "headPlayedThisTurn": {
+      "white": false,
+      "dark": false
+    },
+    "turnMoves": []
+  },
+  "options": {
+    "strategyProfile": "v26",
+    "maxCandidates": 64,
+    "analysisNodeBudget": 480,
+    "weights": {
+      "opponentHeadFreedom": 48000,
+      "headLandingExposure": 62000,
+      "headRelease": 9800,
+      "foothold": 4300,
+      "homeEntry": 145000,
+      "rushPenalty": 12500,
+      "trapRisk": 62000,
+      "escapeGatewayRisk": 800000,
+      "distribution": 780
+    }
+  },
+  "lessons": [
+    {
+      "wins": 0,
+      "losses": 0,
+      "samples": 1,
+      "baseline": {
+        "utility": -0.5327878484448674,
+        "expectedEquity": -0.510419874350939,
+        "selfEvaluation": -31864018.271657553,
+        "lowerTailEquity": -0.6590933871250857,
+        "opponentEvaluation": -12515527.811761606
+      },
+      "actionKey": "head:gain|entry:flat|trap:flat|prospective-fence:break|freedom:flat|distribution:gain|support:break|home:steady|off:no|tower:flat|prime:loss|block:loss|prime-run:1|koks:miss|route:0>0+1>3|after-quarters:ql1:9,0,2,0,0,0/0,1,0,0,1,0;2,0,0,1,0,0/0,0,0,0,1,0;0,0,1,0,0,0/10,1,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "turnIndex": 5,
+      "contextKey": "head-development|h4|o4|po0|sz4|tr0|pd3|quarters:ql1:10,0,1,0,0,1/0,1,0,0,1,0;2,0,0,0,0,0/0,0,0,0,1,0;0,0,1,0,0,0/10,1,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "diceWeight": 36,
+      "equityGain": 0.029286201615512486,
+      "sourceRoom": "LEM5-RES8",
+      "aggregateId": "2d5fb209d909fdc45ddca816c25e19e347576d948388636d6103c4889390221d",
+      "outcomeUsed": false,
+      "positionKey": "[\"long-board-lesson-position-v1\",\"dark\",[[2,\"white\",1],[6,\"dark\",2],[7,\"dark\",1],[8,\"white\",1],[10,\"dark\",1],[11,\"white\",1],[12,\"dark\",10],[19,\"white\",1],[22,\"dark\",1],[23,\"white\",1],[24,\"white\",10]],[0,0],[0,0],[2,4],[2,4],[true,true],[false,false],[]]",
+      "recommended": {
+        "utility": -0.5071136111983597,
+        "expectedEquity": -0.48113367273542657,
+        "selfEvaluation": -31308151.090975046,
+        "lowerTailEquity": -0.65571195105014,
+        "opponentEvaluation": -13417542.663705453
+      },
+      "trustDomain": "nardu/server-long-bot-board-model/v1",
+      "utilityGain": 0.025674237246507636,
+      "diceOutcomes": 21,
+      "baselineMoves": [
+        {
+          "to": 3,
+          "die": 4,
+          "from": 7,
+          "bearOff": false
+        },
+        {
+          "to": 10,
+          "die": 2,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "creditVersion": 10,
+      "rootPositions": 12,
+      "runtimeDigest": "5a0d17b50bcc9b4900ccd1e7c133f5f85fe23676b010e46f985cc799f5369146",
+      "evidenceSchema": "long-server-board-model-pattern-v1",
+      "preferredMoves": [
+        {
+          "to": 5,
+          "die": 2,
+          "from": 7,
+          "bearOff": false
+        },
+        {
+          "to": 1,
+          "die": 4,
+          "from": 5,
+          "bearOff": false
+        }
+      ],
+      "scoreSemantics": "heuristic-turn-equity-v1",
+      "reviewerVersion": "long-board-model-review-v1",
+      "sourceArchiveId": "5d1fae63-d2d6-419f-b60a-4c4eb46e8499",
+      "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+      "opponentReplyModel": "best-of-bounded-legal-replies-v1",
+      "preferredActionKey": "head:flat|entry:flat|trap:flat|prospective-fence:break|freedom:flat|distribution:flat|support:break|home:steady|off:no|tower:flat|prime:loss|block:loss|prime-run:1|koks:miss|route:1>2+2>3|after-quarters:ql1:10,0,1,0,0,0/0,1,0,0,1,0;2,0,0,0,0,1/0,0,0,0,1,0;0,0,1,0,0,0/10,1,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "policyImplementationId": "2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2",
+      "historicalExecutedMoves": [
+        {
+          "to": 6,
+          "die": 4,
+          "from": 10,
+          "bearOff": false
+        },
+        {
+          "to": 10,
+          "die": 2,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "terminalOutcomeConfirmed": false,
+      "sourcePolicyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306"
+    },
+    {
+      "wins": 0,
+      "losses": 0,
+      "samples": 1,
+      "baseline": {
+        "utility": -0.5355648283118855,
+        "expectedEquity": -0.49708366054829206,
+        "selfEvaluation": -67607222.12255068,
+        "lowerTailEquity": -0.7056511470890078,
+        "opponentEvaluation": -19853377.369092107
+      },
+      "actionKey": "head:gain|entry:flat|trap:flat|prospective-fence:flat|freedom:flat|distribution:gain|support:keep|home:steady|off:no|tower:flat|prime:gain|block:flat|prime-run:3|koks:miss|route:0>1+0>2|after-quarters:ql1:5,0,1,0,2,1/0,1,0,1,0,0;3,0,1,0,0,0/0,0,0,1,1,0;0,0,1,1,0,0/7,2,0,0,0,1;0,0,0,0,0,0/0,0,1,0,0,0;off=0,0",
+      "turnIndex": 10,
+      "contextKey": "head-development|h3|o4|po0|sz4|tr0|pd3|quarters:ql1:6,0,2,0,1,1/0,1,0,1,0,0;2,0,1,0,0,0/0,0,0,1,1,0;0,0,1,1,0,0/7,2,0,0,0,1;0,0,0,0,0,0/0,0,1,0,0,0;off=0,0",
+      "diceWeight": 36,
+      "equityGain": 0.0264919477144947,
+      "sourceRoom": "LEM5-RES8",
+      "aggregateId": "3a34b9a1336689a7405c25f66c17628420553b8aea8c0c11de8806940441493e",
+      "outcomeUsed": false,
+      "positionKey": "[\"long-board-lesson-position-v1\",\"dark\",[[2,\"white\",1],[3,\"white\",1],[4,\"dark\",1],[6,\"dark\",2],[7,\"dark\",1],[8,\"dark\",1],[9,\"white\",1],[10,\"dark\",2],[11,\"white\",1],[12,\"dark\",6],[16,\"white\",1],[19,\"white\",1],[21,\"dark\",1],[22,\"dark\",1],[23,\"white\",2],[24,\"white\",7]],[0,0],[0,0],[6,2],[6,2],[true,true],[false,false],[]]",
+      "recommended": {
+        "utility": -0.4961094560478172,
+        "expectedEquity": -0.47059171283379736,
+        "selfEvaluation": -26569792.493847113,
+        "lowerTailEquity": -0.6171351307539713,
+        "opponentEvaluation": -10808436.003526429
+      },
+      "trustDomain": "nardu/server-long-bot-board-model/v1",
+      "utilityGain": 0.039455372264068256,
+      "diceOutcomes": 21,
+      "baselineMoves": [
+        {
+          "to": 8,
+          "die": 2,
+          "from": 10,
+          "bearOff": false
+        },
+        {
+          "to": 6,
+          "die": 6,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "creditVersion": 10,
+      "rootPositions": 29,
+      "runtimeDigest": "5a0d17b50bcc9b4900ccd1e7c133f5f85fe23676b010e46f985cc799f5369146",
+      "evidenceSchema": "long-server-board-model-pattern-v1",
+      "preferredMoves": [
+        {
+          "to": 4,
+          "die": 2,
+          "from": 6,
+          "bearOff": false
+        },
+        {
+          "to": 1,
+          "die": 6,
+          "from": 7,
+          "bearOff": false
+        }
+      ],
+      "scoreSemantics": "heuristic-turn-equity-v1",
+      "reviewerVersion": "long-board-model-review-v1",
+      "sourceArchiveId": "5d1fae63-d2d6-419f-b60a-4c4eb46e8499",
+      "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+      "opponentReplyModel": "best-of-bounded-legal-replies-v1",
+      "preferredActionKey": "head:flat|entry:flat|trap:flat|prospective-fence:gain|freedom:flat|distribution:flat|support:break|home:steady|off:no|tower:flat|prime:loss|block:loss|prime-run:2|koks:miss|route:1>3+2>2|after-quarters:ql1:6,0,2,0,1,0/0,1,0,1,0,0;1,0,2,0,0,1/0,0,0,1,1,0;0,0,1,1,0,0/7,2,0,0,0,1;0,0,0,0,0,0/0,0,1,0,0,0;off=0,0",
+      "policyImplementationId": "2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2",
+      "historicalExecutedMoves": [
+        {
+          "to": 8,
+          "die": 2,
+          "from": 10,
+          "bearOff": false
+        },
+        {
+          "to": 6,
+          "die": 6,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "terminalOutcomeConfirmed": false,
+      "sourcePolicyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306"
+    },
+    {
+      "wins": 0,
+      "losses": 0,
+      "samples": 1,
+      "baseline": {
+        "utility": -0.4617958339172356,
+        "expectedEquity": -0.44915194757798194,
+        "selfEvaluation": -24623006.29658785,
+        "lowerTailEquity": -0.5510666171866417,
+        "opponentEvaluation": -28002025.70930286
+      },
+      "actionKey": "head:gain|entry:flat|trap:flat|prospective-fence:loss|freedom:flat|distribution:gain|support:keep|home:steady|off:no|tower:flat|prime:flat|block:gain|prime-run:2|koks:gain|route:0>1+1>3|after-quarters:ql1:12,0,0,0,0,1/0,0,0,0,1,0;1,0,0,1,0,0/0,0,0,0,1,0;0,0,0,0,0,0/13,0,0,0,0,0;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "turnIndex": 2,
+      "contextKey": "head-development|h4|o4|po0|sz4|tr0|pd3|quarters:ql1:13,0,0,0,0,1/0,0,0,0,1,0;1,0,0,0,0,0/0,0,0,0,1,0;0,0,0,0,0,0/13,0,0,0,0,0;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "diceWeight": 36,
+      "equityGain": 0.0279713052775471,
+      "sourceRoom": "LEM5-RES8",
+      "aggregateId": "6209ce11d76f5a543371a407fcfb2596afbf7243809f5123686d7d5653d0f405",
+      "outcomeUsed": false,
+      "positionKey": "[\"long-board-lesson-position-v1\",\"dark\",[[2,\"white\",1],[6,\"dark\",1],[7,\"dark\",1],[8,\"white\",1],[12,\"dark\",13],[24,\"white\",13]],[0,0],[0,0],[4,5],[4,5],[true,true],[false,false],[]]",
+      "recommended": {
+        "utility": -0.4307120947458254,
+        "expectedEquity": -0.42118064230043484,
+        "selfEvaluation": -28214412.871050667,
+        "lowerTailEquity": -0.4984301967784912,
+        "opponentEvaluation": -28469114.948203906
+      },
+      "trustDomain": "nardu/server-long-bot-board-model/v1",
+      "utilityGain": 0.03108373917141022,
+      "diceOutcomes": 21,
+      "baselineMoves": [
+        {
+          "to": 3,
+          "die": 4,
+          "from": 7,
+          "bearOff": false
+        },
+        {
+          "to": 7,
+          "die": 5,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "creditVersion": 10,
+      "rootPositions": 4,
+      "runtimeDigest": "5a0d17b50bcc9b4900ccd1e7c133f5f85fe23676b010e46f985cc799f5369146",
+      "evidenceSchema": "long-server-board-model-pattern-v1",
+      "preferredMoves": [
+        {
+          "to": 1,
+          "die": 5,
+          "from": 6,
+          "bearOff": false
+        },
+        {
+          "to": 3,
+          "die": 4,
+          "from": 7,
+          "bearOff": false
+        }
+      ],
+      "scoreSemantics": "heuristic-turn-equity-v1",
+      "reviewerVersion": "long-board-model-review-v1",
+      "sourceArchiveId": "5d1fae63-d2d6-419f-b60a-4c4eb46e8499",
+      "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+      "opponentReplyModel": "best-of-bounded-legal-replies-v1",
+      "preferredActionKey": "head:flat|entry:flat|trap:flat|prospective-fence:break|freedom:flat|distribution:flat|support:break|home:steady|off:no|tower:flat|prime:loss|block:loss|prime-run:1|koks:gain|route:1>3+2>3|after-quarters:ql1:13,0,0,0,0,0/0,0,0,0,1,0;0,0,0,1,0,1/0,0,0,0,1,0;0,0,0,0,0,0/13,0,0,0,0,0;0,0,0,0,0,0/0,0,0,0,0,0;off=0,0",
+      "policyImplementationId": "2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2",
+      "historicalExecutedMoves": [
+        {
+          "to": 3,
+          "die": 4,
+          "from": 7,
+          "bearOff": false
+        },
+        {
+          "to": 7,
+          "die": 5,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "terminalOutcomeConfirmed": false,
+      "sourcePolicyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306"
+    },
+    {
+      "wins": 0,
+      "losses": 0,
+      "samples": 1,
+      "baseline": {
+        "utility": -0.4407491025557989,
+        "expectedEquity": -0.39074836665069035,
+        "selfEvaluation": -55606552.5516655,
+        "lowerTailEquity": -0.6305665204606177,
+        "opponentEvaluation": -20598820.311349716
+      },
+      "actionKey": "head:flat|entry:flat|trap:flat|prospective-fence:gain|freedom:flat|distribution:flat|support:keep|home:steady|off:no|tower:flat|prime:loss|block:flat|prime-run:3|koks:miss|route:2>2+2>4|after-quarters:ql1:5,0,1,0,2,1/0,1,0,1,0,0;2,0,1,0,0,0/0,0,0,1,1,0;0,0,2,1,0,0/6,3,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,1;off=0,0",
+      "turnIndex": 11,
+      "contextKey": "head-development|h3|o4|po0|sz4|tr0|pd3|quarters:ql1:5,0,1,0,2,1/0,1,0,1,0,0;3,0,1,0,0,0/0,0,0,1,1,0;0,0,1,1,0,0/6,3,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,1;off=0,0",
+      "diceWeight": 36,
+      "equityGain": 0.03020592140004774,
+      "sourceRoom": "LEM5-RES8",
+      "aggregateId": "6e698aeac5c852bafe228ab0ff1572e03ba37e997941913bfc32e496d5d9ecbe",
+      "outcomeUsed": false,
+      "positionKey": "[\"long-board-lesson-position-v1\",\"dark\",[[2,\"white\",1],[3,\"white\",1],[4,\"dark\",1],[6,\"dark\",3],[7,\"dark\",1],[8,\"dark\",2],[9,\"white\",1],[10,\"dark\",1],[11,\"white\",1],[12,\"dark\",5],[13,\"white\",1],[19,\"white\",1],[21,\"dark\",1],[22,\"dark\",1],[23,\"white\",3],[24,\"white\",6]],[0,0],[0,0],[6,2],[6,2],[true,true],[false,false],[]]",
+      "recommended": {
+        "utility": -0.3969145173796388,
+        "expectedEquity": -0.3605424452506426,
+        "selfEvaluation": -17449493.563303493,
+        "lowerTailEquity": -0.5393236535403653,
+        "opponentEvaluation": -8989348.350961084
+      },
+      "trustDomain": "nardu/server-long-bot-board-model/v1",
+      "utilityGain": 0.043834585176160124,
+      "diceOutcomes": 21,
+      "baselineMoves": [
+        {
+          "to": 22,
+          "die": 6,
+          "from": 4,
+          "bearOff": false
+        },
+        {
+          "to": 4,
+          "die": 2,
+          "from": 6,
+          "bearOff": false
+        }
+      ],
+      "creditVersion": 10,
+      "rootPositions": 32,
+      "runtimeDigest": "5a0d17b50bcc9b4900ccd1e7c133f5f85fe23676b010e46f985cc799f5369146",
+      "evidenceSchema": "long-server-board-model-pattern-v1",
+      "preferredMoves": [
+        {
+          "to": 1,
+          "die": 6,
+          "from": 7,
+          "bearOff": false
+        },
+        {
+          "to": 10,
+          "die": 2,
+          "from": 12,
+          "bearOff": false
+        }
+      ],
+      "scoreSemantics": "heuristic-turn-equity-v1",
+      "reviewerVersion": "long-board-model-review-v1",
+      "sourceArchiveId": "5d1fae63-d2d6-419f-b60a-4c4eb46e8499",
+      "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+      "opponentReplyModel": "best-of-bounded-legal-replies-v1",
+      "preferredActionKey": "head:gain|entry:flat|trap:flat|prospective-fence:gain|freedom:flat|distribution:gain|support:break|home:steady|off:no|tower:flat|prime:loss|block:loss|prime-run:2|koks:miss|route:0>0+1>3|after-quarters:ql1:4,0,2,0,2,0/0,1,0,1,0,0;3,0,1,0,0,1/0,0,0,1,1,0;0,0,1,1,0,0/6,3,0,0,0,1;0,0,0,0,0,0/0,0,0,0,0,1;off=0,0",
+      "policyImplementationId": "2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2",
+      "historicalExecutedMoves": [
+        {
+          "to": 22,
+          "die": 6,
+          "from": 4,
+          "bearOff": false
+        },
+        {
+          "to": 4,
+          "die": 2,
+          "from": 6,
+          "bearOff": false
+        }
+      ],
+      "terminalOutcomeConfirmed": false,
+      "sourcePolicyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306"
+    }
+  ]
+}

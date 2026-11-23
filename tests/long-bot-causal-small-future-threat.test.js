@@ -250,9 +250,14 @@ const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
   const boardReference = '  BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,\n';
   assert.equal(paired.split(boardRegistration).length - 1, 1);
   assert.equal(paired.split(boardReference).length - 1, 2);
+  const transferRegistration = "// Advice transfer changes learned choices; cold continuations still depend only\n// on canonical state and the exact audited native runtime.\nconst LIVE_TRANSFER_NATIVE_CACHE_POLICY = Object.freeze({\n  policyImplementationId: '7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7',\n  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',\n  runtimeBytesDigest: 'eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389',\n});\n";
+  const transferReference = '  LIVE_TRANSFER_NATIVE_CACHE_POLICY,\n';
+  assert.equal(paired.split(transferRegistration).length - 1, 1);
+  assert.equal(paired.split(transferReference).length - 1, 2);
   const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '')
     .replace(adaptiveRegistration, '').replaceAll(adaptiveReference, '')
-    .replace(boardRegistration, '').replaceAll(boardReference, '');
+    .replace(boardRegistration, '').replaceAll(boardReference, '')
+    .replace(transferRegistration, '').replaceAll(transferReference, '');
   assert.equal(crypto.createHash('sha256').update(originalPaired).digest('hex'),
     '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
 });

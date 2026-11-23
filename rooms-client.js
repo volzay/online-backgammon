@@ -12,6 +12,7 @@
   const LONG_BOT_SERVER_CAUSAL_REVIEWER = "long-server-causal-review-v1";
   const LONG_BOT_SERVER_CAUSAL_TRUST_DOMAIN = "nardu/server-long-bot-causal/v1";
   const LONG_BOT_ATTESTED_EXPERIENCE_POLICY_IDS = new Set([
+    "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
     "2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2",
     "1aebb4b1b4ef8cf9fe02f86748d8dc3a9f41376710ac74b475f3b30011821946",
     "d3065eed7070f4fa763065b58f010bb5823b6830d6fb6f8a6bc3fc692056a109",
@@ -117,7 +118,7 @@
       if (!trustedRpc || patterns.length > 256) return null;
       return patterns.every(pattern => {
         if (pattern?.creditVersion === 10) {
-          return pattern.policyImplementationId === window.NarduLongBotEngine?.policyImplementationId
+          return window.NarduLongBotEngine?.acceptsBoardModelPolicyImplementationId?.(pattern.policyImplementationId) === true
             && window.NarduLongBotEngine?.validBoardModelLesson?.(pattern) === true;
         }
         const samples = pattern?.samples;

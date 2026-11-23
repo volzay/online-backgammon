@@ -1,0 +1,23 @@
+[Unit]
+Description=Review verified long-bot loss boards with a bounded model teacher
+After=network-online.target docker.service
+[Service]
+Type=oneshot
+User=nardy-worker
+Group=nardy-worker
+WorkingDirectory=/opt/online-backgammon-live-transfer-7a263bcd-r2
+EnvironmentFile=/etc/online-backgammon/long-bot-causal-worker.env
+StateDirectory=online-backgammon-board-model-transfer-7a263bcd
+StateDirectoryMode=0700
+ExecStart=/usr/bin/flock --exclusive --nonblock --no-fork /var/lib/online-backgammon-board-model-transfer-7a263bcd/worker.flock /usr/bin/node scripts/long-bot-board-model-worker.js --once LEM5-RES8,8JPN-KUD8,CTNM-E43Z
+CPUQuota=25%
+MemoryMax=384M
+TimeoutStartSec=8min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+UMask=0077
+[Install]
+WantedBy=multi-user.target
