@@ -7,6 +7,9 @@ const ROOTS={
  '0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6':'/opt/online-backgammon-live-transfer-7a263bcd-r2',
 };
 const id=process.argv[2],part=Number(process.argv[3]);
+const sampleStart=Number(process.argv[4]??0),sampleEnd=Number(process.argv[5]??32);
+if(!Number.isSafeInteger(sampleStart)||!Number.isSafeInteger(sampleEnd)||sampleStart<0||sampleEnd>32||sampleStart%8||sampleEnd<=sampleStart
+ ||!((sampleStart===0&&sampleEnd===32)||sampleEnd===sampleStart+8))throw Error('Fixed original sample range required');
 if(!/^(?:8JPN-KUD8-d(?:1|7|19|33)|CTNM-E43Z-d(?:1|5|9|13)|LEM5-RES8-t(?:3|6|11|12|13|17|18))$/.test(id)||![0,1,2,3].includes(part))throw Error('Unknown fixed workload');
 const bytes=fs.readFileSync(BASE+'/workloads/'+id+'.json'),input=JSON.parse(bytes),lock=JSON.parse(fs.readFileSync(BASE+'/input-lock.json'));
 if(sha(bytes)!==lock.workloads[id]?.sha256||input.id!==id||input.node!==process.versions.node||input.v8!==process.versions.v8||process.getuid()===0)throw Error('Workload or runtime mismatch');
@@ -27,8 +30,8 @@ const journal=require(root+'/scripts/long-bot-terminal-journal').createTerminalJ
  schema:'long-bot-terminal-cohort-manifest-v1',sampleCount:32,candidateIds:input.candidates.map(c=>c.candidateId),seedsBySample:input.seedsBySample,
  botColor:input.botColor,maxPlies:input.limits.maxPlies,bindings:{schema:'long-attested-compute-local-journal-v1',originalManifestId:input.manifestId,inputSha256:sha(bytes)}}});
 const emit=message=>process.stdout.write(JSON.stringify(message)+'\n');
-emit({type:'identity',id,part,workloadSha256:sha(bytes),executorSha256:sha(fs.readFileSync(__filename)),runtimeDigest:w.runtimeDigest(),policyImplementationId:w.policyImplementationId(),node:process.versions.node,v8:process.versions.v8,linuxFence:fence.assertHeld(),uid:process.getuid()});
-for(let sample=part;sample<32;sample+=4)for(const candidate of input.candidates){
+emit({type:'identity',id,part,sampleStart,sampleEnd,workloadSha256:sha(bytes),executorSha256:sha(fs.readFileSync(__filename)),runtimeDigest:w.runtimeDigest(),policyImplementationId:w.policyImplementationId(),node:process.versions.node,v8:process.versions.v8,linuxFence:fence.assertHeld(),uid:process.getuid()});
+for(let sample=sampleStart+part;sample<sampleEnd;sample+=4)for(const candidate of input.candidates){
  fence.assertHeld();const saved=journal.lookup(sample,candidate.candidateId,input.seedsBySample[sample]);
  if(saved){const {manifestId,...record}=saved;emit({type:'outcome',...record});continue;}
  let outcome;

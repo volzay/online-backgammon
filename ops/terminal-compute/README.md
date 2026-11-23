@@ -42,3 +42,13 @@ attestation or a partial result cannot by itself create a confirmed lesson.
 Original jobs and archives are retained. The historical d33a reviewer remains
 distinct from the currently served 7a policy. LEM uses seven proposals selected
 before terminal outcomes, not fabricated historical decision telemetry.
+
+The four expensive remaining historical cohorts can also be distributed over
+the four fixed ranges [0,8), [8,16), [16,24), [24,32). The original workload,
+native runtime, 32 seed pairs, candidates and private manifest stay identical.
+Each range is a fragment and cannot produce confidence or enter a production
+journal by itself. The operator verifies all four signed fragments and their
+exact disjoint union before importing the complete original cohort. A native
+server worker then computes the original full-sample result. The fragment
+workflow cancels only the older duplicate compute run after all ranges succeed;
+the completed artifacts and original source histories remain available.

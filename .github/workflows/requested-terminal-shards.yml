@@ -1,0 +1,98 @@
+name: Complete fixed native terminal ranges
+on:
+  push:
+    branches: [codex/finish-full-rollouts]
+    paths: [.github/workflows/requested-terminal-shards.yml]
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [8JPN-KUD8-d7, CTNM-E43Z-d5, CTNM-E43Z-d9]
+        sample_start: [0, 8, 16, 24]
+    env:
+      COHORT: ${{ matrix.cohort }}
+      SAMPLE_START: ${{ matrix.sample_start }}
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@66f83c8206e0997178c8fd7bf1da9efccf5dd388
+        with:
+          node-version: '24.15.0'
+      - name: Generate one-time input key for original fixed range
+        run: node ops/terminal-compute/prepare-input-key.cjs "$COHORT"
+      - name: Attest PUBLIC range recipient
+        id: key-attestation
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: terminal-key-exchange/*.json
+      - name: Include public signature
+        env:
+          BUNDLE: ${{ steps.key-attestation.outputs.bundle-path }}
+        run: cp "$BUNDLE" terminal-key-exchange/attestation.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: requested-fragment-key-${{ matrix.cohort }}-s${{ matrix.sample_start }}-${{ github.run_attempt }}
+          path: terminal-key-exchange/
+          retention-days: 1
+      - name: Receive the same encrypted fixed 32-sample workload
+        run: node ops/terminal-compute/wait-private-workload.cjs "$COHORT"
+      - name: Install exact immutable Linux native code
+        run: |
+          node - <<'JS'
+          const fs=require('fs'),crypto=require('crypto'),d='ops/terminal-compute';const lock=JSON.parse(fs.readFileSync(d+'/input-lock.json'));for(const [name,hash]of Object.entries(lock.capsules))if(crypto.createHash('sha256').update(fs.readFileSync(d+'/capsules/'+name)).digest('hex')!==hash)throw Error('Capsule hash differs');
+          JS
+          sudo chown root:root /opt
+          sudo chmod 0755 /opt
+          sudo useradd --system --uid 2000 --no-create-home --shell /usr/sbin/nologin nardy-worker
+          sudo install -d -m 0755 /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1/workloads /opt/online-backgammon-compute-node
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/quarter-18f05baf.tar.gz -C /opt/online-backgammon-hard-quarters-cached-v1
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/current-0eab9068.tar.gz -C /opt/online-backgammon-live-transfer-7a263bcd-r2
+          sudo install -m 0444 "private-compute-input/$COHORT.json" "/opt/online-backgammon-requested-compute-v1/workloads/$COHORT.json"
+          rm "private-compute-input/$COHORT.json"
+          sudo cp ops/terminal-compute/input-lock.json ops/terminal-compute/native-child.cjs /opt/online-backgammon-requested-compute-v1/
+          sudo cp "$(command -v node)" /opt/online-backgammon-compute-node/node
+          sudo chown -R root:root /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 /opt/online-backgammon-compute-node
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 -type d -exec chmod 0755 {} +
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 -type f -exec chmod 0444 {} +
+          sudo chmod 0555 /opt/online-backgammon-compute-node/node
+      - name: Complete every candidate of the assigned original eight pairs
+        run: node ops/terminal-compute/run-native-workload.cjs "$COHORT" "$SAMPLE_START" "$((SAMPLE_START+8))"
+      - name: Attest actual native fragment
+        if: always()
+        id: result-attestation
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: terminal-results/*.json
+      - name: Include result signature
+        if: always() && steps.result-attestation.outcome == 'success'
+        env:
+          BUNDLE: ${{ steps.result-attestation.outputs.bundle-path }}
+        run: cp "$BUNDLE" terminal-results/attestation.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: requested-fragment-result-${{ matrix.cohort }}-s${{ matrix.sample_start }}-${{ github.run_attempt }}
+          path: terminal-results/
+          retention-days: 7
+          if-no-files-found: error
+  cancel-redundant-full-computations:
+    needs: native
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Stop only the superseded duplicate compute run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node - <<'JS'
+          (async()=>{const r=await fetch('https://api.github.com/repos/volzay/online-backgammon/actions/runs/45132551582/cancel',{method:'POST',headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(15000)});if(![202,409].includes(r.status))throw Error('Duplicate compute cancellation failed: '+r.status);console.log('Duplicate run cancellation: '+r.status);})().catch(e=>{console.error(e.message);process.exitCode=1;});
+          JS

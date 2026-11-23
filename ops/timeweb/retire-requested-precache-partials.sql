@@ -24,7 +24,8 @@ begin
      and runtime_digest=old_job.runtime_digest and archive_fingerprint=old_job.archive_fingerprint and invalidated_at is null)
   then raise exception 'Replacement native review is not complete or source binding differs: %',pair.new_id;end if;
   if old_job.invalidated_at is null then
-   update private.long_bot_causal_review_jobs set invalidated_at=now(),updated_at=now(),
+   update private.long_bot_causal_review_jobs set invalidated_at=now(),status='rejected',
+    lease_owner=null,lease_until=null,updated_at=now(),
     last_error='Superseded by complete equivalent native cache review '||new_job.id||'; original partial history retained'
    where id=old_job.id;
   end if;
