@@ -27,6 +27,7 @@ const state = {
   archive: [],
   users: [],
   usersError: "",
+  archiveCleanupWarning: "",
   selectedMessagePlayerId: "",
   adminMessages: [],
   unreadAdminMessagesByPlayer: {},
@@ -88,6 +89,7 @@ const adminDict = {
     err_admin_rate_limit: "Слишком много попыток входа. Подождите немного и повторите.",
     err_admin_access: "Этот аккаунт не входит в список администраторов.",
     err_admin_auth: "Не удалось войти в админ-панель. Повторите попытку.",
+    archive_cleanup_unavailable: "Автоматическая очистка архива временно недоступна.",
     room_monitor: "Экран монитора",
     room_detail: "Просмотр комнаты",
     room_archive: "Архив комнат",
@@ -236,6 +238,7 @@ const adminDict = {
     err_admin_rate_limit: "Too many sign-in attempts. Please wait and try again.",
     err_admin_access: "This account is not on the administrator list.",
     err_admin_auth: "Could not sign in to the admin panel. Please try again.",
+    archive_cleanup_unavailable: "Automatic archive cleanup is temporarily unavailable.",
     room_monitor: "Monitor screen",
     room_detail: "Room preview",
     room_archive: "Room archive",
@@ -1413,6 +1416,7 @@ function dashboardView() {
       ${adminTabsHtml()}
       ${adminPasswordPanelHtml()}
       ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
+      ${state.archiveCleanupWarning ? `<p class="notice" role="status">${escapeHtml(state.archiveCleanupWarning)}</p>` : ""}
       ${state.adminTab === "players" ? playersDashboardHtml() : state.adminTab === "messages" ? messagesDashboardHtml() : roomsDashboardHtml()}
     </div>`;
 }
@@ -1460,14 +1464,26 @@ async function loadMe() {
   else render();
 }
 
+async function pruneRoomArchive(client) {
+  state.archiveCleanupWarning = "";
+  try {
+    const { error } = await client.rpc("admin_prune_room_archive", {
+      max_age_hours: ROOM_ARCHIVE_RETENTION_HOURS,
+    });
+    if (error && !/function .*admin_prune_room_archive|Could not find the function/i.test(error.message || "")) throw error;
+  } catch (error) {
+    // Maintenance failure must not masquerade as failed sign-in or prevent
+    // independent room/player reads. Keep details in the developer console.
+    state.archiveCleanupWarning = t("archive_cleanup_unavailable");
+    console.warn("Admin archive cleanup failed", error);
+  }
+}
+
 async function refresh() {
   const snapshot = scrollSnapshot();
   if (state.backend === "supabase") {
     const client = await supabaseClient();
-    const { error: pruneError } = await client.rpc("admin_prune_room_archive", {
-      max_age_hours: ROOM_ARCHIVE_RETENTION_HOURS,
-    });
-    if (pruneError && !/function .*admin_prune_room_archive|Could not find the function/i.test(pruneError.message || "")) throw pruneError;
+    await pruneRoomArchive(client);
     const archiveCutoff = new Date(Date.now() - ROOM_ARCHIVE_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
     const [activeResponse, archiveResponse] = await Promise.all([
       client
