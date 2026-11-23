@@ -1,0 +1,1268 @@
+{
+  "schema": "requested-three-rooms-complete-native-terminal-review-v1",
+  "checkedAt": "2026-11-23T09:32:25.679Z",
+  "complete": true,
+  "terminalEndpoints": 4384,
+  "selectedComparisons": 19,
+  "confirmedStatisticalLessons": 0,
+  "scope": "All prespecified terminal cohorts complete; not every possible move in every source turn",
+  "rooms": [
+    {
+      "room": "LEM5-RES8",
+      "terminalEndpoints": 1728,
+      "selectedComparisons": 11,
+      "originalArchivedDecisions": false,
+      "confirmedStatisticalLessons": 0,
+      "protocols": [
+        {
+          "manifestSha256": "490464276876233dd42cc3e43bb16e9f6dc812eee8b0865493882972fc2772fb",
+          "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+          "sourceTurns": 42,
+          "cases": [
+            {
+              "turn": 42,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 6,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 192,
+                "completedTerminalOutcomes": 192,
+                "requiredTerminalOutcomes": 192,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.2926345556786119
+            },
+            {
+              "turn": 41,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 12,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 384,
+                "completedTerminalOutcomes": 384,
+                "requiredTerminalOutcomes": 384,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.3105888083519233
+            },
+            {
+              "turn": 40,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 5,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 160,
+                "completedTerminalOutcomes": 160,
+                "requiredTerminalOutcomes": 160,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.2877259266251706
+            },
+            {
+              "turn": 39,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 17,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 544,
+                "completedTerminalOutcomes": 544,
+                "requiredTerminalOutcomes": 544,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.31922985444881036
+            }
+          ]
+        },
+        {
+          "manifestSha256": "8150d8164ca86572936b39d2aef5caddebd5bfc8ce6bd71ea9248f3e678268d2",
+          "sourceFingerprint": "c9ef0ad8cbae76ad35293c98cc9e7cf609b2766dad58c97806f6ccb9445ed402",
+          "sourceTurns": 42,
+          "primaryConfidence": {
+            "method": "paired-trinomial-clopper-pearson-union-v1",
+            "declaredPairs": 32,
+            "familywiseAlpha": 0.05,
+            "comparisonCount": 7,
+            "perCaseAlpha": 0.0071428571428571435,
+            "minimumEffectLowerBound": 0.08,
+            "optionalStopping": false,
+            "selectionUsingTerminalOutcomes": false
+          },
+          "cases": [
+            {
+              "turn": 3,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0.125,
+              "regretLcb": -0.5038847660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 6,
+                  "sweepLosses": 2,
+                  "splitPairs": 24
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 6,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0.125,
+              "regretLcb": -0.5038847660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 8,
+                  "sweepLosses": 4,
+                  "splitPairs": 20
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 11,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.6269423830302917,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 5,
+                  "sweepLosses": 5,
+                  "splitPairs": 22
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 12,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0.09375,
+              "regretLcb": -0.5351347660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 6,
+                  "sweepLosses": 3,
+                  "splitPairs": 23
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 13,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0,
+              "regretLcb": -0.6288847660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 3,
+                  "sweepLosses": 6,
+                  "splitPairs": 23
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 17,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0.03125,
+              "regretLcb": -0.5976347660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 6,
+                  "sweepLosses": 5,
+                  "splitPairs": 21
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            },
+            {
+              "turn": 18,
+              "complete": true,
+              "coverage": {
+                "complete": true,
+                "candidateCount": 2,
+                "samplesPerCandidate": 32,
+                "terminalOutcomes": 64,
+                "completedTerminalOutcomes": 64,
+                "requiredTerminalOutcomes": 64,
+                "commonDiceStreams": true,
+                "frozenPolicy": true,
+                "confidenceBoundsComplete": true,
+                "confidenceMethod": "hoeffding-union-bound-v1"
+              },
+              "regret": 0.03125,
+              "regretLcb": -0.5976347660605834,
+              "primaryPairedConfidence": {
+                "method": "paired-trinomial-clopper-pearson-union-v1",
+                "counts": {
+                  "sweepWins": 3,
+                  "sweepLosses": 2,
+                  "splitPairs": 27
+                },
+                "lowerWinProbabilityGain": -1,
+                "minimumRequiredGain": 0.08,
+                "qualifies": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "room": "8JPN-KUD8",
+      "jobId": 2411,
+      "policy": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "status": "complete",
+      "cohorts": [
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 2,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 64,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 64,
+            "completedTerminalOutcomes": 64
+          },
+          "regretLcb": -0.5233322698507301,
+          "manifestId": "ca06ec99db584a861932b21de2f93a03acf0c4e3d2681c2a6ae0f6076248f9a4",
+          "decisionIndex": 1
+        },
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 17,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 544,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 544,
+            "completedTerminalOutcomes": 544
+          },
+          "regretLcb": -0.6384597088976207,
+          "manifestId": "517eae4f96942db8cf3584121c083f7806ab8f3679d7a09553dd2f51fd62daaa",
+          "decisionIndex": 7
+        },
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 3,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 96,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 96,
+            "completedTerminalOutcomes": 96
+          },
+          "regretLcb": -0.33600422022515386,
+          "manifestId": "09850d932a937faaa00b6688c6fcad47ad79aa5ff93ae097c3863c1b54157a26",
+          "decisionIndex": 19
+        },
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 19,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 608,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 608,
+            "completedTerminalOutcomes": 608
+          },
+          "regretLcb": -0.321940367956561,
+          "manifestId": "04fa7efaa4c8ee35e902c56d3dfd248cce31955dfceafcc2196155b356d0774e",
+          "decisionIndex": 33
+        }
+      ],
+      "summary": {
+        "noRegret": 4,
+        "rejected": 34,
+        "decisionsSeen": 77,
+        "evidenceCount": 0,
+        "confirmedRegret": 0,
+        "botDecisionsSeen": 38,
+        "diagnosticDisagreement": 0
+      },
+      "lastError": null,
+      "invalidated": false,
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "reviewCoverage": {
+        "scope": "all-bot-decisions",
+        "schema": "long-server-game-review-coverage-v1",
+        "totalBotDecisions": 38,
+        "totalLedgerDecisions": 77,
+        "completedOutcomeCohorts": 4,
+        "finishedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "attemptedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "requestedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "decisionSnapshotsVerified": "reviewed-only",
+        "fullGameEnvelopeValidated": true,
+        "selectionCoversWholeLedger": true,
+        "everyRequestedReviewFinished": true
+      },
+      "archiveFingerprint": "13540424ecb143042442b5e6ed20480b6b190131a98ce92355867c4b81521bad",
+      "terminalEndpoints": 1312,
+      "selectedComparisons": 4,
+      "confirmedStatisticalLessons": 0,
+      "statisticalConclusion": "inconclusive",
+      "remainingDecisionTreatment": "explicit native strategic-risk budget skips; not terminal-confirmed"
+    },
+    {
+      "room": "CTNM-E43Z",
+      "jobId": 2412,
+      "policy": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "status": "complete",
+      "cohorts": [
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 2,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 64,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 64,
+            "completedTerminalOutcomes": 64
+          },
+          "regretLcb": -0.5233322698507301,
+          "manifestId": "4ffff1953b6de1930e0c8a8e28cf440748f978e254f6958b58301c6dce2b7a2b",
+          "decisionIndex": 1
+        },
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 8,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 256,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 256,
+            "completedTerminalOutcomes": 256
+          },
+          "regretLcb": -0.6004332287916041,
+          "manifestId": "e8ee20a3e2d000baf23d1770c62dacefa59259b893dc90c3470a9b38e0ac40bb",
+          "decisionIndex": 5
+        },
+        {
+          "regret": 0,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 16,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 512,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 512,
+            "completedTerminalOutcomes": 512
+          },
+          "regretLcb": -0.6354854530373668,
+          "manifestId": "b2c1317ea0f28758645d57ee2dc5e4c7726bd00d0e1b097c4447fee18d6ec2de",
+          "decisionIndex": 9
+        },
+        {
+          "regret": 0.03125,
+          "status": "no-regret",
+          "coverage": {
+            "complete": true,
+            "frozenPolicy": true,
+            "candidateCount": 16,
+            "confidenceMethod": "hoeffding-union-bound-v1",
+            "terminalOutcomes": 512,
+            "commonDiceStreams": true,
+            "samplesPerCandidate": 32,
+            "confidenceBoundsComplete": true,
+            "requiredTerminalOutcomes": 512,
+            "completedTerminalOutcomes": 512
+          },
+          "regretLcb": -0.5989927265186834,
+          "manifestId": "c640ec76abfaffa0dd5cbd96702f1e1056a54863874d38abb9f81170cb795e20",
+          "decisionIndex": 13
+        }
+      ],
+      "summary": {
+        "noRegret": 4,
+        "rejected": 40,
+        "decisionsSeen": 89,
+        "evidenceCount": 0,
+        "confirmedRegret": 0,
+        "botDecisionsSeen": 44,
+        "diagnosticDisagreement": 0
+      },
+      "lastError": null,
+      "invalidated": false,
+      "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "reviewCoverage": {
+        "scope": "all-bot-decisions",
+        "schema": "long-server-game-review-coverage-v1",
+        "totalBotDecisions": 44,
+        "totalLedgerDecisions": 89,
+        "completedOutcomeCohorts": 4,
+        "finishedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43
+        ],
+        "attemptedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43
+        ],
+        "requestedDecisionIndexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43
+        ],
+        "decisionSnapshotsVerified": "reviewed-only",
+        "fullGameEnvelopeValidated": true,
+        "selectionCoversWholeLedger": true,
+        "everyRequestedReviewFinished": true
+      },
+      "archiveFingerprint": "3878058cacf010fb9ff60576babda5fe1a1e82400bb99bac75ce2400e2627a22",
+      "terminalEndpoints": 1344,
+      "selectedComparisons": 4,
+      "confirmedStatisticalLessons": 0,
+      "statisticalConclusion": "inconclusive",
+      "remainingDecisionTreatment": "explicit native strategic-risk budget skips; not terminal-confirmed"
+    }
+  ],
+  "serving": {
+    "kind": "serving",
+    "policy": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+    "modelPatterns": 82,
+    "terminalPatterns": 0
+  },
+  "verification": {
+    "nativeAggregation": "original immutable server reviewer independently read complete native HMAC journals",
+    "originalArchiveRewritten": false,
+    "partialSelectionAccepted": false,
+    "thresholdReduced": false,
+    "extraPublicServerRouteInstalled": false,
+    "completeCohortsWithVerifiedHostedSignatures": 15,
+    "hostedTerminalEndpoints": 3104,
+    "serverOnlyEarlierLemTerminalEndpoints": 1280,
+    "matchingExistingServerEndpoints": 118,
+    "matchingAdditionalOriginalPrecacheEndpoints": 40,
+    "nativeConflicts": 0,
+    "samplePartitionEquivalence": "Two actual complete 64-endpoint native vectors have identical winners and plies; offline diagnostic, not added training evidence",
+    "tests": {
+      "platform": "darwin",
+      "tests": 2118,
+      "passed": 2104,
+      "failed": 0,
+      "skipped": 14
+    },
+    "buildPassed": true,
+    "publishedEngineSha256": "eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389"
+  },
+  "cleanup": {
+    "oldDuplicateJobs": [
+      {
+        "id": 2401,
+        "status": "rejected",
+        "invalidated": true,
+        "replacement": 2411
+      },
+      {
+        "id": 2402,
+        "status": "rejected",
+        "invalidated": true,
+        "replacement": 2412
+      }
+    ],
+    "originalPartialJournalsRetained": true,
+    "ownQuarterAdmissionPauseRemoved": true,
+    "duplicateHostedRunsCancelled": [
+      45132551582,
+      45143126696
+    ],
+    "successfulCleanupRun": 45147231718,
+    "health": {
+      "long-bot-requested-cached-2401.service": {
+        "Result": "success",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "long-bot-requested-cached-2402.service": {
+        "Result": "success",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "long-bot-lem-terminal-review.service": {
+        "Result": "success",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "long-bot-lem-lesson-confirmation.service": {
+        "Result": "success",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "long-bot-hard-91355600-review.timer": {
+        "Result": "success",
+        "ActiveState": "active",
+        "SubState": "running"
+      },
+      "long-bot-board-model-review.timer": {
+        "Result": "success",
+        "ActiveState": "active",
+        "SubState": "running"
+      }
+    }
+  },
+  "onlineProofBeforeTerminalCompletion": {
+    "rooms": [
+      "B5EM-UXTY",
+      "CQQW-NQYS"
+    ],
+    "exactNativeTurns": 95,
+    "actualChoicesDifferentFromCold": 6,
+    "choicesReproducedByOriginalElevenRequestedModelProposals": 2,
+    "terminalLessonsLoaded": 0,
+    "modelRecordsLoaded": 78,
+    "requestedExperienceExclusiveNecessityProven": false
+  },
+  "receipts": [
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "8JPN-KUD8-d1",
+      "manifestId": "ca06ec99db584a861932b21de2f93a03acf0c4e3d2681c2a6ae0f6076248f9a4",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T08:24:50.086Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 28,
+      "committed": 36,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "24898cc43f8e79c2875de247860ce1cb00f9e11b3425f27fa83edcbe245440c6",
+        "signatureBundleSha256": "83ea98211ecce87e6fbd777fc0919698f934fb3da6d87eb27ecb8137c59fcfba",
+        "verificationSha256": "b0b41c9cea3203ba6bf43adf9612d556807c97d00ae330ba20cad15d63b1d11d",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "8JPN-KUD8-d19",
+      "manifestId": "09850d932a937faaa00b6688c6fcad47ad79aa5ff93ae097c3863c1b54157a26",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T08:01:48.078Z",
+      "endpoints": 96,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 96,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "2d926b19f9aac8c3ade98987dbf1f13307276bae3d0ddb54f8e5821f819d784a",
+        "signatureBundleSha256": "5ee26611370fc0dd296c91aae0ba25d97380e12ed368fafb7416625ca87beda7",
+        "verificationSha256": "5db15e43f12eddf3c7a0912243379b6ab8b1bf56918c3e163753d01f12e6ee2e",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "8JPN-KUD8-d33",
+      "manifestId": "04fa7efaa4c8ee35e902c56d3dfd248cce31955dfceafcc2196155b356d0774e",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T08:02:10.735Z",
+      "endpoints": 608,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 608,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "efb496c10005c088a70d8a03911e67e182e88310d6f2ece6bcc7642ef421805c",
+        "signatureBundleSha256": "7367c9462faadaaa178bc48a63d76349f229ea19e34acf799e0110b5dbb4512d",
+        "verificationSha256": "db7c86eef9be4524d171db2680a3e30e3fac3d55083842c6da2ec30a8b849acc",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "8JPN-KUD8-d7",
+      "manifestId": "517eae4f96942db8cf3584121c083f7806ab8f3679d7a09553dd2f51fd62daaa",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T09:20:57.574Z",
+      "endpoints": 544,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 544,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "43691c0c34dc8549c07289ba1323fc2b8695d3d0dd328551d8347a1e3495e302",
+        "signatureBundleSha256": "eded26051c0a348a773f81a16ce407ea36b4cb83b674ce23dccfbab5d21b1eb7",
+        "verificationSha256": "8b4df0c880295cb4199e1075011d4c574a5fe71d3be551829a328eb93753bf3f",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "CTNM-E43Z-d1",
+      "manifestId": "4ffff1953b6de1930e0c8a8e28cf440748f978e254f6958b58301c6dce2b7a2b",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T08:02:13.608Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 35,
+      "committed": 29,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "3f486d405df8ca8a604870d7fb825a61706bcaa2466b2cd33b06a16f61488ba7",
+        "signatureBundleSha256": "1319656f6c489e3a78101e6f05d9ef05b3dee3f5de6a2e8a69cf5200eef2d7d3",
+        "verificationSha256": "158cf6277bd1ce748a50c687ec68d98cdf015e8199f3b0cb52e463ce946dd87c",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "CTNM-E43Z-d13",
+      "manifestId": "c640ec76abfaffa0dd5cbd96702f1e1056a54863874d38abb9f81170cb795e20",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T09:17:13.570Z",
+      "endpoints": 512,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 512,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "aa427957281bf12c9ad14c0fba068b753236c766ad1c1f4c932121413fa0f9c8",
+        "signatureBundleSha256": "5d06182399ae74d3f4869957a5f3ae6c402e21471e21a1206b77e2704ce9eb27",
+        "verificationSha256": "741f10a85e6f8565ba56b05ff0fa33047963713d088dd561a2ee7c364efcb6a5",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-complete-native-fragments-import-v1",
+      "id": "CTNM-E43Z-d5",
+      "manifestId": "e8ee20a3e2d000baf23d1770c62dacefa59259b893dc90c3470a9b38e0ac40bb",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T09:22:58.171Z",
+      "declaredSamples": 32,
+      "endpoints": 256,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 256,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "d50840cccd7f2a6e9697198c32a17147d6586bc5",
+        "fragments": [
+          {
+            "signatureVerified": true,
+            "sourceCommit": "d50840cccd7f2a6e9697198c32a17147d6586bc5",
+            "workflow": "volzay/online-backgammon/.github/workflows/requested-terminal-shards.yml",
+            "sealedArtifactSha256": "9ec4a89f228241477f4c76b8a6405757bfd2e4f23aa86319b41d8ad0f01e3165",
+            "signatureBundleSha256": "c5660eecf4056feab5b9599448a477386bde8398e508c2a5d882b4884894b238",
+            "verificationSha256": "2a8e2f044b951c1638891f7977d8066711dbac9b35876c1165f1dead89908ef5",
+            "runId": "45143126696",
+            "runAttempt": "1"
+          },
+          {
+            "signatureVerified": true,
+            "sourceCommit": "d50840cccd7f2a6e9697198c32a17147d6586bc5",
+            "workflow": "volzay/online-backgammon/.github/workflows/requested-terminal-shards.yml",
+            "sealedArtifactSha256": "a9395a2f44a74d6dcb30148b999dce6e3a4fa25ca3bac5db50d2859777286c9b",
+            "signatureBundleSha256": "3cabb0490be9554c2d6f800e3096661888b8cef97aa31f700689408fca047a1d",
+            "verificationSha256": "c4f3b4349f71607ed137150fdd3941a762b6bbb347ab3bfe7f32920838554d40",
+            "runId": "45143126696",
+            "runAttempt": "1"
+          },
+          {
+            "signatureVerified": true,
+            "sourceCommit": "d50840cccd7f2a6e9697198c32a17147d6586bc5",
+            "workflow": "volzay/online-backgammon/.github/workflows/requested-terminal-shards.yml",
+            "sealedArtifactSha256": "3a36d1cf003bb9893f886faa4d6a504c40250907503270d9fafcf0e6e04278c3",
+            "signatureBundleSha256": "7bb403458796e7ac676c4dc3a985048a999a5a8657075fb3479d794b7a4d4c31",
+            "verificationSha256": "25473824fae5ae04b09c784b4ad1821f5b3714825002e67966c7d05de1bd1a4d",
+            "runId": "45143126696",
+            "runAttempt": "1"
+          },
+          {
+            "signatureVerified": true,
+            "sourceCommit": "d50840cccd7f2a6e9697198c32a17147d6586bc5",
+            "workflow": "volzay/online-backgammon/.github/workflows/requested-terminal-shards.yml",
+            "sealedArtifactSha256": "595506125bd5b0539dfc6fd4fa899e2c5705a033d65d5528cb53dc4c25b43774",
+            "signatureBundleSha256": "3c3f7c13afcc9bb658bf5129fc6b10c7774df8c6c0c13960418a54958e21d74e",
+            "verificationSha256": "c3c6928ae3b4d6770906be15290452c993d9dfe5956077b2c5ba8166dcb0f572",
+            "runId": "45143126696",
+            "runAttempt": "1"
+          }
+        ]
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "CTNM-E43Z-d9",
+      "manifestId": "b2c1317ea0f28758645d57ee2dc5e4c7726bd00d0e1b097c4447fee18d6ec2de",
+      "nativeRuntimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+      "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+      "completedAt": "2026-11-23T09:27:06.810Z",
+      "endpoints": 512,
+      "alreadyMatchingNativeEndpoints": 0,
+      "committed": 512,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "1ff1c3108178856654788913d79b4f2ccc667bec0d7464426aa8141cc1a4d9c6",
+        "signatureBundleSha256": "6738e806d5fcae51eef20463ee3ed1e3a6b4a0c1705084a11c4e712685aab146",
+        "verificationSha256": "21dd0253214516291c8b138c00781c716094721a837316d37718d5c80b4c1c75",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t11",
+      "manifestId": "bcb2547abef9b28801ae7ab3ec6d768b8fc6cc4f05fe7e21ddc2fe696f9c75a0",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T08:02:14.055Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 6,
+      "committed": 58,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "47f68486616adca787762105f40b650ea1dcbeefad6c0511cad080662a27fe33",
+        "signatureBundleSha256": "73472d1e872ccd2aff89a73c47201089fedba3adefeb6bed29bb091f2b534ba0",
+        "verificationSha256": "7b3ea273314bf34f032f2e70dd1625f8f3d36140b22e5e901ffd2e7b75e6badb",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t12",
+      "manifestId": "cc8e2603e3e372c94abcccb52c6433e2433f6b17702ef79e2d1d7467e3528945",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T08:02:14.476Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 7,
+      "committed": 57,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "c08870addf0934f8434ae803d14da7080df1dbd4414cbadc69f7b42c80c9bc8c",
+        "signatureBundleSha256": "1a8ba7844e55b46bd2d164f03e70771688fc3ad29596b06dda9788153a4d21cc",
+        "verificationSha256": "dc77174f789cf8751c765b59fef221fcf6b9970b6936c55bd632a667e14ea979",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t13",
+      "manifestId": "4a0047aab28eaddec651255e6cc27a17f7910df70276de75940d3501c5eb1fd5",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T08:02:14.990Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 8,
+      "committed": 56,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "25338df6e4234a0df04077b37d5ecf041ec039b9d6667d6dc30d1f89b3846f33",
+        "signatureBundleSha256": "bbbcbf85e540ad96a0c482a6a1a577ef5ea656a0ed9cbca028703d49ceaa7c8a",
+        "verificationSha256": "c62f62e90a7555adca0d9817f18c57ca15cfe0b847215e5d697416a882a846f6",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t17",
+      "manifestId": "1b3f8928f8addb88236ae05ef32357ab8eebe721a5541e9fe64e7c6f0181f249",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T07:53:37.524Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 12,
+      "committed": 52,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "d6047328088dcfee459ff89bfc8f671b57dcbb5aa617bf0ff4eaf58e08e77d67",
+        "signatureBundleSha256": "372a8a582ea891515b90bb473c046f226ca804bb3e1a9634a83a93e4ec16013d",
+        "verificationSha256": "9a509bf3d83dee6af2bb8aa86e818b7aac850c0a83e81e8a7d686ca90ced8d44",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t18",
+      "manifestId": "b59ceb1d61f0c772dbca89bdc8c46a30f1a14cf72762ec856ccc94ca0ce36f9d",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T07:53:38.031Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 12,
+      "committed": 52,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "16f0df5d24c2dd69a4cd6531f0ff525c201b8fbb5cf813b96c4fd6bea59ed80d",
+        "signatureBundleSha256": "c1345ba4a006806a8267024c911c0d9d370613d6151feae9e4cd31aa50ee5291",
+        "verificationSha256": "0a040cf6143f4d4b37fc15d0f2bef4a45644b1b069d48e1879190d609bade90f",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t3",
+      "manifestId": "4396b0e92c2ccc3e664722053e5993690511b863d9fcf57c6c1f948806c01882",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T08:02:15.504Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 5,
+      "committed": 59,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "3062f165fe592316032598219eed936a0b98c5c254933c22439faa7b715f1431",
+        "signatureBundleSha256": "e583b05983873681819600c0573e9057fe2a747244e37fcb085d8574adb6ffb6",
+        "verificationSha256": "4f46bf5e6c8a0b6d1c6113a766c5129fa6aaea2b7032f4584693adcdf7108b85",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    },
+    {
+      "schema": "long-verified-remote-native-import-v1",
+      "id": "LEM5-RES8-t6",
+      "manifestId": "693cc1b063ad02222e211854bfa39fdd92df21493efb5eaff872b22194dc84ef",
+      "nativeRuntimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+      "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+      "completedAt": "2026-11-23T08:02:15.900Z",
+      "endpoints": 64,
+      "alreadyMatchingNativeEndpoints": 5,
+      "committed": 59,
+      "provenance": {
+        "signatureVerified": true,
+        "sourceCommit": "491d8ad99ee656c3ef2d9eed1f3916c8989816f4",
+        "workflow": "volzay/online-backgammon/.github/workflows/requested-full-rollouts.yml",
+        "sealedArtifactSha256": "cbc710e8a5c327b27b447258df2851371086ff5263b3184d2c752d01eabd6f01",
+        "signatureBundleSha256": "f50e3b929ead128c672a26cce0860a3ccfbca82dc3594d7f2133271b86393de8",
+        "verificationSha256": "136550b0a7b04a68362b371278b64bc5d9d3046423b2d469b4bef57d3d88ef27",
+        "runId": "45132551582",
+        "runAttempt": "1"
+      },
+      "learningEvidenceCreated": false
+    }
+  ]
+}
