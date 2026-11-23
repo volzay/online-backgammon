@@ -5,7 +5,7 @@ set -euo pipefail
 previous=/opt/online-backgammon-live-transfer-dispatch-v1/run-live-transfer-causal-slice.sh
 slot=$(( $(/usr/bin/date -u +%s) / 600 % 17 ))
 if (( slot != 1 && slot != 5 && slot != 9 && slot != 14 )); then exec /usr/bin/bash "$previous";fi
-application=/opt/online-backgammon-training-library-db212e88-r1
+application=/opt/online-backgammon-training-library-db212e88-r2
 state=/var/lib/online-backgammon-training-library-causal-db212e88
 if [[ -e "$state/pause-admission" ]];then exec /usr/bin/bash "$previous";fi
 if result=$(

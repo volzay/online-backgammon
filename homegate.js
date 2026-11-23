@@ -1429,7 +1429,7 @@ function trainingLibraryHtml() {
   const s = data.summary;
   const ru = state.lang === "ru";
   const labels = ru
-    ? ["Обучающий архив сложного бота · длинные нарды", "Партий", "Полная история", "Проверенные отдельные позиции", "Недостаточно данных", "Ожидают проверки", "Разобрано позиций", "Советов модели", "Источников новых советов"]
+    ? ["Обучающий архив сложного бота · длинные нарды", "Партий", "Полная история", "Проверенные отдельные позиции", "Недостаточно данных", "Ожидают проверки", "Разобрано позиций", "Новых советов модели", "Источников новых советов"]
     : ["Hard long bot · training library", "Games", "Complete history", "Verified individual positions", "Insufficient data", "Awaiting validation", "Reviewed positions", "Model advice", "New advice sources"];
   const values = [s.total, s.complete_history, s.verified_positions, s.unusable, s.pending,
     `${s.reviewed_positions}/${s.positions}`, data.modelAdvice?.lessons || 0, data.modelAdvice?.sources || 0];

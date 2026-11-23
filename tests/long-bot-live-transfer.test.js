@@ -26,6 +26,9 @@ test('model compatibility preserves old provenance without allowing old terminal
  const old='2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2';
  assert.equal(engine.acceptsBoardModelPolicyImplementationId(old),true);
  assert.equal(engine.acceptsLearningPolicyImplementationId(old),false);
+ const previous='7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7';
+ assert.equal(engine.acceptsBoardModelPolicyImplementationId(previous),true);
+ assert.equal(engine.acceptsLearningPolicyImplementationId(previous),false);
  assert.equal(engine.boardModelCompatibility.terminalEvidenceAlias,false);
  engine.setExperience([{...f.lessons[0],policyImplementationId:'0'.repeat(64)}],'server');assert.equal(engine.experienceSize(),0);
 });

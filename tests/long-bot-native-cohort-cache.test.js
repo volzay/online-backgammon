@@ -24,7 +24,7 @@ const {
   QUARTER_GEOMETRY_NATIVE_CACHE_POLICY,
   ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
   BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
-  LIVE_TRANSFER_NATIVE_CACHE_POLICY,
+  LIVE_TRANSFER_NATIVE_CACHE_POLICY, TRAINING_LIBRARY_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -90,9 +90,9 @@ test('board-learning identity enables a separately pinned cache without calling 
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, LIVE_TRANSFER_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, LIVE_TRANSFER_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, LIVE_TRANSFER_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, TRAINING_LIBRARY_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, TRAINING_LIBRARY_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, TRAINING_LIBRARY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -112,6 +112,7 @@ test('board-learning identity enables a separately pinned cache without calling 
     ADAPTIVE_COUNTERPLAY_NATIVE_CACHE_POLICY,
     BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
   LIVE_TRANSFER_NATIVE_CACHE_POLICY,
+  TRAINING_LIBRARY_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });
