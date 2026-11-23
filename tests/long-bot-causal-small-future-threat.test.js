@@ -254,10 +254,15 @@ const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
   const transferReference = '  LIVE_TRANSFER_NATIVE_CACHE_POLICY,\n';
   assert.equal(paired.split(transferRegistration).length - 1, 1);
   assert.equal(paired.split(transferReference).length - 1, 2);
+  const processCacheRegistration = "// Retain only validated native cold caches across resumable slices. The\n// namespace, exact VM object and the existing drift guards all must match.\n// Rules, policy decisions, fixed dice streams and terminal contracts stay\n// unchanged; the same deterministic work need not be repeated after a slice.\nfunction createProcessNativeCacheProvider(createCache, maxScopes = 2) {\n  if (typeof createCache !== 'function' || !Number.isInteger(maxScopes)\n    || maxScopes < 1 || maxScopes > 2) throw new Error('Invalid native cache scope bound');\n  const scopes = new Map();\n  return function processNativeCache(runtime, limits, attestation = {}) {\n    const fresh = createCache(runtime, limits, attestation);\n    const key = fresh.observation().namespaceFingerprint;\n    if (!key || !fresh.enabled()) return fresh;\n    const previous = scopes.get(key);\n    if (previous?.runtime === runtime && previous.cache.enabled()) {\n      scopes.delete(key); scopes.set(key, previous);\n      return previous.cache;\n    }\n    scopes.delete(key); scopes.set(key, { runtime, cache: fresh });\n    while (scopes.size > maxScopes) scopes.delete(scopes.keys().next().value);\n    return fresh;\n  };\n}\nconst processNativeColdCohortCache = createProcessNativeCacheProvider(createNativeColdCohortCache);\n\n";
+  assert.equal(paired.split(processCacheRegistration).length - 1, 1);
   const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '')
     .replace(adaptiveRegistration, '').replaceAll(adaptiveReference, '')
     .replace(boardRegistration, '').replaceAll(boardReference, '')
-    .replace(transferRegistration, '').replaceAll(transferReference, '');
+    .replace(transferRegistration, '').replaceAll(transferReference, '')
+    .replace(processCacheRegistration, '')
+    .replace('const nativeCache = bypass ? null : processNativeColdCohortCache(', 'const nativeCache = bypass ? null : createNativeColdCohortCache(')
+    .replace('  createProcessNativeCacheProvider,\n', '');
   assert.equal(crypto.createHash('sha256').update(originalPaired).digest('hex'),
     '9c8e4c5c5b4c54e445faa265c328dc7a426e05b9d5f4ba8316a8b34f9830e39b');
 });

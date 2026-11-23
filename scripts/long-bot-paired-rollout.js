@@ -418,6 +418,30 @@ function createNativeColdCohortCache(runtime, limits, attestation = {}, hashKey 
     } };
 }
 
+// Retain only validated native cold caches across resumable slices. The
+// namespace, exact VM object and the existing drift guards all must match.
+// Rules, policy decisions, fixed dice streams and terminal contracts stay
+// unchanged; the same deterministic work need not be repeated after a slice.
+function createProcessNativeCacheProvider(createCache, maxScopes = 2) {
+  if (typeof createCache !== 'function' || !Number.isInteger(maxScopes)
+    || maxScopes < 1 || maxScopes > 2) throw new Error('Invalid native cache scope bound');
+  const scopes = new Map();
+  return function processNativeCache(runtime, limits, attestation = {}) {
+    const fresh = createCache(runtime, limits, attestation);
+    const key = fresh.observation().namespaceFingerprint;
+    if (!key || !fresh.enabled()) return fresh;
+    const previous = scopes.get(key);
+    if (previous?.runtime === runtime && previous.cache.enabled()) {
+      scopes.delete(key); scopes.set(key, previous);
+      return previous.cache;
+    }
+    scopes.delete(key); scopes.set(key, { runtime, cache: fresh });
+    while (scopes.size > maxScopes) scopes.delete(scopes.keys().next().value);
+    return fresh;
+  };
+}
+const processNativeColdCohortCache = createProcessNativeCacheProvider(createNativeColdCohortCache);
+
 function derivePairedSeeds(stateId, sampleIndex) {
   const seed = color => {
     for (let counter = 0; counter < 100; counter += 1) {
@@ -679,7 +703,7 @@ async function generatePairedPolicyOutcomes(decision, legalCandidates, options =
   runtime.engine.setExperience([], 'server-causal-rollout');
   // Advertised native fingerprints are not authority on an injected adapter.
   const bypass = options.runtime || options.outcomeRunner ? 'custom-runtime-or-runner' : '';
-  const nativeCache = bypass ? null : createNativeColdCohortCache(runtime, limits, options.nativeCacheAttestation || {});
+  const nativeCache = bypass ? null : processNativeColdCohortCache(runtime, limits, options.nativeCacheAttestation || {});
   const cacheObservation = () => nativeCache ? nativeCache.observation() : {
     mode: limits.cacheMode, version: NATIVE_CACHE_VERSION, enabled: false, bypassReason: bypass,
     namespaceFingerprint: null, planHits: 0, planMisses: 0, suffixHits: 0, suffixMisses: 0,
@@ -871,6 +895,7 @@ module.exports = {
   derivePairedSeeds,
   canonicalNativeState,
   createNativeColdCohortCache,
+  createProcessNativeCacheProvider,
   generatePairedPolicyOutcomes,
   normalizedLimits,
   playTerminalRollout,

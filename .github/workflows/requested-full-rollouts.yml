@@ -1,0 +1,88 @@
+name: Requested full terminal rollouts
+on:
+  push:
+    branches: [codex/finish-full-rollouts]
+    paths: [.github/workflows/requested-full-rollouts.yml]
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [8JPN-KUD8-d1, 8JPN-KUD8-d7, 8JPN-KUD8-d19, 8JPN-KUD8-d33, CTNM-E43Z-d1, CTNM-E43Z-d5, CTNM-E43Z-d9, CTNM-E43Z-d13, LEM5-RES8-t3, LEM5-RES8-t6, LEM5-RES8-t11, LEM5-RES8-t12, LEM5-RES8-t13, LEM5-RES8-t17, LEM5-RES8-t18]
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@66f83c8206e0997178c8fd7bf1da9efccf5dd388
+        with:
+          node-version: '24.15.0'
+      - name: Generate one-time input encryption key
+        env:
+          COHORT: ${{ matrix.cohort }}
+        run: node ops/terminal-compute/prepare-input-key.cjs "$COHORT"
+      - name: Attest one-time PUBLIC key
+        id: key-attestation
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: terminal-key-exchange/*.json
+      - name: Include public key signature
+        env:
+          BUNDLE: ${{ steps.key-attestation.outputs.bundle-path }}
+        run: cp "$BUNDLE" terminal-key-exchange/attestation.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: requested-compute-key-${{ matrix.cohort }}-${{ github.run_attempt }}
+          path: terminal-key-exchange/
+          retention-days: 1
+      - name: Receive encrypted fixed private input
+        env:
+          COHORT: ${{ matrix.cohort }}
+        run: node ops/terminal-compute/wait-private-workload.cjs "$COHORT"
+      - name: Install immutable native closures
+        env:
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          node - <<'JS'
+          const fs=require('fs'),crypto=require('crypto');const d='ops/terminal-compute';const lock=JSON.parse(fs.readFileSync(d+'/input-lock.json'));for(const [name,hash]of Object.entries(lock.capsules))if(crypto.createHash('sha256').update(fs.readFileSync(d+'/capsules/'+name)).digest('hex')!==hash)throw Error('Capsule checksum mismatch');
+          JS
+          sudo useradd --system --uid 2000 --no-create-home --shell /usr/sbin/nologin nardy-worker
+          sudo install -d -m 0755 /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 /opt/online-backgammon-compute-node
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/quarter-18f05baf.tar.gz -C /opt/online-backgammon-hard-quarters-cached-v1
+          sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/current-0eab9068.tar.gz -C /opt/online-backgammon-live-transfer-7a263bcd-r2
+          sudo install -d -m 0755 /opt/online-backgammon-requested-compute-v1/workloads
+          sudo install -m 0444 "private-compute-input/$COHORT.json" "/opt/online-backgammon-requested-compute-v1/workloads/$COHORT.json"
+          rm "private-compute-input/$COHORT.json"
+          sudo cp ops/terminal-compute/input-lock.json ops/terminal-compute/native-child.cjs /opt/online-backgammon-requested-compute-v1/
+          sudo cp "$(command -v node)" /opt/online-backgammon-compute-node/node
+          sudo chown -R root:root /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 /opt/online-backgammon-compute-node
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 -type d -exec chmod 0755 {} +
+          sudo find /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 -type f -exec chmod 0444 {} +
+          sudo chmod 0555 /opt/online-backgammon-compute-node/node
+      - name: Complete all 32 prespecified paired continuations
+        env:
+          COHORT: ${{ matrix.cohort }}
+        run: node ops/terminal-compute/run-native-workload.cjs "$COHORT"
+      - name: Attest actual native results
+        if: always()
+        id: attest
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad
+        with:
+          subject-path: terminal-results/*.json
+      - name: Include signature bundle
+        if: always() && steps.attest.outcome == 'success'
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" terminal-results/attestation.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: requested-terminal-${{ matrix.cohort }}-${{ github.run_attempt }}
+          path: terminal-results/
+          retention-days: 7
+          if-no-files-found: error

@@ -143,8 +143,10 @@ test('native fixed cohort resumes every committed slot with identical seeds, ter
     assert.equal(first.terminalJournalObservation.completedTerminalOutcomes, candidates.length * 32);
     assert.equal(first.terminalJournalObservation.resumedTerminalOutcomes, 0);
     assert.equal(resumed.terminalJournalObservation.resumedTerminalOutcomes, candidates.length * 32);
-    assert.equal(resumed.cacheObservation.planMisses, 0);
-    assert.equal(resumed.cacheObservation.suffixMisses, 0);
+    // A process cache keeps cumulative observations across calls. A fully
+    // authenticated journal recovery must add no planning or suffix misses.
+    assert.equal(resumed.cacheObservation.planMisses, first.cacheObservation.planMisses);
+    assert.equal(resumed.cacheObservation.suffixMisses, first.cacheObservation.suffixMisses);
     assert.deepEqual(semantics(resumed), semantics(first));
     assert.deepEqual(semantics(first), semantics(original));
     assert.equal(validatePairedOutcomeEvidence(resumed, decision, candidates), '');
