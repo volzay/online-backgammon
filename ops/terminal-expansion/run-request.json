@@ -1,11 +1,9 @@
 {
-  "requestSequence": 5,
-  "look": 512,
+  "requestSequence": 6,
+  "look": 1024,
   "cohorts": [
-    "LEM5-RES8-t6",
-    "LEM5-RES8-t11",
-    "LEM5-RES8-t12"
+    "8JPN-KUD8-d1"
   ],
-  "previousLookReportPath": "look-reports/lem3b-n128.json",
-  "previousLookReportSha256": "053507303ec2e7b6e90dff9c78d3aa2e52cb49eee4f1456a5d69fa93c87d044c"
+  "previousLookReportPath": "look-reports/8JPN-KUD8-d1-n512.json",
+  "previousLookReportSha256": "3e4cd329789e220d68fbcb2ba8b3203a2c3a0911afb229c1f9c5b15ba0315c60"
 }
