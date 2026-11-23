@@ -1,9 +1,9 @@
 {
-  "requestSequence": 17,
+  "requestSequence": 18,
   "look": 1024,
   "cohorts": [
-    "LEM5-RES8-t17"
+    "LEM5-RES8-t11"
   ],
-  "previousLookReportPath": "look-reports/look-n512-batch-17-LEM5-RES8-t17.json",
-  "previousLookReportSha256": "d9249a249c5baa006a25696106f4f0bfc094bb04a2c5cda83dad0a01abc8b187"
+  "previousLookReportPath": "look-reports/look-n512-batch-18-LEM5-RES8-t11.json",
+  "previousLookReportSha256": "f2286a6a577dbc8fbf364699fb7ae41c34849008eafa6cd6beb2c722b2e75105"
 }
