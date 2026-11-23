@@ -51,6 +51,12 @@ jobs:
           node - <<'JS'
           const fs=require('fs'),crypto=require('crypto');const d='ops/terminal-compute';const lock=JSON.parse(fs.readFileSync(d+'/input-lock.json'));for(const [name,hash]of Object.entries(lock.capsules))if(crypto.createHash('sha256').update(fs.readFileSync(d+'/capsules/'+name)).digest('hex')!==hash)throw Error('Capsule checksum mismatch');
           JS
+          # Hosted images make /opt writable for tool installers. The native
+          # fence requires every executable ancestor to be root-owned and
+          # immutable to the unprivileged simulation UID; keep that guard.
+          sudo chown root:root /opt
+          sudo chmod 0755 /opt
+          stat -c '%U %a %n' / /opt
           sudo useradd --system --uid 2000 --no-create-home --shell /usr/sbin/nologin nardy-worker
           sudo install -d -m 0755 /opt/online-backgammon-hard-quarters-cached-v1 /opt/online-backgammon-live-transfer-7a263bcd-r2 /opt/online-backgammon-requested-compute-v1 /opt/online-backgammon-compute-node
           sudo tar --no-same-owner -xzf ops/terminal-compute/capsules/quarter-18f05baf.tar.gz -C /opt/online-backgammon-hard-quarters-cached-v1
