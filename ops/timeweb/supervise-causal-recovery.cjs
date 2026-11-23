@@ -36,7 +36,7 @@ async function main(){
   const s=await r.json();if(s.jobId!==x.jobId||s.runtimeDigest!==x.runtime||s.invalidated||!s.sourceUnchanged)throw Error('Recovery source/grant changed');return s;
  }
  const run=x=>new Promise((resolve,reject)=>{
-  const child=spawn('/usr/bin/flock',['--exclusive','--wait','30','--no-fork',
+  const child=spawn('/usr/bin/flock',['--exclusive','--conflict-exit-code','75','--wait','30','--no-fork',
    path.join(path.dirname(journal),'worker.flock'),process.execPath,
    path.join(__dirname,'run-causal-job-recovery.cjs'),'--run',x.worker,x.runtime],{stdio:'inherit'});
   child.on('error',reject);child.on('exit',code=>resolve(code));
@@ -49,7 +49,7 @@ async function main(){
    if(s.status==='complete')continue;
    if(['failed','rejected'].includes(s.status))throw Error('Recovery needs investigation: '+JSON.stringify(s));
    remaining++;const code=await run(x);
-   if(code!==0&&code!==1)throw Error('Recovery supervisor child exit '+code);
+   if(code!==0&&code!==75)throw Error('Native recovery worker failed, exit '+code);
    const after=await status(x);console.log(JSON.stringify({round,jobId:x.jobId,status:after.status,slices:after.slices}));
    if(['failed','rejected'].includes(after.status))throw Error('Recovery stopped with '+after.status+' job '+x.jobId);
   }
