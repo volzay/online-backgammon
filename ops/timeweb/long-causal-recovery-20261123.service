@@ -20,4 +20,3 @@ RuntimeMaxSec=8h
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-
