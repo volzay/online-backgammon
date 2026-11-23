@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7';
-  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b';
+  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","previousPlayingPolicyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","previousBundleSha256":"eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
 
 /* bot-engine/long/metrics.ts */
 
@@ -3472,6 +3472,7 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
     after.off?.white || 0, after.off?.dark || 0]);
   const preferred = proposed && eligible.find(c => key(c.after) === key(proposed));
   if (!preferred || preferred === baseline
+    || !isAdaptiveStructuralAlternative(state, color, preferred, baseline)
     || Number(preferred.experienceAdjustment || 0) < 0
     || Number(preferred.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
     || Number(preferred.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) return;
@@ -3528,6 +3529,7 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
   const proposals = [];
   for (const candidate of eligible) {
     if (candidate === baseline
+      || !isAdaptiveStructuralAlternative(state, color, candidate, baseline)
       || Number(candidate.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
       || Number(candidate.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) continue;
     const descriptor = experienceDescriptor(state, color, candidate.features, candidate.tactical);
@@ -7860,7 +7862,9 @@ const BOARD_MODEL_COMPATIBILITY = typeof NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILIT
 
 function acceptsBoardModelPolicyImplementationId(value) {
   return /^[0-9a-f]{64}$/.test(POLICY_IMPLEMENTATION_ID)
-    && (value === POLICY_IMPLEMENTATION_ID || value === BOARD_MODEL_COMPATIBILITY?.sourcePolicyImplementationId);
+    && (value === POLICY_IMPLEMENTATION_ID || value === BOARD_MODEL_COMPATIBILITY?.sourcePolicyImplementationId
+      || (value === '7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7'
+        && BOARD_MODEL_COMPATIBILITY?.previousPlayingPolicyImplementationId === value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [

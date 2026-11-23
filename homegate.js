@@ -28,6 +28,7 @@ const state = {
   users: [],
   usersError: "",
   archiveCleanupWarning: "",
+  trainingLibrary: null,
   selectedMessagePlayerId: "",
   adminMessages: [],
   unreadAdminMessagesByPlayer: {},
@@ -1417,8 +1418,32 @@ function dashboardView() {
       ${adminPasswordPanelHtml()}
       ${state.notice ? `<p class="notice">${escapeHtml(state.notice)}</p>` : ""}
       ${state.archiveCleanupWarning ? `<p class="notice" role="status">${escapeHtml(state.archiveCleanupWarning)}</p>` : ""}
+      ${trainingLibraryHtml()}
       ${state.adminTab === "players" ? playersDashboardHtml() : state.adminTab === "messages" ? messagesDashboardHtml() : roomsDashboardHtml()}
     </div>`;
+}
+
+function trainingLibraryHtml() {
+  const data = state.trainingLibrary;
+  if (!data?.summary || state.adminTab !== "rooms") return "";
+  const s = data.summary;
+  const ru = state.lang === "ru";
+  const labels = ru
+    ? ["Обучающий архив сложного бота · длинные нарды", "Партий", "Полная история", "Проверенные отдельные позиции", "Недостаточно данных", "Ожидают проверки", "Разобрано позиций", "Новых советов модели", "Источников новых советов"]
+    : ["Hard long bot · training library", "Games", "Complete history", "Verified individual positions", "Insufficient data", "Awaiting validation", "Reviewed positions", "Model advice", "New advice sources"];
+  const values = [s.total, s.complete_history, s.verified_positions, s.unusable, s.pending,
+    `${s.reviewed_positions}/${s.positions}`, data.modelAdvice?.lessons || 0, data.modelAdvice?.sources || 0];
+  const statuses = ru ? { ready: "Полная история", partial: "Отдельные позиции", unusable: "Недостаточно данных", pending: "Ожидает проверки" }
+    : { ready: "Complete history", partial: "Individual positions", unusable: "Insufficient data", pending: "Pending validation" };
+  const rows = (data.games || []).map(game => `<tr><td>${escapeHtml(game.room_code)}</td><td>${fmtTime(game.completed_at)}</td>
+    <td>${escapeHtml(game.engine_version)}</td><td>${game.outcome === "win" ? (ru ? "Победа" : "Win") : (ru ? "Поражение" : "Loss")}</td>
+    <td>${escapeHtml(statuses[game.classification_status] || statuses.pending)}</td><td>${Number(game.reviewed_positions) || 0}/${Number(game.total_turns) || 0}</td>
+    <td>${escapeHtml(Object.keys(game.classification?.phases || {}).join(", "))}</td></tr>`).join("");
+  return `<section class="admin-panel"><h2>${labels[0]}</h2><p>${values.map((value, index) => `${labels[index + 1]}: ${escapeHtml(value)}`).join(" · ")}</p>
+    <p class="admin-empty">${ru ? "Советы модели проходят оценку ходов. Статистическое подтверждение доигрываниями учитывается отдельно." : "Model advice is evaluated against alternative moves. Terminal statistical confirmation is tracked separately."}</p>
+    <details><summary>${ru ? "Каталог партий" : "Game catalogue"}</summary><div style="overflow:auto;max-height:420px"><table><thead><tr>
+    ${(ru ? ["Комната", "Дата", "Алгоритм", "Результат бота", "Данные", "Разбор позиций", "Стадии"] : ["Room", "Date", "Engine", "Bot result", "Data", "Positions reviewed", "Phases"]).map(label => `<th>${label}</th>`).join("")}
+    </tr></thead><tbody>${rows}</tbody></table></div></details></section>`;
 }
 
 function render() {
@@ -1520,6 +1545,16 @@ async function refresh() {
     state.archive = archivedRooms.map(room => supabaseRoomSummary(room, { source: "archive" }));
     state.audit = [];
     state.retentionHours = ROOM_ARCHIVE_RETENTION_HOURS;
+    // This optional catalogue must never block the room/player lists.
+    let libraryTimeout;
+    try {
+      const result = await Promise.race([
+        client.rpc("admin_long_bot_training_library", { p_limit: 500, p_offset: 0 }),
+        new Promise(resolve => { libraryTimeout = setTimeout(() => resolve({ error: true }), 3000); }),
+      ]);
+      if (!result.error) state.trainingLibrary = result.data;
+    } catch (error) { console.warn("Training library status unavailable", error); }
+    finally { clearTimeout(libraryTimeout); }
     try {
       const { data: users, error: usersError } = await client
         .from("profiles")

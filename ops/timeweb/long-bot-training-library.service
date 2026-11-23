@@ -1,0 +1,22 @@
+[Unit]
+Description=Classify every hard long training game and review verified positions fairly
+After=network-online.target docker.service
+[Service]
+Type=oneshot
+User=nardy-worker
+Group=nardy-worker
+WorkingDirectory=/opt/online-backgammon-training-library-db212e88-r3
+EnvironmentFile=/etc/online-backgammon/long-bot-causal-worker.env
+StateDirectory=online-backgammon-training-library-db212e88
+StateDirectoryMode=0700
+ExecStart=/usr/bin/flock --exclusive --nonblock --no-fork /var/lib/online-backgammon-training-library-db212e88/worker.flock /usr/bin/node scripts/long-bot-training-library-worker.js --once review 4
+CPUQuota=25%
+MemoryMax=384M
+TimeoutStartSec=12min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
