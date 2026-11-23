@@ -1,0 +1,187 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T20:31:22.500Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 128,
+  "results": [
+    {
+      "id": "LEM5-RES8-t6",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 45,
+      "comparisons": [
+        {
+          "candidateId": "fb0580d74311834644663ff35f0a93e9ab4611539c30b67d042e2b2e581d2cee",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 16,
+            "sweepLosses": 15,
+            "splitPairs": 97
+          },
+          "observedGain": 0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.23602110855708958,
+          "originalHoeffdingLower": -0.3647176226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+        "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+        "legalScope": "two-prespecified-model-actions"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "4f3d13d18037d8010b40abb944a88f710c45c2d497f9cf5c8dd5975268216a05",
+          "sealedSha256": "de9e059259292fdf1cf23375a2b5e17b73eb84ae6391127efdc3dac8ff02fce3"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "20431f06af243c20c8d3a3b69cea9a41721284f91a57d7ca5708d290fd1f50ad",
+          "sealedSha256": "62fb209ac227892b84230383a0e5b49ac9b2c505db12a2425ba7c6a193fed82c"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "9d6fce198a97e4f32c7441a02a136f94f42b6588ffdb31eb26a4da63da1835a0",
+          "sealedSha256": "a53603dfa894d600c9c6b9d58400ecee7b25eeac5a38868f9dc0118adaa9ca82"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "0500e9d328ccd63f91eca542dd6e0b92c8dcf6fe160ac540e5d2d68870437d63",
+          "sealedSha256": "7acf59beb276c1b41d05c6dcfa9bcdfd71683de5184eb639210ba04f04252f92"
+        }
+      ]
+    },
+    {
+      "id": "LEM5-RES8-t11",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 45,
+      "comparisons": [
+        {
+          "candidateId": "7b8cf220bf4a88be07a97d3ec1a3d6ca298d1095241b8da9b944bbfa1be8fff9",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 20,
+            "sweepLosses": 19,
+            "splitPairs": 89
+          },
+          "observedGain": 0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.25704766883136543,
+          "originalHoeffdingLower": -0.3647176226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+        "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+        "legalScope": "two-prespecified-model-actions"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "afd17ca974bbbc765de10316a5f161bf93a779b5c10dd373fb8d2ee9af45501c",
+          "sealedSha256": "12af66830bfbd6863e2da6000f955424712d1e5c85f5273fdbcac8c132b62686"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "75265681cb036b235219217939b070eb2246f0bfaaffaa121ae585961c6f90dc",
+          "sealedSha256": "d49e2fc205f69a5d35f99e883a337c1c2ab416cb1ccfb3a8f8b394840b98813a"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "dc5833fc1b8d36f0290576a1bc3d96a67931b43e810d8781e4c3e5062fb7a106",
+          "sealedSha256": "73c96926f5da6c83bc762ec746ef95e4046dc62b5ac58010c7d7a3d6fc036f3e"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "dc5cd82178af1e637aa3cc5cae6bb132b187e69ef63e63c299218b2a5febf245",
+          "sealedSha256": "6b3b2a4b102fbd5cc05229c3b0a1ddd310e9e598bf44d6e0917b3e3e41917291"
+        }
+      ]
+    },
+    {
+      "id": "LEM5-RES8-t12",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 53,
+      "comparisons": [
+        {
+          "candidateId": "d4ef92a2973e371c5e6c977d96c6bfb74edefd7f6a8b1abbab38db3cf6904e4b",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 23,
+            "sweepLosses": 29,
+            "splitPairs": 76
+          },
+          "observedGain": -0.046875,
+          "pairedLower": -1,
+          "pairedUpper": 0.23364893793067765,
+          "originalHoeffdingLower": -0.4194051226286135,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+        "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+        "legalScope": "two-prespecified-model-actions"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "515b4b7d6fb6b854b99f99137c2c23e9d262c6127d5c5a5590bc7c318c4889bd",
+          "sealedSha256": "900a2d7a750bbdd72445920d3a6703c1d74e171a483f02645e7b91ad09d85133"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "1d5ec4484ef5a899a6f51affa52313726cd551d2916985bd5eaf66be0431490a",
+          "sealedSha256": "c3f884a3e4c3f16a297aa355f8c79e53984eb765717397e15ea5a82335dd5893"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "786e679f065e5bf81276ab44fb588d10b1ebaa220a140c957bab55410f8c98ed",
+          "sealedSha256": "6e7b359d0d6beb9437dc7d7645243556bc8a61d8467a8e02a5a3b0a0df9c4411"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "53827b2ab7191f471aff16e15eadce105334e83506546932725aa783a2344e2c",
+          "sealedSha256": "8bbbccb7543cd627a99849141662639d848199c78356bec86ab8ffcfd6268b9a"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "LEM5-RES8-t6",
+    "LEM5-RES8-t11",
+    "LEM5-RES8-t12"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}

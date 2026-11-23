@@ -1,0 +1,143 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T23:17:55.317Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 512,
+  "results": [
+    {
+      "id": "LEM5-RES8-t11",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 512,
+      "completeLook": true,
+      "controlWins": 162,
+      "comparisons": [
+        {
+          "candidateId": "7b8cf220bf4a88be07a97d3ec1a3d6ca298d1095241b8da9b944bbfa1be8fff9",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 66,
+            "sweepLosses": 75,
+            "splitPairs": 371
+          },
+          "observedGain": -0.017578125,
+          "pairedLower": -1,
+          "pairedUpper": 0.10255953651643779,
+          "originalHoeffdingLower": -0.20384318631430676,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "0eab9068781ca4967ef362224ff7cfcff2200447fbbec7527ee39296a55f92b6",
+        "policyImplementationId": "7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7",
+        "legalScope": "two-prespecified-model-actions"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "afd17ca974bbbc765de10316a5f161bf93a779b5c10dd373fb8d2ee9af45501c",
+          "sealedSha256": "12af66830bfbd6863e2da6000f955424712d1e5c85f5273fdbcac8c132b62686"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "75265681cb036b235219217939b070eb2246f0bfaaffaa121ae585961c6f90dc",
+          "sealedSha256": "d49e2fc205f69a5d35f99e883a337c1c2ab416cb1ccfb3a8f8b394840b98813a"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "dc5833fc1b8d36f0290576a1bc3d96a67931b43e810d8781e4c3e5062fb7a106",
+          "sealedSha256": "73c96926f5da6c83bc762ec746ef95e4046dc62b5ac58010c7d7a3d6fc036f3e"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "dc5cd82178af1e637aa3cc5cae6bb132b187e69ef63e63c299218b2a5febf245",
+          "sealedSha256": "6b3b2a4b102fbd5cc05229c3b0a1ddd310e9e598bf44d6e0917b3e3e41917291"
+        },
+        {
+          "start": 128,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "d2a0bacf56731b30138ad05a2117d8ded2f281ac8c36e9ce524c20f54301cad0",
+          "sealedSha256": "020440f21504658902544dfd8f80342c89f84e8ed7c79db8b167da5581bbfce3"
+        },
+        {
+          "start": 160,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "4f17f71a8670814614628e13d3f0eb9c6f33b5351a3971ed3317d5ca17ab0795",
+          "sealedSha256": "a32d2bcceae88b4d4c1dd3f4e37d783004612036a1ae657689e1aa043af7676a"
+        },
+        {
+          "start": 192,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "7d92dd9fb91927013fc63ac3871de80e2435ad3866b617ccf1b0537e58b18d5b",
+          "sealedSha256": "0315e91455f4337434ee0d090fd0c404a57202a91667422a2e199ac9ac42465a"
+        },
+        {
+          "start": 224,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "526294da38df443a2f8b9000a0567af499992eb0d81283982954c498562a2e0a",
+          "sealedSha256": "f56693189ad365b2dc2fd1be5db4b74ff768104bc8504b35819a11c1efac2187"
+        },
+        {
+          "start": 256,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "1b203d3a3e463761357cec6095578da9d9aac8b189633e3d571d03f66a8caf46",
+          "sealedSha256": "ff5531fac882d517901a900ea04fbb2002008bbb5f672d4c8bf57c6bab2c3a1e"
+        },
+        {
+          "start": 288,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "caf4e57f3314aad5f71b36ca1deb9a38106c1519bb3005fc9787c9f9affb62cf",
+          "sealedSha256": "52771fcffef2af1544e94cf0f2d6f6f1277d5f3aaf632cad5b41e08d48b8023a"
+        },
+        {
+          "start": 320,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "67362781ff965f8c6860ce536e3e1a2562bfe7868c97db25fa0ded0cb22c51ee",
+          "sealedSha256": "d860e7ca1edf5f5276bc8a0277727165291fdd6bd772814b83283df4a3053a57"
+        },
+        {
+          "start": 352,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "8a8c6d1f34fde624a905191b127b44882f247e04d8e6ddd64bea57cc441998fe",
+          "sealedSha256": "4dd892eaeb7e21532ece49fd98e2388932dcfe4bbefb78a5f4ad2a0639565d9a"
+        },
+        {
+          "start": 384,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "f88ddd4199cb6bc95e9c5940ea835b8aaa3abde25869e40a42de041b6c45cfd5",
+          "sealedSha256": "ef4ac65c1bdb296130d4ddd78611e94faf2b6db599517a3afb5addca2c09d6ee"
+        },
+        {
+          "start": 416,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "0506645b72b06683034917e4a6634a141c9d8018e8bf965df5b9f6849e4d84c5",
+          "sealedSha256": "92b5f739375be0f308aade92d597660ec71971176e2076afbe4f9e4d1ca542ef"
+        },
+        {
+          "start": 448,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "377da8336f7f5d19944533bae007d403608d4a72df0995c69e2263108d3920c4",
+          "sealedSha256": "37518c78f8ba1049719df5dd7622b7e0efb6f7eab75daf89b856778ddcac10df"
+        },
+        {
+          "start": 480,
+          "sourceCommit": "6fdee70277f0a3eaa10b56d06da2062b93f05b73",
+          "verifiedFragmentSha256": "8b5190654b7f1b2a7dfe56fb6ef4aba1911461204f13a9e854421240dde6a28d",
+          "sealedSha256": "eb26afb9f04680a9bcded09128e659a20ff671cad8d1c229d834ecc94844ddfe"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "LEM5-RES8-t11"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}
