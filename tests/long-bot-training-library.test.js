@@ -18,7 +18,7 @@ test('incomplete legacy records remain visible but cannot manufacture learning p
  g.decisions=[{stateSnapshotV2:{schema:'long-state-v2'},execution:{complete:false}}];
  const r=L.classify(g);assert.equal(r.classificationStatus,'unusable');assert.equal(r.turns.length,0);
  assert.equal(r.classification.issues[0].reason,'unverified-execution');
- g.final_state.winner='dark';assert.throws(()=>L.classify(g),/source-result-mismatch/);
+ g.final_state.winner='dark';assert.equal(L.classify(g).classification.outcomeConsistent,false);
 });
 test('independent v2 positions require exact maximum-use moves and executed board',()=>{
  const g=game();g.final_state.history=[];const p=fixture.positions[0],runtime=H.loadRuntime();
@@ -26,6 +26,9 @@ test('independent v2 positions require exact maximum-use moves and executed boar
  const d={stateSnapshotV2:{...p.state,schema:'long-state-v2'},execution:{complete:true,selectedMatchesExecuted:true,
   executed:{moves:p.executedMoves,after}}};
  g.decisions=[d];assert.equal(L.classify(g).classificationStatus,'partial');
+ const unfinished=structuredClone(g);unfinished.final_state.off[unfinished.winner]=0;
+ const rescued=L.classify(unfinished);assert.equal(rescued.classificationStatus,'partial');
+ assert.equal(rescued.classification.outcomeConsistent,false);assert.equal(rescued.turns.length,1);
  d.execution.executed.after=structuredClone(after);d.execution.executed.after.off.dark++;
  assert.equal(L.classify(g).classificationStatus,'unusable');
  d.execution.executed.after=after;d.execution.substituted=true;

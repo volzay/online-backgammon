@@ -37,7 +37,12 @@ async function runOnce({mode='review',maxSources=1}={}){
   }
   const source={trainingGameId:s.gameId,roomCode:s.roomCode,fingerprint:s.fingerprint,
    archiveId:s.classification.sourceArchiveId,sourcePolicyImplementationId:s.sourcePolicyImplementationId};
-  const review=await T.reviewTurn(s.turn,source,s.cursor,id,{maxRootPositions:256,maxElapsedMs:160000});
+  // Classification may have been retained from an explicitly recorded older
+  // worker. Verify its native input again; never copy a teacher receipt or ID.
+  const checked=L.verifyTurn(s.turn);
+  if(checked.positionHash!==s.turn.positionHash)throw Error('Stored position identity changed');
+  const review=await T.reviewTurn({...s.turn,...checked},source,s.cursor,id,{maxRootPositions:256,maxElapsedMs:160000});
+  review.sourceClassificationRuntime=s.classification.reusedClassificationRuntime||id.runtimeDigest;
   review.sourceTurnIndex=s.turn.sourceTurnIndex;review.actor=s.turn.actor;review.positionHash=s.turn.positionHash;
   await rpc('checkpoint_long_bot_training_library',{...args,p_previous:s.cursor,p_review:review});
   if(review.status==='capacity'){report.deferred++;continue;}

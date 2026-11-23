@@ -181,7 +181,10 @@ declare answer jsonb;begin
  engines as(select engine_version,count(*) games from current_sources group by engine_version),
  lessons as(select count(*) lessons,count(distinct r.game_id) sources from private.long_bot_training_turn_reviews r
   join private.long_bot_training_source_heads h on h.game_id=r.game_id and h.fingerprint=r.fingerprint
-  join private.long_bot_training_library_releases a on a.runtime_digest=r.runtime_digest and a.enabled where status='model-reviewed')
+  join private.long_bot_training_library_releases a on a.runtime_digest=r.runtime_digest
+  join private.long_bot_board_model_releases model_release on model_release.runtime_digest=r.runtime_digest
+  where status='model-reviewed' and model_release.policy_implementation_id=(select br.policy_implementation_id
+   from private.long_bot_training_library_releases ar join private.long_bot_board_model_releases br using(runtime_digest) where ar.enabled limit 1))
  select jsonb_build_object('summary',(select to_jsonb(counts) from counts),'modelAdvice',(select to_jsonb(lessons)from lessons),
   'engines',(select coalesce(jsonb_agg(to_jsonb(engines)),'[]')from engines),'games',(select coalesce(jsonb_agg(to_jsonb(rows)),'[]')from rows),
   'terminalStatisticsSeparate',true)into answer;

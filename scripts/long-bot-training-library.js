@@ -41,11 +41,12 @@ function classify(game,archive=null){
  const runtime=H.loadRuntime(),issues=[],turns=[];let historyVerified=false,sourceArchiveId=null,origin='none';
  if(game.difficulty!=='hard'||game.final_state?.variant!=='long'||!['white','dark'].includes(game.bot_color)||!['white','dark'].includes(game.winner))throw Error('not-hard-long-source');
  const final=game.final_state;
- if(final.winner!==game.winner||final.off?.[game.winner]!==15)throw Error('source-result-mismatch');
+ const outcomeConsistent=final.winner===game.winner&&final.off?.[game.winner]===15;
+ if(!outcomeConsistent)issues.push({kind:'source-result',reason:'source-result-mismatch'});
  const candidates=[{state:final,kind:'training-history',archiveId:null}];
  if(archive&&archive.room_code===game.room_code&&archive.final_state?.startedAt===final.startedAt&&final.startedAt!=null
   &&archive.winner===game.winner&&H.afterPositionKey(archive.final_state)===H.afterPositionKey(final))candidates.push({state:archive.final_state,kind:'room-history',archiveId:archive.id});
- for(const source of candidates){if(!Array.isArray(source.state?.history)||!source.state.history.length)continue;
+ for(const source of candidates){if(!outcomeConsistent||!Array.isArray(source.state?.history)||!source.state.history.length)continue;
   try{const verified=teacher.replayFinishedHistory(source.state,game.bot_color,runtime,{allowWins:true,includeOpponent:true}).map(t=>verifyTurn(t,runtime));turns.push(...verified);historyVerified=true;origin=source.kind;sourceArchiveId=source.archiveId;break;}catch(e){issues.push({kind:source.kind,reason:e.message});}
  }
  if(!historyVerified){origin='verified-v2-positions';for(const [index,d]of (game.decisions||[]).entries()){
@@ -58,7 +59,7 @@ function classify(game,archive=null){
  }}
  if(turns.length>600)throw Error('source-turn-capacity');
  const phases={},motifs={};for(const t of turns){phases[t.phase]=(phases[t.phase]||0)+1;for(const tag of t.motifs)motifs[tag]=(motifs[tag]||0)+1;}
- return {classificationStatus:historyVerified?'ready':turns.length?'partial':'unusable',classification:{version:VERSION,origin,historyVerified,
+ return {classificationStatus:historyVerified?'ready':turns.length?'partial':'unusable',classification:{version:VERSION,origin,historyVerified,outcomeConsistent,
    sourceArchiveId,totalTurns:turns.length,botTurns:turns.filter(t=>t.actor==='bot').length,opponentTurns:turns.filter(t=>t.actor==='opponent').length,
    uniquePositions:new Set(turns.map(t=>t.positionHash)).size,phases,motifs,issues:issues.slice(0,100),reason:turns.length?'':'no-verifiable-history-or-v2-execution',
    historicalImplementationAttested:false},turns};
