@@ -1,0 +1,67 @@
+{
+  "schema": "admin-archive-retention-fix-v1",
+  "checkedAt": "2026-11-23T15:02:06.664Z",
+  "cause": {
+    "rpc": "admin_prune_room_archive",
+    "failure": "long_bot_board_reviews_archive_id_fkey",
+    "mechanism": "Automatic 96-hour archive cleanup attempted to delete retained training sources. refresh threw before fetching rooms and profiles."
+  },
+  "dataBefore": {
+    "rooms": 70,
+    "archives": 70,
+    "registeredPlayers": 13,
+    "trainingGames": 557,
+    "boardReviews": 18,
+    "boardLessons": 85,
+    "expiredArchives": 10,
+    "expiredArchivesBoundToTraining": 10
+  },
+  "changes": {
+    "retainAllSixTrainingSourceTypes": true,
+    "retainParentRoomsAndRecentArchives": true,
+    "preserveExistingAdministratorAuthorization": true,
+    "helperNotExposedToBrowserRoles": true,
+    "cleanupFailureDoesNotBlockRoomOrPlayerReads": true
+  },
+  "server": {
+    "appliedAt": "2026-11-23T15:00:41.636Z",
+    "migrationSha256": "b4dc342f5d9c18450cf73c1b3537b7ce321f5b2d3f356683265c047b264ec1f8",
+    "migrationOnlyNoDataCleanup": true,
+    "installedFunctionVerified": true,
+    "administratorReads": {
+      "rooms": 70,
+      "archives": 70,
+      "registeredPlayers": 13,
+      "playerStatsRows": 12
+    },
+    "cleanupDeletedInRollbackVerification": 0,
+    "allSourceCountsUnchanged": true
+  },
+  "validation": {
+    "originalFailureReproducedWithRollback": true,
+    "isolatedDatabase": {
+      "migrationAppliedTwice": true,
+      "missingOptionalTablesPassed": true,
+      "allSixSourceTypesRetained": true,
+      "parentAndDetachedArchivesRetained": true,
+      "recentAndActiveRoomsRetained": true,
+      "ordinaryUserDenied": true,
+      "helperPrivate": true,
+      "syntheticExpiredRowsDeleted": 4,
+      "repeatDeleted": 0,
+      "fixtureDatabaseRemoved": true
+    },
+    "frontendTests": {
+      "total": 31,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0
+    },
+    "buildPassed": true,
+    "nativeBrowserVerification": "Unavailable: two Chrome automation timeouts. Real database authenticated-role reads and actual refresh-code regression tests passed."
+  },
+  "sqlFixtureFiles": [
+    "tests/sql/admin-archive-training-retention-bootstrap.sql",
+    "tests/sql/admin-archive-training-retention-smoke.sql"
+  ]
+}
