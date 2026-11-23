@@ -11,11 +11,20 @@ const ROOTS=Object.freeze({
 });
 const URL=process.env.CAUSAL_RECOVERY_URL||process.env.SUPABASE_URL;
 async function main(){
- // Do not reuse an idle HTTP socket after a long synchronous native slice.
- const nativeFetch=globalThis.fetch;
- globalThis.fetch=(url,options={})=>{const headers=new Headers(options.headers);headers.set('Connection','close');return nativeFetch(url,{...options,headers});};
  const [mode,worker,runtime]=process.argv.slice(2),root=ROOTS[runtime];
  if(!root||!/^long-recovery-[0-9]+-[0-9a-f-]{36}$/.test(worker)||!['--run','--heartbeat'].includes(mode))throw Error('Fixed recovery scope required');
+ const wire=require('./recovery-progress-wire.cjs');
+ // Do not reuse an idle HTTP socket after a long synchronous native slice.
+ const nativeFetch=globalThis.fetch;
+ globalThis.fetch=async(url,options={})=>{
+  const headers=new Headers(options.headers);headers.set('Connection','close');
+  const name=new globalThis.URL(url).pathname.split('/').at(-1);
+  const body=options.body?JSON.stringify(wire.requestBody(name,JSON.parse(options.body),worker,runtime)):options.body;
+  const response=await nativeFetch(url,{...options,body,headers});
+  if(runtime!==wire.V1_RUNTIME||name!=='claim_long_bot_causal_review_slices'||!response.ok)return response;
+  const value=wire.responseBody(name,await response.json(),worker,runtime);
+  return new Response(JSON.stringify(value),{status:response.status,headers:{'content-type':'application/json'}});
+ };
  const w=require(root+'/scripts/long-bot-causal-worker');
  if(w.runtimeDigest()!==runtime)throw Error('Original immutable runtime differs');
  if(!URL)throw Error('Configured production RPC endpoint required');
