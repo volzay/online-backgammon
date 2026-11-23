@@ -185,7 +185,7 @@ declare answer jsonb;begin
   join private.long_bot_board_model_releases model_release on model_release.runtime_digest=r.runtime_digest
   where status='model-reviewed' and model_release.policy_implementation_id=(select br.policy_implementation_id
    from private.long_bot_training_library_releases ar join private.long_bot_board_model_releases br using(runtime_digest) where ar.enabled limit 1))
- select jsonb_build_object('summary',(select to_jsonb(counts) from counts),'modelAdvice',(select to_jsonb(lessons)from lessons),
+ select jsonb_build_object('summary',(select to_jsonb(counts) from counts),'modelAdvice',(select to_jsonb(l)from lessons l),
   'engines',(select coalesce(jsonb_agg(to_jsonb(engines)),'[]')from engines),'games',(select coalesce(jsonb_agg(to_jsonb(rows)),'[]')from rows),
   'terminalStatisticsSeparate',true)into answer;
  return answer;
