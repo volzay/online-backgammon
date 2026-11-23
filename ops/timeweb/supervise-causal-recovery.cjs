@@ -12,9 +12,17 @@ async function main(){
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
  if(!url||!key)throw Error('Production endpoint required');
  async function status(x){
-  const r=await fetch(url.replace(/\/$/,'')+'/rest/v1/rpc/get_long_bot_recovery_job',{
+  let r;
+  // This RPC only reads metadata. Retry bounded transient transport/server
+  // failures here; native checkpoint/complete mutations are never replayed.
+  for(let attempt=0;attempt<4;attempt++){
+   try{r=await fetch(url.replace(/\/$/,'')+'/rest/v1/rpc/get_long_bot_recovery_job',{
    method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',Connection:'close'},
-   body:JSON.stringify({p_worker:x.worker,p_runtime:x.runtime})});
+   body:JSON.stringify({p_worker:x.worker,p_runtime:x.runtime}),signal:AbortSignal.timeout(15000)});
+   if(r.ok||r.status<500&&r.status!==429)break;
+   }catch{if(attempt===3)throw Error('Recovery metadata transport unavailable');}
+   if(attempt<3)await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
+  }
   if(!r.ok)throw Error('Recovery status HTTP '+r.status);
   const s=await r.json();if(s.jobId!==x.jobId||s.runtimeDigest!==x.runtime||s.invalidated||!s.sourceUnchanged)throw Error('Recovery source/grant changed');return s;
  }
