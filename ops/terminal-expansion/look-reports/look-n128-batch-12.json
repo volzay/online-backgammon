@@ -1,0 +1,281 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-23T21:25:27.274Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 128,
+  "results": [
+    {
+      "id": "8JPN-KUD8-d7",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 128,
+      "completeLook": true,
+      "controlWins": 43,
+      "comparisons": [
+        {
+          "candidateId": "27f969014a0cc6fc5de7354a8ae43fe94b3f3a09bc1d89b805e0c7f062e225a6",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 18,
+            "sweepLosses": 22,
+            "splitPairs": 88
+          },
+          "observedGain": -0.03125,
+          "pairedLower": -1,
+          "pairedUpper": 0.22322231785429025,
+          "originalHoeffdingLower": -0.44624063371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "b75d12684ee938694de3a34bd500eca396e5743fa4993c4b5a85de13538aa0ff",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 20,
+            "sweepLosses": 15,
+            "splitPairs": 93
+          },
+          "observedGain": 0.0390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.274959829317158,
+          "originalHoeffdingLower": -0.37592813371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c2954c31eaf71b07e0ec5313f57f8cac297ca48f07c3ac4ac0d81a85e6d73d4d",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 11,
+            "sweepLosses": 25,
+            "splitPairs": 92
+          },
+          "observedGain": -0.109375,
+          "pairedLower": -1,
+          "pairedUpper": 0.13649886110098208,
+          "originalHoeffdingLower": -0.5243656337139659,
+          "confirmed": false
+        },
+        {
+          "candidateId": "2b26c7980d425dfdcf16c78ea2167b990151c2b13fbff45daca6f2fa2e3d3be6",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 17,
+            "sweepLosses": 27,
+            "splitPairs": 84
+          },
+          "observedGain": -0.078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.1873992348691793,
+          "originalHoeffdingLower": -0.49311563371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "f9ad5871d7e41accfabb2e4fda5bcc3a121db5600531b0d3ba783cebc89f8a06",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 18,
+            "sweepLosses": 25,
+            "splitPairs": 85
+          },
+          "observedGain": -0.0546875,
+          "pairedLower": -1,
+          "pairedUpper": 0.20783715497897148,
+          "originalHoeffdingLower": -0.46967813371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "62ff1645e019004519373f02e28df9ae83ad779e1b6bf253cd4f88cbe2f94b3e",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 18,
+            "sweepLosses": 17,
+            "splitPairs": 93
+          },
+          "observedGain": 0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.24699664859310388,
+          "originalHoeffdingLower": -0.40717813371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6d9ddfae1d0c5d597c82937493989263da2bffd092c89e30a0948e7f41dd389a",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 17,
+            "sweepLosses": 23,
+            "splitPairs": 88
+          },
+          "observedGain": -0.046875,
+          "pairedLower": -1,
+          "pairedUpper": 0.20839161862486577,
+          "originalHoeffdingLower": -0.46186563371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "74ebbf40a157971edc221520c65713afbbbf473f2b85724bbb6239e26f273358",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 20,
+            "sweepLosses": 22,
+            "splitPairs": 86
+          },
+          "observedGain": -0.015625,
+          "pairedLower": -1,
+          "pairedUpper": 0.24247095156100684,
+          "originalHoeffdingLower": -0.43061563371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c3c8d96eef7c2edca925726ea4802618e1fc0193aefd0d94c7267f1c0ccddbfc",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 21,
+            "sweepLosses": 20,
+            "splitPairs": 87
+          },
+          "observedGain": 0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.2617617871261686,
+          "originalHoeffdingLower": -0.40717813371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "fc31f5616a4d4675b02db766ba7fcb979366195f26f827fee69a2d2866a48b2a",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 15,
+            "sweepLosses": 26,
+            "splitPairs": 87
+          },
+          "observedGain": -0.0859375,
+          "pairedLower": -1,
+          "pairedUpper": 0.17282798643896413,
+          "originalHoeffdingLower": -0.5009281337139659,
+          "confirmed": false
+        },
+        {
+          "candidateId": "38de29e4147c0a124f79a2fb5396b0fd824054ffe4649717fe96b24a9c69ba97",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 24,
+            "sweepLosses": 21,
+            "splitPairs": 83
+          },
+          "observedGain": 0.0234375,
+          "pairedLower": -1,
+          "pairedUpper": 0.2847910589481053,
+          "originalHoeffdingLower": -0.39155313371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "86d85397685273fd1b2bb9a4a9291dacbba085ad46207597544cf1e842ea03a8",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 13,
+            "sweepLosses": 24,
+            "splitPairs": 91
+          },
+          "observedGain": -0.0859375,
+          "pairedLower": -1,
+          "pairedUpper": 0.162844875958303,
+          "originalHoeffdingLower": -0.5009281337139659,
+          "confirmed": false
+        },
+        {
+          "candidateId": "9a4499a2cb158b1136041e635b11feea5d643e5506a18ab68a11080b5c673012",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 18,
+            "sweepLosses": 22,
+            "splitPairs": 88
+          },
+          "observedGain": -0.03125,
+          "pairedLower": -1,
+          "pairedUpper": 0.22322231785429025,
+          "originalHoeffdingLower": -0.44624063371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "ca5f2f249a9da3e920398f0e4ed5cfc7f1cd4c37dee4e8d2ca63fa146d7ebf92",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 14,
+            "sweepLosses": 31,
+            "splitPairs": 83
+          },
+          "observedGain": -0.1328125,
+          "pairedLower": -1,
+          "pairedUpper": 0.13515523932926854,
+          "originalHoeffdingLower": -0.543432816856983,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6f9380b45c8c32d793265a5e55455baf9e82ddfc4348cb5769be3049a2d53f87",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 18,
+            "sweepLosses": 22,
+            "splitPairs": 88
+          },
+          "observedGain": -0.03125,
+          "pairedLower": -1,
+          "pairedUpper": 0.22322231785429025,
+          "originalHoeffdingLower": -0.44624063371396594,
+          "confirmed": false
+        },
+        {
+          "candidateId": "e55604bb4eacf125cb1bc09cd0858a1cd46b60ff977569e6f8408b07d53402db",
+          "samples": 128,
+          "counts": {
+            "sweepWins": 14,
+            "sweepLosses": 33,
+            "splitPairs": 81
+          },
+          "observedGain": -0.1484375,
+          "pairedLower": -1,
+          "pairedUpper": 0.12370222551621168,
+          "originalHoeffdingLower": -0.543432816856983,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "ab02cd97b668c0dba498170d88d37acfb6c7d46714f6a7bd144a38533fd20285",
+          "sealedSha256": "5539ac15383f934798fb2fe214a1268fe55b84c2525cb0e8000b3409fbb4242d"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "8ab20f23d0ef0291d1666fc78f15e860b6a08a8c90acef3711964c77cc1fcaff",
+          "sealedSha256": "9a00bb87d129eac35202f0565db68e56cce8022e55035bc7d94bdb839378d915"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "b6dd9924405932059834c83261561ef085fe894d4d5d99093d86f914ba214c95",
+          "sealedSha256": "d39891ca9476144b32d5d17aaaf9831eb451936e460acb70612ff04de452e9f2"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "50ce1636c8d61fe18e455f4586c9c72cea97da40539feed124713c9e805db907",
+          "sealedSha256": "c19ac3806725eca9e68efe08c712e33812e24e88c8064cfed4e26ba8545a981f"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "8JPN-KUD8-d7"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}

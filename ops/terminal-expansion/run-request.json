@@ -1,9 +1,9 @@
 {
-  "requestSequence": 11,
+  "requestSequence": 12,
   "look": 512,
   "cohorts": [
-    "LEM5-RES8-t18"
+    "8JPN-KUD8-d7"
   ],
-  "previousLookReportPath": "look-reports/look-n128-batch-11.json",
-  "previousLookReportSha256": "a0e107e7518f506dbfe52e28b8a917b2104c4a0e507177e0dc2cac021422e894"
+  "previousLookReportPath": "look-reports/look-n128-batch-12.json",
+  "previousLookReportSha256": "41f248866137395ad05c986fe84d2c921338b4d049358cbe98b38c4a351d1404"
 }
