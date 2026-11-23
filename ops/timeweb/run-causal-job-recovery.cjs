@@ -44,6 +44,7 @@ async function main(){
    if(!before||before.runtimeDigest!==runtime||before.invalidated||!before.sourceUnchanged)throw Error('Recovery source or grant changed');
    if(['complete','rejected'].includes(before.status)){console.log(JSON.stringify({done:true,...before}));return;}
    if(before.status==='failed')throw Error('Bounded recovery stopped: '+JSON.stringify(before));
+   if(before.status==='pending'&&Date.parse(before.availableAt)>Date.now())return;
    const r=await w.runClaimedBatch({workerId:worker,supabaseUrl:URL,
     productionJournalDirectory:process.env.CAUSAL_RECOVERY_JOURNAL||'/var/lib/online-backgammon-causal-worker/terminal-journal',limit:1});
    if(!r||r.claimed>1||!Array.isArray(r.completed))throw Error('Invalid native recovery receipt');

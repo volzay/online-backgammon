@@ -10,4 +10,9 @@ test('v1 representation round trip retains all progress and refuses mid-ply down
  assert.deepEqual(wire.requestBody('checkpoint_long_bot_causal_review_slice',{p_worker_id:worker,p_progress:job.progress},worker,runtime).p_progress,p);
  assert.throws(()=>wire.responseBody('claim_long_bot_causal_review_slices',[{jobId:11,runtimeDigest:runtime,progress:{...p,currentRolloutCheckpoint:{plies:3}}}],worker,runtime),/terminal boundary/);
  const untouched={x:2};assert.equal(wire.responseBody('claim_long_bot_causal_review_slices',untouched,worker,'other'),untouched);
+ const partial={p_worker_id:worker,p_progress:job.progress,p_result:{reviews:[{reason:'rollout-time-limit',rollout:{terminalJournalObservation:{schema:'long-bot-terminal-journal-v1',learningEvidence:false,completedTerminalOutcomes:2}}}]}};
+ const adapted=wire.requestBody('checkpoint_long_bot_causal_review_slice',partial,worker,runtime);
+ assert.equal(adapted.p_result.reviews[0].rollout.terminalJournalObservation.activeCheckpoint,null);
+ assert.equal(partial.p_result.reviews[0].rollout.terminalJournalObservation.activeCheckpoint,undefined);
+ assert.equal(adapted.p_result.reviews[0].rollout.terminalJournalObservation.completedTerminalOutcomes,2);
 });

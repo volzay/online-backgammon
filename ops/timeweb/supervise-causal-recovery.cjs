@@ -7,6 +7,8 @@ async function main(){
  const plan=JSON.parse(fs.readFileSync(process.argv[2]));
  if(!Array.isArray(plan)||plan.length!==43||new Set(plan.map(x=>x.jobId)).size!==43
   ||plan.some(x=>!ROOTS[x.runtime]||!new RegExp('^long-recovery-'+x.jobId+'-[0-9a-f-]{36}$').test(x.worker)))throw Error('Exact 43-job grant plan required');
+ // Finish more recent compatible checkpoints before the oldest v1 cohorts.
+ plan.sort((a,b)=>b.jobId-a.jobId);
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
  if(!url||!key)throw Error('Production endpoint required');
  async function status(x){

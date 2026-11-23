@@ -6,7 +6,17 @@ function requestBody(name,args,worker,runtime){
  if(runtime!==V1_RUNTIME||name!=='checkpoint_long_bot_causal_review_slice')return args;
  if(args.p_worker_id!==worker||args.p_progress?.schema!=='long-server-causal-progress-v1'
   ||'currentRolloutCheckpoint' in args.p_progress)throw Error('Invalid v1 recovery request');
- return {...args,p_progress:{...args.p_progress,schema:'long-server-causal-progress-v2',currentRolloutCheckpoint:null}};
+ const result=structuredClone(args.p_result);
+ for(const review of result?.reviews||[]){
+  if(review.reason!=='rollout-time-limit')continue;
+  const observation=review.rollout?.terminalJournalObservation;
+  if(!observation||observation.schema!=='long-bot-terminal-journal-v1'||'activeCheckpoint'in observation
+   ||observation.learningEvidence!==false)throw Error('Exact legacy journal observation required');
+  // This immutable v1 journal records terminal endpoints only. The absent
+  // in-game checkpoint is represented explicitly as null, never invented.
+  observation.activeCheckpoint=null;
+ }
+ return {...args,p_result:result,p_progress:{...args.p_progress,schema:'long-server-causal-progress-v2',currentRolloutCheckpoint:null}};
 }
 function responseBody(name,value,worker,runtime){
  if(runtime!==V1_RUNTIME||name!=='claim_long_bot_causal_review_slices')return value;
