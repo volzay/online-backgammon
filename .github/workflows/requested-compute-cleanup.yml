@@ -1,0 +1,19 @@
+name: Retire completed requested duplicate computation
+on:
+  push:
+    branches: [codex/finish-full-rollouts]
+    paths: [.github/workflows/requested-compute-cleanup.yml]
+permissions:
+  actions: write
+jobs:
+  retire-duplicates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only this review's redundant runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node - <<'JS'
+          (async()=>{for(const id of ['45132551582','45143126696']){const r=await fetch('https://api.github.com/repos/volzay/online-backgammon/actions/runs/'+id+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(15000)});if(![202,409].includes(r.status))throw Error('Duplicate run '+id+' cancellation failed: '+r.status);console.log(JSON.stringify({runId:id,cancelStatus:r.status}));}})().catch(e=>{console.error(e.message);process.exitCode=1;});
+          JS
