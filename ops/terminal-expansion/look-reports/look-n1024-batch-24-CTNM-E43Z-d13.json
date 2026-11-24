@@ -1,0 +1,433 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-24T06:25:15.235Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 1024,
+  "results": [
+    {
+      "id": "CTNM-E43Z-d13",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 1024,
+      "completeLook": true,
+      "controlWins": 215,
+      "comparisons": [
+        {
+          "candidateId": "e7a838bfebd2bb09ca39ab94d71ef6ac8d33f33f1ed93592a11612897a4f5d57",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 64,
+            "sweepLosses": 58,
+            "splitPairs": 902
+          },
+          "observedGain": 0.005859375,
+          "pairedLower": -1,
+          "pairedUpper": 0.06438207978687416,
+          "originalHoeffdingLower": -0.14045790283930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "a5df34b935fb2b21f9e83afc8f096be5c992ca61e2b61ff03fbe7199a192391a",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 49,
+            "sweepLosses": 167,
+            "splitPairs": 808
+          },
+          "observedGain": -0.115234375,
+          "pairedLower": -1,
+          "pairedUpper": -0.042240223898073026,
+          "originalHoeffdingLower": -0.2615516528393059,
+          "confirmed": false
+        },
+        {
+          "candidateId": "25cc72d950150e4e6d5b24cb5102427568a2cef5bf5783e86e3b110409188771",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 69,
+            "sweepLosses": 139,
+            "splitPairs": 816
+          },
+          "observedGain": -0.068359375,
+          "pairedLower": -1,
+          "pairedUpper": 0.005352427781534885,
+          "originalHoeffdingLower": -0.21467665283930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "b39e92334c1042f8d2badc8d083c297119190bde0a7d8d4d119dde0b35e2c3f0",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 75,
+            "sweepLosses": 136,
+            "splitPairs": 813
+          },
+          "observedGain": -0.0595703125,
+          "pairedLower": -1,
+          "pairedUpper": 0.01485059902787711,
+          "originalHoeffdingLower": -0.20588759033930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c771ad08fb7cc725d1c86c9f0e29e909eaad49cfbca7e2ba38be08ad0e9638b7",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 77,
+            "sweepLosses": 113,
+            "splitPairs": 834
+          },
+          "observedGain": -0.03515625,
+          "pairedLower": -1,
+          "pairedUpper": 0.036257587798431246,
+          "originalHoeffdingLower": -0.18147352783930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "a668c61515f6782fef39c6596d834cdac15a2864a99b368d1bde1190ef94d3aa",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 57,
+            "sweepLosses": 133,
+            "splitPairs": 834
+          },
+          "observedGain": -0.07421875,
+          "pairedLower": -1,
+          "pairedUpper": -0.0037672885390307442,
+          "originalHoeffdingLower": -0.22053602783930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "34acbd9d64016df6014726552d48a10f6f8849a7c1109dbbd88327f8e31663e9",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 60,
+            "sweepLosses": 133,
+            "splitPairs": 831
+          },
+          "observedGain": -0.0712890625,
+          "pairedLower": -1,
+          "pairedUpper": -0.00020051902336248872,
+          "originalHoeffdingLower": -0.21760634033930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "9ec7d5536f376c27efe0027feba2520b587a9a8c72ac1f3d4535ed15891c620c",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 67,
+            "sweepLosses": 133,
+            "splitPairs": 824
+          },
+          "observedGain": -0.064453125,
+          "pairedLower": -1,
+          "pairedUpper": 0.008048539199123184,
+          "originalHoeffdingLower": -0.21077040283930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c46c2d95f0a0d1579286277526d26be8187ce8330df6ead9bfbd5165059ba2b6",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 76,
+            "sweepLosses": 125,
+            "splitPairs": 823
+          },
+          "observedGain": -0.0478515625,
+          "pairedLower": -1,
+          "pairedUpper": 0.025193956075305834,
+          "originalHoeffdingLower": -0.19416884033930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6a501fef3a83e7b0fa4e35efff32fc5e1f04f9a80bdbb0dd1909eb6a60a2b7cb",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 91,
+            "sweepLosses": 98,
+            "splitPairs": 835
+          },
+          "observedGain": -0.0068359375,
+          "pairedLower": -1,
+          "pairedUpper": 0.06447879645254417,
+          "originalHoeffdingLower": -0.15315321533930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "59abbf2867895fc133db7f6d224cbf6d737363de5bcc0fb3eecd6a6f1e45b190",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 66,
+            "sweepLosses": 140,
+            "splitPairs": 818
+          },
+          "observedGain": -0.072265625,
+          "pairedLower": -1,
+          "pairedUpper": 0.0009984888262337677,
+          "originalHoeffdingLower": -0.21858290283930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "420d72b037e7cd8ec3f5bdb0a3dcbe5477f0c08665a9ce991a9307f1a2f89757",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 55,
+            "sweepLosses": 137,
+            "splitPairs": 832
+          },
+          "observedGain": -0.080078125,
+          "pairedLower": -1,
+          "pairedUpper": -0.009510825318486127,
+          "originalHoeffdingLower": -0.22639540283930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "9528a9a872a9b06c6903a345f8ed76d340aa68d68d3795cf3853d0011ee5ffdd",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 80,
+            "sweepLosses": 141,
+            "splitPairs": 803
+          },
+          "observedGain": -0.0595703125,
+          "pairedLower": -1,
+          "pairedUpper": 0.01641524682160167,
+          "originalHoeffdingLower": -0.20588759033930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "0261da95e3c765e4223ce5bc9824b93144c94678b7fe8e90e0f823004b85f340",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 81,
+            "sweepLosses": 85,
+            "splitPairs": 858
+          },
+          "observedGain": -0.00390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.06342286326967539,
+          "originalHoeffdingLower": -0.15022352783930593,
+          "confirmed": false
+        },
+        {
+          "candidateId": "efaee1350e905271a6e86649e24028490fb8ada4648c2f657eeceeb6cfdbd95f",
+          "samples": 1024,
+          "counts": {
+            "sweepWins": 87,
+            "sweepLosses": 110,
+            "splitPairs": 827
+          },
+          "observedGain": -0.0224609375,
+          "pairedLower": -1,
+          "pairedUpper": 0.05018941976910085,
+          "originalHoeffdingLower": -0.16877821533930593,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "effect-at-least-eight-points-excluded",
+      "studyComplete": true,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "4d49d1735c6f5dc8cbea058830726a40f48dcea4073a43b65ee5403ecb637025",
+          "sealedSha256": "2415585d5460e3a8796e84338463907c3f3adfc6249e9e4524072750de4621e0"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "540ea75d0478e0408e0f6cf7d643aa3dfb3cf66a4ed1da2a849dd30629f47378",
+          "sealedSha256": "fabb0914410aeb1b16872ebc14fd8cbce3d336aa2156435b0795d03cea18c638"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "a86c126e3554282ad62d119752bf60a55aa0a89b78dec18acad2329c3288b9f8",
+          "sealedSha256": "d868fdfeb31337d541138895da3ef69a98d7801a4513ea1a979f4df0b27fcfea"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "43bc56dc05c45b01eb77cf02e16114bd79aff06cc4620a864c78e8c490a7043b",
+          "sealedSha256": "2ca760283343349be16a3e10c77e62dba8f2e05c2d986dab1a3913a5bba45e06"
+        },
+        {
+          "start": 128,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "d91bd750bd110d9e885082eec9c22e207738cc977f8ac532e90c95bd4924692b",
+          "sealedSha256": "7f4b324a504cb96795c7c723fd7d1626d0c96d3d9ac221293ee0a68e95706438"
+        },
+        {
+          "start": 160,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "40a0b4472f30c483bda238c1951cab2abdf01a04d71f5eb912b218ef90270307",
+          "sealedSha256": "3c661da1ab43866fd1f91c64b190ba93b8803deaf1824b4738a9d75641ced0d1"
+        },
+        {
+          "start": 192,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "67550777e8a8d499abd011a97659447a05b4f2a896c48cc4f2c39f218cd36499",
+          "sealedSha256": "3b7499f23784b1b3d2247141bef1a55b75e89cb10491ba2152d78811fef9d423"
+        },
+        {
+          "start": 224,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "30f236e041ccc17489eb8fea554ff73b789eb98f59af54ba560083c48a71b842",
+          "sealedSha256": "18d2dbf9d77e829075a4ecfb9fc05cf59918161cf99351281646cddeec525409"
+        },
+        {
+          "start": 256,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "715fb300449dc23e3a16d756fba8c68953298ef0b85efdf9d10aba67359bfa87",
+          "sealedSha256": "9be91614adfe082df74faec1b0bdb74944e81243e994f44f78b4a58eea96105c"
+        },
+        {
+          "start": 288,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "61e15dae1b70d7e7ee974cf21717fa4f4a9714b342fd14e994d223aa0ac6dc83",
+          "sealedSha256": "351f6a7bef1640d092022ac81a22ba66582173903d2af80aee3322800994cf45"
+        },
+        {
+          "start": 320,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "014794f343de038c17d7937158e0364762f59c5cfbb1910571bc77a223d26859",
+          "sealedSha256": "0ff59d3d4dcd0ba7254a3881fc8ff36787e66c5e01876e8d064d3ba89e9f8374"
+        },
+        {
+          "start": 352,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "f1724e5f4f2f9ad043c5d10a2d5cc0e362f06b63d5cfaadaf37f72d384453c0d",
+          "sealedSha256": "5fc04ab5cf2d5b937e8a3e4114baba49733ff965055c537efb5c91302b65f9b6"
+        },
+        {
+          "start": 384,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "acbe1d9b7b61d5164739c7934fe07f67010c8651ecc9010368f9302aabc43af2",
+          "sealedSha256": "455eab23ff2b7f3d5909f6d4de1f4bd6d3187bd7ab13bfb3ea2b8bf44a18a76f"
+        },
+        {
+          "start": 416,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "562d9ceea777449c961f49f9dfc93fba723bd72caea1d9ab8345efba2f2737e4",
+          "sealedSha256": "088b849a1e1277ceb4176e50e86cfe012418f1f890b8e39f684672f174621ca8"
+        },
+        {
+          "start": 448,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "064b12f9dae92981ea816c5bdff9b820137414cc76e138c27b5725233ad1117b",
+          "sealedSha256": "7fefc4d748a8992bb12839841e51ba5a8b37d0717e25076c61b1a70cfe531693"
+        },
+        {
+          "start": 480,
+          "sourceCommit": "a4b0160518f9063e88fa662004087233663ba5c4",
+          "verifiedFragmentSha256": "45ecd470172f9ca2882a0242a171f742b9705ea3891b50d167c410ee0f4b847d",
+          "sealedSha256": "02c06d87f77aa8d7080819c91ac47af34ed13c43c22525f1a46af8c5c8375613"
+        },
+        {
+          "start": 512,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "e7e9de4d69a8bab573f28a4c1e30f98e53f1737c2fcaa7f14c1bf487a4f8b509",
+          "sealedSha256": "64152b9875ba92a0af7792f32275794520fce7e8441e653b4025bb594a0e3d6d"
+        },
+        {
+          "start": 544,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "f354a22345eaaf6e78da430290c237512b65d71f37e5654296611443b0611bd5",
+          "sealedSha256": "55750f5aabfa8a5c92ac81f6434d3cfb400fc3a0ee5643f9e879faf028d0b85d"
+        },
+        {
+          "start": 576,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "fd27196098574737d7b6f772e96a6e2969b193e1fbc315a3fa0c10bef9cd13b4",
+          "sealedSha256": "ff041f443d0764a1d36b583c67b93ab5d181058015e400c3c05e9766f3d93b26"
+        },
+        {
+          "start": 608,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "33e1c83bf52227f1abaebb68fd9742646524fe78fa6368ed9f3b5655bdb3100a",
+          "sealedSha256": "2fc6b4349c5dbcc5248a440c195596c1658fe103b65e0666f58ecb2f300d7a1c"
+        },
+        {
+          "start": 640,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "fa2dcc12056fca2a6b8f480443c648934a8aab1af08b600d3f850f6dabf36260",
+          "sealedSha256": "82d648114896a79bdf6727abb0e8e16f3e993443401a2bb6b3fbfc82ab07f18d"
+        },
+        {
+          "start": 672,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "183f9324097dce06871a3244028934a7ae9a7ad68e10608240b809674c5c42b4",
+          "sealedSha256": "e9f1e974ea7e9e0261eb8b1c7fd1c00e1ae07f47c53c3c0471cb77fd7880d8a2"
+        },
+        {
+          "start": 704,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "b7758a7e623b312a217767b6035870c46a3b08e96859ac856ea0c4db875e902f",
+          "sealedSha256": "bd6c332c8667fdc88756ddba1147005cacb14aa5c92e6536bae57845cf7fbeb5"
+        },
+        {
+          "start": 736,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "03dce9103d6496d04301eff0512dccb022b28ce6b0252699361b4e1a6fa84ef7",
+          "sealedSha256": "ea52c4f87388a27436d168e97aa0f85d59001bcdcd320c529e84d1011e206dc2"
+        },
+        {
+          "start": 768,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "d8b489a59afdb797935282bdcef5eef238ea1d4edbbf7d639539382b04ddea11",
+          "sealedSha256": "e9e81544b8871f740aebf8dfc08479d8bc8b263e72923ecc247efffd13fa09d2"
+        },
+        {
+          "start": 800,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "00a1f751916ef08fba23f8e9f086ac913294b2b874845150bf7ad114755b9bf5",
+          "sealedSha256": "1ca0ab1ec8e60802894a3f8796a527922d07823ca5b8694a13b67635a0dfac0d"
+        },
+        {
+          "start": 832,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "84dcf5b1fb8cb1de683942e4e20e9c2f287d669d7b1822155281c85c9a30a8a8",
+          "sealedSha256": "d2e090f385b22f329b87dc35eaf392c5203758f01dc572e3c75c77e70cad4f4d"
+        },
+        {
+          "start": 864,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "3d7fb81d4b679baa335aed273693dff6953476e4def82f69040798219a0ee43b",
+          "sealedSha256": "433c4b9a1726a2c92f0c01d126c3f056c346977e7794456408726e529dde422d"
+        },
+        {
+          "start": 896,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "2f5f6effcc85fc12aff36d2a7a09fd4c1cfbdc4a1b9bfd626f31e0d0ffbdb50c",
+          "sealedSha256": "5922cb4ae947e4becbad051e86afef08987923a62cdf9e829405273a7dabcc04"
+        },
+        {
+          "start": 928,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "9995f36a48fdb0ef803d12b77daf6b9922ab2e732a2fa98e6bc2ef01b7ea7d32",
+          "sealedSha256": "ded963dc85eb83809bcd07debda0666cccf3b85acb4e8da58e84946edd92db02"
+        },
+        {
+          "start": 960,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "1c30348f979819233e98b5fd2cf9ffd97a3e508dfe4186368454252d5d5bdf9f",
+          "sealedSha256": "c95f32c5cccf55e6f36545bdd94c7ec333bfa443187c202851434ed496ab091e"
+        },
+        {
+          "start": 992,
+          "sourceCommit": "6c8d48a71a505b54aff59a9d9e039c97ab43310e",
+          "verifiedFragmentSha256": "1be7dd5a3c5860db62489ff7a1dd97ec8068bf902af1000c0fc03b52804d40aa",
+          "sealedSha256": "9d8c10b5e269bf3088559dfffda5364ba3eda5f5632a676c7a6f8e1309209f0c"
+        }
+      ]
+    }
+  ],
+  "continue": [],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}
