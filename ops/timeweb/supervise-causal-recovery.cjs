@@ -3,11 +3,13 @@
 // scientific journals, job bindings and database progress validators.
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
 const {ROOTS}=require('./run-causal-job-recovery.cjs');
+const {createRecoverySchedule}=require('./recovery-schedule-state.cjs');
 async function main(){
  const plan=JSON.parse(fs.readFileSync(process.argv[2]));
  if(!Array.isArray(plan)||plan.length!==43||new Set(plan.map(x=>x.jobId)).size!==43
   ||plan.some(x=>!ROOTS[x.runtime]||!new RegExp('^long-recovery-'+x.jobId+'-[0-9a-f-]{36}$').test(x.worker)))throw Error('Exact 43-job grant plan required');
- // Finish more recent compatible checkpoints before the oldest v1 cohorts.
+ // The initial order is fixed; a private durable cursor prevents restarts
+ // from repeatedly consuming the service budget on the same prefix.
  plan.sort((a,b)=>b.jobId-a.jobId);
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
  if(!url||!key)throw Error('Production endpoint required');
@@ -15,6 +17,7 @@ async function main(){
  const isolated=journal==='/var/lib/online-backgammon-causal-recovery-20261123/terminal-journal';
  if(!isolated&&journal!=='/var/lib/online-backgammon-causal-worker/terminal-journal')throw Error('Fixed private recovery root required');
  const marker=path.join(path.dirname(journal),'campaign.complete'),started=Date.now();
+ const schedule=isolated?createRecoverySchedule(plan,path.dirname(journal)):null;
  if(isolated){
   const r=await fetch(url.replace(/\/$/,'')+'/rest/v1/rpc/renew_long_bot_recovery_campaign',{
    method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',Connection:'close'},body:'{}',signal:AbortSignal.timeout(15000)});
@@ -43,15 +46,17 @@ async function main(){
  });
  for(let round=0;round<100;round++){
   let remaining=0;
-  for(const x of plan){
+  for(let step=0;step<plan.length;step++){
+   const x=schedule?schedule.current():plan[step];
    if(isolated&&Date.now()-started>=21600000){console.log(JSON.stringify({yielded:true,reason:'bounded-six-hour-service-slice'}));return;}
    const s=await status(x);
-   if(s.status==='complete')continue;
+   if(s.status==='complete'){if(schedule)schedule.advance(x.jobId);continue;}
    if(['failed','rejected'].includes(s.status))throw Error('Recovery needs investigation: '+JSON.stringify(s));
    remaining++;const code=await run(x);
    if(code!==0&&code!==75)throw Error('Native recovery worker failed, exit '+code);
    const after=await status(x);console.log(JSON.stringify({round,jobId:x.jobId,status:after.status,slices:after.slices}));
    if(['failed','rejected'].includes(after.status))throw Error('Recovery stopped with '+after.status+' job '+x.jobId);
+   if(schedule)schedule.advance(x.jobId);
   }
   if(!remaining){if(isolated)fs.writeFileSync(marker,JSON.stringify({completed:43,at:new Date().toISOString()})+'\n',{mode:0o600});console.log(JSON.stringify({done:true,completed:43}));return;}
  }
