@@ -52,11 +52,14 @@ async function main(){
    const s=await status(x);
    if(s.status==='complete'){if(schedule)schedule.advance(x.jobId);continue;}
    if(['failed','rejected'].includes(s.status))throw Error('Recovery needs investigation: '+JSON.stringify(s));
-   remaining++;const code=await run(x);
+   // Reserve the next slot before dispatch. A native batch can outlive the
+   // service slice; interruption must not let one costly job monopolise every
+   // activation. Its unfinished scientific state remains intact for next round.
+   remaining++;if(schedule)schedule.advance(x.jobId);
+   const code=await run(x);
    if(code!==0&&code!==75)throw Error('Native recovery worker failed, exit '+code);
    const after=await status(x);console.log(JSON.stringify({round,jobId:x.jobId,status:after.status,slices:after.slices}));
    if(['failed','rejected'].includes(after.status))throw Error('Recovery stopped with '+after.status+' job '+x.jobId);
-   if(schedule)schedule.advance(x.jobId);
   }
   if(!remaining){if(isolated)fs.writeFileSync(marker,JSON.stringify({completed:43,at:new Date().toISOString()})+'\n',{mode:0o600});console.log(JSON.stringify({done:true,completed:43}));return;}
  }

@@ -15,12 +15,16 @@ test('short activations eventually visit every original job without resetting th
  assert.equal(new Set(visited).size,43);
  assert.equal(fs.statSync(path.join(directory,'campaign.cursor.json')).mode&0o777,0o600);
 });
-test('restart during an unfinished job retries that same job; a successful slot advances',t=>{
+test('an interrupted native slot leaves the next job scheduled and returns next round',t=>{
  const directory=temporary(t),first=createRecoverySchedule(plan,directory,{initialJobId:22});
  assert.equal(first.current().jobId,22);
- const resumed=createRecoverySchedule(plan,directory);assert.equal(resumed.current().jobId,22);
- assert.throws(()=>resumed.advance(21),/out of order/);
- resumed.advance(22);assert.equal(createRecoverySchedule(plan,directory).current().jobId,21);
+ // The position is reserved before the native calculation starts. An abrupt
+ // stop leaves its unfinished journal untouched and admits another job first.
+ first.advance(22);
+ const resumed=createRecoverySchedule(plan,directory);assert.equal(resumed.current().jobId,21);
+ assert.throws(()=>resumed.advance(22),/out of order/);
+ for(let i=0;i<42;i++)resumed.advance(resumed.current().jobId);
+ assert.equal(createRecoverySchedule(plan,directory).current().jobId,22);
  assert.throws(()=>createRecoverySchedule(plan,directory,{initialJobId:1}),/bootstrapped again/);
 });
 test('cursor refuses another plan, unknown jobs, and unsafe filesystem entries',t=>{
