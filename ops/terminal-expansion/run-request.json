@@ -1,9 +1,9 @@
 {
-  "requestSequence": 20,
+  "requestSequence": 21,
   "look": 1024,
   "cohorts": [
-    "CTNM-E43Z-d13"
+    "8JPN-KUD8-d7"
   ],
-  "previousLookReportPath": "look-reports/look-n512-batch-20-CTNM-E43Z-d13.json",
-  "previousLookReportSha256": "550bb9f4111d5d22aab40acd5804d9fafc6fb6467d46f6d82a1583518e0970d1"
+  "previousLookReportPath": "look-reports/look-n512-batch-21-8JPN-KUD8-d7.json",
+  "previousLookReportSha256": "597807b0d9340446729ed81c85ea60cae17dfb7dd3100e4be694b30b385a0669"
 }

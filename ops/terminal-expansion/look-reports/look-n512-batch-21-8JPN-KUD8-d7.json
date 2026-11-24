@@ -1,0 +1,353 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-24T02:52:58.304Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 512,
+  "results": [
+    {
+      "id": "8JPN-KUD8-d7",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 512,
+      "completeLook": true,
+      "controlWins": 171,
+      "comparisons": [
+        {
+          "candidateId": "27f969014a0cc6fc5de7354a8ae43fe94b3f3a09bc1d89b805e0c7f062e225a6",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 63,
+            "sweepLosses": 100,
+            "splitPairs": 349
+          },
+          "observedGain": -0.072265625,
+          "pairedLower": -1,
+          "pairedUpper": 0.055125751260806766,
+          "originalHoeffdingLower": -0.27976094185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "b75d12684ee938694de3a34bd500eca396e5743fa4993c4b5a85de13538aa0ff",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 72,
+            "sweepLosses": 60,
+            "splitPairs": 380
+          },
+          "observedGain": 0.0234375,
+          "pairedLower": -1,
+          "pairedUpper": 0.13944625785453724,
+          "originalHoeffdingLower": -0.18405781685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c2954c31eaf71b07e0ec5313f57f8cac297ca48f07c3ac4ac0d81a85e6d73d4d",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 57,
+            "sweepLosses": 100,
+            "splitPairs": 355
+          },
+          "observedGain": -0.083984375,
+          "pairedLower": -1,
+          "pairedUpper": 0.04130669827636879,
+          "originalHoeffdingLower": -0.29147969185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "2b26c7980d425dfdcf16c78ea2167b990151c2b13fbff45daca6f2fa2e3d3be6",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 55,
+            "sweepLosses": 113,
+            "splitPairs": 344
+          },
+          "observedGain": -0.11328125,
+          "pairedLower": -1,
+          "pairedUpper": 0.014881480459646212,
+          "originalHoeffdingLower": -0.32077656685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "f9ad5871d7e41accfabb2e4fda5bcc3a121db5600531b0d3ba783cebc89f8a06",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 63,
+            "sweepLosses": 99,
+            "splitPairs": 350
+          },
+          "observedGain": -0.0703125,
+          "pairedLower": -1,
+          "pairedUpper": 0.05678377518068345,
+          "originalHoeffdingLower": -0.27780781685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "62ff1645e019004519373f02e28df9ae83ad779e1b6bf253cd4f88cbe2f94b3e",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 70,
+            "sweepLosses": 83,
+            "splitPairs": 359
+          },
+          "observedGain": -0.025390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.09885469492063592,
+          "originalHoeffdingLower": -0.23288594185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6d9ddfae1d0c5d597c82937493989263da2bffd092c89e30a0948e7f41dd389a",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 68,
+            "sweepLosses": 93,
+            "splitPairs": 351
+          },
+          "observedGain": -0.048828125,
+          "pairedLower": -1,
+          "pairedUpper": 0.0780683339055912,
+          "originalHoeffdingLower": -0.25632344185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "74ebbf40a157971edc221520c65713afbbbf473f2b85724bbb6239e26f273358",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 88,
+            "sweepLosses": 77,
+            "splitPairs": 347
+          },
+          "observedGain": 0.021484375,
+          "pairedLower": -1,
+          "pairedUpper": 0.14856532283368296,
+          "originalHoeffdingLower": -0.18601094185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c3c8d96eef7c2edca925726ea4802618e1fc0193aefd0d94c7267f1c0ccddbfc",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 69,
+            "sweepLosses": 79,
+            "splitPairs": 364
+          },
+          "observedGain": -0.01953125,
+          "pairedLower": -1,
+          "pairedUpper": 0.10300849332763207,
+          "originalHoeffdingLower": -0.22702656685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "fc31f5616a4d4675b02db766ba7fcb979366195f26f827fee69a2d2866a48b2a",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 54,
+            "sweepLosses": 118,
+            "splitPairs": 340
+          },
+          "observedGain": -0.125,
+          "pairedLower": -1,
+          "pairedUpper": 0.00406958227916121,
+          "originalHoeffdingLower": -0.33249531685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "38de29e4147c0a124f79a2fb5396b0fd824054ffe4649717fe96b24a9c69ba97",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 94,
+            "sweepLosses": 74,
+            "splitPairs": 344
+          },
+          "observedGain": 0.0390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.1664627249851307,
+          "originalHoeffdingLower": -0.16843281685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "86d85397685273fd1b2bb9a4a9291dacbba085ad46207597544cf1e842ea03a8",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 59,
+            "sweepLosses": 107,
+            "splitPairs": 346
+          },
+          "observedGain": -0.09375,
+          "pairedLower": -1,
+          "pairedUpper": 0.03425521915202978,
+          "originalHoeffdingLower": -0.30124531685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "9a4499a2cb158b1136041e635b11feea5d643e5506a18ab68a11080b5c673012",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 70,
+            "sweepLosses": 83,
+            "splitPairs": 359
+          },
+          "observedGain": -0.025390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.09885469492063592,
+          "originalHoeffdingLower": -0.23288594185698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "ca5f2f249a9da3e920398f0e4ed5cfc7f1cd4c37dee4e8d2ca63fa146d7ebf92",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 51,
+            "sweepLosses": 131,
+            "splitPairs": 330
+          },
+          "observedGain": -0.15625,
+          "pairedLower": -1,
+          "pairedUpper": -0.025253634320925755,
+          "originalHoeffdingLower": -0.36374531685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6f9380b45c8c32d793265a5e55455baf9e82ddfc4348cb5769be3049a2d53f87",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 66,
+            "sweepLosses": 84,
+            "splitPairs": 362
+          },
+          "observedGain": -0.03515625,
+          "pairedLower": -1,
+          "pairedUpper": 0.08817026707079734,
+          "originalHoeffdingLower": -0.24265156685698297,
+          "confirmed": false
+        },
+        {
+          "candidateId": "e55604bb4eacf125cb1bc09cd0858a1cd46b60ff977569e6f8408b07d53402db",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 52,
+            "sweepLosses": 126,
+            "splitPairs": 334
+          },
+          "observedGain": -0.14453125,
+          "pairedLower": -1,
+          "pairedUpper": -0.014289406550698658,
+          "originalHoeffdingLower": -0.35202656685698297,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "ab02cd97b668c0dba498170d88d37acfb6c7d46714f6a7bd144a38533fd20285",
+          "sealedSha256": "5539ac15383f934798fb2fe214a1268fe55b84c2525cb0e8000b3409fbb4242d"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "8ab20f23d0ef0291d1666fc78f15e860b6a08a8c90acef3711964c77cc1fcaff",
+          "sealedSha256": "9a00bb87d129eac35202f0565db68e56cce8022e55035bc7d94bdb839378d915"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "b6dd9924405932059834c83261561ef085fe894d4d5d99093d86f914ba214c95",
+          "sealedSha256": "d39891ca9476144b32d5d17aaaf9831eb451936e460acb70612ff04de452e9f2"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "50ce1636c8d61fe18e455f4586c9c72cea97da40539feed124713c9e805db907",
+          "sealedSha256": "c19ac3806725eca9e68efe08c712e33812e24e88c8064cfed4e26ba8545a981f"
+        },
+        {
+          "start": 128,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "8d2ba2d6a0ac2e240c50188ad302a359d3203a92ac9efb7e3ace3256474aab26",
+          "sealedSha256": "27447f12eec0816a15e433f13d6141d01b3ff03ffc2e9c37edacfd01769cd0b9"
+        },
+        {
+          "start": 160,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "8ea2079e3d00826e96db379f88b3a686b3fa47541c65d23ee135b6d6e03ab51b",
+          "sealedSha256": "acef9c32fc11bd5d179d9ead98d059509cdef7e0ec5ead825dfc7861f8ef20de"
+        },
+        {
+          "start": 192,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "4b8db57bad62452f851766dc572a2cd14cfa3af2afacae1251929860374ca8fb",
+          "sealedSha256": "76e8de49f4e581c123d62d4d4f048069219a72deab97c88645971cc38c42e1cc"
+        },
+        {
+          "start": 224,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "dfc313776d85aab5e1e46a2f51cde1a2989e6793925538f3f0845655ab205060",
+          "sealedSha256": "8b6a4aa3ac523d452445766f9621e4495f70e0ea658801245f1672a6c5fd5f54"
+        },
+        {
+          "start": 256,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "45aef9dcaa3b783503e0b018ad17d42dc8cb546c5cfda1699e84245b6332282c",
+          "sealedSha256": "99f3b97fe8b05daccef31f101c5dcb738bef79ebd813859146b5cd2f399e5ea1"
+        },
+        {
+          "start": 288,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "054472db773402d2a9e6675a22b9b9df8cd514b60c9ce8668a8be2db823c62d6",
+          "sealedSha256": "0f74f9eeacfb591caf23128e82e5a3c9b6939670607f178659fe9786e7c643b6"
+        },
+        {
+          "start": 320,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "35ad778b9340149de31410e00ab81bdf228bb26599f9a75ddb5d29b9a4af0f42",
+          "sealedSha256": "fe6f1499b15de8bdb8f324066db5222cb62f4225011d60b3a48e520a313f06f8"
+        },
+        {
+          "start": 352,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "5e42281389e23e3d2bcd9a58fc4743dfbb76824d2ecb65e8437831d045e28bf0",
+          "sealedSha256": "62a63adc0b75321f4dacf6760fc734a79e9653ae9b2a71f51b6a5ca8dfe3d7f7"
+        },
+        {
+          "start": 384,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "c052e769fa67be8ab1f6372fb78b66af26f0fafa15ab67a25e2b61088d12a598",
+          "sealedSha256": "e0460e8ac7b6408b46509f184a51ddaf0e34dab7ce843ad7e471879ea9a839c4"
+        },
+        {
+          "start": 416,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "5bf4db9fe588fac0af249a7560c965b5124f648eaa04cfdf6b0bb0e555f753f6",
+          "sealedSha256": "34ba6c40b4e830d32850eec40718fe5ac1751427d630f0397ae9aca4853e1945"
+        },
+        {
+          "start": 448,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "c50b42997b560a202ca8ebc27c1f6cd70c399f06217410f14d94ed8efb30a66a",
+          "sealedSha256": "7ef6fe675300f03a3f42b7427f9f809d2ad260a607e8d2e79d6a8a47263bd9ba"
+        },
+        {
+          "start": 480,
+          "sourceCommit": "8d2ed35147c0df891d2772b54aa7fc5ff14ad2bf",
+          "verifiedFragmentSha256": "ff1f8d55ab1bd3556a07aaf2eff6194290995bbc72a89691d83ff57988f1ac4b",
+          "sealedSha256": "223b0b443047c6bd280597e301627471ad2d6e76e9812c8b67cde1c6da528f2f"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "8JPN-KUD8-d7"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}
