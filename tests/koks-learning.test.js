@@ -301,7 +301,7 @@ test("production entry points cache-bust every current bot dependency", () => {
   const settings = fs.readFileSync(path.join(ROOT, "settings.html"), "utf8");
   const homegate = fs.readFileSync(path.join(ROOT, "homegate.html"), "utf8");
   const version = "20260916-long-bot-v35-v37";
-  const botRuntimeVersion = "20260921-long-bot-worker-v1";
+  const botRuntimeVersion = "20261124-head-escape-v1";
 
   assert.match(room, new RegExp(`long-bot-engine\\.js\\?v=${botRuntimeVersion}`));
   assert.match(room, new RegExp(`strong-bot\\.js\\?v=${botRuntimeVersion}`));
