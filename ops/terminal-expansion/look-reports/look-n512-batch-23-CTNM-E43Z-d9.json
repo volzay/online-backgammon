@@ -1,0 +1,339 @@
+{
+  "schema": "long-expanded-authenticated-look-report-v1",
+  "createdAt": "2026-11-24T04:25:18.899Z",
+  "protocolFileSha256": "304643f6febd7628ffea9ad729adee82a33f424758c610b34428232b4875fa7f",
+  "look": 512,
+  "results": [
+    {
+      "id": "CTNM-E43Z-d9",
+      "schema": "long-expanded-complete-native-look-v1",
+      "samples": 512,
+      "completeLook": true,
+      "controlWins": 140,
+      "comparisons": [
+        {
+          "candidateId": "81d646246eaaf7cdc7d39e5b7b83a751bdb5d2c8154492ade65d32527ef37bec",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 61,
+            "sweepLosses": 65,
+            "splitPairs": 386
+          },
+          "observedGain": -0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.10676393640676807,
+          "originalHoeffdingLower": -0.21473637872985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "bc0f88e41de479034aa541f8d19f5ac122e0d2b5a5857083a90ba0f69182ce9c",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 71,
+            "sweepLosses": 54,
+            "splitPairs": 387
+          },
+          "observedGain": 0.033203125,
+          "pairedLower": -1,
+          "pairedUpper": 0.1462262234302436,
+          "originalHoeffdingLower": -0.17372075372985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "eb8f3caf884eba96a3162ed8722a7c3f369c53db45deafb6e697f7285b34176d",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 47,
+            "sweepLosses": 60,
+            "splitPairs": 405
+          },
+          "observedGain": -0.025390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.08174325038825714,
+          "originalHoeffdingLower": -0.23231450372985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c939264c95dafaef1becf4cf13f06559220aa932f9c35d2bd6b5bd19da64c393",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 37,
+            "sweepLosses": 84,
+            "splitPairs": 391
+          },
+          "observedGain": -0.091796875,
+          "pairedLower": -1,
+          "pairedUpper": 0.01994378348230441,
+          "originalHoeffdingLower": -0.29872075372985885,
+          "confirmed": false
+        },
+        {
+          "candidateId": "ecfd9d448d68cec2a217f3ed563ac6a723bd6860b9806158299fec2419a5fd9c",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 41,
+            "sweepLosses": 87,
+            "splitPairs": 384
+          },
+          "observedGain": -0.08984375,
+          "pairedLower": -1,
+          "pairedUpper": 0.024823637134204546,
+          "originalHoeffdingLower": -0.29676762872985885,
+          "confirmed": false
+        },
+        {
+          "candidateId": "a9a1914990467d114fe281ce17885538e8113d53395427bc6960db3d5532572b",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 59,
+            "sweepLosses": 63,
+            "splitPairs": 390
+          },
+          "observedGain": -0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.10523626030187572,
+          "originalHoeffdingLower": -0.21473637872985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "c21404dc04a00b7009914f37f094f8e1c15e2115a546a921b0c1a3d0ec0ba81c",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 60,
+            "sweepLosses": 67,
+            "splitPairs": 385
+          },
+          "observedGain": -0.013671875,
+          "pairedLower": -1,
+          "pairedUpper": 0.10136749858672545,
+          "originalHoeffdingLower": -0.22059575372985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "047e5249c44761a4c4842f5e50e74272d68e541054bfb3a69eda6b84b47ad5eb",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 64,
+            "sweepLosses": 82,
+            "splitPairs": 366
+          },
+          "observedGain": -0.03515625,
+          "pairedLower": -1,
+          "pairedUpper": 0.08683019988724183,
+          "originalHoeffdingLower": -0.24208012872985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "dd01188d8f8e13eac7533fa3c7016742a5691fbedb4a19398b2807b56063fd9d",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 66,
+            "sweepLosses": 45,
+            "splitPairs": 401
+          },
+          "observedGain": 0.041015625,
+          "pairedLower": -1,
+          "pairedUpper": 0.1480643006157898,
+          "originalHoeffdingLower": -0.16590825372985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "bdcb16af2baff2c50fff722a209a92b8b70fe294fcbd5acb757aa1b5c16a3aec",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 41,
+            "sweepLosses": 87,
+            "splitPairs": 384
+          },
+          "observedGain": -0.08984375,
+          "pairedLower": -1,
+          "pairedUpper": 0.024823637134204546,
+          "originalHoeffdingLower": -0.29676762872985885,
+          "confirmed": false
+        },
+        {
+          "candidateId": "21156598bf26ec541cb5dc5e9c3801d70aaa08c8fb0317a77d2c66b3a165f174",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 34,
+            "sweepLosses": 88,
+            "splitPairs": 390
+          },
+          "observedGain": -0.10546875,
+          "pairedLower": -1,
+          "pairedUpper": 0.0060702826647691666,
+          "originalHoeffdingLower": -0.31239262872985885,
+          "confirmed": false
+        },
+        {
+          "candidateId": "2ed58caeef5622a53168e2fc4c811ac296e8944b8e3223da230b3357dbbd1d8d",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 67,
+            "sweepLosses": 62,
+            "splitPairs": 383
+          },
+          "observedGain": 0.009765625,
+          "pairedLower": -1,
+          "pairedUpper": 0.12508463779927226,
+          "originalHoeffdingLower": -0.19715825372985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "975ecb781a3fc832841191daed9780fe6f0f1660fcc34bd88625b71917c7fefa",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 66,
+            "sweepLosses": 46,
+            "splitPairs": 400
+          },
+          "observedGain": 0.0390625,
+          "pairedLower": -1,
+          "pairedUpper": 0.14662666438897531,
+          "originalHoeffdingLower": -0.16786137872985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "a5721d50fd3100780853ce9db578413e14601c44585bb15f594baafa0ef4b8ff",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 51,
+            "sweepLosses": 55,
+            "splitPairs": 406
+          },
+          "observedGain": -0.0078125,
+          "pairedLower": -1,
+          "pairedUpper": 0.098734316365789,
+          "originalHoeffdingLower": -0.21473637872985882,
+          "confirmed": false
+        },
+        {
+          "candidateId": "6433846fc62afaa6e63ee5e182ae33705478436903ab01f0e2124fa3b7c496ef",
+          "samples": 512,
+          "counts": {
+            "sweepWins": 50,
+            "sweepLosses": 58,
+            "splitPairs": 404
+          },
+          "observedGain": -0.015625,
+          "pairedLower": -1,
+          "pairedUpper": 0.0918713109626168,
+          "originalHoeffdingLower": -0.22254887872985882,
+          "confirmed": false
+        }
+      ],
+      "conclusion": "continue",
+      "studyComplete": false,
+      "scope": {
+        "runtimeDigest": "18f05bafa638c1d0dea35c5bfa933c071a1bfa409bd55333e30871c5bc961ec5",
+        "policyImplementationId": "d33a1c6219a986aee5e64312d233fa38db5aeb86e84aa13e6cd3578918d38306",
+        "legalScope": "complete-original-legal-root-set"
+      },
+      "terminalEvidenceForOtherPolicies": false,
+      "provenance": [
+        {
+          "start": 0,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "3ffabff606a55915a55b0bfc8e164a17d0df28539f393ab4c77e637b62a70eb5",
+          "sealedSha256": "d97f462ca14659fc77a05d619e43fc5520cf6822f40872c66bc6f59befbd64a1"
+        },
+        {
+          "start": 32,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "6e604f624f656d669eeabd0960d28626bf0306f753d49155bd8fe7a962790b40",
+          "sealedSha256": "fe8df2bc1eeff11a504c30a805d4aafae59c432d96744d0a017d90cfe3a70524"
+        },
+        {
+          "start": 64,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "00f96b0589b011eac1a288861171404a42702b75830c272166d09c6d08e8a6be",
+          "sealedSha256": "25e705983ab68f0e4d5247015017a96dfa739befba68872a720075c29a0ae6a0"
+        },
+        {
+          "start": 96,
+          "sourceCommit": "dabeeb1f3e62c9a4409efa053955a34a3d85265e",
+          "verifiedFragmentSha256": "9d4db81fcf92d955dcf2b15c3898500769f9e381db7116b856ac2cf9aacf8555",
+          "sealedSha256": "2206b7d400f2ce863fc628a07bd9dc245b894eb0a02919bf993917abac221603"
+        },
+        {
+          "start": 128,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "e6f1cc3200ff9b0a6f33593e3cf652a9ae46a8cbd5d0555bd1dd64068043485b",
+          "sealedSha256": "ee5423e4ff46c1e7757973d4b38a48af2c17f7a5deafecf577bb3ac8d2937eb5"
+        },
+        {
+          "start": 160,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "e1db84933ec14afaf77c3f6619efe7ae9280f673072b79af0449ec2e57aae567",
+          "sealedSha256": "90b0ed29cc6ea80047f251cfb5be57d598bcd15703428da9bde31eca99a2ce3d"
+        },
+        {
+          "start": 192,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "1df0a1f3312ceded2b9be0e571df89323f5a1945e5d22f10f5bd76ac5b5655b4",
+          "sealedSha256": "a1a0b7efcc1d3783c09f48d9c712214e1ff1bc507bcf1870764a3bc067d25e3a"
+        },
+        {
+          "start": 224,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "2b40a66de0612ca677c7f9780e7d4d87aa4adcaa2f359e90582f26c5ae814f90",
+          "sealedSha256": "fd4502eea89096ba2b5ae0a22caa5052904d012804af3d5907f2dd462dff665a"
+        },
+        {
+          "start": 256,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "c85ea93dd8d0d5c6b4dc56d99e80a319cbf23d49a889720065754dd3dd3b288c",
+          "sealedSha256": "6298c64faf22d45915433520f8e59987345aec81f11f57763027e0d6a7ac142e"
+        },
+        {
+          "start": 288,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "fa7851701ee0b0f020cf830ef742fd103930321215d8cbc6a09a2dd82c478cca",
+          "sealedSha256": "1caf67c09008d48c4e225b963901f20a67d10270d6a0d40640b126247426c767"
+        },
+        {
+          "start": 320,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "9bbd5370a09a79c28a9627f9ac768223465b5bf93569d15df53b3a538caf6f89",
+          "sealedSha256": "f149daf3961e522c7f59c99605edd67a0efcb5169cfad1125a0919c1389f76cc"
+        },
+        {
+          "start": 352,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "5fc7d409df78aee450926567b17165c552ecdcc421b0674d2456b208825a2de9",
+          "sealedSha256": "09cf6b8d73ddc675bd816254acb0638ec351e3854482333f87516cd88c893e80"
+        },
+        {
+          "start": 384,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "57e9f2d26b03d96f795bb52c923bbe9bc919b121ded94100edfb0bef25d777df",
+          "sealedSha256": "09e16c0670366e117826266ef18efc777351ad90643a99bb743bd92b5e805afc"
+        },
+        {
+          "start": 416,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "d01694d8909b165ec7be24daa92b46db27d95529328284be6e07ec723441811c",
+          "sealedSha256": "a74a62f51c2498e96f78c19a910c3f0443d76bf5601967b88797935032b83699"
+        },
+        {
+          "start": 448,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "6ff6c2f63acd7a5141e4ff4de0eb6c248d8ad3419a05f3d60eb43a6cc6a04a5e",
+          "sealedSha256": "f961ebe68f55846b75d4bffc3d34b460106e07b0e20e6f0692ee030e1cd57834"
+        },
+        {
+          "start": 480,
+          "sourceCommit": "81b9ed38f80b8ec13d7a5465d6ba183d50601608",
+          "verifiedFragmentSha256": "91c6ca743a25468365db525e1d3148d7651993f9ee2208300f27ec47fdd41719",
+          "sealedSha256": "6d4724b506b46895721f3e69eb5c65b8cb58d6e0ffbb5219284684d4e0a3b803"
+        }
+      ]
+    }
+  ],
+  "continue": [
+    "CTNM-E43Z-d9"
+  ],
+  "confirmed": [],
+  "sourcePoliciesRetained": true,
+  "productionTerminalEvidencePublished": false
+}
