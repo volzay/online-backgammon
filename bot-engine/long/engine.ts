@@ -643,6 +643,10 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
     || Number(preferred.experienceAdjustment || 0) < 0
     || Number(preferred.features.resultSafetyAfter || 0) < Number(baseline.features.resultSafetyAfter || 0)
     || Number(preferred.features.missedKoksRescue || 0) > Number(baseline.features.missedKoksRescue || 0)) return;
+  if (!preservesBoardModelHeadEscape(state, color, preferred, baseline)) {
+    baseline.features.boardModelHeadEscapeVetoes = Number(baseline.features.boardModelHeadEscapeVetoes || 0) + 1;
+    return;
+  }
   preferred.experience = experienceDescriptor(state, color, preferred.features, preferred.tactical);
   preferred.features.boardModelLessonApplied = 1;
   preferred.features.boardModelLessonUtilityGain = lesson.utilityGain;
@@ -720,7 +724,11 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
     const key = position(item.candidate);
     if (seen.has(key)) return false;
     seen.add(key); return true;
-  }).slice(0, 2);
+  }).slice(0, 2).filter(item => {
+    if (preservesBoardModelHeadEscape(state, color, item.candidate, baseline)) return true;
+    baseline.features.boardModelHeadEscapeVetoes = Number(baseline.features.boardModelHeadEscapeVetoes || 0) + 1;
+    return false;
+  });
   if (!selected.length) return;
   const compared = [baseline, ...selected.map(item => item.candidate)]
     .map(candidate => ({ ...candidate, score:0, tactical:null, features:{ ...candidate.features } }));
@@ -866,6 +874,18 @@ export function reserveAdaptiveCounterplay(state, color, pool, ranked, situation
   const result = pool.filter(candidate => candidate !== creative);
   result.splice(Math.min(width - 1, result.length), 0, creative);
   return result;
+}
+
+// Model advice has no terminal outcome certificate. A short reply comparison
+// may favour its blockade while overlooking that our head is being sealed.
+// Keep a currently available head release when the proposal also makes our
+// exit gateway worse. Other blocking/counterplay trades remain admissible.
+export function preservesBoardModelHeadEscape(state, color, candidate, baseline) {
+  if (!state || !candidate?.after || !baseline?.after) return false;
+  const before = headCheckers(state, color);
+  const controlHead = headCheckers(baseline.after, color);
+  if (controlHead >= before || headCheckers(candidate.after, color) <= controlHead) return true;
+  return escapeGatewayRisk(candidate.after, color) <= escapeGatewayRisk(baseline.after, color);
 }
 
 function isAdaptiveStructuralAlternative(state, color, candidate, baseline) {
