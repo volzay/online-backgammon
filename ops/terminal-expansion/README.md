@@ -4,6 +4,26 @@ This is an operator workflow, separate from the playing engine. The 15 anonymous
 positions are the previously authorised inputs from LEM5-RES8, 8JPN-KUD8 and
 CTNM-E43Z. No private archive histories or journal keys are published.
 
+## Completed result: 24 November 2026
+
+All 15 cases reached their prespecified stopping rule. The machine-readable
+[study result](study-result.json) references all 37 authenticated aggregate
+reports by SHA-256. Thirteen cases reached 1024 paired streams; the two earlier
+futility stops reached 128 and 512. This gives 13,952 paired case-seeds and
+80,768 complete native outcomes in 436 unique verified fragments.
+
+There are **0 confirmed lessons**, **5 cases excluding the required improvement**
+and **10 inconclusive cases**. Both positive lower bounds still must exceed
+0.08, with the original familywise error budget and fixed looks. Inconclusive
+cases remain unresolved. No expanded lesson was published as production
+terminal evidence, and source policy identities remain unchanged.
+
+Two unsigned artifact copies were excluded and replaced by signed reruns of
+the same fixed ranges. A disconnected runner produced no artifact; its exact
+range was also rerun. Every accepted fragment passed provenance and native
+slot validation. All public aggregate report bytes match the private operator
+copies, and the final confidence bounds were recomputed from their counts.
+
 `protocol.json` and `input-lock.json` freeze the cases, controls, alternatives,
 native kernels, 1024 fresh paired dice streams and fixed looks at 128, 512 and
 1024 pairs **before** the new outcomes are generated. The original 32-pair
