@@ -13,6 +13,8 @@ import {
   blockingPrimeRun,
   blockingPrimeScore,
   colorAt,
+  contactDefenseProfile,
+  defensiveLearningContext,
   developmentPressure,
   escapeGatewayRisk,
   headCheckers,
@@ -122,7 +124,7 @@ export function createLongBotEngine(adapter, options = {}) {
       ranked.push({
         sequence,
         after,
-        score: scoreSequence(state, after, color, sequence, weights),
+        score: scoreSequence(state, after, color, sequence, weights, strategyProfile === 'v26'),
         features,
       });
     }
@@ -255,7 +257,8 @@ export function createLongBotEngine(adapter, options = {}) {
       candidate => Number(candidate.features.headGain) || 0,
     ));
     const opponentOff = offCount(state, opponentOf(color));
-    const headReleaseIsCritical = maxHeadRelease > 0 && (
+    const headReleaseIsCritical = maxHeadRelease > 0
+      && (strategyProfile !== 'v26' || headReleasePreservesDefense(state, color, strategicallyEligible)) && (
       headRemaining <= 2
       || headRemaining >= 7
       || trapPressure >= 600
@@ -504,7 +507,7 @@ export function createLongBotEngine(adapter, options = {}) {
     );
     if (strategyProfile === 'v26') {
       const exactLesson = applyBoardModelLesson(state, color, finalRanked, ranked,
-        coldSelected, selectedExperiencePatterns, adapter);
+        coldSelected, selectedExperiencePatterns, adapter, weights, situation);
       if (!exactLesson) applyTransferredBoardModelLesson(state, color, finalRanked, ranked,
         coldSelected, selectedExperiencePatterns, adapter, weights, situation);
     }
@@ -599,6 +602,8 @@ export function boardLessonPositionKey(state, color = state.turn) {
 
 export function validBoardModelLesson(p) {
   return p?.creditVersion === 10 && p.evidenceSchema === 'long-server-board-model-pattern-v1'
+    && (p.defensiveContext === undefined || typeof p.defensiveContext === 'string'
+      && /^cd1:r[0-3]s[0-3]b[0-2]a[01]e[0-2]d[0-3]$/.test(p.defensiveContext))
     && p.trustDomain === 'nardu/server-long-bot-board-model/v1'
     && p.reviewerVersion === 'long-board-model-review-v1'
     && p.scoreSemantics === 'heuristic-turn-equity-v1'
@@ -623,7 +628,7 @@ export function validBoardModelLesson(p) {
       && Number.isInteger(m.die) && m.die >= 1 && m.die <= 6);
 }
 
-function applyBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter) {
+function applyBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
   // Independently confirmed terminal corrections take precedence over a
   // model teacher. A weaker model must not reverse their selected action.
   if (!baseline || !ranked.length || ranked[0] !== baseline) return;
@@ -647,12 +652,43 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
     baseline.features.boardModelHeadEscapeVetoes = Number(baseline.features.boardModelHeadEscapeVetoes || 0) + 1;
     return;
   }
+  if (!preservesContactDefense(state, color, preferred, baseline)) {
+    baseline.features.boardModelContactDefenseVetoes = Number(baseline.features.boardModelContactDefenseVetoes || 0) + 1;
+    return;
+  }
+  // Re-evaluate even an exact historical recommendation under today's
+  // evaluator and opponent replies. Its stored heuristic score is provenance,
+  // not authority to change a move after the policy has changed.
+  const compared = [baseline, preferred].map(c => ({ ...c, score:0, tactical:null, features:{ ...c.features } }));
+  const learningBudget = createAnalysisBudget(42);
+  analyzeOpponentReplies(adapter, color, compared, weights, learningBudget,
+    { expandDoubles:true, situation, maxTacticalCandidates:2 });
+  if (compared.some(c => c.tactical?.distributionComplete !== true
+    || c.tactical.rolls !== 21 || c.tactical.distributionWeight !== 36)) return;
+  const [control, evaluated] = compared;
+  const utility = c => adaptiveReplyUtility(c.tactical, situation);
+  if (evaluated.tactical.expectedEquity < control.tactical.expectedEquity + 0.025
+    || utility(evaluated) < utility(control) + 0.025
+    || evaluated.tactical.lowerTailEquity < control.tactical.lowerTailEquity - 0.06 * situation.comebackPressure) return;
+  preferred.tactical = { ...evaluated.tactical, evaluationSource:'live-learned-exact-comparison-v1' };
   preferred.experience = experienceDescriptor(state, color, preferred.features, preferred.tactical);
   preferred.features.boardModelLessonApplied = 1;
-  preferred.features.boardModelLessonUtilityGain = lesson.utilityGain;
+  preferred.features.boardModelLessonUtilityGain = utility(evaluated) - utility(control);
+  preferred.features.boardModelLessonAnalysisNodesUsed = learningBudget.used;
+  preferred.features.boardModelLessonAnalysisNodeBudget = learningBudget.limit;
   preferred.boardModelLesson = { aggregateId: lesson.aggregateId, sourceRoom: lesson.sourceRoom,
     sourceArchiveId: lesson.sourceArchiveId, scoreSemantics: lesson.scoreSemantics,
-    terminalOutcomeConfirmed: false, evaluation: { ...lesson.recommended },
+    terminalOutcomeConfirmed: false, evaluation: {
+      expectedEquity:evaluated.tactical.expectedEquity, utility:utility(evaluated),
+      lowerTailEquity:evaluated.tactical.lowerTailEquity,
+      selfEvaluation:evaluated.tactical.expectedSelfEvaluation,
+      opponentEvaluation:evaluated.tactical.expectedOpponentEvaluation },
+    historicalEvaluation: { ...lesson.recommended },
+    controlEvaluation: { expectedEquity:control.tactical.expectedEquity, utility:utility(control),
+      lowerTailEquity:control.tactical.lowerTailEquity,
+      selfEvaluation:control.tactical.expectedSelfEvaluation,
+      opponentEvaluation:control.tactical.expectedOpponentEvaluation },
+    evaluationSource:'live-learned-exact-comparison-v1',
     diceOutcomes: lesson.diceOutcomes, diceWeight: lesson.diceWeight };
   const index = ranked.indexOf(preferred);
   if (index >= 0) ranked.splice(index, 1);
@@ -685,7 +721,8 @@ function boardModelActionFields(key) {
 // model scores nor a loose pattern match become an executable move by itself.
 function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
   if (!baseline || ranked[0] !== baseline || !situation) return;
-  const lessons = patterns.filter(validBoardModelLesson);
+  const lessons = patterns.filter(validBoardModelLesson).filter(p => !p.defensiveContext
+    || p.defensiveContext === defensiveLearningContext(state, color));
   if (!lessons.length) return;
   const baseDescriptor = baseline.experience;
   if (patterns.some(p => p.creditVersion === 9 && p.contextKey === baseDescriptor?.contextKey)) return;
@@ -725,9 +762,15 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
     if (seen.has(key)) return false;
     seen.add(key); return true;
   }).slice(0, 2).filter(item => {
-    if (preservesBoardModelHeadEscape(state, color, item.candidate, baseline)) return true;
-    baseline.features.boardModelHeadEscapeVetoes = Number(baseline.features.boardModelHeadEscapeVetoes || 0) + 1;
-    return false;
+    if (!preservesBoardModelHeadEscape(state, color, item.candidate, baseline)) {
+      baseline.features.boardModelHeadEscapeVetoes = Number(baseline.features.boardModelHeadEscapeVetoes || 0) + 1;
+      return false;
+    }
+    if (!preservesContactDefense(state, color, item.candidate, baseline)) {
+      baseline.features.boardModelContactDefenseVetoes = Number(baseline.features.boardModelContactDefenseVetoes || 0) + 1;
+      return false;
+    }
+    return true;
   });
   if (!selected.length) return;
   const compared = [baseline, ...selected.map(item => item.candidate)]
@@ -885,7 +928,32 @@ export function preservesBoardModelHeadEscape(state, color, candidate, baseline)
   const before = headCheckers(state, color);
   const controlHead = headCheckers(baseline.after, color);
   if (controlHead >= before || headCheckers(candidate.after, color) <= controlHead) return true;
-  return escapeGatewayRisk(candidate.after, color) <= escapeGatewayRisk(baseline.after, color);
+  return escapeGatewayRisk(candidate.after, color) <= escapeGatewayRisk(baseline.after, color)
+    || contactDefenseProfile(candidate.after, color).headAnchorValue
+      > contactDefenseProfile(baseline.after, color).headAnchorValue;
+}
+
+export function preservesContactDefense(state, color, candidate, baseline) {
+  if (!state || !candidate?.after || !baseline?.after) return false;
+  const proposed = contactDefenseProfile(candidate.after, color);
+  const control = contactDefenseProfile(baseline.after, color);
+  return proposed.unsupportedHomeDebt <= control.unsupportedHomeDebt + 0.000001
+    && proposed.headAnchorValue >= control.headAnchorValue - 0.000001;
+}
+
+function headReleasePreservesDefense(state, color, candidates) {
+  const maximum = Math.max(...candidates.map(c => Number(c.features.headGain) || 0));
+  const release = candidates.filter(c => Number(c.features.headGain) === maximum);
+  const alternatives = candidates.filter(c => Number(c.features.headGain) < maximum);
+  if (!alternatives.length || !release.length) return true;
+  const bestAnchor = Math.max(...alternatives.map(c => contactDefenseProfile(c.after, color).headAnchorValue));
+  if (bestAnchor > Math.max(...release.map(c => contactDefenseProfile(c.after, color).headAnchorValue))) return false;
+  if (startZoneCount(state, color) < 10 || opponentFenceRun(state, color) < 5) return true;
+  // Moving inside the same sealed start zone is not an escape. Retain
+  // maximum-use alternatives that offer a better exit gateway.
+  const bestGateway = Math.min(...alternatives.map(c => escapeGatewayRisk(c.after, color)));
+  return release.some(c => Number(c.features.startZoneReduction) > 0
+    || escapeGatewayRisk(c.after, color) <= bestGateway + 6);
 }
 
 function isAdaptiveStructuralAlternative(state, color, candidate, baseline) {
@@ -896,7 +964,9 @@ function isAdaptiveStructuralAlternative(state, color, candidate, baseline) {
   // traded for a blocking/escape plan after the reply comparison.
   return Number(features.maxRouteTowerAfter || 0) <= Math.max(5, Number(base.maxRouteTowerAfter || 0))
     && (headCheckers(state, color) > 2
-      || Number(features.headGain || 0) >= Number(base.headGain || 0))
+      || Number(features.headGain || 0) >= Number(base.headGain || 0)
+      || contactDefenseProfile(candidate.after, color).headAnchorValue
+        > contactDefenseProfile(baseline.after, color).headAnchorValue)
     && (startZoneCount(state, color) > 2
       || Number(features.startZoneReduction || 0) >= Number(base.startZoneReduction || 0));
 }

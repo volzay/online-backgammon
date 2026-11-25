@@ -2697,7 +2697,7 @@ test("v19 search is deterministic and bounded by analyzed nodes instead of wall 
   assert.ok(decision.selected.features.analysisNodesUsed <= 1150);
 });
 
-test("v19 five-game regression releases the final head checker immediately", () => {
+test("the current hard profile retains a useful last-head anchor while using both dice", () => {
   const { game, engine } = loadBrowserEngine();
   const state = longState({
     1: { color: "dark", count: 2 },
@@ -2727,10 +2727,12 @@ test("v19 five-game regression releases the final head checker immediately", () 
   });
 
   const plan = engine.plan(state, { maxCandidates: 64, analysisNodeBudget: 1150 });
-  assert.ok(plan.some(move => move.from === 12), JSON.stringify(plan));
+  assert.equal(plan.some(move => move.from === 12), false, JSON.stringify(plan));
+  assert.equal(plan.length, 2, 'retention must still consume the maximum legal dice');
   const after = JSON.parse(JSON.stringify(state));
   plan.forEach(move => game.applyMove(after, move.from, move.die, { autoEnd: false }));
-  assert.equal(after.points[12]?.count || 0, 0);
+  assert.equal(after.points[12]?.count || 0, 1);
+  assert.equal(game.hasAnyMoves(after), false);
 });
 
 test("v19 five-game regression enters four outside checkers before a home shuffle", () => {

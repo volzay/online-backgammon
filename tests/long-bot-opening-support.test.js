@@ -48,6 +48,11 @@ const behavior=(rows,quarterAware=false)=>rows.map(c=>{
   for(const key of ['quarterSchema','quarterContextKey','quarterActionKey','legacyContextKey','quartersBefore','quartersAfter'])delete descriptor[key];
   delete result.features.quartersBefore;
   delete result.features.quartersAfter;
+  // Current defense telemetry is additive. Keep every legacy score, choice
+  // and tactical measurement in this frozen control comparison.
+  for(const key of Object.keys(result.features)){
+   if(/^(unsupportedHomeDebt|headAnchorValue|exitDiversityValue|contactBridge)/.test(key))delete result.features[key];
+  }
  }
  return result;
 });

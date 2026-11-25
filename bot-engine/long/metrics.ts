@@ -219,6 +219,58 @@ export function headCheckers(state, color) {
   return countAt(state, headPoint(color), color);
 }
 
+// One checker owns a point in long nardy. A bridge near the opposing head
+// and a last-head anchor buy time for our rear army during contact.
+export function contactDefenseProfile(state, color) {
+  const enemy = opponentOf(color);
+  let rear = 0, start = 0, bridge = 0, home = 0, enemyBehind = 0, enemyApproach = 0;
+  for (const [point, stack] of Object.entries(state.points || {})) {
+    const count = Number(stack?.count) || 0;
+    if (stack?.color === color) {
+      const pos = pathPos(color, Number(point));
+      if (pos >= 0 && pos < 12) rear += count;
+      if (pos >= 0 && pos < 6) start += count;
+      if (pos >= 12 && pos < 18) bridge += 1;
+      if (pos >= 18) home += count;
+    } else if (stack?.color === enemy) {
+      const pos = pathPos(enemy, Number(point));
+      if (pos >= 0 && pos < 12) enemyBehind += count;
+      if (pos >= 6 && pos < 12) enemyApproach += count;
+    }
+  }
+  const active = String(state.variant || 'long') === 'long' && !state.winner
+    && offCount(state, color) === 0 && rear > 0 && enemyBehind > 0;
+  // An isolated runner must not abandon the crossing while most of its army
+  // is still in the first quarter. A developed rear army can legitimately
+  // trade a bridge for home progress.
+  const rearPressure = Math.min(1, Math.max(0, start - 10) / 4);
+  const unsupportedHomeDebt = active && headCheckers(state, color) >= 10
+    ? home * Math.max(0, 2 - bridge) * rearPressure * Math.min(1, enemyBehind / 6)
+    : 0;
+  const headAnchorValue = active && headCheckers(state, color) === 1
+    ? Math.min(2, Math.max(0, start - 1) / 4) * Math.min(1, enemyApproach / 2)
+    : 0;
+  const stations = pathFor(color).slice(0, 7)
+    .flatMap((point, offset) => colorAt(state, point) === color ? [offset] : []);
+  const faces = new Set();
+  for (let i = 0; i < stations.length; i += 1) {
+    for (let j = i + 1; j < stations.length; j += 1) faces.add(stations[j] - stations[i]);
+  }
+  const exitDiversityValue = active && headCheckers(state, color) >= 12
+    && opponentFenceRun(state, color) <= 2 && latentFenceExposure(state, color) < 24
+    && opponentTrapRisk(state, color) === 0
+    ? faces.size * Math.min(1, Math.max(0, start - 11) / 3) : 0;
+  return { active, rear, start, bridge, home, enemyBehind, enemyApproach,
+    unsupportedHomeDebt, headAnchorValue, exitDiversityValue };
+}
+
+export function defensiveLearningContext(state, color) {
+  const p = contactDefenseProfile(state, color);
+  return `cd1:r${Math.min(3, Math.floor(p.rear / 4))}s${Math.min(3, Math.floor(p.start / 4))}`
+    + `b${Math.min(2, p.bridge)}a${p.headAnchorValue > 0 ? 1 : 0}`
+    + `e${Math.min(2, p.enemyApproach)}d${Math.min(3, Math.floor(p.exitDiversityValue / 2))}`;
+}
+
 export function pipsFor(state, color) {
   return Object.entries(state.points || {}).reduce((total, [point, stack]) => {
     if (stack.color !== color) return total;

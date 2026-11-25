@@ -76,12 +76,13 @@ function liveOptions(state) {
 }
 let imports;
 async function teacherModules() {
-  return imports ||= Promise.all(['analysis','nardu-game-adapter','evaluator'].map(name =>
+  return imports ||= Promise.all(['analysis','nardu-game-adapter','evaluator','engine','metrics'].map(name =>
     import(pathToFileURL(path.join(ROOT, 'bot-engine/long', `${name}.ts`)).href)));
 }
 async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}) {
   const { game, engine } = loadRuntime();
-  const [analysis, { createNarduGameAdapter }, { mergeWeights }] = await teacherModules();
+  const [analysis, { createNarduGameAdapter }, { mergeWeights }, { preservesContactDefense },
+    { defensiveLearningContext }] = await teacherModules();
   const { analyzeOpponentReplies, assessLongBotSituation, createAnalysisBudget, adaptiveReplyUtility } = analysis;
   const adapter = createNarduGameAdapter(game, { generatedSequenceFastPath:true });
   const state = turn.state, runtimeOptions = liveOptions(state), deadline = Date.now() + (options.maxElapsedMs || 180000);
@@ -117,6 +118,7 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
   if (!baseline) throw Error('Cold baseline missing');
   const utility = c => adaptiveReplyUtility(c.tactical, situation);
   const alternatives = candidates.filter(c => c !== baseline
+    && preservesContactDefense(state, state.turn, c, baseline)
     && Number(c.features.resultSafetyAfter || 0) >= Number(cold.features.resultSafetyAfter || 0)
     && Number(c.features.startZoneReduction || 0) >= Number(cold.features.startZoneReduction || 0)
     && c.tactical.expectedEquity >= baseline.tactical.expectedEquity + 0.025
@@ -126,11 +128,14 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
   const measurements = c => ({ expectedEquity:c.tactical.expectedEquity, utility:utility(c),
     lowerTailEquity:c.tactical.lowerTailEquity, selfEvaluation:c.tactical.expectedSelfEvaluation,
     opponentEvaluation:c.tactical.expectedOpponentEvaluation });
+  let screened = 0;
+  const rejectedScreens = [];
   for (const recommended of alternatives) {
     const lesson = { creditVersion:10, evidenceSchema:'long-server-board-model-pattern-v1',
       trustDomain:'nardu/server-long-bot-board-model/v1', reviewerVersion:VERSION,
       scoreSemantics:'heuristic-turn-equity-v1', opponentReplyModel:'best-of-bounded-legal-replies-v1',
       ...id, positionKey:engine.boardLessonPositionKey(state),
+      defensiveContext:defensiveLearningContext(state, state.turn),
       contextKey:cold.experience.contextKey, actionKey:cold.experience.actionKey,
       preferredActionKey:recommended.experience.actionKey, preferredMoves:canonicalMoves(recommended.sequence),
       utilityGain:utility(recommended)-utility(baseline),
@@ -154,6 +159,24 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
       // Native rank adds opportunity-relative koks/home annotations which a
       // single described sequence cannot know. Preserve the actual applied key.
       lesson.preferredActionKey = learned.experience.actionKey;
+      if (options.screenLesson) {
+        // A short reply model proposes an action; only a complete paired
+        // continuation may admit it to a screened production release.
+        if (screened >= 2) break;
+        if (Date.now() >= deadline) return { status:'capacity', turnIndex };
+        screened++;
+        const screening = await options.screenLesson({ state, baselineMoves:lesson.baselineMoves,
+          preferredMoves:lesson.preferredMoves, sourceTurnIndex:turn.sourceTurnIndex,
+          source, id, maxElapsedMs:Math.max(1, Math.min(60000, deadline-Date.now())) });
+        if (screening.status === 'capacity') return { status:'capacity', turnIndex,
+          phase:'terminal-screen', screeningKey:screening.key };
+        if (!screening.complete || !screening.accepted) {
+          rejectedScreens.push({ manifestHash:screening.manifestHash, comparison:screening.comparison,
+            control:screening.control, recommended:screening.recommended });
+          continue;
+        }
+        lesson.screening = screening;
+      }
       delete lesson.aggregateId;
       lesson.aggregateId = sha(stableStringify(lesson));
       return { status:'model-reviewed', turnIndex, lesson,
@@ -161,7 +184,8 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
         coldAction:canonicalMoveKey(cold.sequence), learnedAction:canonicalMoveKey(learned.sequence) };
     }
   }
-  return { status:'no-applicable-improvement', turnIndex, rootPositions:candidates.length };
+  return { status:'no-applicable-improvement', turnIndex, rootPositions:candidates.length,
+    ...(rejectedScreens.length ? { rejectedScreens } : {}) };
 }
 async function runOnce({ rooms = null, maxTurns = 1 } = {}) {
   const id = identity({ production:true });
