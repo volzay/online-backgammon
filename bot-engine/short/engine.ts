@@ -208,10 +208,13 @@ export function createShortBotEngine(adapter, options = {}) {
     score += features.capturedExposure * 7600 * SHORT_HANDCRAFTED_BLEND;
     score += features.entries * 17000;
     score += features.offGain * 28000;
-    score += features.madeGain * 9000;
-    score += features.homeMadeGain * 14000;
-    score += features.primeGain * 12000;
-    score -= Math.max(0, features.exposureDelta) * 2600;
+    const phase = shortPhase(state, color);
+    if (phase === 'contact' || phase === 'bar') {
+      score += features.madeGain * 9000;
+      score += features.homeMadeGain * 14000;
+      score += features.primeGain * 12000;
+      score -= Math.max(0, features.exposureDelta) * 2600;
+    }
     score -= Math.max(0, features.stackDelta) * 3500;
     if (features.homeShuffleMoves && features.offGain === 0 && !NarduGame.homeReady(state, color)) {
       const outside = shortMetrics(state, color).outsideHome;

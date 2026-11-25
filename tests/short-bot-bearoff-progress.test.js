@@ -167,3 +167,22 @@ test('experience cannot reverse a contact-free two-checker bearoff into a near-e
   assert.ok(decision.alternatives[0].experienceAdjustment > 0);
   assert.equal(play(game, state, plan).off.white - state.off.white, 2);
 });
+
+for (const color of ['white', 'dark']) {
+  test(`contact-free ${color} bearoff has no fictional risk or defensive point bonuses`, () => {
+    const { game, engine } = runtime();
+    const { state } = fixture(game, color, [3, 1]);
+    const sequence = game.bestMoveSequences(state).find(sequence => (
+      sequence.filter(move => move.bearOff).length === 2
+    ));
+    const after = play(game, state, sequence);
+    const described = engine.describeSequence(state, sequence);
+    assert.ok(described.features.madeGain < 0, 'taking a checker off breaks a made home point');
+    assert.equal(described.features.exposureDelta, 0);
+    assert.equal(described.features.opponentExposureGain, 0);
+    const expected = engine.evaluateState(after, color)
+      + described.features.offGain * 28000
+      - Math.max(0, described.features.stackDelta) * 3500;
+    assert.equal(described.baseScore, expected, 'a broken defensive point must not reduce the race score');
+  });
+}

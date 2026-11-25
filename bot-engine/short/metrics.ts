@@ -216,6 +216,9 @@ function clampShortMetric(value, min, max) {
 }
 
 export function blotRisk(state, color, point, pos = NarduGame.pathPos(color, point, state)) {
+  // Once both armies have passed, no future roll can hit a checker. Do not
+  // carry the contact position's baseline blot risk into a race or bearoff.
+  if (!shortHasContact(state, color)) return 0;
   const opponent = NarduGame.opponentOf(color);
   let hittingDice = 0;
   const sources = Number(state.bar?.[opponent]) > 0

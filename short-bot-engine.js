@@ -221,6 +221,9 @@ function clampShortMetric(value, min, max) {
 }
 
 function blotRisk(state, color, point, pos = NarduGame.pathPos(color, point, state)) {
+  // Once both armies have passed, no future roll can hit a checker. Do not
+  // carry the contact position's baseline blot risk into a race or bearoff.
+  if (!shortHasContact(state, color)) return 0;
   const opponent = NarduGame.opponentOf(color);
   let hittingDice = 0;
   const sources = Number(state.bar?.[opponent]) > 0
@@ -471,10 +474,13 @@ function createShortBotEngine(adapter, options = {}) {
     score += features.capturedExposure * 7600 * SHORT_HANDCRAFTED_BLEND;
     score += features.entries * 17000;
     score += features.offGain * 28000;
-    score += features.madeGain * 9000;
-    score += features.homeMadeGain * 14000;
-    score += features.primeGain * 12000;
-    score -= Math.max(0, features.exposureDelta) * 2600;
+    const phase = shortPhase(state, color);
+    if (phase === 'contact' || phase === 'bar') {
+      score += features.madeGain * 9000;
+      score += features.homeMadeGain * 14000;
+      score += features.primeGain * 12000;
+      score -= Math.max(0, features.exposureDelta) * 2600;
+    }
     score -= Math.max(0, features.stackDelta) * 3500;
     if (features.homeShuffleMoves && features.offGain === 0 && !NarduGame.homeReady(state, color)) {
       const outside = shortMetrics(state, color).outsideHome;
