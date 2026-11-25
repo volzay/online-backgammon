@@ -133,7 +133,7 @@ function deterministicReachableShortPositions(game, seed, turns = 16) {
 
 test("short hard bot installs a dedicated analytical engine", () => {
   const context = runtime();
-  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v6");
+  assert.equal(context.NarduShortBotEngine.version, "short-analytic-v6-bearoff-v1");
   assert.equal(typeof context.NarduShortBotEngine.rank, "function");
   assert.equal(typeof context.NarduShortBotEngine.setExperience, "function");
   assert.equal(typeof context.NarduShortBotEngine.prepareWildbgRequest, "function");
@@ -157,7 +157,7 @@ test("short hard bot makes the 7 point with opening 6-1", () => {
   );
   const decision = context.NarduShortBotEngine.consumeLastDecision();
   assert.equal(decision.selected.tactical.rolls, 21);
-  assert.equal(decision.engineVersion, "short-analytic-v6");
+  assert.equal(decision.engineVersion, "short-analytic-v6-bearoff-v1");
   assert.equal(decision.engine.provenance, "builtin");
 });
 
@@ -1187,7 +1187,7 @@ test("short experience keeps local and server knowledge in separate mergeable so
 test("short engine is loaded before the shared hard-bot dispatcher", () => {
   const room = fs.readFileSync(path.join(ROOT, "room.html"), "utf8");
   assert.ok(room.indexOf("short-bot-engine.js") < room.indexOf("strong-bot.js"));
-  assert.match(room, /short-bot-engine\.js\?v=20260911-short-analytic-v6/);
+  assert.match(room, /short-bot-engine\.js\?v=20261125-short-analytic-v6-bearoff-v1/);
 });
 
 test("short learning has a separate server RPC and archive accepts both variants", () => {

@@ -1212,7 +1212,7 @@ function applyKnownShortSequence(game, state, sequence, color) {
 
 
 /* bot-engine/short/browser.ts */
-const SHORT_ENGINE_VERSION = 'short-analytic-v6';
+const SHORT_ENGINE_VERSION = 'short-analytic-v6-bearoff-v1';
 const SHORT_WILDBG_NEAR_EQUITY_MARGIN = 0.025;
 const SHORT_WILDBG_REAR_ESCAPE_EQUITY_MARGIN = 0.1;
 const SHORT_WILDBG_EXPERIENCE_EQUITY_SCALE = 900_000;
@@ -1448,8 +1448,24 @@ function createBrowserShortBotEngine(game, options = {}) {
     return totalWeight === 36 ? hitWeight / totalWeight : 0;
   }
 
-  function chooseBearoffTie(candidates, selected, phase) {
+  function chooseBearoffProgress(candidates, selected, phase) {
     if (phase !== 'bearoff' || !Number.isFinite(selected.equity)) return null;
+    // Neural race estimates can prefer a home shuffle to an extra checker off
+    // by a few thousandths. In a contact-free bearoff, preserve pip progress
+    // and prefer more checkers off within the existing near-equity margin.
+    const progress = candidates.filter(candidate => (
+      Number.isFinite(candidate.equity)
+      && selected.equity - candidate.equity <= SHORT_WILDBG_NEAR_EQUITY_MARGIN
+      && candidate.described.features.offGain > selected.described.features.offGain
+      && candidate.described.features.pipsGain >= selected.described.features.pipsGain
+    ));
+    if (progress.length) {
+      return progress.sort((left, right) => (
+        right.described.features.offGain - left.described.features.offGain
+        || right.equity - left.equity
+        || left.matched.wildbgRank - right.matched.wildbgRank
+      ))[0];
+    }
     const tied = candidates.filter(candidate => (
       Number.isFinite(candidate.equity)
       && selected.equity - candidate.equity <= SHORT_WILDBG_EQUITY_EPSILON
@@ -1518,11 +1534,15 @@ function createBrowserShortBotEngine(game, options = {}) {
         || left.matched.wildbgRank - right.matched.wildbgRank)[0] || null;
   }
 
-  function chooseExperiencedNearTie(candidates, selected) {
+  function chooseExperiencedNearTie(candidates, selected, phase) {
     if (!Number.isFinite(selected.equity)) return null;
     const adjusted = candidates
       .filter(candidate => Number.isFinite(candidate.equity)
-        && selected.equity - candidate.equity <= SHORT_WILDBG_NEAR_EQUITY_MARGIN)
+        && selected.equity - candidate.equity <= SHORT_WILDBG_NEAR_EQUITY_MARGIN
+        && (phase !== 'bearoff' || (
+          candidate.described.features.offGain >= selected.described.features.offGain
+          && candidate.described.features.pipsGain >= selected.described.features.pipsGain
+        )))
       .map(candidate => ({
         candidate,
         adjustedEquity: candidate.equity
@@ -1547,10 +1567,12 @@ function createBrowserShortBotEngine(game, options = {}) {
     let chosen = original;
     let reason = 'wildbg-top';
     const phase = shortPhase(state, color);
-    const bearoff = chooseBearoffTie(candidates, chosen, phase);
+    const bearoff = chooseBearoffProgress(candidates, chosen, phase);
     if (bearoff && bearoff !== chosen) {
       chosen = bearoff;
-      reason = 'equal-equity-bearoff';
+      reason = Math.abs(original.equity - chosen.equity) <= SHORT_WILDBG_EQUITY_EPSILON
+        ? 'equal-equity-bearoff'
+        : 'near-equity-bearoff';
     }
     if (reason === 'wildbg-top') {
       const rearEscape = chooseCriticalRearEscape(state, color, candidates, chosen, phase);
@@ -1567,7 +1589,7 @@ function createBrowserShortBotEngine(game, options = {}) {
       }
     }
     if (reason === 'wildbg-top') {
-      const experienced = chooseExperiencedNearTie(candidates, chosen);
+      const experienced = chooseExperiencedNearTie(candidates, chosen, phase);
       if (experienced && experienced !== chosen) {
         chosen = experienced;
         reason = 'near-equity-experience';

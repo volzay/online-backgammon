@@ -127,7 +127,7 @@ test("XUC3-2ZA5 BOT5 rescues and protects the exposed rear checker", () => {
   );
 
   const decision = runtime.engine.consumeLastDecision();
-  assert.equal(decision.engineVersion, "short-analytic-v6");
+  assert.equal(decision.engineVersion, "short-analytic-v6-bearoff-v1");
   assert.equal(decision.engine.provenance, "wildbg-wasm");
   assert.equal(decision.engine.choiceReason, "critical-rear-blot-rescue");
   assert.equal(decision.engine.originalRank, 0);
