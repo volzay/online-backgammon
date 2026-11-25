@@ -32,7 +32,7 @@ begin
  if native_digest!~'^[0-9a-f]{64}$'or library_digest!~'^[0-9a-f]{64}$'
   or native_digest=library_digest then raise exception 'Distinct server-attested identities required';end if;
  if native_digest<>'87f98c31e93523f61980e9366fafd401a1290ef2d9d197aa316c16167e01fff7'
-  or library_digest<>'795e7aebadc51425659ed86c63e900a8238a4f3d1f9e508dc32a5cfc44f2fd9b'
+  or library_digest<>'912543d042c3d0adc49dac821baf63a2ad4b9f53afca4e8ae7d19efa54eb7abd'
   then raise exception 'Runtime differs from the reviewed immutable source tuple';end if;
  select * into serving from private.long_bot_causal_serving_runtime();
  if serving.explicitly_approved is distinct from true or serving.policy_implementation_id is distinct from old_policy

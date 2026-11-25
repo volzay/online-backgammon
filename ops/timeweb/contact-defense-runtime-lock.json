@@ -1,7 +1,7 @@
 {
   "policy": "06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a",
   "causalRuntime": "87f98c31e93523f61980e9366fafd401a1290ef2d9d197aa316c16167e01fff7",
-  "libraryRuntime": "795e7aebadc51425659ed86c63e900a8238a4f3d1f9e508dc32a5cfc44f2fd9b",
+  "libraryRuntime": "912543d042c3d0adc49dac821baf63a2ad4b9f53afca4e8ae7d19efa54eb7abd",
   "node": "v24.15.0",
   "v8": "13.6.233.17-node.48",
   "files": {
@@ -27,7 +27,7 @@
     "scripts/long-bot-board-model-worker.js": "3fdc681d4de582635d744b14d19bd521d06d1a37f799a8cc9b4ef272e48807a8",
     "scripts/long-bot-training-library.js": "c2ab13a87fea2431bb00f48c2e493317e633c76e4018550ea9e046a94a43e745",
     "scripts/long-bot-training-library-worker.js": "f61bcf8524399711f0dad592fb980d3bc1d9acb7da36d89ade505fb2cdc5e71e",
-    "scripts/long-bot-model-terminal-screen.js": "10ace3a8a3961066f1b4b65190fa2b169bcc15e679075701e50d05da8044e9dd",
+    "scripts/long-bot-model-terminal-screen.js": "f5b19a61c4d3100ef854b5b9bc16a392b69a0936fa2bc75d66f4f7aa5fd23522",
     "bot-engine/long/training/terminal-screen-baseline-v1.json": "f4e26b468362276384acffa9658c9b90f45ef5afb1b09eb6d8e5ea3eacc05fa3"
   }
 }
