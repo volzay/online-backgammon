@@ -95,6 +95,9 @@ function terminalResult(state,color,plies,traceHash){
 }
 function compareValues(a,b){for(let i=0;i<a.length;i++){if(a[i]!==b[i])return Math.sign(a[i]-b[i]);}return 0;}
 function runScreen({state,baselineMoves,preferredMoves,sourceTurnIndex,tape,source,id,store,maxElapsedMs=60000,maxFuturePlies=512,maxWorkPlies=Infinity}){
+ // Native normalization may stamp startedAt while the short teacher searches.
+ // Process-local clocks and presentation metadata cannot identify a cohort.
+ state=H.stateFromSnapshot(state);
  const started=Date.now(),{current,opponent}=loadRuntimes();tape=normalizeTape(tape);
  if(id.policyImplementationId!==current.engine.policyImplementationId||!Number.isInteger(sourceTurnIndex)||sourceTurnIndex<0
   ||sourceTurnIndex>=tape.length||tape[sourceTurnIndex].color!==state.turn

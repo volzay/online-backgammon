@@ -5,7 +5,7 @@ set -euo pipefail
 previous=/opt/online-backgammon-head-escape-dispatch-v1/run-head-escape-causal-slice.sh
 slot=$(( $(/usr/bin/date -u +%s) / 600 % 25 ))
 if (( slot != 3 && slot != 9 && slot != 15 && slot != 22 ));then exec /usr/bin/bash "$previous";fi
-application=/opt/online-backgammon-contact-defense-06611894-r2
+application=/opt/online-backgammon-contact-defense-06611894-r3
 state=/var/lib/online-backgammon-contact-defense-causal-06611894
 if [[ -e "$state/pause-admission" ]];then exec /usr/bin/bash "$previous";fi
 if result=$(

@@ -32,7 +32,9 @@ test('capacity resumes the same pair and corrupt checkpoints fail closed',()=>{
  try{
   const store=S.privateStore(directory),args={...f,baselineMoves:f.win,preferredMoves:f.lose,store};
   const paused=S.runScreen({...args,maxWorkPlies:0});assert.equal(paused.status,'capacity');
-  const finished=S.runScreen({...args,maxWorkPlies:1});assert.equal(finished.status,'complete');
+  const reloadedState=structuredClone(f.state);reloadedState.startedAt=Date.now()+1000;
+  reloadedState.turnClock.startedAt=Date.now()+2000;
+  const finished=S.runScreen({...args,state:reloadedState,maxWorkPlies:1});assert.equal(finished.status,'complete');
   assert.equal(finished.manifestHash,paused.key);assert.equal(finished.accepted,false);
   const file=path.join(directory,paused.key+'.json'),value=JSON.parse(fs.readFileSync(file));
   value.payload.arms.recommended.state.off.dark=14;fs.writeFileSync(file,JSON.stringify(value));
