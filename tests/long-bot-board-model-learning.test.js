@@ -5,6 +5,9 @@ const {loadRuntime,canonicalMoveKey,applyLegalSequence}=require('../scripts/gene
 const fixture=require('./fixtures/long-bot-board-learning-rooms.json');
 const {engine,game}=loadRuntime();
 const source={archiveId:'00000000-0000-0000-0000-000000000001',fingerprint:'1'.repeat(64)};
+// RPC-admission stub for this teacher/client integration test. Complete native
+// outcome computation and server acceptance are exercised in separate suites.
+const screenAdmission=async({id,source})=>({status:'complete',schema:'long-native-terminal-regression-screen-v1',complete:true,accepted:true,comparison:1,sampleCount:1,terminalOutcomeConfirmed:false,policyImplementationId:id.policyImplementationId,runtimeDigest:id.runtimeDigest,sourceFingerprint:source.fingerprint});
 test('LEM5 history reproduces all 42 bot turns and rejects illegal, truncated and reordered records',()=>{
  assert.equal(replayFinishedHistory(fixture.lemFinal,'dark').length,42);
  const illegal=structuredClone(fixture.lemFinal);illegal.history.find(e=>e.from).from=24;
@@ -15,7 +18,7 @@ test('LEM5 history reproduces all 42 bot turns and rejects illegal, truncated an
  assert.throws(()=>replayFinishedHistory(wrong,'dark'),/mismatch/);
 });
 for(const p of fixture.positions.filter(p=>p.room!=='8JPN-KUD8'))test(`${p.room}: real board model lesson changes a legal native choice and stays frozen`,async()=>{
- const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},{...source,roomCode:p.room},p.turnIndex);
+ const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},{...source,roomCode:p.room},p.turnIndex,undefined,{screenLesson:screenAdmission});
  assert.equal(r.status,'model-reviewed');const lesson=r.lesson;
  assert.equal(lesson.terminalOutcomeConfirmed,false);assert.equal(lesson.losses,0);
  assert.equal(lesson.diceOutcomes,21);assert.equal(lesson.diceWeight,36);

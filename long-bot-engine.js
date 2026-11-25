@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a';
-  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","previousPlayingPolicyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","previousBundleSha256":"eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389","immediatePredecessorPlayingPolicyImplementationId":"db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b","immediatePredecessorBundleSha256":"1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9","headEscapeGuard":"preserve-release-when-gateway-worsens-v1","headEscapePlayingPolicyImplementationId":"1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a","headEscapeBundleSha256":"dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1","contactDefenseGuard":"preserve-bridges-and-last-head-anchor-v1","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9';
+  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"d8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","previousPlayingPolicyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","previousBundleSha256":"eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389","immediatePredecessorPlayingPolicyImplementationId":"db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b","immediatePredecessorBundleSha256":"1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9","headEscapeGuard":"preserve-release-when-gateway-worsens-v1","headEscapePlayingPolicyImplementationId":"1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a","headEscapeBundleSha256":"dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1","contactDefenseGuard":"preserve-bridges-and-last-head-anchor-v1","contactDefensePlayingPolicyImplementationId":"06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a","contactDefenseBundleSha256":"01f998d2ce337a25af782ec7090bd7301905286d0c60daa41b95387c2b3c753b","defensiveTransferGuard":"match-source-board-defense-context-v1","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
 
 /* bot-engine/long/metrics.ts */
 
@@ -3632,10 +3632,60 @@ function boardModelActionFields(key) {
 // Memory proposes search candidates. Only a NEW, complete comparison on the
 // actual current board can authorize a transferred choice. Neither historical
 // model scores nor a loose pattern match become an executable move by itself.
+const defensiveLessonContexts = new Map();
+function hasCompleteModelTransferScreen(p) {
+  const s = p.screening;
+  return s?.schema === 'long-native-terminal-regression-screen-v1'
+    && s.complete === true && s.accepted === true && s.comparison === 1
+    && s.sampleCount === 1 && s.terminalOutcomeConfirmed === false
+    && s.policyImplementationId === p.policyImplementationId
+    && s.runtimeDigest === p.runtimeDigest && s.sourceFingerprint === p.sourceFingerprint;
+}
+function boardModelDefensiveContext(lesson) {
+  const key = lesson?.positionKey;
+  if (typeof key !== 'string' || key.length > 8192) return null;
+  let context = defensiveLessonContexts.get(key);
+  if (context === undefined) {
+    context = null;
+    try {
+      const a = JSON.parse(key);
+      if (!Array.isArray(a) || a.length !== 10 || a[0] !== 'long-board-lesson-position-v1'
+        || !['white','dark'].includes(a[1]) || !Array.isArray(a[2]) || a[2].length > 24
+        || !Array.isArray(a[3]) || a[3].length !== 2 || a[3].some(n => n !== 0)
+        || !Array.isArray(a[4]) || a[4].length !== 2
+        || a[4].some(n => !Number.isInteger(n) || n < 0 || n > 15)) throw Error('Invalid model board');
+      const points = {}, totals = { white:a[4][0], dark:a[4][1] };
+      for (const p of a[2]) {
+        if (!Array.isArray(p) || p.length !== 3 || !Number.isInteger(p[0]) || p[0] < 1 || p[0] > 24
+          || points[p[0]] || !['white','dark'].includes(p[1]) || !Number.isInteger(p[2]) || p[2] < 1 || p[2] > 15) throw Error('Invalid model checkers');
+        points[p[0]] = { color:p[1], count:p[2] }; totals[p[1]] += p[2];
+      }
+      if (totals.white !== 15 || totals.dark !== 15) throw Error('Invalid model totals');
+      context = defensiveLearningContext({ variant:'long',points,off:{ white:a[4][0],dark:a[4][1] } }, a[1]);
+    } catch { /* Unrecoverable legacy context cannot authorize transfer. */ }
+    defensiveLessonContexts.set(key, context);
+    if (defensiveLessonContexts.size > 2048) defensiveLessonContexts.delete(defensiveLessonContexts.keys().next().value);
+  }
+  return lesson.defensiveContext === undefined || lesson.defensiveContext === context ? context : null;
+}
+
 function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
   if (!baseline || ranked[0] !== baseline || !situation) return;
-  const lessons = patterns.filter(validBoardModelLesson).filter(p => !p.defensiveContext
-    || p.defensiveContext === defensiveLearningContext(state, color));
+  const context = defensiveLearningContext(state, color);
+  // Old lessons predate defensiveContext. Recover it from their immutable
+  // source board instead of treating the missing field as universal scope.
+  const lessons = patterns.filter(validBoardModelLesson)
+    .filter(p => {
+      if (!hasCompleteModelTransferScreen(p)) return false;
+      const source = boardModelDefensiveContext(p);
+      if (source === context) return true;
+      // An old lesson may tolerate one neighboring opponent-approach bucket
+      // only while our rear army, start quarter, bridge, exit diversity and
+      // anchor status all match. Explicit new scopes remain exact.
+      return p.defensiveContext === undefined && source?.includes('a0')
+        && source.replace(/e[0-2]/, 'e') === context.replace(/e[0-2]/, 'e')
+        && Math.abs(Number(source.match(/e([0-2])/)[1]) - Number(context.match(/e([0-2])/)[1])) <= 1;
+    });
   if (!lessons.length) return;
   const baseDescriptor = baseline.experience;
   if (patterns.some(p => p.creditVersion === 9 && p.contextKey === baseDescriptor?.contextKey)) return;
@@ -8038,7 +8088,9 @@ function acceptsBoardModelPolicyImplementationId(value) {
       || (value === 'db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b'
         && BOARD_MODEL_COMPATIBILITY?.immediatePredecessorPlayingPolicyImplementationId === value)
       || (value === '1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a'
-        && BOARD_MODEL_COMPATIBILITY?.headEscapePlayingPolicyImplementationId === value));
+        && BOARD_MODEL_COMPATIBILITY?.headEscapePlayingPolicyImplementationId === value)
+      || (value === '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a'
+        && BOARD_MODEL_COMPATIBILITY?.contactDefensePlayingPolicyImplementationId === value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [

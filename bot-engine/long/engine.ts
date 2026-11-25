@@ -719,10 +719,60 @@ function boardModelActionFields(key) {
 // Memory proposes search candidates. Only a NEW, complete comparison on the
 // actual current board can authorize a transferred choice. Neither historical
 // model scores nor a loose pattern match become an executable move by itself.
+const defensiveLessonContexts = new Map();
+function hasCompleteModelTransferScreen(p) {
+  const s = p.screening;
+  return s?.schema === 'long-native-terminal-regression-screen-v1'
+    && s.complete === true && s.accepted === true && s.comparison === 1
+    && s.sampleCount === 1 && s.terminalOutcomeConfirmed === false
+    && s.policyImplementationId === p.policyImplementationId
+    && s.runtimeDigest === p.runtimeDigest && s.sourceFingerprint === p.sourceFingerprint;
+}
+export function boardModelDefensiveContext(lesson) {
+  const key = lesson?.positionKey;
+  if (typeof key !== 'string' || key.length > 8192) return null;
+  let context = defensiveLessonContexts.get(key);
+  if (context === undefined) {
+    context = null;
+    try {
+      const a = JSON.parse(key);
+      if (!Array.isArray(a) || a.length !== 10 || a[0] !== 'long-board-lesson-position-v1'
+        || !['white','dark'].includes(a[1]) || !Array.isArray(a[2]) || a[2].length > 24
+        || !Array.isArray(a[3]) || a[3].length !== 2 || a[3].some(n => n !== 0)
+        || !Array.isArray(a[4]) || a[4].length !== 2
+        || a[4].some(n => !Number.isInteger(n) || n < 0 || n > 15)) throw Error('Invalid model board');
+      const points = {}, totals = { white:a[4][0], dark:a[4][1] };
+      for (const p of a[2]) {
+        if (!Array.isArray(p) || p.length !== 3 || !Number.isInteger(p[0]) || p[0] < 1 || p[0] > 24
+          || points[p[0]] || !['white','dark'].includes(p[1]) || !Number.isInteger(p[2]) || p[2] < 1 || p[2] > 15) throw Error('Invalid model checkers');
+        points[p[0]] = { color:p[1], count:p[2] }; totals[p[1]] += p[2];
+      }
+      if (totals.white !== 15 || totals.dark !== 15) throw Error('Invalid model totals');
+      context = defensiveLearningContext({ variant:'long',points,off:{ white:a[4][0],dark:a[4][1] } }, a[1]);
+    } catch { /* Unrecoverable legacy context cannot authorize transfer. */ }
+    defensiveLessonContexts.set(key, context);
+    if (defensiveLessonContexts.size > 2048) defensiveLessonContexts.delete(defensiveLessonContexts.keys().next().value);
+  }
+  return lesson.defensiveContext === undefined || lesson.defensiveContext === context ? context : null;
+}
+
 function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
   if (!baseline || ranked[0] !== baseline || !situation) return;
-  const lessons = patterns.filter(validBoardModelLesson).filter(p => !p.defensiveContext
-    || p.defensiveContext === defensiveLearningContext(state, color));
+  const context = defensiveLearningContext(state, color);
+  // Old lessons predate defensiveContext. Recover it from their immutable
+  // source board instead of treating the missing field as universal scope.
+  const lessons = patterns.filter(validBoardModelLesson)
+    .filter(p => {
+      if (!hasCompleteModelTransferScreen(p)) return false;
+      const source = boardModelDefensiveContext(p);
+      if (source === context) return true;
+      // An old lesson may tolerate one neighboring opponent-approach bucket
+      // only while our rear army, start quarter, bridge, exit diversity and
+      // anchor status all match. Explicit new scopes remain exact.
+      return p.defensiveContext === undefined && source?.includes('a0')
+        && source.replace(/e[0-2]/, 'e') === context.replace(/e[0-2]/, 'e')
+        && Math.abs(Number(source.match(/e([0-2])/)[1]) - Number(context.match(/e([0-2])/)[1])) <= 1;
+    });
   if (!lessons.length) return;
   const baseDescriptor = baseline.experience;
   if (patterns.some(p => p.creditVersion === 9 && p.contextKey === baseDescriptor?.contextKey)) return;

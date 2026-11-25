@@ -68,3 +68,21 @@ test('a last head checker still advances when it is the only rear checker',async
  const result=engine.rank(s,liveOptions(s))[0];assert.equal(M.headCheckers(result.after,'dark'),0);
  assert.equal(result.sequence.length,2);
 });
+
+test('legacy lessons recover their defensive scope from the complete source board',async()=>{
+ const {boardModelDefensiveContext}=await import('../bot-engine/long/engine.ts');
+ const M=await import('../bot-engine/long/metrics.ts');
+ const source=position('dark',{12:10,9:1,1:1,22:1,20:1,19:1},
+  {24:10,23:1,18:1,17:1,16:1,14:1},[2,3]).state;
+ const target=position('dark',{12:11,9:1,1:1,22:1,18:1},
+  {24:8,23:2,21:2,19:1,16:1,14:1},[2,3]).state;
+ const lesson={positionKey:engine.boardLessonPositionKey(source)};
+ assert.equal(boardModelDefensiveContext(lesson),M.defensiveLearningContext(source,'dark'));
+ assert.notEqual(boardModelDefensiveContext(lesson),M.defensiveLearningContext(target,'dark'),
+  'a missing legacy field must not authorize a different rear army and bridge');
+ assert.equal(boardModelDefensiveContext({...lesson,defensiveContext:M.defensiveLearningContext(target,'dark')}),null,
+  'a declaration cannot overwrite the source board');
+ assert.equal(boardModelDefensiveContext({positionKey:'not-a-board'}),null);
+ const incomplete=structuredClone(source);incomplete.points[12].count--;
+ assert.equal(boardModelDefensiveContext({positionKey:engine.boardLessonPositionKey(incomplete)}),null);
+});
