@@ -5,10 +5,12 @@
 const fs=require('node:fs'),path=require('node:path'),{createHash,randomUUID}=require('node:crypto');
 const H=require('./generate-long-bot-shadow-replay'),T=require('./long-bot-board-model-worker');
 const L=require('./long-bot-training-library'),C=require('./long-bot-causal-worker');
+const S=require('./long-bot-model-terminal-screen');
 const ROOT=path.resolve(__dirname,'..'),VERSION='long-training-library-worker-v1';
 function identity({production=false}={}){
  const files=[...C.runtimeClosureFiles().map(([name])=>name),'scripts/long-bot-board-model-worker.js',
-  'scripts/long-bot-training-library.js','scripts/long-bot-training-library-worker.js'].sort();
+  'scripts/long-bot-training-library.js','scripts/long-bot-training-library-worker.js',
+  'scripts/long-bot-model-terminal-screen.js',S.BASELINE_FILE].sort();
  const h=createHash('sha256').update(`${VERSION}\0${process.version}\0${process.versions.v8}\0`);
  for(const name of files){const file=path.join(ROOT,name),s=fs.lstatSync(file);
   if(production&&(!s.isFile()||s.uid!==0||(s.mode&0o022)||s.nlink!==1||fs.realpathSync(file)!==file))throw Error('Mutable library runtime');
@@ -21,6 +23,11 @@ async function runOnce({mode='review',maxSources=1}={}){
  const rpc=(name,args)=>C.supabaseRpc(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,name,args);
  const report={version:VERSION,...id,classified:0,reviewed:0,lessons:0,deferred:0};
  const started=Date.now();
+ const stateDirectory=process.env.STATE_DIRECTORY;
+ if(!stateDirectory||stateDirectory.includes(':'))throw Error('Single private library state directory required');
+ const fence=require('./long-bot-production-fence').assertProductionFence({
+  journalDirectory:path.join(stateDirectory,'terminal-journal'),applicationDirectory:ROOT});
+ const store=S.privateStore(path.join(stateDirectory,'model-terminal-screens'),()=>fence.assertHeld());
  for(let n=0;n<maxSources&&Date.now()-started<180000;n++){
   const s=await rpc('claim_long_bot_training_library',{p_runtime:id.runtimeDigest,p_policy:id.policyImplementationId,p_owner:owner,p_mode:mode});
   if(!s)break;
@@ -41,7 +48,11 @@ async function runOnce({mode='review',maxSources=1}={}){
   // worker. Verify its native input again; never copy a teacher receipt or ID.
   const checked=L.verifyTurn(s.turn);
   if(checked.positionHash!==s.turn.positionHash)throw Error('Stored position identity changed');
-  const review=await T.reviewTurn({...s.turn,...checked},source,s.cursor,id,{maxRootPositions:256,maxElapsedMs:160000});
+  const review=await T.reviewTurn({...s.turn,...checked},source,s.cursor,id,{maxRootPositions:256,maxElapsedMs:160000,
+   screenLesson:async request=>{
+    if(s.classification.historyVerified!==true||!s.replayTape) return {status:'complete',complete:true,accepted:false,reason:'verified-history-required'};
+    return S.runScreen({...request,tape:s.replayTape,store});
+   }});
   review.sourceClassificationRuntime=s.classification.reusedClassificationRuntime||id.runtimeDigest;
   review.sourceTurnIndex=s.turn.sourceTurnIndex;review.actor=s.turn.actor;review.positionHash=s.turn.positionHash;
   await rpc('checkpoint_long_bot_training_library',{...args,p_previous:s.cursor,p_review:review});

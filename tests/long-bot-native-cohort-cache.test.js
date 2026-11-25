@@ -26,6 +26,7 @@ const {
   BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY,
   LIVE_TRANSFER_NATIVE_CACHE_POLICY, TRAINING_LIBRARY_NATIVE_CACHE_POLICY,
   HEAD_ESCAPE_NATIVE_CACHE_POLICY,
+  CONTACT_DEFENSE_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -87,13 +88,13 @@ function runtime() {
   return value;
 }
 
-test('head-escape identity enables a separately pinned cache without calling its planner', () => {
+test('contact-defense identity enables a separately pinned cache without calling its planner', () => {
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, HEAD_ESCAPE_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, HEAD_ESCAPE_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, HEAD_ESCAPE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, CONTACT_DEFENSE_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, CONTACT_DEFENSE_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, CONTACT_DEFENSE_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -115,6 +116,7 @@ test('head-escape identity enables a separately pinned cache without calling its
   LIVE_TRANSFER_NATIVE_CACHE_POLICY,
   TRAINING_LIBRARY_NATIVE_CACHE_POLICY,
   HEAD_ESCAPE_NATIVE_CACHE_POLICY,
+  CONTACT_DEFENSE_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });

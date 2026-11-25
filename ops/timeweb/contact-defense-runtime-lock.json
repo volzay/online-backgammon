@@ -1,0 +1,33 @@
+{
+  "policy": "06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a",
+  "causalRuntime": "87f98c31e93523f61980e9366fafd401a1290ef2d9d197aa316c16167e01fff7",
+  "libraryRuntime": "795e7aebadc51425659ed86c63e900a8238a4f3d1f9e508dc32a5cfc44f2fd9b",
+  "node": "v24.15.0",
+  "v8": "13.6.233.17-node.48",
+  "files": {
+    "game.js": "6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623",
+    "long-bot-engine.js": "01f998d2ce337a25af782ec7090bd7301905286d0c60daa41b95387c2b3c753b",
+    "scripts/long-bot-causal-worker.js": "2f07d71c9d80a18349585879ef2b512cc2b49926ab69d92f7a35b47175b68604",
+    "bot-engine/long/reviewer.ts": "4fb169c7d4fd55ebd217af82517aaf2d0bd4c13eec9e18f1edbb009e28915757",
+    "scripts/long-bot-paired-rollout.js": "7a563cd6a6287de138c4669ce7fffe14f33c67ee8beed3973e5eaa16cb4ba568",
+    "scripts/long-bot-terminal-journal.js": "01b6ae5c78d645a9fd0285d1a669c29829931c38bf3271d3164edb222c1c19a3",
+    "scripts/long-bot-production-fence.js": "f2bfa6724abc75ee4ac85dcf75e04250c81d1faa570c247aa2248e3b3c2964a8",
+    "lib/long-bot-review-curriculum.js": "91efa5f07a2a088ed131b5b4233c32ae714fb2d7cd893c171a71b8018fc90700",
+    "lib/long-bot-fence-audit.js": "31cd096fb9c476d7fee8cc38e704a67a53450082ed58bcfced634fe96e023054",
+    "scripts/generate-long-bot-shadow-replay.js": "ac5d5202eec9581b6926dd406234a785d8d314342aae9ee11c03efa5d9473703",
+    "scripts/simulate-long-bot-regression.js": "b547423a99370dd318b92cc5c0c7d0ea22e25395e2b172ebba090f4b19fb7503",
+    "strong-bot.js": "5fffae64c7cc75829f89516fd806cb00a7b8ae643e16630aaf347593e647e157",
+    "scripts/build-long-bot-engine.js": "75dcf691478ebd77cd0a395346e730d372b7fdbabd627e218f6c56c1600cbab0",
+    "bot-engine/long/metrics.ts": "d7c247ba4836b7d1abf4d589f0f1c6b10e78b354d27a56ff52a0d62e64afc6ad",
+    "bot-engine/long/evaluator.ts": "194be2f397e6f64f4e9d626ba800a65795cf6ce7bd17e068bcb8241f20a6238e",
+    "bot-engine/long/analysis.ts": "5994013374dadd2402b6048d6afba6de42b16532606dc3a0249c04d0014b6277",
+    "bot-engine/long/engine.ts": "1e61ae240755d9258eb25757f8a08acafe0a1c453f79019253a237a347553dd1",
+    "bot-engine/long/nardu-game-adapter.ts": "ded05d6d4a39d1e4df201a1da634141911f04f9e2935ac694ea489e3c4647c0e",
+    "bot-engine/long/browser.ts": "650f11e8144ac15c44ac1b634436e4d098d731a3271f2fbc16c547830ccd1a31",
+    "scripts/long-bot-board-model-worker.js": "3fdc681d4de582635d744b14d19bd521d06d1a37f799a8cc9b4ef272e48807a8",
+    "scripts/long-bot-training-library.js": "c2ab13a87fea2431bb00f48c2e493317e633c76e4018550ea9e046a94a43e745",
+    "scripts/long-bot-training-library-worker.js": "f61bcf8524399711f0dad592fb980d3bc1d9acb7da36d89ade505fb2cdc5e71e",
+    "scripts/long-bot-model-terminal-screen.js": "10ace3a8a3961066f1b4b65190fa2b169bcc15e679075701e50d05da8044e9dd",
+    "bot-engine/long/training/terminal-screen-baseline-v1.json": "f4e26b468362276384acffa9658c9b90f45ef5afb1b09eb6d8e5ea3eacc05fa3"
+  }
+}

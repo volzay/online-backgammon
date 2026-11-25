@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const {reviewTurn,replayFinishedHistory,liveOptions}=require('../scripts/long-bot-board-model-worker');
-const {loadRuntime,canonicalMoveKey}=require('../scripts/generate-long-bot-shadow-replay');
+const {loadRuntime,canonicalMoveKey,applyLegalSequence}=require('../scripts/generate-long-bot-shadow-replay');
 const fixture=require('./fixtures/long-bot-board-learning-rooms.json');
-const {engine}=loadRuntime();
+const {engine,game}=loadRuntime();
 const source={archiveId:'00000000-0000-0000-0000-000000000001',fingerprint:'1'.repeat(64)};
 test('LEM5 history reproduces all 42 bot turns and rejects illegal, truncated and reordered records',()=>{
  assert.equal(replayFinishedHistory(fixture.lemFinal,'dark').length,42);
@@ -14,7 +14,7 @@ test('LEM5 history reproduces all 42 bot turns and rejects illegal, truncated an
  const wrong=structuredClone(fixture.lemFinal);wrong.off.dark++;
  assert.throws(()=>replayFinishedHistory(wrong,'dark'),/mismatch/);
 });
-for(const p of fixture.positions)test(`${p.room}: real board model lesson changes a legal native choice and stays frozen`,async()=>{
+for(const p of fixture.positions.filter(p=>p.room!=='8JPN-KUD8'))test(`${p.room}: real board model lesson changes a legal native choice and stays frozen`,async()=>{
  const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},{...source,roomCode:p.room},p.turnIndex);
  assert.equal(r.status,'model-reviewed');const lesson=r.lesson;
  assert.equal(lesson.terminalOutcomeConfirmed,false);assert.equal(lesson.losses,0);
@@ -56,4 +56,19 @@ for(const p of fixture.positions)test(`${p.room}: real board model lesson change
  engine.setExperience([lesson,terminalPenalty],'server');
  assert.notEqual(engine.rank(p.state,liveOptions(p.state))[0].features.boardModelLessonApplied,1);
  engine.setExperience([],'server');
+});
+
+test('8JPN teacher refuses the old advice that traded its bridge for an unsupported home entry',async()=>{
+ const {contactDefenseProfile}=await import('../bot-engine/long/metrics.ts');
+ const {preservesContactDefense}=await import('../bot-engine/long/engine.ts');
+ const p=fixture.positions.find(p=>p.room==='8JPN-KUD8');
+ engine.beginExperienceSession('8jpn-defensive-review');engine.setExperience([],'server');
+ const cold=engine.rank(p.state,liveOptions(p.state))[0];
+ const formerlyPreferred=[{from:12,to:9,die:3},{from:10,to:7,die:3},{from:9,to:6,die:3},{from:20,to:17,die:3}];
+ const after=applyLegalSequence(game,p.state,formerlyPreferred);assert.ok(after);
+ assert.ok(contactDefenseProfile(after,p.state.turn).unsupportedHomeDebt
+  >contactDefenseProfile(cold.after,p.state.turn).unsupportedHomeDebt);
+ assert.equal(preservesContactDefense(p.state,p.state.turn,{after},cold),false);
+ const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},{...source,roomCode:p.room},p.turnIndex);
+ assert.equal(r.status,'no-applicable-improvement');assert.equal(r.lesson,undefined);
 });

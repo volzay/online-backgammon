@@ -1,6 +1,7 @@
 import type { LongBotWeights } from './types.ts';
 import {
   blockadeScore,
+  contactDefenseProfile,
   developmentPressure,
   distributionPenalty,
   entryContinuationMoveCount,
@@ -126,6 +127,13 @@ export function evaluateState(state, color, weights = DEFAULT_LONG_BOT_WEIGHTS) 
     - startZoneCount(state, color) * weights.koksRescue * ownKoksPressure;
 }
 
+function contactDefenseValue(state, color, weights) {
+  if (state.winner) return 0;
+  const defense = contactDefenseProfile(state, color);
+  return -defense.unsupportedHomeDebt * weights.escapeGatewayRisk * 24
+    + defense.headAnchorValue * weights.escapeGatewayRisk * 48;
+}
+
 export function sequenceStats(before, after, color, sequence = [], includeQuarterLayout = true) {
   const offGain = offCount(after, color) - offCount(before, color);
   const homeGain = homeBoardCount(after, color) - homeBoardCount(before, color);
@@ -171,6 +179,8 @@ export function sequenceStats(before, after, color, sequence = [], includeQuarte
   const primeSustainabilityAfter = primeSustainability(after, color);
   const primeCrunchRiskBefore = primeCrunchRisk(before, color);
   const primeCrunchRiskAfter = primeCrunchRisk(after, color);
+  const contactDefenseBefore = contactDefenseProfile(before, color);
+  const contactDefenseAfter = contactDefenseProfile(after, color);
   const routeSignature = sequence
     .map(move => {
       const from = Math.max(0, pathPos(color, Number(move.from)));
@@ -229,6 +239,17 @@ export function sequenceStats(before, after, color, sequence = [], includeQuarte
     primeCrunchRiskBefore,
     primeCrunchRiskAfter,
     primeCrunchRiskDelta: primeCrunchRiskBefore - primeCrunchRiskAfter,
+    unsupportedHomeDebtBefore: contactDefenseBefore.unsupportedHomeDebt,
+    unsupportedHomeDebtAfter: contactDefenseAfter.unsupportedHomeDebt,
+    unsupportedHomeDebtDelta: contactDefenseBefore.unsupportedHomeDebt - contactDefenseAfter.unsupportedHomeDebt,
+    headAnchorValueBefore: contactDefenseBefore.headAnchorValue,
+    headAnchorValueAfter: contactDefenseAfter.headAnchorValue,
+    headAnchorValueDelta: contactDefenseAfter.headAnchorValue - contactDefenseBefore.headAnchorValue,
+    exitDiversityValueBefore: contactDefenseBefore.exitDiversityValue,
+    exitDiversityValueAfter: contactDefenseAfter.exitDiversityValue,
+    exitDiversityValueDelta: contactDefenseAfter.exitDiversityValue - contactDefenseBefore.exitDiversityValue,
+    contactBridgeBefore: contactDefenseBefore.bridge,
+    contactBridgeAfter: contactDefenseAfter.bridge,
     startZoneBefore,
     startZoneAfter,
     startZoneReduction,
@@ -238,7 +259,7 @@ export function sequenceStats(before, after, color, sequence = [], includeQuarte
   };
 }
 
-export function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LONG_BOT_WEIGHTS) {
+export function scoreSequence(before, after, color, sequence = [], weights = DEFAULT_LONG_BOT_WEIGHTS, contactDefense = false) {
   // Hypothetical reply scoring consumes only numeric features. Keep detailed
   // memory telemetry on actual ranked candidates, not every search-tree node.
   const stats = sequenceStats(before, after, color, sequence, false);
@@ -256,6 +277,16 @@ export function scoreSequence(before, after, color, sequence = [], weights = DEF
       ? 0.48
       : 1;
   let score = evaluateState(after, color, weights) - evaluateState(before, color, weights);
+  // The live root evaluates its own defensive plan. Keep the established
+  // adversarial reply sampler intact so dangerous attacking replies remain
+  // in its bounded search even if a defensive opponent would choose otherwise.
+  if (contactDefense) {
+    score += contactDefenseValue(after, color, weights) - contactDefenseValue(before, color, weights);
+    if (stats.unsupportedHomeDebtDelta >= 0 && stats.fenceClosureDelta >= 0
+      && stats.escapeGatewayDelta >= 0 && stats.prospectiveFenceInterruptionBreak === 0) {
+      score += stats.exitDiversityValueDelta * weights.escapeGatewayRisk * 32;
+    }
+  }
 
   score += tempoValue(before, after, color) * weights.tempo * pressure;
   score += stats.blockadeGain * weights.blockade * 0.9;

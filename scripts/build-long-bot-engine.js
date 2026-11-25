@@ -114,17 +114,23 @@ const BOARD_MODEL_TRANSFER_POLICY = "db212e88d758f309b3ac3027c857acc55e8a415d1cd
 const BOARD_MODEL_HEAD_ESCAPE_POLICY = "1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a";
 function boardModelCompatibility(entries = readPolicySourceEntries()) {
   const id = policyImplementationId(entries);
-  if (id !== BOARD_MODEL_TRANSFER_POLICY && id !== BOARD_MODEL_HEAD_ESCAPE_POLICY) return null;
+  const contactDefensePolicy = '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a';
+  if (id !== BOARD_MODEL_TRANSFER_POLICY && id !== BOARD_MODEL_HEAD_ESCAPE_POLICY && id !== contactDefensePolicy) return null;
   return { schema:'long-board-model-transfer-compat-v1', policyImplementationId:id,
     sourcePolicyImplementationId:'2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2',
     sourceBundleSha256:'91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8',
     sourceRulesSha256:'6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     previousPlayingPolicyImplementationId:'7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7',
     previousBundleSha256:'eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389',
-    ...(id === BOARD_MODEL_HEAD_ESCAPE_POLICY ? {
+    ...(id === BOARD_MODEL_HEAD_ESCAPE_POLICY || id === contactDefensePolicy ? {
       immediatePredecessorPlayingPolicyImplementationId:BOARD_MODEL_TRANSFER_POLICY,
       immediatePredecessorBundleSha256:'1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9',
       headEscapeGuard:'preserve-release-when-gateway-worsens-v1',
+    } : {}),
+    ...(id === contactDefensePolicy ? {
+      headEscapePlayingPolicyImplementationId:BOARD_MODEL_HEAD_ESCAPE_POLICY,
+      headEscapeBundleSha256:'dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1',
+      contactDefenseGuard:'preserve-bridges-and-last-head-anchor-v1',
     } : {}),
     scope:'model-advice-only-with-fresh-dice-comparison', terminalEvidenceAlias:false };
 }
