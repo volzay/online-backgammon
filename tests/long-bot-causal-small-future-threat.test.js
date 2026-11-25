@@ -270,6 +270,10 @@ const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
   const defensiveTransferReference = '  DEFENSIVE_TRANSFER_NATIVE_CACHE_POLICY,\n';
   assert.equal(paired.split(defensiveTransferRegistration).length - 1, 1);
   assert.equal(paired.split(defensiveTransferReference).length - 1, 2);
+  const legalReplyRegistration = "// Mandatory legal replies have a distinct cold-cache identity. Published\n// predecessor tuples and their completed statistical cohorts stay unchanged.\nconst LEGAL_REPLY_NATIVE_CACHE_POLICY = Object.freeze({\n  policyImplementationId: '9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13',\n  gameBytesDigest: '6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',\n  runtimeBytesDigest: 'e5e8e9d8e0fa11912c186e1e40864f78381cdcfaea26504264ff467757b04920',\n});\n";
+  const legalReplyReference = '  LEGAL_REPLY_NATIVE_CACHE_POLICY,\n';
+  assert.equal(paired.split(legalReplyRegistration).length - 1, 1);
+  assert.equal(paired.split(legalReplyReference).length - 1, 2);
   const processCacheRegistration = "// Retain only validated native cold caches across resumable slices. The\n// namespace, exact VM object and the existing drift guards all must match.\n// Rules, policy decisions, fixed dice streams and terminal contracts stay\n// unchanged; the same deterministic work need not be repeated after a slice.\nfunction createProcessNativeCacheProvider(createCache, maxScopes = 2) {\n  if (typeof createCache !== 'function' || !Number.isInteger(maxScopes)\n    || maxScopes < 1 || maxScopes > 2) throw new Error('Invalid native cache scope bound');\n  const scopes = new Map();\n  return function processNativeCache(runtime, limits, attestation = {}) {\n    const fresh = createCache(runtime, limits, attestation);\n    const key = fresh.observation().namespaceFingerprint;\n    if (!key || !fresh.enabled()) return fresh;\n    const previous = scopes.get(key);\n    if (previous?.runtime === runtime && previous.cache.enabled()) {\n      scopes.delete(key); scopes.set(key, previous);\n      return previous.cache;\n    }\n    scopes.delete(key); scopes.set(key, { runtime, cache: fresh });\n    while (scopes.size > maxScopes) scopes.delete(scopes.keys().next().value);\n    return fresh;\n  };\n}\nconst processNativeColdCohortCache = createProcessNativeCacheProvider(createNativeColdCohortCache);\n\n";
   assert.equal(paired.split(processCacheRegistration).length - 1, 1);
   const originalPaired = paired.replace(quarterRegistration, '').replaceAll(quarterReference, '')
@@ -280,6 +284,7 @@ const BOARD_MODEL_LEARNING_NATIVE_CACHE_POLICY = Object.freeze({
     .replace(headEscapeRegistration, '').replaceAll(headEscapeReference, '')
     .replace(contactDefenseRegistration, '').replaceAll(contactDefenseReference, '')
     .replace(defensiveTransferRegistration, '').replaceAll(defensiveTransferReference, '')
+    .replace(legalReplyRegistration, '').replaceAll(legalReplyReference, '')
     .replace(processCacheRegistration, '')
     .replace('const nativeCache = bypass ? null : processNativeColdCohortCache(', 'const nativeCache = bypass ? null : createNativeColdCohortCache(')
     .replace('  createProcessNativeCacheProvider,\n', '');

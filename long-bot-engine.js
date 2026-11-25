@@ -1,8 +1,8 @@
 /* generated from bot-engine/long/*.ts */
 (function () {
   'use strict';
-  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = 'd8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9';
-  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"d8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","previousPlayingPolicyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","previousBundleSha256":"eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389","immediatePredecessorPlayingPolicyImplementationId":"db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b","immediatePredecessorBundleSha256":"1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9","headEscapeGuard":"preserve-release-when-gateway-worsens-v1","headEscapePlayingPolicyImplementationId":"1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a","headEscapeBundleSha256":"dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1","contactDefenseGuard":"preserve-bridges-and-last-head-anchor-v1","contactDefensePlayingPolicyImplementationId":"06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a","contactDefenseBundleSha256":"01f998d2ce337a25af782ec7090bd7301905286d0c60daa41b95387c2b3c753b","defensiveTransferGuard":"match-source-board-defense-context-v1","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
+  const NARDU_LONG_BOT_POLICY_IMPLEMENTATION_ID = '9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13';
+  const NARDU_LONG_BOT_BOARD_MODEL_COMPATIBILITY = Object.freeze({"schema":"long-board-model-transfer-compat-v1","policyImplementationId":"9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13","sourcePolicyImplementationId":"2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2","sourceBundleSha256":"91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8","sourceRulesSha256":"6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623","previousPlayingPolicyImplementationId":"7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7","previousBundleSha256":"eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389","immediatePredecessorPlayingPolicyImplementationId":"db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b","immediatePredecessorBundleSha256":"1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9","headEscapeGuard":"preserve-release-when-gateway-worsens-v1","headEscapePlayingPolicyImplementationId":"1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a","headEscapeBundleSha256":"dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1","contactDefenseGuard":"preserve-bridges-and-last-head-anchor-v1","contactDefensePlayingPolicyImplementationId":"06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a","contactDefenseBundleSha256":"01f998d2ce337a25af782ec7090bd7301905286d0c60daa41b95387c2b3c753b","defensiveTransferGuard":"match-source-board-defense-context-v1","defensiveTransferPlayingPolicyImplementationId":"d8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9","defensiveTransferBundleSha256":"f570c3051b8e6e469d5c66030573597f04aa218aa4a8613028fb538a5161a6cd","legalReplyGuard":"mandatory-legal-primary-and-continuation-replies-v1","scope":"model-advice-only-with-fresh-dice-comparison","terminalEvidenceAlias":false});
 
 /* bot-engine/long/metrics.ts */
 
@@ -1657,6 +1657,9 @@ function analyzeOpponentReplies(
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
   const situation = options.situation || null;
+  // V26 uses actual reply boards for race equity and pip progress. Older
+  // profiles expose a conservative static lower bound and retain that model.
+  const mandatoryLegalReplies = situation !== null;
   const counterplayReplies = situation?.mode === 'counterplay';
   const configuredTacticalLimit = Math.max(
     1,
@@ -1692,6 +1695,7 @@ function analyzeOpponentReplies(
   const opponent = opponentOf(color);
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
+    mandatoryLegalReplies,
     expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
     expectedImpact: 0,
     weight: 0,
@@ -1743,7 +1747,11 @@ function analyzeOpponentReplies(
         { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
       );
       const beforeValue = evaluateState(replyState, color, weights);
-      let worstValue = beforeValue;
+      // A pass is a possible reply only when no legal sequence exists. In
+      // balanced/protect mode, starting at beforeValue silently kept the
+      // unmoved board whenever every forced reply improved our static score.
+      // That also erased the opponent's mandatory pip progress from equity.
+      let worstValue = mandatoryLegalReplies && replySequences.length ? Infinity : beforeValue;
       let worstState = replyState;
       let worstEquity = Infinity;
 
@@ -2261,7 +2269,7 @@ function analyzeContinuationReplies(
           legalReplies,
           MAX_CONTINUATION_SEQUENCES,
         );
-        let worstValue = beforeValue;
+        let worstValue = accumulator.mandatoryLegalReplies && replies.length ? Infinity : beforeValue;
         for (const { sequence: reply, after: replyAfter } of replies) {
           const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
           const ownValue = evaluateState(replyAfter, color, weights);
@@ -8090,7 +8098,9 @@ function acceptsBoardModelPolicyImplementationId(value) {
       || (value === '1df51161ea08533712a1f392adc76a7116b4f20bf0e566c1ca244a9d46295f0a'
         && BOARD_MODEL_COMPATIBILITY?.headEscapePlayingPolicyImplementationId === value)
       || (value === '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a'
-        && BOARD_MODEL_COMPATIBILITY?.contactDefensePlayingPolicyImplementationId === value));
+        && BOARD_MODEL_COMPATIBILITY?.contactDefensePlayingPolicyImplementationId === value)
+      || (value === 'd8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9'
+        && BOARD_MODEL_COMPATIBILITY?.defensiveTransferPlayingPolicyImplementationId === value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [

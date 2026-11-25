@@ -140,6 +140,9 @@ export function analyzeOpponentReplies(
 ) {
   const expandDoubles = Boolean(options.expandDoubles);
   const situation = options.situation || null;
+  // V26 uses actual reply boards for race equity and pip progress. Older
+  // profiles expose a conservative static lower bound and retain that model.
+  const mandatoryLegalReplies = situation !== null;
   const counterplayReplies = situation?.mode === 'counterplay';
   const configuredTacticalLimit = Math.max(
     1,
@@ -175,6 +178,7 @@ export function analyzeOpponentReplies(
   const opponent = opponentOf(color);
   const accumulators = tacticalCandidates.map(candidate => ({
     candidate,
+    mandatoryLegalReplies,
     expandedReplyCoverage: primeCrunchRisk(candidate.after, color) >= 0.45,
     expectedImpact: 0,
     weight: 0,
@@ -226,7 +230,11 @@ export function analyzeOpponentReplies(
         { preferLeading: !accumulator.expandedReplyCoverage || expandedDouble },
       );
       const beforeValue = evaluateState(replyState, color, weights);
-      let worstValue = beforeValue;
+      // A pass is a possible reply only when no legal sequence exists. In
+      // balanced/protect mode, starting at beforeValue silently kept the
+      // unmoved board whenever every forced reply improved our static score.
+      // That also erased the opponent's mandatory pip progress from equity.
+      let worstValue = mandatoryLegalReplies && replySequences.length ? Infinity : beforeValue;
       let worstState = replyState;
       let worstEquity = Infinity;
 
@@ -744,7 +752,7 @@ function analyzeContinuationReplies(
           legalReplies,
           MAX_CONTINUATION_SEQUENCES,
         );
-        let worstValue = beforeValue;
+        let worstValue = accumulator.mandatoryLegalReplies && replies.length ? Infinity : beforeValue;
         for (const { sequence: reply, after: replyAfter } of replies) {
           const opponentGain = scoreSequence(replyState, replyAfter, opponent, reply, weights);
           const ownValue = evaluateState(replyAfter, color, weights);

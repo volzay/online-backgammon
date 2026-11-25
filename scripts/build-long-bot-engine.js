@@ -115,27 +115,31 @@ const BOARD_MODEL_HEAD_ESCAPE_POLICY = "1df51161ea08533712a1f392adc76a7116b4f20b
 function boardModelCompatibility(entries = readPolicySourceEntries()) {
   const id = policyImplementationId(entries);
   const contactDefensePolicy = '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a';
+  const legalRepliesPolicy = '9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13';
   const defensiveTransferPolicy = 'd8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9';
-  if (id !== defensiveTransferPolicy && id !== BOARD_MODEL_TRANSFER_POLICY && id !== BOARD_MODEL_HEAD_ESCAPE_POLICY && id !== contactDefensePolicy) return null;
+  if (id !== legalRepliesPolicy && id !== defensiveTransferPolicy && id !== BOARD_MODEL_TRANSFER_POLICY && id !== BOARD_MODEL_HEAD_ESCAPE_POLICY && id !== contactDefensePolicy) return null;
   return { schema:'long-board-model-transfer-compat-v1', policyImplementationId:id,
     sourcePolicyImplementationId:'2eac358adb59616fd96c7fe84fad43ef252d010906d6f6d7c69ac46c92c207b2',
     sourceBundleSha256:'91228846724b92af4ca25ecbf9f16fb05257f6605c83150bcfc46832faa61fd8',
     sourceRulesSha256:'6561996b3d148e0a10a972347474c7be4332a891437e3d6565d36020f7520623',
     previousPlayingPolicyImplementationId:'7a263bcd3a44b7248b1b369e18dd552f1a5053e4f0772561f13c9a95e56abfa7',
     previousBundleSha256:'eaef5de3e3125b41d6fc8b9b229416a70d94986ad327039c646a74cd44bd1389',
-    ...(id === BOARD_MODEL_HEAD_ESCAPE_POLICY || id === contactDefensePolicy || id === defensiveTransferPolicy ? {
+    ...(id === BOARD_MODEL_HEAD_ESCAPE_POLICY || id === contactDefensePolicy || id === defensiveTransferPolicy || id === legalRepliesPolicy ? {
       immediatePredecessorPlayingPolicyImplementationId:BOARD_MODEL_TRANSFER_POLICY,
       immediatePredecessorBundleSha256:'1a1b19b954230e7b21c7a1a5b3c829937e6922e04690d51a02a3010cdd99a7e9',
       headEscapeGuard:'preserve-release-when-gateway-worsens-v1',
     } : {}),
-    ...(id === contactDefensePolicy || id === defensiveTransferPolicy ? {
+    ...(id === contactDefensePolicy || id === defensiveTransferPolicy || id === legalRepliesPolicy ? {
       headEscapePlayingPolicyImplementationId:BOARD_MODEL_HEAD_ESCAPE_POLICY,
       headEscapeBundleSha256:'dc1402ccf10a0faf97e601335cd081d1b190ec3636f13b35b39f0d0ffb8da3f1',
       contactDefenseGuard:'preserve-bridges-and-last-head-anchor-v1',
     } : {}),
-    ...(id === defensiveTransferPolicy ? { contactDefensePlayingPolicyImplementationId:contactDefensePolicy,
+    ...(id === defensiveTransferPolicy || id === legalRepliesPolicy ? { contactDefensePlayingPolicyImplementationId:contactDefensePolicy,
       contactDefenseBundleSha256:'01f998d2ce337a25af782ec7090bd7301905286d0c60daa41b95387c2b3c753b',
       defensiveTransferGuard:'match-source-board-defense-context-v1' } : {}),
+    ...(id === legalRepliesPolicy ? { defensiveTransferPlayingPolicyImplementationId:defensiveTransferPolicy,
+      defensiveTransferBundleSha256:'f570c3051b8e6e469d5c66030573597f04aa218aa4a8613028fb538a5161a6cd',
+      legalReplyGuard:'mandatory-legal-primary-and-continuation-replies-v1' } : {}),
     scope:'model-advice-only-with-fresh-dice-comparison', terminalEvidenceAlias:false };
 }
 
