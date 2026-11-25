@@ -149,6 +149,24 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
       samples:1, losses:0, wins:0, outcomeUsed:false, terminalOutcomeConfirmed:false,
       baseline:measurements(baseline), recommended:measurements(recommended),
       historicalExecutedMoves:turn.executedMoves, baselineMoves:canonicalMoves(cold.sequence) };
+    if (options.screenLesson) {
+      // A short reply model proposes an action; only a complete paired
+      // continuation may admit it to a screened production release.
+      if (screened >= 2) break;
+      if (Date.now() >= deadline) return { status:'capacity', turnIndex };
+      screened++;
+      const screening = await options.screenLesson({ state, baselineMoves:lesson.baselineMoves,
+        preferredMoves:lesson.preferredMoves, sourceTurnIndex:turn.sourceTurnIndex,
+        source, id, maxElapsedMs:Math.max(1, Math.min(60000, deadline-Date.now())) });
+      if (screening.status === 'capacity') return { status:'capacity', turnIndex,
+        phase:'terminal-screen', screeningKey:screening.key };
+      if (!screening.complete || !screening.accepted) {
+        rejectedScreens.push({ manifestHash:screening.manifestHash, comparison:screening.comparison,
+          control:screening.control, recommended:screening.recommended });
+        continue;
+      }
+      lesson.screening = screening;
+    }
     lesson.aggregateId = sha(stableStringify(lesson));
     if (!engine.validBoardModelLesson(lesson)) throw Error('Invalid native lesson');
     engine.setExperience([lesson], 'server');
@@ -159,24 +177,6 @@ async function reviewTurn(turn, source, turnIndex, id = identity(), options = {}
       // Native rank adds opportunity-relative koks/home annotations which a
       // single described sequence cannot know. Preserve the actual applied key.
       lesson.preferredActionKey = learned.experience.actionKey;
-      if (options.screenLesson) {
-        // A short reply model proposes an action; only a complete paired
-        // continuation may admit it to a screened production release.
-        if (screened >= 2) break;
-        if (Date.now() >= deadline) return { status:'capacity', turnIndex };
-        screened++;
-        const screening = await options.screenLesson({ state, baselineMoves:lesson.baselineMoves,
-          preferredMoves:lesson.preferredMoves, sourceTurnIndex:turn.sourceTurnIndex,
-          source, id, maxElapsedMs:Math.max(1, Math.min(60000, deadline-Date.now())) });
-        if (screening.status === 'capacity') return { status:'capacity', turnIndex,
-          phase:'terminal-screen', screeningKey:screening.key };
-        if (!screening.complete || !screening.accepted) {
-          rejectedScreens.push({ manifestHash:screening.manifestHash, comparison:screening.comparison,
-            control:screening.control, recommended:screening.recommended });
-          continue;
-        }
-        lesson.screening = screening;
-      }
       delete lesson.aggregateId;
       lesson.aggregateId = sha(stableStringify(lesson));
       return { status:'model-reviewed', turnIndex, lesson,
