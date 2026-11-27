@@ -13,22 +13,20 @@ const screenedLessons=f.lessons.map(p=>({...p,screening:{
  policyImplementationId:p.policyImplementationId,runtimeDigest:p.runtimeDigest,
  sourceFingerprint:p.sourceFingerprint,
 }}));
-test('real loss experience transfers to an independent online board only after fresh complete reply analysis',()=>{
+test('short-horizon transfer is rejected when the independent board fails recovery safety',()=>{
  const s=stateFromSnapshot(f.state);engine.beginExperienceSession('transfer-test');engine.setExperience([],'server');
  const cold=engine.rank(s,f.options)[0];const before=engine.experienceSnapshot().fingerprint;
  assert.ok(f.lessons.every(p=>p.positionKey!==engine.boardLessonPositionKey(s)));
  engine.setExperience(screenedLessons,'server');assert.equal(engine.experienceSize(),f.lessons.length);
  engine.freezeExperience();const learned=engine.rank(s,f.options)[0];
- assert.notEqual(moveKey(cold),moveKey(learned));assert.equal(learned.features.boardModelLessonTransferred,1);
- const proof=learned.boardModelLesson;assert.equal(proof.sourceRoom,'LEM5-RES8');
- assert.equal(proof.evaluationSource,'live-learned-transfer-comparison-v1');
- assert.equal(proof.diceOutcomes,21);assert.equal(proof.diceWeight,36);
- assert.ok(proof.evaluation.utility>=proof.controlEvaluation.utility+.025);
- assert.ok(proof.evaluation.expectedEquity>=proof.controlEvaluation.expectedEquity+.025);
- assert.ok(proof.evaluation.lowerTailEquity>=proof.controlEvaluation.lowerTailEquity-.06);
- assert.ok(proof.analysisNodesUsed<=63);assert.equal(proof.terminalOutcomeConfirmed,false);
+ assert.equal(moveKey(cold),moveKey(learned));
+ assert.notEqual(learned.features.boardModelLessonTransferred,1);
+ assert.ok(learned.features.boardModelDeepSafetyVetoes>0);
+ assert.equal(learned.tactical.plies,4);
  assert.notEqual(engine.experienceSnapshot().fingerprint,before);
- engine.plan(s,f.options);const d=engine.consumeLastDecision();assert.equal(d.selected.boardModelLesson.transferred,true);
+ engine.plan(s,f.options);const d=engine.consumeLastDecision();
+ assert.notEqual(d.selected.features.boardModelLessonTransferred,1);
+ assert.ok(d.selected.features.boardModelDeepSafetyVetoes>0);
  assert.equal(d.experienceFrozen,true);engine.beginExperienceSession('transfer-reset');engine.setExperience([],'server');
 });
 test('unreviewed legacy advice cannot authorize transfer to a new board',()=>{
@@ -48,6 +46,9 @@ test('model compatibility preserves old provenance without allowing old terminal
  const preceding='db212e88d758f309b3ac3027c857acc55e8a415d1cdf4da3b5d753eea82be10b';
  assert.equal(engine.acceptsBoardModelPolicyImplementationId(preceding),true);
  assert.equal(engine.acceptsLearningPolicyImplementationId(preceding),false);
+ const legalReplies='9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13';
+ assert.equal(engine.acceptsBoardModelPolicyImplementationId(legalReplies),true);
+ assert.equal(engine.acceptsLearningPolicyImplementationId(legalReplies),false);
  assert.equal(engine.boardModelCompatibility.terminalEvidenceAlias,false);
  engine.setExperience([{...f.lessons[0],policyImplementationId:'0'.repeat(64)}],'server');assert.equal(engine.experienceSize(),0);
 });

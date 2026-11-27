@@ -628,6 +628,37 @@ export function validBoardModelLesson(p) {
       && Number.isInteger(m.die) && m.die >= 1 && m.die <= 6);
 }
 
+// Advice must not replace a four-ply production choice using only its first
+// opponent reply. Compare both plans afresh with the same bounded recovery
+// and continuation model, including the adverse tail that a blockade creates.
+const MODEL_LESSON_PAIR_NODE_BUDGET = 168;
+function compareBoardModelPair(adapter, color, baseline, preferred, weights, situation) {
+  const compared = [baseline, preferred].map(candidate => ({
+    ...candidate, score:0, tactical:null, features:{ ...candidate.features },
+  }));
+  const budget = createAnalysisBudget(MODEL_LESSON_PAIR_NODE_BUDGET);
+  analyzeOpponentReplies(adapter, color, compared, weights, budget,
+    { expandDoubles:true, situation, maxTacticalCandidates:2 });
+  return {
+    control:compared.find(candidate => candidate.sequence === baseline.sequence),
+    evaluated:compared.find(candidate => candidate.sequence === preferred.sequence),
+    nodesUsed:budget.used,
+  };
+}
+
+export function preservesBoardModelDeepSafety(candidate, baseline) {
+  if (!hasBoundedFourPlyTactical(candidate) || !hasBoundedFourPlyTactical(baseline)) return false;
+  // Match the established route-continuity safety envelope. A short-term
+  // equity improvement cannot buy a materially worse recovery or deep tail.
+  return [
+    ['recoveryExpected', 2000000], ['recoveryWorst', 15000000],
+    ['recoveryTailRisk', 5000000], ['continuationExpected', 2000000],
+    ['continuationWorst', 15000000], ['continuationTailRisk', 5000000],
+  ].every(([key, tolerance]) => Number.isFinite(candidate.tactical[key])
+    && Number.isFinite(baseline.tactical[key])
+    && candidate.tactical[key] >= baseline.tactical[key] - tolerance);
+}
+
 function applyBoardModelLesson(state, color, ranked, eligible, baseline, patterns, adapter, weights, situation) {
   // Independently confirmed terminal corrections take precedence over a
   // model teacher. A weaker model must not reverse their selected action.
@@ -659,13 +690,12 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
   // Re-evaluate even an exact historical recommendation under today's
   // evaluator and opponent replies. Its stored heuristic score is provenance,
   // not authority to change a move after the policy has changed.
-  const compared = [baseline, preferred].map(c => ({ ...c, score:0, tactical:null, features:{ ...c.features } }));
-  const learningBudget = createAnalysisBudget(42);
-  analyzeOpponentReplies(adapter, color, compared, weights, learningBudget,
-    { expandDoubles:true, situation, maxTacticalCandidates:2 });
-  if (compared.some(c => c.tactical?.distributionComplete !== true
-    || c.tactical.rolls !== 21 || c.tactical.distributionWeight !== 36)) return;
-  const [control, evaluated] = compared;
+  const comparison = compareBoardModelPair(adapter, color, baseline, preferred, weights, situation);
+  const { control, evaluated } = comparison;
+  if (!preservesBoardModelDeepSafety(evaluated, control)) {
+    baseline.features.boardModelDeepSafetyVetoes = Number(baseline.features.boardModelDeepSafetyVetoes || 0) + 1;
+    return;
+  }
   const utility = c => adaptiveReplyUtility(c.tactical, situation);
   if (evaluated.tactical.expectedEquity < control.tactical.expectedEquity + 0.025
     || utility(evaluated) < utility(control) + 0.025
@@ -674,8 +704,8 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
   preferred.experience = experienceDescriptor(state, color, preferred.features, preferred.tactical);
   preferred.features.boardModelLessonApplied = 1;
   preferred.features.boardModelLessonUtilityGain = utility(evaluated) - utility(control);
-  preferred.features.boardModelLessonAnalysisNodesUsed = learningBudget.used;
-  preferred.features.boardModelLessonAnalysisNodeBudget = learningBudget.limit;
+  preferred.features.boardModelLessonAnalysisNodesUsed = comparison.nodesUsed;
+  preferred.features.boardModelLessonAnalysisNodeBudget = MODEL_LESSON_PAIR_NODE_BUDGET;
   preferred.boardModelLesson = { aggregateId: lesson.aggregateId, sourceRoom: lesson.sourceRoom,
     sourceArchiveId: lesson.sourceArchiveId, scoreSemantics: lesson.scoreSemantics,
     terminalOutcomeConfirmed: false, evaluation: {
@@ -688,7 +718,8 @@ function applyBoardModelLesson(state, color, ranked, eligible, baseline, pattern
       lowerTailEquity:control.tactical.lowerTailEquity,
       selfEvaluation:control.tactical.expectedSelfEvaluation,
       opponentEvaluation:control.tactical.expectedOpponentEvaluation },
-    evaluationSource:'live-learned-exact-comparison-v1',
+    evaluationSource:'live-learned-exact-comparison-v1', comparisonPlies:4,
+    deepSafetyGuard:'bounded-recovery-continuation-v1',
     diceOutcomes: lesson.diceOutcomes, diceWeight: lesson.diceWeight };
   const index = ranked.indexOf(preferred);
   if (index >= 0) ranked.splice(index, 1);
@@ -823,38 +854,41 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
     return true;
   });
   if (!selected.length) return;
-  const compared = [baseline, ...selected.map(item => item.candidate)]
-    .map(candidate => ({ ...candidate, score:0, tactical:null, features:{ ...candidate.features } }));
-  const learningBudget = createAnalysisBudget(compared.length * 21);
-  analyzeOpponentReplies(adapter, color, compared, weights, learningBudget,
-    { expandDoubles:true, situation, maxTacticalCandidates:compared.length });
-  if (compared.some(c => c.tactical?.distributionComplete !== true
-    || c.tactical.rolls !== 21 || c.tactical.distributionWeight !== 36)) return;
-  const control = compared.find(c => c.sequence === baseline.sequence);
   const utility = c => adaptiveReplyUtility(c.tactical, situation);
   const tailAllowance = 0.06 * situation.comebackPressure;
-  const improvements = selected.map(item => ({ ...item,
-    evaluated:compared.find(c => c.sequence === item.candidate.sequence) }))
-    .filter(item => item.evaluated.tactical.expectedEquity >= control.tactical.expectedEquity + 0.025
-      && utility(item.evaluated) >= utility(control) + 0.025
-      && item.evaluated.tactical.lowerTailEquity >= control.tactical.lowerTailEquity - tailAllowance)
+  let nodesUsed = 0;
+  const improvements = selected.map(item => {
+    const comparison = compareBoardModelPair(adapter, color, baseline, item.candidate, weights, situation);
+    nodesUsed += comparison.nodesUsed;
+    return { ...item, ...comparison };
+  })
+    .filter(item => {
+      if (preservesBoardModelDeepSafety(item.evaluated, item.control)) return true;
+      baseline.features.boardModelDeepSafetyVetoes = Number(baseline.features.boardModelDeepSafetyVetoes || 0) + 1;
+      return false;
+    })
+    .filter(item => item.evaluated.tactical.expectedEquity >= item.control.tactical.expectedEquity + 0.025
+      && utility(item.evaluated) >= utility(item.control) + 0.025
+      && item.evaluated.tactical.lowerTailEquity >= item.control.tactical.lowerTailEquity - tailAllowance)
     .sort((a,b) => utility(b.evaluated)-utility(a.evaluated));
   const best = improvements[0];
   if (!best) return;
   const preferred = best.candidate, source = best.support[0].lesson, tactic = best.evaluated.tactical;
+  const control = best.control;
   preferred.experience = best.descriptor;
   preferred.tactical = { ...tactic, evaluationSource:'live-learned-transfer-comparison-v1' };
   preferred.features.boardModelLessonApplied = 1;
   preferred.features.boardModelLessonTransferred = 1;
   preferred.features.boardModelLessonUtilityGain = utility(best.evaluated)-utility(control);
-  preferred.features.boardModelLessonAnalysisNodesUsed = learningBudget.used;
-  preferred.features.boardModelLessonAnalysisNodeBudget = learningBudget.limit;
+  preferred.features.boardModelLessonAnalysisNodesUsed = nodesUsed;
+  preferred.features.boardModelLessonAnalysisNodeBudget = selected.length * MODEL_LESSON_PAIR_NODE_BUDGET;
   preferred.boardModelLesson = { aggregateId:source.aggregateId, sourceRoom:source.sourceRoom,
     sourcePolicyImplementationId:source.policyImplementationId,
     supportingAggregateIds:best.support.slice(0,8).map(s => s.lesson.aggregateId),
     supportingSourceRooms:[...new Set(best.support.slice(0,8).map(s => s.lesson.sourceRoom))],
     transferred:true, contextDistance:best.support[0].distance,
-    evaluationSource:'live-learned-transfer-comparison-v1',
+    evaluationSource:'live-learned-transfer-comparison-v1', comparisonPlies:4,
+    deepSafetyGuard:'bounded-recovery-continuation-v1',
     scoreSemantics:'heuristic-turn-equity-v1', terminalOutcomeConfirmed:false,
     evaluation:{ expectedEquity:tactic.expectedEquity, utility:utility(best.evaluated),
       lowerTailEquity:tactic.lowerTailEquity, selfEvaluation:tactic.expectedSelfEvaluation,
@@ -863,7 +897,7 @@ function applyTransferredBoardModelLesson(state, color, ranked, eligible, baseli
       lowerTailEquity:control.tactical.lowerTailEquity,
       selfEvaluation:control.tactical.expectedSelfEvaluation,
       opponentEvaluation:control.tactical.expectedOpponentEvaluation },
-    analysisNodesUsed:learningBudget.used, analysisNodeBudget:learningBudget.limit,
+    analysisNodesUsed:nodesUsed, analysisNodeBudget:selected.length * MODEL_LESSON_PAIR_NODE_BUDGET,
     diceOutcomes:21, diceWeight:36 };
   const index = ranked.indexOf(preferred);
   if (index >= 0) ranked.splice(index,1);

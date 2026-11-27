@@ -47,7 +47,9 @@ function acceptsBoardModelPolicyImplementationId(value) {
       || (value === '06611894f7abdfe158a431d564f05bf47772ff05b1a684f26bacb775b711578a'
         && BOARD_MODEL_COMPATIBILITY?.contactDefensePlayingPolicyImplementationId === value)
       || (value === 'd8cfc3442dd5c9e81a8f13bfe34052a86aa6df4bbf3fe9b7e3aca780161dece9'
-        && BOARD_MODEL_COMPATIBILITY?.defensiveTransferPlayingPolicyImplementationId === value));
+        && BOARD_MODEL_COMPATIBILITY?.defensiveTransferPlayingPolicyImplementationId === value)
+      || (value === '9417fd02f1f6957e878c0376aa00dbf91d2c6e3065269d27a3b2846b52e3ff13'
+        && BOARD_MODEL_COMPATIBILITY?.legalRepliesPlayingPolicyImplementationId === value));
 }
 const FROZEN_EXPERIENCE_PREFIX = 'narduh-long-bot-frozen-experience-v35:';
 const LEGACY_FROZEN_EXPERIENCE_PREFIXES = [

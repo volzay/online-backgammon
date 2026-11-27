@@ -29,6 +29,7 @@ const {
   CONTACT_DEFENSE_NATIVE_CACHE_POLICY,
   DEFENSIVE_TRANSFER_NATIVE_CACHE_POLICY,
   LEGAL_REPLY_NATIVE_CACHE_POLICY,
+  DEEP_LESSON_NATIVE_CACHE_POLICY,
   AUDITED_NATIVE_CACHE_POLICIES,
   DEFAULT_ROLLOUT_LIMITS,
   NATIVE_CACHE_VERSION,
@@ -94,9 +95,9 @@ test('mandatory-reply identity enables a separately pinned cache without calling
   const native = loadRuntime();
   const cache = createNativeColdCohortCache(native, limits());
   assert.equal(cache.observation().enabled, true, cache.observation().bypassReason);
-  assert.equal(native.engine.policyImplementationId, LEGAL_REPLY_NATIVE_CACHE_POLICY.policyImplementationId);
-  assert.equal(native.gameBytesDigest, LEGAL_REPLY_NATIVE_CACHE_POLICY.gameBytesDigest);
-  assert.equal(native.runtimeBytesDigest, LEGAL_REPLY_NATIVE_CACHE_POLICY.runtimeBytesDigest);
+  assert.equal(native.engine.policyImplementationId, DEEP_LESSON_NATIVE_CACHE_POLICY.policyImplementationId);
+  assert.equal(native.gameBytesDigest, DEEP_LESSON_NATIVE_CACHE_POLICY.gameBytesDigest);
+  assert.equal(native.runtimeBytesDigest, DEEP_LESSON_NATIVE_CACHE_POLICY.runtimeBytesDigest);
   assert.deepEqual(AUDITED_NATIVE_CACHE_POLICIES, [
     AUDITED_NATIVE_CACHE_POLICY,
     HISTORY_FREE_NATIVE_CACHE_POLICY,
@@ -121,6 +122,7 @@ test('mandatory-reply identity enables a separately pinned cache without calling
   CONTACT_DEFENSE_NATIVE_CACHE_POLICY,
   DEFENSIVE_TRANSFER_NATIVE_CACHE_POLICY,
   LEGAL_REPLY_NATIVE_CACHE_POLICY,
+  DEEP_LESSON_NATIVE_CACHE_POLICY,
   ]);
   assert.equal(Object.isFrozen(AUDITED_NATIVE_CACHE_POLICIES), true);
 });

@@ -136,7 +136,7 @@ test('native hard factory preserves captured v35 source/policy and selected open
 test('current-hard approval pins every audited runtime tuple and rejects genuinely changed source bytes', () => {
   const snapshot = evaluator.readCurrentHardSnapshot();
   const hard = evaluator.createCurrentHard(snapshot);
-  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 23);
+  assert.equal(evaluator.APPROVED_V35_RUNTIME_TUPLES.length, 24);
   assert.equal(Object.isFrozen(evaluator.APPROVED_V35_RUNTIME_TUPLES), true);
   const actual = evaluator.APPROVED_V35_RUNTIME_TUPLES.at(-1);
   assert.equal(actual.policyImplementationId, CURRENT_LONG_BOT_POLICY);

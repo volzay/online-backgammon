@@ -17,7 +17,7 @@ test('LEM5 history reproduces all 42 bot turns and rejects illegal, truncated an
  const wrong=structuredClone(fixture.lemFinal);wrong.off.dark++;
  assert.throws(()=>replayFinishedHistory(wrong,'dark'),/mismatch/);
 });
-for(const p of fixture.positions.filter(p=>p.room!=='8JPN-KUD8'))test(`${p.room}: real board model lesson changes a legal native choice and stays frozen`,async()=>{
+for(const p of fixture.positions.filter(p=>p.room==='LEM5-RES8'))test(`${p.room}: real board model lesson changes a legal native choice and stays frozen`,async()=>{
  const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},{...source,roomCode:p.room},p.turnIndex,undefined,{screenLesson:screenAdmission});
  assert.equal(r.status,'model-reviewed');const lesson=r.lesson;
  assert.equal(lesson.terminalOutcomeConfirmed,false);assert.equal(lesson.losses,0);
@@ -36,6 +36,8 @@ for(const p of fixture.positions.filter(p=>p.room!=='8JPN-KUD8'))test(`${p.room}
  assert.notEqual(canonicalMoveKey(cold.sequence),canonicalMoveKey(learned.sequence));
  engine.plan(p.state,liveOptions(p.state));const record=engine.consumeLastDecision();
  assert.equal(record.selected.boardModelLesson.aggregateId,lesson.aggregateId);
+ assert.equal(record.selected.boardModelLesson.comparisonPlies,4);
+ assert.equal(record.selected.tactical.plies,4);
  assert.equal(record.experienceFrozen,true);
  engine.setExperience([],'server');assert.equal(engine.experienceSnapshot().fingerprint,frozen.fingerprint);
  assert.equal(engine.rank(p.state,liveOptions(p.state))[0].features.boardModelLessonApplied,1);
@@ -59,6 +61,14 @@ for(const p of fixture.positions.filter(p=>p.room!=='8JPN-KUD8'))test(`${p.room}
  engine.setExperience([lesson,terminalPenalty],'server');
  assert.notEqual(engine.rank(p.state,liveOptions(p.state))[0].features.boardModelLessonApplied,1);
  engine.setExperience([],'server');
+});
+
+test('CTNM teacher rejects its former short-horizon recommendation after the deep safety check',async()=>{
+ const p=fixture.positions.find(p=>p.room==='CTNM-E43Z');
+ const r=await reviewTurn({state:p.state,executedMoves:p.executedMoves},
+  {...source,roomCode:p.room},p.turnIndex,undefined,{screenLesson:screenAdmission});
+ assert.equal(r.status,'no-applicable-improvement');
+ assert.equal(r.lesson,undefined);
 });
 
 test('8JPN teacher refuses the old advice that traded its bridge for an unsupported home entry',async()=>{
